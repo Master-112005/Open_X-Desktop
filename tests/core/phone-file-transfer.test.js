@@ -204,6 +204,9 @@ describe('Phone file transfer', function() {
     assert.equal(sent[0].deviceId, 'phone001');
     assert.equal(sent[0].payload.type, 'file-transfer');
     assert.equal(sent[0].payload.fileName, 'Documents.zip');
+    assert.match(sent[0].payload.transferId, /^desktop-/);
+    assert.equal(sent[0].payload.requestId, sent[0].payload.transferId);
+    assert.equal(sent[0].payload.timestamp, 123456789);
     assert.match(sent[0].payload.data, /^[A-Za-z0-9+/]+=*$/);
   });
 
@@ -376,5 +379,71 @@ describe('Phone file transfer', function() {
       savedTo: path.join(receiveDirectory, 'chunked.bin')
     });
     assert.deepEqual(fs.readFileSync(path.join(receiveDirectory, 'chunked.bin')), content);
+  });
+
+  it('handles zero-byte chunked mobile uploads without dropping the transfer', async function() {
+    const pairingService = new PairingService({
+      deviceRegistry: registry,
+      identityVerificationService: { verifyIdentity: async () => ({ success: true }) },
+      pairingPath: path.join(tempDir, 'pairing.json'),
+      permissionsPath: path.join(tempDir, 'permissions.json')
+    });
+    const session = pairingService.sessionManager.createSession('phone001');
+    server = new PhoneServer({
+      port: 0,
+      commandRouter: new PhoneCommandRouter({ processCommand: async () => ({ success: true }) }),
+      pairingService,
+      fileTransferManager: manager,
+      logger: quietLogger()
+    });
+    const address = await server.start();
+    socket = new WebSocket(`ws://127.0.0.1:${address.port}?deviceId=phone001`);
+    const statusPromise = nextJson(socket);
+    await once(socket, 'open');
+    await statusPromise;
+
+    const transferId = 'empty-transfer-1';
+    const startedPromise = nextJson(socket);
+    socket.send(JSON.stringify({
+      type: 'file-transfer-start',
+      deviceId: 'phone001',
+      sessionToken: session.sessionToken,
+      requestId: transferId,
+      transferId,
+      timestamp: Date.now(),
+      fileName: 'empty.txt',
+      fileSize: 0,
+      hash: new TransferIntegrity().createHash(Buffer.alloc(0)),
+      chunkCount: 1
+    }));
+    assert.equal((await startedPromise).type, 'file-transfer-started');
+
+    const progressPromise = nextJson(socket);
+    socket.send(JSON.stringify({
+      type: 'file-transfer-chunk',
+      deviceId: 'phone001',
+      sessionToken: session.sessionToken,
+      requestId: `${transferId}:0`,
+      transferId,
+      timestamp: Date.now(),
+      chunkIndex: 0,
+      data: ''
+    }));
+    assert.equal((await progressPromise).type, 'file-transfer-progress');
+
+    const successPromise = nextJson(socket);
+    socket.send(JSON.stringify({
+      type: 'file-transfer-complete',
+      deviceId: 'phone001',
+      sessionToken: session.sessionToken,
+      requestId: `${transferId}:complete`,
+      transferId,
+      timestamp: Date.now()
+    }));
+
+    const success = await successPromise;
+    assert.equal(success.type, 'file-transfer-success');
+    assert.equal(success.fileName, 'empty.txt');
+    assert.deepEqual(fs.readFileSync(path.join(receiveDirectory, 'empty.txt')), Buffer.alloc(0));
   });
 });

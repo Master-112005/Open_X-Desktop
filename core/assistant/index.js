@@ -230,6 +230,7 @@ class Assistant extends EventEmitter {
           originalInput: input,
           source,
           permissionGuard: options.permissionGuard,
+          phoneContext: options.phoneContext || null,
           multiCommand: pendingStep ? {
             parentCommandId: result.commandId,
             originalInput: input,
@@ -249,7 +250,10 @@ class Assistant extends EventEmitter {
           entities: { ...(result.entities || {}) },
           data: result.data || {},
           response,
-          originalInput: input
+          originalInput: input,
+          source,
+          permissionGuard: options.permissionGuard,
+          phoneContext: options.phoneContext || null
         };
       } else if (result.success) {
         this.pendingConfirmation = null;
@@ -1169,7 +1173,8 @@ class Assistant extends EventEmitter {
         {
           source,
           originalInput: pending.multiCommand?.confirmedInput || pending.originalInput,
-          permissionGuard: pending.permissionGuard
+          permissionGuard: pending.permissionGuard,
+          phoneContext: pending.phoneContext || null
         }
       ), {
         input,
@@ -1251,7 +1256,8 @@ class Assistant extends EventEmitter {
       const clause = remaining[index];
       const result = await this._runWithCommandTimeout(this.router.process(clause, source, {
         allowMulti: false,
-        permissionGuard: pending.permissionGuard
+        permissionGuard: pending.permissionGuard,
+        phoneContext: pending.phoneContext || null
       }), {
         input: pending.originalInput || clause,
         routedInput: clause,
@@ -1280,6 +1286,7 @@ class Assistant extends EventEmitter {
           originalInput: pending.originalInput,
           source,
           permissionGuard: pending.permissionGuard,
+          phoneContext: pending.phoneContext || null,
           multiCommand: {
             parentCommandId: multi.parentCommandId,
             originalInput: pending.originalInput,
@@ -1374,7 +1381,11 @@ class Assistant extends EventEmitter {
           ...pending.entities,
           ...pending.data.confirmEntities
         },
-        { source }
+        {
+          source,
+          permissionGuard: pending.permissionGuard,
+          phoneContext: pending.phoneContext || null
+        }
       ), {
         input,
         routedInput: pending.originalInput || input,
@@ -1413,7 +1424,11 @@ class Assistant extends EventEmitter {
       pending.commandId,
       pending.intentId,
       clarifiedEntities,
-      { source }
+      {
+        source,
+        permissionGuard: pending.permissionGuard,
+        phoneContext: pending.phoneContext || null
+      }
     ), {
       input,
       routedInput: pending.originalInput || input,
