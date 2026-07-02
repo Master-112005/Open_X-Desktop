@@ -207,6 +207,44 @@ describe('Phone file transfer', function() {
     assert.match(sent[0].payload.data, /^[A-Za-z0-9+/]+=*$/);
   });
 
+  it('normalizes desktop-to-mobile file payloads for the mobile client', async function() {
+    const pairingService = new PairingService({
+      deviceRegistry: registry,
+      identityVerificationService: { verifyIdentity: async () => ({ success: true }) },
+      pairingPath: path.join(tempDir, 'pairing.json'),
+      permissionsPath: path.join(tempDir, 'permissions.json')
+    });
+    server = new PhoneServer({
+      port: 0,
+      commandRouter: new PhoneCommandRouter({ processCommand: async () => ({ success: true }) }),
+      pairingService,
+      fileTransferManager: manager,
+      logger: quietLogger()
+    });
+    const address = await server.start();
+    socket = new WebSocket(`ws://127.0.0.1:${address.port}?deviceId=phone001`);
+    const statusPromise = nextJson(socket);
+    await once(socket, 'open');
+    await statusPromise;
+
+    const content = Buffer.from('desktop to phone');
+    const incomingPromise = nextJson(socket);
+    assert.equal(server.sendToDevice('phone001', {
+      type: 'file-transfer',
+      deviceId: 'phone001',
+      fileName: 'desktop.txt',
+      fileSize: content.length,
+      hash: new TransferIntegrity().createHash(content),
+      data: content.toString('base64')
+    }), true);
+
+    const incoming = await incomingPromise;
+    assert.equal(incoming.type, 'incoming-file');
+    assert.equal(incoming.originalType, 'file-transfer');
+    assert.equal(incoming.fileName, 'desktop.txt');
+    assert.equal(incoming.data, content.toString('base64'));
+  });
+
   it('handles trusted incoming transfers through the WebSocket protocol', async function() {
     const pairingService = new PairingService({
       deviceRegistry: registry,

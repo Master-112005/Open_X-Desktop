@@ -185,13 +185,14 @@ class PhoneServer {
     const client = this.connectionManager.get(clientId);
     if (!client || client.socket.readyState !== WebSocket.OPEN) return false;
 
-    const serialized = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    const outgoingPayload = this._normalizeOutgoingPayload(payload);
+    const serialized = typeof outgoingPayload === 'string' ? outgoingPayload : JSON.stringify(outgoingPayload);
     client.socket.send(serialized, error => {
       if (error) {
         this.logger.error('[PHONE] Send Error', { clientId, error: error.message });
       }
     });
-    this.logger.info('[PHONE] Response Sent', { clientId, type: payload?.type });
+    this.logger.info('[PHONE] Response Sent', { clientId, type: outgoingPayload?.type });
     return true;
   }
 
@@ -373,6 +374,8 @@ class PhoneServer {
     } catch (error) {
       this.sendToClient(clientId, {
         type: 'error',
+        transferId: payload.transferId || payload.requestId || null,
+        code: error.code || 'file_transfer_failed',
         message: error.publicMessage || 'File transfer failed'
       });
     }
@@ -429,9 +432,21 @@ class PhoneServer {
       if (payload.transferId) this._untrackClientTransfer(clientId, payload.transferId);
       this.sendToClient(clientId, {
         type: 'error',
+        transferId: payload.transferId || payload.requestId || null,
+        code: error.code || 'file_transfer_failed',
         message: error.publicMessage || 'File transfer failed'
       });
     }
+  }
+
+  _normalizeOutgoingPayload(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+    if (payload.type !== 'file-transfer') return payload;
+    return {
+      ...payload,
+      type: 'incoming-file',
+      originalType: 'file-transfer'
+    };
   }
 
   _trackClientTransfer(clientId, transferId) {

@@ -347,7 +347,8 @@ class AutomationEngine {
 
     const normalizedSource = rawSource
       .replace(/^["']|["']$/g, '')
-      .replace(/\s+(?:to|with)\s+(?:my\s+)?(?:phone|mobile|iphone|android|device|this\s+phone)\s*$/i, '')
+      .replace(/\s+(?:to|with|onto|on|into|over\s+to|across\s+to|here\s+on)\s+(?:my\s+)?(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset|this\s+phone|this\s+device)\s*$/i, '')
+      .replace(/\s+(?:here|to\s+me|for\s+me|on\s+this\s+(?:phone|device)|to\s+this\s+(?:phone|device))$/i, '')
       .trim();
 
     const imageLike = transferKind === 'image' || /\b(?:image|images|photo|photos|picture|pictures|screenshot|screenshots)\b/i.test(normalizedSource);

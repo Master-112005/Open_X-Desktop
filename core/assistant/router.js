@@ -17,10 +17,10 @@ const { AppCommandLanguage, BrowserCommandLanguage } = NaturalLanguageRouter;
 const ResponseGenerator = require('./responses');
 
 const CONFIDENCE_THRESHOLD = 0.5;
-const PHONE_TRANSFER_ACTION_PATTERN = /^(?:send|share|transfer|copy|export|push|move|send\s+over|send\s+across)\b/i;
-const PHONE_TRANSFER_TRAILING_TARGET_PATTERN = /\s+(?:to|with|onto|on|into|over\s+to|across\s+to)\s+(?:my\s+)?(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset|this\s+phone)\s*$/i;
+const PHONE_TRANSFER_ACTION_PATTERN = /^(?:(?:please|can\s+you|could\s+you|would\s+you|can\s+u)\s+)?(?:send|share|transfer|copy|export|push|move|give|get|bring|send\s+over|send\s+across)\b/i;
+const PHONE_TRANSFER_TRAILING_TARGET_PATTERN = /\s+(?:to|with|onto|on|into|over\s+to|across\s+to|here\s+on)\s+(?:my\s+)?(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset|this\s+phone|this\s+device)\s*$/i;
 const PHONE_TRANSFER_TARGET_WORD_PATTERN = /\b(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset)\b/i;
-const PHONE_TRANSFER_FILE_EVIDENCE_PATTERN = /\b(?:file|files|folder|folders|directory|document|documents|pdf|pdfs|docx?|xlsx?|pptx?|csv|json|zip|rar|image|images|photo|photos|picture|pictures|pic|pics|screenshot|screenshots|video|videos|audio|music|downloads?|documents?|desktop|resume|report)\b|[^\s]+\.[a-z0-9]{1,10}\b/i;
+const PHONE_TRANSFER_FILE_EVIDENCE_PATTERN = /\b(?:file|files|folder|folders|directory|document|documents|pdf|pdfs|docx?|xlsx?|pptx?|csv|json|txt|log|zip|rar|7z|apk|image|images|photo|photos|picture|pictures|pic|pics|screenshot|screenshots|video|videos|audio|music|downloads?|documents?|desktop|resume|report|presentation|spreadsheet|sheet|archive)\b|[^\s]+\.[a-z0-9]{1,10}\b/i;
 
 const WEBSITE_URL_MAP = {
   'github': 'https://github.com',
@@ -2887,6 +2887,7 @@ class ActionRouter {
       .trim()
       .replace(PHONE_TRANSFER_ACTION_PATTERN, '')
       .replace(/^(?:me\s+|the\s+|a\s+|an\s+|my\s+)+/i, '')
+      .replace(/\s+(?:here|to\s+me|for\s+me|on\s+this\s+(?:phone|device)|to\s+this\s+(?:phone|device))$/i, '')
       .replace(/\b(?:over|across)\s*$/i, '')
       .replace(/\s+/g, ' ')
       .trim();
