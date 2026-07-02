@@ -7,6 +7,7 @@ const MIN_SEQUENCE_LENGTH = 2;
 const MIN_OCCURRENCES_TO_SUGGEST = 3;
 const MAX_WORKFLOWS = 50;
 const MAX_WORKFLOW_LENGTH = 20;
+const MAX_SEQUENCE_BUFFER = 100;
 
 const WORKFLOW_CATEGORIES = new Set([
   'morning',
@@ -107,7 +108,9 @@ class WorkflowStore extends BaseStore {
       bufferEntry.firstSeen = new Date().toISOString();
     }
     bufferEntry.lastSeen = new Date().toISOString();
+    this.sequenceBuffer.delete(signature);
     this.sequenceBuffer.set(signature, bufferEntry);
+    this._trimSequenceBuffer();
 
     if (bufferEntry.count === 1) {
       return { stage: 'ignored', reason: 'First occurrence - ignoring' };
@@ -306,6 +309,13 @@ class WorkflowStore extends BaseStore {
 
   clearSequenceBuffer() {
     this.sequenceBuffer.clear();
+  }
+
+  _trimSequenceBuffer() {
+    while (this.sequenceBuffer.size > MAX_SEQUENCE_BUFFER) {
+      const oldest = this.sequenceBuffer.keys().next().value;
+      this.sequenceBuffer.delete(oldest);
+    }
   }
 
   _findWorkflowBySignature(signature) {

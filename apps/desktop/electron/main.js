@@ -208,6 +208,7 @@ const rendererCrashHistory = new Map();
 const recoveryTimeouts = new Set();
 const unresponsiveTimeouts = new Map();
 const VOICE_SHORTCUT_DEBOUNCE_MS = 450;
+const VOICE_ACTIVE_CANCEL_GRACE_MS = 650;
 const VOICE_SPEAKING_DOUBLE_TAP_MS = 1400;
 const VOICE_CAPTURE_WARMUP_DELAY_MS = 350;
 const IPC_CHANNELS = [
@@ -1858,9 +1859,16 @@ function restoreMediaAfterVoiceSession(reason = 'voice-session-closed') {
   }
 }
 
+function isVoiceAssistantSpeaking() {
+  return Boolean(
+    textToSpeech?.isSpeaking ||
+    textToSpeech?.activeProcess
+  );
+}
+
 function handleVoiceShortcutDuringSpeaking(shortcut = '') {
   const state = voiceSessionManager?.getCurrentState?.();
-  if (state !== 'SPEAKING') return null;
+  if (state !== 'SPEAKING' && !isVoiceAssistantSpeaking()) return null;
 
   const now = Date.now();
   const sessionId = voiceSessionManager?.getSession?.()?.sessionId || 'voice-session';
@@ -1900,7 +1908,15 @@ function startVoiceListeningFromShortcut(shortcut = '') {
     const speakingAction = handleVoiceShortcutDuringSpeaking(shortcut);
     if (speakingAction) return speakingAction;
 
+    const now = Date.now();
     if (voiceSessionManager.isActive()) {
+      if ((now - voiceLastStartAt) < VOICE_ACTIVE_CANCEL_GRACE_MS) {
+        mainLogger.info('Voice shortcut ignored during initial activation grace window', {
+          shortcut,
+          elapsedMs: now - voiceLastStartAt
+        });
+        return { success: false, ignored: true, reason: 'voice-activation-grace-window' };
+      }
       voiceSpeakingStopTapAt = 0;
       voiceSpeakingStopSessionId = null;
       const cancelled = voiceSessionManager.cancelSession('Voice shortcut pressed while listening.');
@@ -1908,7 +1924,6 @@ function startVoiceListeningFromShortcut(shortcut = '') {
       return { success: true, cancelled: true, state: cancelled.state };
     }
 
-    const now = Date.now();
     if (voiceStartInFlight || (now - voiceLastStartAt) < VOICE_SHORTCUT_DEBOUNCE_MS) {
       mainLogger.info('Voice shortcut ignored while startup is settling', {
         shortcut,

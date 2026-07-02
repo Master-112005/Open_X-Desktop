@@ -1,5 +1,6 @@
 const REQUEST_TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000;
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+const MAX_REPLAY_REQUESTS_PER_DEVICE = 500;
 
 class SecurityManager {
   constructor(options = {}) {
@@ -13,6 +14,7 @@ class SecurityManager {
     this.sessionManager = options.sessionManager;
     this.now = options.now || (() => Date.now());
     this.timestampToleranceMs = options.timestampToleranceMs || REQUEST_TIMESTAMP_TOLERANCE_MS;
+    this.maxReplayRequestsPerDevice = Math.max(10, Number(options.maxReplayRequestsPerDevice) || MAX_REPLAY_REQUESTS_PER_DEVICE);
     this.logger = options.logger || { warn() {} };
     this.seenRequests = new Map();
   }
@@ -49,6 +51,7 @@ class SecurityManager {
       return { valid: false, reason: 'duplicate-request', message: 'Duplicate request.' };
     }
     cache.set(requestId, this.now() + this.timestampToleranceMs);
+    this._trimReplayCache(cache);
     this.seenRequests.set(deviceId, cache);
     return { valid: true, deviceId, session: session.session };
   }
@@ -72,6 +75,13 @@ class SecurityManager {
     return this.seenRequests.delete(deviceId);
   }
 
+  _trimReplayCache(cache) {
+    while (cache.size > this.maxReplayRequestsPerDevice) {
+      const oldest = cache.keys().next().value;
+      cache.delete(oldest);
+    }
+  }
+
   _authenticationFailure(deviceId, reason, message) {
     this.logger.warn('[PHONE] Authentication failure', { deviceId: deviceId || null, reason });
     return { valid: false, reason, message };
@@ -79,5 +89,6 @@ class SecurityManager {
 }
 
 SecurityManager.REQUEST_TIMESTAMP_TOLERANCE_MS = REQUEST_TIMESTAMP_TOLERANCE_MS;
+SecurityManager.MAX_REPLAY_REQUESTS_PER_DEVICE = MAX_REPLAY_REQUESTS_PER_DEVICE;
 
 module.exports = SecurityManager;

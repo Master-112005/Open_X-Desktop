@@ -12,6 +12,7 @@ const { sanitizeMetadata } = require('./privacy');
 class MetricsCollector {
   constructor(options = {}) {
     this.clock = options.clock || (() => new Date());
+    this.maxMetrics = Math.max(1, Number(options.maxMetrics) || 1000);
     this.metrics = [];
   }
 
@@ -23,6 +24,7 @@ class MetricsCollector {
       timestamp: this.clock().toISOString()
     });
     this.metrics.push(metric);
+    this._trim();
     return metric;
   }
 
@@ -36,6 +38,12 @@ class MetricsCollector {
       totals[metric.name] = (totals[metric.name] || 0) + metric.value;
     }
     return { count: this.metrics.length, totals };
+  }
+
+  _trim() {
+    if (this.metrics.length > this.maxMetrics) {
+      this.metrics.splice(0, this.metrics.length - this.maxMetrics);
+    }
   }
 }
 

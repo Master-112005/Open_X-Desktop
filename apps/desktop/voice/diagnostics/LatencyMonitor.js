@@ -10,6 +10,7 @@
 class LatencyMonitor {
   constructor(options = {}) {
     this.clock = options.clock || (() => new Date());
+    this.maxEntriesPerStage = Math.max(1, Number(options.maxEntriesPerStage) || 200);
     this.latencies = new Map();
   }
 
@@ -18,7 +19,11 @@ class LatencyMonitor {
     const value = Math.max(0, Number(milliseconds) || 0);
     const entry = Object.freeze({ stage: key, milliseconds: value, metadata: { ...metadata }, timestamp: this.clock().toISOString() });
     if (!this.latencies.has(key)) this.latencies.set(key, []);
-    this.latencies.get(key).push(entry);
+    const entries = this.latencies.get(key);
+    entries.push(entry);
+    if (entries.length > this.maxEntriesPerStage) {
+      entries.splice(0, entries.length - this.maxEntriesPerStage);
+    }
     return entry;
   }
 

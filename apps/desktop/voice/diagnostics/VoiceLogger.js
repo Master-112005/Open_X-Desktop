@@ -55,10 +55,39 @@ class VoiceLogger {
   rotateIfNeeded() {
     if (!fs.existsSync(this.logPath)) return { rotated: false };
     const stats = fs.statSync(this.logPath);
-    if (stats.size < this.configuration.maximumLogSizeBytes) return { rotated: false };
+    if (stats.size < this.configuration.maximumLogSizeBytes) {
+      this.cleanupRotatedLogs();
+      return { rotated: false };
+    }
     const rotatedPath = `${this.logPath}.${Date.now()}.bak`;
     fs.renameSync(this.logPath, rotatedPath);
+    this.cleanupRotatedLogs();
     return { rotated: true, path: rotatedPath };
+  }
+
+  cleanupRotatedLogs() {
+    const directory = path.dirname(this.logPath);
+    if (!fs.existsSync(directory)) return { removed: 0 };
+    const prefix = `${path.basename(this.logPath)}.`;
+    const cutoff = Date.now() - (Math.max(1, Number(this.configuration.retentionDays) || 14) * 24 * 60 * 60 * 1000);
+    const files = fs.readdirSync(directory)
+      .filter(name => name.startsWith(prefix) && name.endsWith('.bak'))
+      .map(name => {
+        const filePath = path.join(directory, name);
+        const stats = fs.statSync(filePath);
+        return { filePath, mtimeMs: stats.mtimeMs };
+      })
+      .sort((left, right) => right.mtimeMs - left.mtimeMs);
+
+    let removed = 0;
+    files.forEach((file, index) => {
+      if (index < 5 && file.mtimeMs >= cutoff) return;
+      try {
+        fs.unlinkSync(file.filePath);
+        removed += 1;
+      } catch (_) {}
+    });
+    return { removed };
   }
 
   _write(level, message, metadata = {}) {

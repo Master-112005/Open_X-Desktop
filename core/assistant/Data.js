@@ -409,8 +409,10 @@ const { buildDataPaths } = dataRootModule;
 const DEFAULT_MAX_LOG_SIZE = 10 * 1024 * 1024;
 const DEFAULT_MAX_LOG_FILES = 5;
 const SENSITIVE_KEY_PATTERN = /(?:password|passcode|token|secret|authorization|cookie|credential|api[_-]?key)/i;
+const PRIVATE_TEXT_KEYS = new Set(['audio', 'pcm', 'buffer', 'sample', 'samples', 'text', 'input', 'response']);
+const PRIVATE_TEXT_KEY_PATTERN = /(?:transcript|input(?:text)?|command(?:text)?|rawcommand|response|spokenresponse|pcm|buffer|samples?|utterance|speechtext)/i;
 const HUMAN_VOICE_LOG_PATTERN = /^(?:\[(?:Voice|Voice UI|Voice Integration|Audio|Audio Processing|STT)\]|Voice\b|TTS\b)/i;
-const VOICE_PRIVATE_KEY_PATTERN = /(?:transcript|input|text|response|audio|pcm|buffer|sample|samples)/i;
+const VOICE_PRIVATE_KEY_PATTERN = /(?:transcript|input|text|response|pcm|buffer|sample|samples)/i;
 
 function dateStamp(date = new Date()) {
   return date.toISOString().slice(0, 10);
@@ -419,6 +421,13 @@ function dateStamp(date = new Date()) {
 function ensureDirectory(dir) {
   if (!dir || fs.existsSync(dir)) return;
   fs.mkdirSync(dir, { recursive: true });
+}
+
+function isPrivateLogKey(key, value) {
+  const normalizedKey = String(key || '');
+  if (PRIVATE_TEXT_KEYS.has(normalizedKey)) return true;
+  if (!PRIVATE_TEXT_KEY_PATTERN.test(normalizedKey)) return false;
+  return value === null || typeof value !== 'number' && typeof value !== 'boolean';
 }
 
 class Logger {
@@ -559,7 +568,13 @@ class Logger {
 
   _formatHumanValue(key, value) {
     const normalizedKey = String(key || '');
-    if (VOICE_PRIVATE_KEY_PATTERN.test(normalizedKey)) {
+    if ((PRIVATE_TEXT_KEYS.has(normalizedKey) || VOICE_PRIVATE_KEY_PATTERN.test(normalizedKey)) &&
+        value !== null &&
+        typeof value !== 'number' &&
+        typeof value !== 'boolean') {
+      if (typeof value === 'string' && /^\[(?:\d+ chars|\d+ items|\d+ bytes|REDACTED)\]$/i.test(value)) {
+        return value;
+      }
       if (typeof value === 'string') return `[${value.length} chars]`;
       if (Array.isArray(value)) return `[${value.length} items]`;
       if (Buffer.isBuffer(value)) return `[${value.length} bytes]`;
@@ -601,9 +616,13 @@ class Logger {
     if (typeof value === 'object') {
       const output = {};
       for (const [key, child] of Object.entries(value)) {
-        output[key] = SENSITIVE_KEY_PATTERN.test(key)
-          ? '[REDACTED]'
-          : this._redact(child, depth + 1);
+        if (SENSITIVE_KEY_PATTERN.test(key)) {
+          output[key] = '[REDACTED]';
+        } else if (isPrivateLogKey(key, child)) {
+          output[key] = this._redactPrivateValue(child);
+        } else {
+          output[key] = this._redact(child, depth + 1);
+        }
       }
       return output;
     }
@@ -611,6 +630,15 @@ class Logger {
       return `${value.slice(0, 2000)}...[truncated]`;
     }
     return value;
+  }
+
+  _redactPrivateValue(value) {
+    if (typeof value === 'string') return `[${value.length} chars]`;
+    if (Array.isArray(value)) return `[${value.length} items]`;
+    if (Buffer.isBuffer(value)) return `[${value.length} bytes]`;
+    if (value && typeof value === 'object') return '[REDACTED]';
+    if (value === null || value === undefined) return value;
+    return '[REDACTED]';
   }
 
   _writeEntry(type, entry) {

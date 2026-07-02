@@ -80,7 +80,7 @@ const VoiceSettings = Object.freeze({
   ui: Object.freeze({
     overlayEnabled: true,
     showPartialTranscript: true,
-    animationDurationMs: 420,
+    animationDurationMs: 320,
     fadeDurationMs: 160,
     autoCloseDelayMs: 900,
     size: Object.freeze({ width: 256, height: 50 }),

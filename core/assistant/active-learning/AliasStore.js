@@ -6,6 +6,7 @@ const LearningGuard = require('./LearningGuard');
 const OCCURRENCE_IGNORE = 1;
 const OCCURRENCE_OBSERVE = 2;
 const OCCURRENCE_LEARN = 3;
+const MAX_OCCURRENCE_BUFFER = 200;
 
 const ALIAS_CATEGORIES = new Set([
   'application',
@@ -86,7 +87,9 @@ class AliasStore extends BaseStore {
     if (!current.firstSeen) {
       current.firstSeen = new Date().toISOString();
     }
+    this.occurrenceBuffer.delete(bufferKey);
     this.occurrenceBuffer.set(bufferKey, current);
+    this._trimOccurrenceBuffer();
 
     if (current.count === OCCURRENCE_IGNORE) {
       return { stage: 'ignored', alias: normalizedKey, target, reason: 'First occurrence - ignoring' };
@@ -246,6 +249,13 @@ class AliasStore extends BaseStore {
 
   clearOccurrenceBuffer() {
     this.occurrenceBuffer.clear();
+  }
+
+  _trimOccurrenceBuffer() {
+    while (this.occurrenceBuffer.size > MAX_OCCURRENCE_BUFFER) {
+      const oldest = this.occurrenceBuffer.keys().next().value;
+      this.occurrenceBuffer.delete(oldest);
+    }
   }
 
   getMetadata() {

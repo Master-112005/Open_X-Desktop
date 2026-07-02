@@ -37,6 +37,8 @@ class VoiceWindowController {
     this.pendingSizeMode = null;
     this.pendingSize = null;
     this.lastBounds = null;
+    this.pendingOverlayOperations = new Map();
+    this.overlayFlushAttached = false;
   }
 
   /**
@@ -127,7 +129,7 @@ class VoiceWindowController {
     else if (typeof win.show === 'function') win.show();
     this.visible = true;
     this.updateState(view);
-    this.ipc.send(VoiceOverlayIPC.OPERATIONS.SHOW_OVERLAY, { view });
+    this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.SHOW_OVERLAY, { view });
     this._log('Overlay Shown', { state: view.state });
     return { visible: true, view };
   }
@@ -143,7 +145,7 @@ class VoiceWindowController {
     this.visible = false;
     this._setSizeMode('compact', { immediate: true, snap: true });
     if (this.window && !this._isDestroyed(this.window)) {
-      this.ipc.send(VoiceOverlayIPC.OPERATIONS.HIDE_OVERLAY, {});
+      this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.HIDE_OVERLAY, {});
     }
     this._log('Overlay Hidden');
     return { visible: false };
@@ -157,11 +159,11 @@ class VoiceWindowController {
   updateState(view = {}) {
     this.lastView = view;
     if (this.window && !this._isDestroyed(this.window)) {
-      this.ipc.send(VoiceOverlayIPC.OPERATIONS.UPDATE_STATE, { view });
+      this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.UPDATE_STATE, { view });
       if (this._shouldCollapseForState(view?.state)) {
         this._clearResultTimers();
         this._setSizeMode('compact', { delayMs: 140 });
-        this.ipc.send(VoiceOverlayIPC.OPERATIONS.DISPLAY_ASSISTANT_RESULT, {});
+        this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.DISPLAY_ASSISTANT_RESULT, {});
       }
     }
     return { updated: true, view };
@@ -177,7 +179,7 @@ class VoiceWindowController {
       if (transcript?.partial || transcript?.transcript) {
         this._setSizeMode('compact', { delayMs: 90 });
       }
-      this.ipc.send(VoiceOverlayIPC.OPERATIONS.UPDATE_TRANSCRIPT, transcript);
+      this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.UPDATE_TRANSCRIPT, transcript);
     }
     return { updated: true, transcript };
   }
@@ -205,12 +207,16 @@ class VoiceWindowController {
         if (typeof this.window.showInactive === 'function') this.window.showInactive();
         else if (typeof this.window.show === 'function') this.window.show();
         this.visible = true;
+        this._setSizeMode('compact', { immediate: true, snap: true });
       }
 
       const displayMode = this._sizeModeForAssistantResult(payload);
       const previewStatus = String(payload.previewStatus || payload.heading || 'OpenX');
       const previewState = String(payload.presentationState || this.lastView?.state || 'READY');
-      this._setSizeMode('compact', { immediate: true });
+      const revealDelayMs = Math.max(0, Math.min(1000, Number(payload.preExpandDelayMs) || 80));
+      if (revealDelayMs > 0 && this.sizeMode !== 'compact') {
+        this._setSizeMode('compact', { delayMs: 0 });
+      }
       this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.UPDATE_STATE, {
         view: {
           ...(this.lastView || {}),
@@ -221,11 +227,10 @@ class VoiceWindowController {
         }
       });
 
-      const revealDelayMs = Math.max(0, Math.min(1000, Number(payload.preExpandDelayMs) || 80));
       this.resultRevealTimer = setTimeout(() => {
         this.resultRevealTimer = null;
         this._setSizeMode(displayMode, {
-          immediate: true,
+          delayMs: 0,
           size: this._sizeForAssistantResult(payload, displayMode)
         });
         this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.DISPLAY_ASSISTANT_RESULT, { ...payload, displayMode });
@@ -254,7 +259,7 @@ class VoiceWindowController {
     this.visible = true;
     this._setSizeMode('compact', { immediate: true, snap: true });
     if (typeof this.window.showInactive === 'function') this.window.showInactive();
-    this.ipc.send(VoiceOverlayIPC.OPERATIONS.DISPLAY_ERROR, { view });
+    this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.DISPLAY_ERROR, { view });
     return { displayed: true, view };
   }
 
@@ -271,6 +276,8 @@ class VoiceWindowController {
     this._clearResizeTimer();
     this._clearBoundsAnimation();
     this._clearResultTimers();
+    this.pendingOverlayOperations.clear();
+    this.overlayFlushAttached = false;
     return { destroyed: true };
   }
 
@@ -343,11 +350,11 @@ class VoiceWindowController {
 :root { --voice-bg: #000; --voice-text: #f7f8fb; --voice-muted: rgba(247,248,251,.66); --voice-accent: #4488ff; --voice-border: rgba(255,255,255,.08); --voice-blur: 0px; --voice-ease: cubic-bezier(.16,1,.3,1); }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; font-family: Segoe UI, system-ui, sans-serif; color: var(--voice-text); -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; }
 body { animation: overlay-in 220ms var(--voice-ease) both; }
-#voice-overlay { box-sizing: border-box; height: 100vh; padding: 7px 13px; border: 1px solid var(--voice-border); border-radius: 999px; background: #000; box-shadow: 0 12px 30px rgba(0,0,0,.40), inset 0 1px 1px rgba(255,255,255,.08); display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 9px; align-items: center; contain: layout paint style; transform: translate3d(0,0,0); transition: border-radius 420ms var(--voice-ease), box-shadow 420ms var(--voice-ease), padding 420ms var(--voice-ease), grid-template-columns 420ms var(--voice-ease), gap 420ms var(--voice-ease); will-change: transform, opacity; }
+#voice-overlay { box-sizing: border-box; height: 100vh; padding: 7px 13px; border: 1px solid var(--voice-border); border-radius: 999px; background: #000; box-shadow: 0 12px 30px rgba(0,0,0,.40), inset 0 1px 1px rgba(255,255,255,.08); display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 9px; align-items: center; contain: layout paint style; transform: translate3d(0,0,0); transition: border-radius 320ms var(--voice-ease), box-shadow 320ms var(--voice-ease), padding 320ms var(--voice-ease), grid-template-columns 320ms var(--voice-ease), gap 320ms var(--voice-ease); will-change: transform, opacity; }
 #voice-overlay.expanded { padding: 18px; border-radius: 34px; grid-template-columns: 48px minmax(0,1fr); align-items: start; box-shadow: 0 20px 64px rgba(0,0,0,.44), inset 0 1px 1px rgba(255,255,255,.10); }
 #voice-overlay.expanded.medium { padding: 13px 15px; border-radius: 26px; grid-template-columns: 42px minmax(0,1fr); gap: 10px; align-items: center; box-shadow: 0 18px 48px rgba(0,0,0,.42), inset 0 1px 1px rgba(255,255,255,.10); }
 #voice-overlay section { min-width: 0; overflow: hidden; }
-#icon { width: 32px; height: 32px; border-radius: 999px; display: grid; place-items: center; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.10); font-size: 11px; font-weight: 750; transform: translate3d(0,0,0); transition: width 420ms var(--voice-ease), height 420ms var(--voice-ease), border-radius 420ms var(--voice-ease), transform 420ms var(--voice-ease), opacity 420ms var(--voice-ease), border-color 420ms var(--voice-ease); will-change: transform, opacity; }
+#icon { width: 32px; height: 32px; border-radius: 999px; display: grid; place-items: center; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.10); font-size: 11px; font-weight: 750; transform: translate3d(0,0,0); transition: width 320ms var(--voice-ease), height 320ms var(--voice-ease), border-radius 320ms var(--voice-ease), transform 320ms var(--voice-ease), opacity 320ms var(--voice-ease), border-color 320ms var(--voice-ease); will-change: transform, opacity; }
 #voice-overlay.expanded #icon { width: 48px; height: 48px; border-radius: 18px; background: color-mix(in srgb, var(--voice-accent) 18%, transparent); border-color: color-mix(in srgb, var(--voice-accent) 36%, transparent); font-size: 13px; }
 #voice-overlay.expanded.medium #icon { width: 40px; height: 40px; border-radius: 14px; font-size: 12px; }
 #title { display: none; font-size: 15px; font-weight: 650; line-height: 1.25; }
@@ -420,14 +427,27 @@ body { animation: overlay-in 220ms var(--voice-ease) both; }
       contents.isLoading() &&
       typeof contents.once === 'function'
     ) {
-      contents.once('did-finish-load', () => {
-        if (this.window && !this._isDestroyed(this.window)) {
-          this.ipc.send(operation, payload);
-        }
-      });
+      this.pendingOverlayOperations.set(operation, payload);
+      if (!this.overlayFlushAttached) {
+        this.overlayFlushAttached = true;
+        contents.once('did-finish-load', () => this._flushPendingOverlayOperations());
+      }
       return { sent: false, queued: true, operation };
     }
     return this.ipc.send(operation, payload);
+  }
+
+  _flushPendingOverlayOperations() {
+    this.overlayFlushAttached = false;
+    if (!this.window || this._isDestroyed(this.window) || this.pendingOverlayOperations.size === 0) {
+      this.pendingOverlayOperations.clear();
+      return;
+    }
+    const pending = Array.from(this.pendingOverlayOperations.entries());
+    this.pendingOverlayOperations.clear();
+    for (const [operation, payload] of pending) {
+      this.ipc.send(operation, payload);
+    }
   }
 
   _currentSize() {
@@ -525,9 +545,14 @@ body { animation: overlay-in 220ms var(--voice-ease) both; }
       return;
     }
 
-    const duration = Math.max(240, Math.min(560, Number(this.configuration.animationDurationMs) || 420));
+    const duration = Math.max(180, Math.min(420, Number(this.configuration.animationDurationMs) || 320));
     const startedAt = Date.now();
+    let lastFrame = null;
     const step = () => {
+      if (!this.window || this._isDestroyed(this.window)) {
+        this.boundsAnimationTimer = null;
+        return;
+      }
       const progress = Math.min(1, (Date.now() - startedAt) / duration);
       const eased = 1 - Math.pow(1 - progress, 3);
       const frame = {
@@ -536,14 +561,28 @@ body { animation: overlay-in 220ms var(--voice-ease) both; }
         width: Math.round(start.width + ((bounds.width - start.width) * eased)),
         height: Math.round(start.height + ((bounds.height - start.height) * eased))
       };
-      win.setBounds(frame, false);
+      if (!this._boundsEqual(lastFrame, frame)) {
+        try {
+          win.setBounds(frame, false);
+        } catch (error) {
+          this.boundsAnimationTimer = null;
+          this._log('Overlay Bounds Animation Failed', { error: error.message });
+          return;
+        }
+        lastFrame = frame;
+      }
       if (progress < 1) {
         this.boundsAnimationTimer = setTimeout(step, 16);
         if (typeof this.boundsAnimationTimer.unref === 'function') this.boundsAnimationTimer.unref();
         return;
       }
       this.boundsAnimationTimer = null;
-      win.setBounds(bounds, true);
+      try {
+        win.setBounds(bounds, true);
+      } catch (error) {
+        this._log('Overlay Bounds Finalize Failed', { error: error.message });
+        return;
+      }
       this.lastBounds = bounds;
     };
     step();
