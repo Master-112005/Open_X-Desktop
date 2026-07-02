@@ -281,7 +281,7 @@ class NaturalLanguageRouter {
     const hasPhoneTransferTarget = has('phoneTransfer') ||
       /\b(?:my\s+)?(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset)\b/i.test(text);
 
-    if (hasFileEvidence && action === 'send' && hasPhoneTransferTarget) {
+    if (hasFileEvidence && ['send', 'share', 'transfer', 'copy', 'push', 'move', 'give', 'get', 'bring'].includes(action) && hasPhoneTransferTarget) {
       return 'phone-transfer';
     }
     if (has('schedule') || (action === 'set' && /\btime\s+for\s+(?:\d+|one|two|three|four|five|ten)\s+(?:seconds?|minutes?|hours?)\b/.test(text))) {
@@ -420,9 +420,10 @@ class NaturalLanguageRouter {
           ? 'image'
           : 'file';
       const source = rawText
-        .replace(/^(?:send|share|transfer|copy|export|push|move|send\s+over|send\s+across)\s+/i, '')
+        .replace(/^(?:(?:please|can\s+you|could\s+you|would\s+you|can\s+u)\s+)?(?:send|share|transfer|copy|export|push|move|give|get|bring|send\s+over|send\s+across)\s+/i, '')
         .replace(/^(?:me\s+|the\s+|a\s+|an\s+|my\s+)+/i, '')
-        .replace(/\s+(?:to|with|onto|on|into|over\s+to|across\s+to)\s+(?:my\s+)?(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset|this\s+phone)\s*$/i, '')
+        .replace(/\s+(?:to|with|onto|on|into|over\s+to|across\s+to|here\s+on)\s+(?:my\s+)?(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset|this\s+phone|this\s+device)\s*$/i, '')
+        .replace(/\s+(?:here|to\s+me|for\s+me|on\s+this\s+(?:phone|device)|to\s+this\s+(?:phone|device))$/i, '')
         .replace(/\s+(?:file|files)$/i, '')
         .trim();
       entities.path = entities.path || source;
