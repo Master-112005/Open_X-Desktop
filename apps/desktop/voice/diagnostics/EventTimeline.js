@@ -12,6 +12,7 @@ const { sanitizeMetadata } = require('./privacy');
 class EventTimeline {
   constructor(options = {}) {
     this.clock = options.clock || (() => new Date());
+    this.maxEvents = Math.max(1, Number(options.maxEvents) || 500);
     this.events = [];
   }
 
@@ -23,6 +24,7 @@ class EventTimeline {
       metadata: sanitizeMetadata(payload)
     });
     this.events.push(event);
+    this._trim();
     return event;
   }
 
@@ -38,6 +40,12 @@ class EventTimeline {
   clear() {
     this.events = [];
     return { cleared: true };
+  }
+
+  _trim() {
+    if (this.events.length > this.maxEvents) {
+      this.events.splice(0, this.events.length - this.maxEvents);
+    }
   }
 }
 

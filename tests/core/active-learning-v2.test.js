@@ -113,4 +113,20 @@ describe('Active Learning v2', function() {
       false
     );
   });
+
+  it('bounds in-memory suggestion buffers for noisy commands', function() {
+    const { manager } = createManager();
+
+    for (let index = 0; index < 260; index += 1) {
+      manager.learnAlias(`alias ${index}`, `App${index}.exe`);
+      manager.recordCorrection(`open app ${index}`, `open application ${index}`);
+    }
+    for (let index = 0; index < 140; index += 1) {
+      manager.recordCommandSequence([`open app ${index}`, `close app ${index}`]);
+    }
+
+    assert.equal(manager.aliasStore.occurrenceBuffer.size, 200);
+    assert.equal(manager.correctionStore.occurrenceBuffer.size, 200);
+    assert.equal(manager.workflowStore.sequenceBuffer.size, 100);
+  });
 });

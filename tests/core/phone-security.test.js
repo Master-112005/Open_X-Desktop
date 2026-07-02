@@ -108,6 +108,29 @@ describe('Phone security hardening', function() {
     assert.ok(logger.entries.some(entry => entry.message === '[PHONE] Expired session'));
   });
 
+  it('bounds replay cache entries per trusted phone', function() {
+    const security = new SecurityManager({
+      deviceRegistry: registry,
+      sessionManager,
+      now: () => now,
+      logger,
+      maxReplayRequestsPerDevice: 12
+    });
+    const session = sessionManager.createSession('phone001');
+
+    for (let index = 0; index < 40; index += 1) {
+      const result = security.validateConnection({
+        deviceId: 'phone001',
+        sessionToken: session.sessionToken,
+        requestId: `request-${index}`,
+        timestamp: now
+      });
+      assert.equal(result.valid, true);
+    }
+
+    assert.equal(security.seenRequests.get('phone001').size, 12);
+  });
+
   it('returns a session after pairing and requires it for commands', async function() {
     server = new PhoneServer({
       port: 0,

@@ -13,6 +13,7 @@ class ErrorTracker {
   constructor(options = {}) {
     this.clock = options.clock || (() => new Date());
     this.debugMode = options.debugMode === true;
+    this.maxErrors = Math.max(1, Number(options.maxErrors) || 200);
     this.errors = [];
   }
 
@@ -29,6 +30,9 @@ class ErrorTracker {
       metadata: sanitizeMetadata(metadata)
     });
     this.errors.push(entry);
+    if (this.errors.length > this.maxErrors) {
+      this.errors.splice(0, this.errors.length - this.maxErrors);
+    }
     return entry;
   }
 

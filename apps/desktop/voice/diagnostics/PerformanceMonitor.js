@@ -11,6 +11,7 @@ class PerformanceMonitor {
   constructor(options = {}) {
     this.clock = options.clock || (() => new Date());
     this.process = options.process || process;
+    this.maxSamples = Math.max(1, Number(options.maxSamples) || 120);
     this.samples = [];
     this.previousCpu = null;
   }
@@ -30,6 +31,7 @@ class PerformanceMonitor {
       metadata: { ...metadata }
     });
     this.samples.push(snapshot);
+    this._trim();
     return snapshot;
   }
 
@@ -40,6 +42,12 @@ class PerformanceMonitor {
   summarize() {
     const latest = this.getLatest();
     return { sampleCount: this.samples.length, latest };
+  }
+
+  _trim() {
+    if (this.samples.length > this.maxSamples) {
+      this.samples.splice(0, this.samples.length - this.maxSamples);
+    }
   }
 }
 

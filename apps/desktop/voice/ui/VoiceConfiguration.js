@@ -8,7 +8,7 @@ const DEFAULT_CONFIGURATION = Object.freeze({
   mediumSize: Object.freeze({ width: 320, height: 148 }),
   expandedSize: Object.freeze({ width: 360, height: 360 }),
   position: Object.freeze({ horizontal: 'center', vertical: 'top', yOffset: 12 }),
-  animationDurationMs: 420,
+  animationDurationMs: 320,
   fadeDurationMs: 160,
   autoCloseDelayMs: 900,
   transcriptFont: 'Segoe UI',

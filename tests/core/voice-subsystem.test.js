@@ -1863,6 +1863,55 @@ describe('Voice Subsystem Architecture', function() {
     assert.ok(sent.some(message => message.operation === 'hideOverlay'));
   });
 
+  it('should coalesce pending Voice overlay operations while the renderer is loading', function() {
+    const { VoiceWindowController } = require('../../apps/desktop/voice');
+    const sent = [];
+    class MockWebContents {
+      constructor() {
+        this.loading = true;
+        this.finish = null;
+      }
+      send(_channel, message) { sent.push(message); }
+      isLoading() { return this.loading; }
+      once(eventName, listener) {
+        if (eventName === 'did-finish-load') this.finish = listener;
+      }
+    }
+    class MockWindow {
+      constructor() {
+        this.webContents = new MockWebContents();
+        this.destroyed = false;
+      }
+      isDestroyed() { return this.destroyed; }
+      loadURL(url) { this.url = url; return Promise.resolve(); }
+      setBounds(nextBounds) { this.bounds = nextBounds; }
+      getBounds() { return this.bounds; }
+      setAlwaysOnTop() {}
+      showInactive() { this.visible = true; }
+      hide() { this.visible = false; }
+      destroy() { this.destroyed = true; }
+    }
+    const controller = new VoiceWindowController({
+      BrowserWindow: MockWindow,
+      screen: {
+        getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1000, height: 700 } })
+      }
+    });
+
+    const win = controller.createWindow();
+    controller.updateState({ state: 'READY', statusText: 'Ready' });
+    controller.updateState({ state: 'LISTENING', statusText: 'Listening' });
+
+    assert.equal(sent.length, 0);
+    win.webContents.loading = false;
+    win.webContents.finish();
+
+    assert.equal(sent.length, 2);
+    assert.equal(sent[0].operation, 'updateState');
+    assert.equal(sent[0].payload.view.statusText, 'Listening');
+    assert.equal(sent[1].operation, 'displayAssistantResult');
+  });
+
   it('should react to VoiceSessionManager events and keep UI state presentation-only', function() {
     const { VoiceOverlay, VoiceSessionManager, STTEngine, TranscriptResult, STT_EVENTS, SESSION_EVENTS } = require('../../apps/desktop/voice');
     const windowUpdates = [];
@@ -2408,6 +2457,46 @@ describe('Voice Subsystem Architecture', function() {
     assert.match(content, /transcript-length=22 chars/);
     assert.match(content, /pipeline=audio:100,processed:98,stt:97,partial:3/);
     assert.doesNotMatch(content, /open my private folder/);
+  });
+
+  it('should bound voice diagnostics memory buffers during long sessions', function() {
+    const {
+      PerformanceMonitor,
+      MetricsCollector,
+      LatencyMonitor,
+      ErrorTracker,
+      EventTimeline
+    } = require('../../apps/desktop/voice/diagnostics');
+
+    const performance = new PerformanceMonitor({ maxSamples: 3 });
+    for (let index = 0; index < 6; index += 1) performance.sample({ index });
+    assert.equal(performance.summarize().sampleCount, 3);
+
+    const metrics = new MetricsCollector({ maxMetrics: 4 });
+    for (let index = 0; index < 7; index += 1) metrics.record('frame', 1, { inputText: 'private command' });
+    assert.equal(metrics.list(10).length, 4);
+    assert.equal(JSON.stringify(metrics.list(10)).includes('private command'), false);
+
+    const latency = new LatencyMonitor({ maxEntriesPerStage: 2 });
+    latency.record('stt', 10);
+    latency.record('stt', 20);
+    latency.record('stt', 30);
+    assert.equal(latency.summary('stt').count, 2);
+    assert.equal(latency.summary('stt').min, 20);
+
+    const errors = new ErrorTracker({ maxErrors: 2 });
+    errors.record(new Error('first'));
+    errors.record(new Error('second'));
+    errors.record(new Error('third'));
+    assert.equal(errors.list(10).length, 2);
+    assert.equal(errors.list(10)[0].error.message, 'second');
+
+    const timeline = new EventTimeline({ maxEvents: 2 });
+    timeline.add('one', { transcript: 'private words' });
+    timeline.add('two');
+    timeline.add('three');
+    assert.equal(timeline.list({ limit: 10 }).length, 2);
+    assert.equal(JSON.stringify(timeline.list({ limit: 10 })).includes('private words'), false);
   });
 
   it('should track errors and health status without interrupting voice execution', function() {

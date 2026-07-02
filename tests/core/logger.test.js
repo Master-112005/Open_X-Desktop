@@ -18,7 +18,12 @@ describe('Structured Logger', function() {
 
   it('should write structured app and error logs with sensitive data redacted', function() {
     const logger = new Logger({ directory, console: false });
-    logger.info('Started', { user: 'local', password: 'unsafe', nested: { apiKey: 'secret' } });
+    logger.info('Started', {
+      user: 'local',
+      password: 'unsafe',
+      inputText: 'open private folder',
+      nested: { apiKey: 'secret', transcript: 'call mummy' }
+    });
     logger.error('Failed', { token: 'unsafe' });
 
     const appFile = fs.readdirSync(directory).find(name => name.startsWith('app-'));
@@ -28,8 +33,12 @@ describe('Structured Logger', function() {
 
     assert.equal(appEntry.message, 'Started');
     assert.equal(appEntry.data.password, '[REDACTED]');
+    assert.equal(appEntry.data.inputText, '[19 chars]');
     assert.equal(appEntry.data.nested.apiKey, '[REDACTED]');
+    assert.equal(appEntry.data.nested.transcript, '[10 chars]');
     assert.equal(errorEntry.data.token, '[REDACTED]');
+    assert.equal(JSON.stringify(appEntry).includes('open private folder'), false);
+    assert.equal(JSON.stringify(appEntry).includes('call mummy'), false);
   });
 
   it('should redact console output as well as file output', function() {
