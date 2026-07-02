@@ -110,12 +110,18 @@ describe('Phone communication', function() {
       message: 'Open Chrome',
       timestamp
     }));
-    assert.deepEqual(await responsePromise, {
-      type: 'response',
-      success: true,
-      message: 'Chrome launched successfully',
-      timestamp
-    });
+    const response = await responsePromise;
+    assert.equal(response.type, 'response');
+    assert.equal(response.success, true);
+    assert.equal(response.message, 'Chrome launched successfully');
+    assert.equal(response.timestamp, timestamp);
+    assert.equal(response.commandId, null);
+    assert.equal(response.intent, null);
+    assert.equal(response.needsClarification, false);
+    assert.equal(response.requiresConfirmation, false);
+    assert.deepEqual(response.entities, {});
+    assert.equal(response.data, null);
+    assert.equal(response.error, null);
     assert.equal(calls.length, 1);
     assert.equal(calls[0][0], 'Open Chrome');
     assert.equal(calls[0][1], 'phone');

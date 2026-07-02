@@ -142,6 +142,10 @@ class FileTransferManager {
       });
       const data = await fs.promises.readFile(transferPath);
       const outgoing = this.protocol.createOutgoing(deviceId, fileName, data);
+      const transferId = `desktop-${crypto.randomUUID()}`;
+      outgoing.transferId = transferId;
+      outgoing.requestId = transferId;
+      outgoing.timestamp = this.now();
       const sent = await this.sendToDevice(deviceId, outgoing);
       if (!sent) throw new FileTransferProtocol.Error('Trusted device is not connected.', 'device_offline');
 

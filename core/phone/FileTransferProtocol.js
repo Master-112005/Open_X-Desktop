@@ -102,9 +102,10 @@ class FileTransferProtocol {
   }
 
   decodeChunk(value) {
-    if (typeof value !== 'string' || value.length === 0 || value.length > this.maxBase64Length) {
+    if (typeof value !== 'string' || value.length > this.maxBase64Length) {
       throw new FileTransferProtocolError('Malformed file chunk.', 'invalid_chunk');
     }
+    if (value.length === 0) return Buffer.alloc(0);
     if (value.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) {
       throw new FileTransferProtocolError('Malformed file chunk.', 'invalid_chunk');
     }

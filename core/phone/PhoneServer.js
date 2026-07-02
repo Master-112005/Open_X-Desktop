@@ -284,6 +284,11 @@ class PhoneServer {
       return;
     }
 
+    if (payload?.type === 'file-transfer-received') {
+      this._handleFileTransferReceipt(clientId, payload);
+      return;
+    }
+
     if (
       !payload ||
       payload.type !== 'command' ||
@@ -321,6 +326,13 @@ class PhoneServer {
     this.sendToClient(clientId, {
       type: 'response',
       success: result?.success === true,
+      commandId: result?.commandId || null,
+      intent: result?.intent || null,
+      needsClarification: result?.needsClarification === true,
+      requiresConfirmation: result?.requiresConfirmation === true,
+      entities: result?.entities || {},
+      data: result?.data || null,
+      error: result?.error || null,
       message,
       timestamp: Number.isFinite(payload.timestamp) ? payload.timestamp : Date.now()
     });
@@ -357,7 +369,11 @@ class PhoneServer {
     if (!authentication) return;
     const deviceId = authentication.deviceId;
     if (!this.fileTransferManager) {
-      this.sendToClient(clientId, { type: 'error', message: 'File transfer unavailable' });
+      this.sendToClient(clientId, {
+        type: 'error',
+        transferId: payload.transferId || payload.requestId || null,
+        message: 'File transfer unavailable'
+      });
       return;
     }
 
@@ -387,7 +403,11 @@ class PhoneServer {
     if (!authentication) return;
     const deviceId = authentication.deviceId;
     if (!this.fileTransferManager) {
-      this.sendToClient(clientId, { type: 'error', message: 'File transfer unavailable' });
+      this.sendToClient(clientId, {
+        type: 'error',
+        transferId: payload.transferId || payload.requestId || null,
+        message: 'File transfer unavailable'
+      });
       return;
     }
 
@@ -449,6 +469,22 @@ class PhoneServer {
     };
   }
 
+  _handleFileTransferReceipt(clientId, payload) {
+    const client = this.connectionManager.get(clientId);
+    const authentication = this._authenticateRequest(clientId, client, payload);
+    if (!authentication) return;
+    const transferId = String(payload.transferId || payload.requestId || '').trim();
+    const status = payload.success === false ? 'failed' : 'received';
+    this.logger.info('[PHONE] Transfer receipt', {
+      clientId,
+      deviceId: authentication.deviceId,
+      transferId: transferId || null,
+      status,
+      fileName: payload.fileName || null,
+      error: payload.error || null
+    });
+  }
+
   _trackClientTransfer(clientId, transferId) {
     const id = String(transferId || '').trim();
     if (!id) return;
@@ -483,17 +519,29 @@ class PhoneServer {
 
   _authenticateRequest(clientId, client, payload) {
     const deviceId = this._resolveDeviceId(client, payload);
+    const payloadType = String(payload?.type || '');
+    const transferId = payloadType.startsWith('file-transfer')
+      ? (payload?.transferId || payload?.requestId || null)
+      : null;
     if (!deviceId || deviceId !== payload.deviceId) {
       this.logger.warn('[PHONE] Authentication failure', {
         deviceId: payload?.deviceId || null,
         reason: 'device-mismatch'
       });
-      this.sendToClient(clientId, { type: 'error', message: 'Authentication failed.' });
+      this.sendToClient(clientId, {
+        type: 'error',
+        transferId,
+        message: 'Authentication failed.'
+      });
       return null;
     }
     const result = this.securityManager.validateConnection(payload);
     if (!result.valid) {
-      this.sendToClient(clientId, { type: 'error', message: result.message });
+      this.sendToClient(clientId, {
+        type: 'error',
+        transferId,
+        message: result.message
+      });
       return null;
     }
     return result;
