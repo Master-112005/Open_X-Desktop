@@ -2,7 +2,7 @@
 
 Project: OpenX
 
-Package version: 3.9.0
+Package version: 4.0.0
 
 Platform: Windows desktop
 
