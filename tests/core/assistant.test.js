@@ -1063,6 +1063,67 @@ describe('Assistant Confirmation Flow', function() {
     assert.equal(routedInputs[1], `send ${folderPath} to my phone`);
   });
 
+  it('should execute a selected phone file-transfer option from a numeric phone reply', async function() {
+    const filePath = 'C:\\Users\\rakes\\Documents\\Resume.docx';
+    let selectedEntities = null;
+    let executionOptions = null;
+    const router = {
+      process: async () => ({
+        commandId: 'cmd-phone-file-choice',
+        success: false,
+        needsClarification: true,
+        intent: 'phone.sendFile',
+        entities: { path: 'resume.docx', transferKind: 'file' },
+        data: {
+          clarificationType: 'phone.sendFile.file',
+          choices: [
+            {
+              index: 1,
+              title: `Resume.docx - ${filePath}`,
+              path: filePath,
+              entities: { selectedPath: filePath, transferKind: 'file' }
+            }
+          ]
+        },
+        response: 'I found 1 matching file for "resume.docx". Choose a number to send one.'
+      }),
+      confirmAndExecute: async (commandId, intentId, entities, options) => {
+        selectedEntities = entities;
+        executionOptions = options;
+        return {
+          commandId,
+          success: true,
+          intent: intentId,
+          entities,
+          data: { transferredName: 'Resume.docx', deviceName: 'My Android Phone' },
+          response: 'Sent Resume.docx to My Android Phone.'
+        };
+      }
+    };
+
+    const assistant = new Assistant({ activeLearning: { enabled: false } }, {
+      router,
+      automation: {},
+      eventBus: { publish() {} }
+    });
+
+    const first = await assistant.processCommand('send me resume.docx file', 'phone', {
+      phoneContext: { deviceId: 'phone-1', deviceName: 'My Android Phone' }
+    });
+    assert.equal(first.needsClarification, true);
+    assert.equal(Array.isArray(first.data.choices), true);
+
+    const second = await assistant.processCommand('1', 'phone', {
+      phoneContext: { deviceId: 'phone-1', deviceName: 'My Android Phone' }
+    });
+    assert.equal(second.success, true);
+    assert.equal(selectedEntities.selectedPath, filePath);
+    assert.equal(selectedEntities.transferKind, 'file');
+    assert.equal(executionOptions.source, 'phone');
+    assert.equal(executionOptions.originalInput, 'send me resume.docx file');
+    assert.equal(executionOptions.phoneContext.deviceId, 'phone-1');
+  });
+
   it('should allow the user to cancel a pending confirmation', async function() {
     const router = {
       process: async () => ({

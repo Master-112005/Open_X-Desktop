@@ -381,13 +381,26 @@ class AutomationEngine {
       }
       const folderMatches = this.folders._findFolderMatches(folderCandidate);
       if (folderMatches.length > 1) {
+        const choices = folderMatches.slice(0, 8).map((folderPath, index) => ({
+          index: index + 1,
+          title: `${path.basename(folderPath)} - ${folderPath}`,
+          path: folderPath,
+          entities: {
+            selectedPath: folderPath,
+            transferKind: 'folder'
+          }
+        }));
         return {
           success: false,
           needsClarification: true,
-          error: this.folders._buildAmbiguousFolderMessage(folderCandidate, folderMatches.slice(0, 8).map((folderPath, index) => ({
-            index: index + 1,
-            path: folderPath
-          })))
+          error: `I found ${folderMatches.length} matching folders for "${folderCandidate}". Choose a number to send one.`,
+          data: {
+            clarificationType: 'phone.sendFile.folder',
+            transferKind: 'folder',
+            query: folderCandidate,
+            matchCount: folderMatches.length,
+            choices
+          }
         };
       }
       if (folderMatches[0]) {
@@ -403,13 +416,26 @@ class AutomationEngine {
     const fileCandidate = cleanEntityName(normalizedSource, { stripTypeWords: true }) || normalizedSource;
     const fileMatches = this.files._findFileMatches(fileCandidate, entities);
     if (fileMatches.length > 1) {
+      const choices = fileMatches.slice(0, 8).map((filePath, index) => ({
+        index: index + 1,
+        title: `${path.basename(filePath)} - ${filePath}`,
+        path: filePath,
+        entities: {
+          selectedPath: filePath,
+          transferKind: imageLike ? 'image' : 'file'
+        }
+      }));
       return {
         success: false,
         needsClarification: true,
-        error: this.files._buildAmbiguousFileMessage(fileCandidate, fileMatches.slice(0, 8).map((filePath, index) => ({
-          index: index + 1,
-          path: filePath
-        })))
+        error: `I found ${fileMatches.length} matching files for "${fileCandidate}". Choose a number to send one.`,
+        data: {
+          clarificationType: 'phone.sendFile.file',
+          transferKind: imageLike ? 'image' : 'file',
+          query: fileCandidate,
+          matchCount: fileMatches.length,
+          choices
+        }
       };
     }
     if (fileMatches[0]) {
