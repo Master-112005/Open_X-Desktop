@@ -9,6 +9,7 @@ const DEFAULT_HOST = '0.0.0.0';
 const DEFAULT_PORT = 8080;
 const MAX_COMMAND_LENGTH = 5000;
 const MAX_PAYLOAD_BYTES = FileTransferProtocol.MAX_WEBSOCKET_PAYLOAD_BYTES;
+const TRACKED_TRANSFER_RETENTION_MS = 11 * 60 * 1000;
 const POWER_ACTION_IDS = new Set([
   'system.shutdown',
   'system.restart',
@@ -44,7 +45,10 @@ class PhoneServer {
     this.connectionManager = options.connectionManager || new PhoneConnectionManager();
     this.clients = this.connectionManager.clients;
     this.activeTransfersByClient = new Map();
+    this.transferCleanupTimers = new Map();
     this.messageQueues = new Map();
+    this.setTimer = options.setTimeout || setTimeout;
+    this.clearTimer = options.clearTimeout || clearTimeout;
     this.server = null;
     this.startPromise = null;
   }
@@ -99,6 +103,7 @@ class PhoneServer {
       for (const clientId of this.activeTransfersByClient.keys()) {
         this._abortClientTransfers(clientId, 'server_stopped');
       }
+      this._clearTransferCleanupTimers();
       this.connectionManager.clear();
       this.messageQueues.clear();
       this.pairingService.destroy?.();
@@ -118,6 +123,7 @@ class PhoneServer {
     }
     this.connectionManager.clear();
     this.activeTransfersByClient.clear();
+    this._clearTransferCleanupTimers();
     this.messageQueues.clear();
     this.pairingService.destroy?.();
 
@@ -237,10 +243,14 @@ class PhoneServer {
   }
 
   _enqueueClientMessage(clientId, data) {
+    if (!this._isClientOpen(clientId)) return;
     const previous = this.messageQueues.get(clientId) || Promise.resolve();
     const next = previous
       .catch(() => {})
-      .then(() => this._handleMessage(clientId, data))
+      .then(() => {
+        if (!this._isClientOpen(clientId)) return null;
+        return this._handleMessage(clientId, data);
+      })
       .catch(error => {
         this.logger.error('[PHONE] Command Error', { clientId, error: error.message });
         this.sendToClient(clientId, { type: 'error', message: 'Unable to execute command' });
@@ -254,6 +264,7 @@ class PhoneServer {
   }
 
   async _handleMessage(clientId, data) {
+    if (!this._isClientOpen(clientId)) return;
     this.connectionManager.touch(clientId);
     this.logger.info('[PHONE] Message Received', { clientId });
 
@@ -491,12 +502,23 @@ class PhoneServer {
     const transfers = this.activeTransfersByClient.get(clientId) || new Set();
     transfers.add(id);
     this.activeTransfersByClient.set(clientId, transfers);
+    const key = this._transferTrackKey(clientId, id);
+    const previousTimer = this.transferCleanupTimers.get(key);
+    if (previousTimer) this.clearTimer(previousTimer);
+    const timer = this.setTimer(() => this._untrackClientTransfer(clientId, id), TRACKED_TRANSFER_RETENTION_MS);
+    if (typeof timer?.unref === 'function') timer.unref();
+    this.transferCleanupTimers.set(key, timer);
   }
 
   _untrackClientTransfer(clientId, transferId) {
+    const id = String(transferId || '').trim();
+    const key = this._transferTrackKey(clientId, id);
+    const timer = this.transferCleanupTimers.get(key);
+    if (timer) this.clearTimer(timer);
+    this.transferCleanupTimers.delete(key);
     const transfers = this.activeTransfersByClient.get(clientId);
     if (!transfers) return;
-    transfers.delete(String(transferId || '').trim());
+    transfers.delete(id);
     if (transfers.size === 0) this.activeTransfersByClient.delete(clientId);
   }
 
@@ -504,11 +526,29 @@ class PhoneServer {
     const transfers = this.activeTransfersByClient.get(clientId);
     if (!transfers || !this.fileTransferManager) return;
     this.activeTransfersByClient.delete(clientId);
+    this._clearTransferCleanupTimers(clientId);
     for (const transferId of transfers) {
       this.fileTransferManager.abortIncomingTransfer?.(transferId, reason).catch(error => {
         this.logger.warn('[PHONE] Transfer cleanup failed', { clientId, transferId, error: error.message });
       });
     }
+  }
+
+  _transferTrackKey(clientId, transferId) {
+    return `${clientId}:${transferId}`;
+  }
+
+  _clearTransferCleanupTimers(clientId = null) {
+    for (const [key, timer] of this.transferCleanupTimers) {
+      if (clientId && !key.startsWith(`${clientId}:`)) continue;
+      this.clearTimer(timer);
+      this.transferCleanupTimers.delete(key);
+    }
+  }
+
+  _isClientOpen(clientId) {
+    const client = this.connectionManager.get(clientId);
+    return Boolean(client && client.socket?.readyState === WebSocket.OPEN);
   }
 
   _resolveDeviceId(client, payload) {
@@ -528,20 +568,22 @@ class PhoneServer {
         deviceId: payload?.deviceId || null,
         reason: 'device-mismatch'
       });
-      this.sendToClient(clientId, {
+      const errorPayload = {
         type: 'error',
-        transferId,
         message: 'Authentication failed.'
-      });
+      };
+      if (transferId) errorPayload.transferId = transferId;
+      this.sendToClient(clientId, errorPayload);
       return null;
     }
     const result = this.securityManager.validateConnection(payload);
     if (!result.valid) {
-      this.sendToClient(clientId, {
+      const errorPayload = {
         type: 'error',
-        transferId,
         message: result.message
-      });
+      };
+      if (transferId) errorPayload.transferId = transferId;
+      this.sendToClient(clientId, errorPayload);
       return null;
     }
     return result;

@@ -8,6 +8,8 @@ const TransferIntegrity = require('./TransferIntegrity');
 
 const ZIP_MIN_DATE_MS = Date.UTC(1980, 0, 1);
 const ZIP_CRC32_TABLE = createCrc32Table();
+const DEFAULT_INCOMING_TRANSFER_TIMEOUT_MS = 10 * 60 * 1000;
+const MAX_CHUNK_BYTES = FileTransferProtocol.DEFAULT_CHUNK_BYTES + 2;
 
 function createCrc32Table() {
   const table = new Uint32Array(256);
@@ -54,6 +56,11 @@ class FileTransferManager {
     this.connectedDevicesProvider = options.connectedDevicesProvider || (() => []);
     this.logger = options.logger || { info() {}, error() {} };
     this.now = options.now || (() => Date.now());
+    this.transferTimeoutMs = Number.isFinite(options.transferTimeoutMs)
+      ? Math.max(1000, options.transferTimeoutMs)
+      : DEFAULT_INCOMING_TRANSFER_TIMEOUT_MS;
+    this.setTimer = options.setTimeout || setTimeout;
+    this.clearTimer = options.clearTimeout || clearTimeout;
     this.reservedPaths = new Set();
     this.incomingTransfers = new Map();
     fs.mkdirSync(this.receiveDirectory, { recursive: true });
@@ -204,6 +211,7 @@ class FileTransferManager {
       const fileSize = this.protocol.validateFileSize(payload.fileSize);
       const sha256 = this.protocol.validateHash(payload.sha256 || payload.hash);
       const chunkCount = this.protocol.validateChunkCount(payload.chunkCount);
+      this._validateChunkPlan(fileSize, chunkCount);
       const destination = this._reserveDestination(fileName);
       reservedDestination = destination;
       tempPath = this._temporaryTransferPath(destination, transferId);
@@ -211,7 +219,7 @@ class FileTransferManager {
 
       await fs.promises.mkdir(this.tempDirectory, { recursive: true });
       await fs.promises.writeFile(tempPath, Buffer.alloc(0), { flag: 'wx', mode: 0o600 });
-      this.incomingTransfers.set(transferId, {
+      const state = {
         transferId,
         deviceId,
         fileName,
@@ -225,7 +233,19 @@ class FileTransferManager {
         hash: crypto.createHash('sha256'),
         writePromise: Promise.resolve(),
         startedAt: this.now()
-      });
+      };
+      state.timeout = this.setTimer(() => {
+        this.abortIncomingTransfer(transferId, 'transfer_timeout').catch(error => {
+          this.logger.error('[PHONE] Timed transfer cleanup failed', {
+            deviceId,
+            fileName,
+            transferId,
+            error: error.message
+          });
+        });
+      }, this.transferTimeoutMs);
+      if (typeof state.timeout?.unref === 'function') state.timeout.unref();
+      this.incomingTransfers.set(transferId, state);
 
       this.logger.info('[PHONE] Chunked transfer started', {
         deviceId,
@@ -263,6 +283,9 @@ class FileTransferManager {
         throw new FileTransferProtocol.Error('File chunks arrived out of order.', 'invalid_chunk_order');
       }
       const chunk = this.protocol.decodeChunk(payload.data);
+      if (chunk.length > MAX_CHUNK_BYTES) {
+        throw new FileTransferProtocol.Error('File chunk exceeds the transfer chunk limit.', 'invalid_chunk');
+      }
       if (state.receivedBytes + chunk.length > state.fileSize) {
         throw new FileTransferProtocol.Error('File chunk exceeds declared file size.', 'file_size_mismatch');
       }
@@ -306,6 +329,7 @@ class FileTransferManager {
         throw new FileTransferProtocol.Error('File integrity verification failed.', 'hash_mismatch');
       }
       await fs.promises.rename(state.tempPath, state.destination);
+      if (state.timeout) this.clearTimer(state.timeout);
       this.incomingTransfers.delete(transferId);
       this.reservedPaths.delete(state.destination);
       const metadata = {
@@ -523,9 +547,23 @@ class FileTransferManager {
     );
   }
 
+  _validateChunkPlan(fileSize, chunkCount) {
+    if (fileSize === 0) {
+      if (chunkCount !== 1) {
+        throw new FileTransferProtocol.Error('Invalid file chunk count.', 'invalid_chunk');
+      }
+      return;
+    }
+    const expectedMaximum = Math.ceil(fileSize / FileTransferProtocol.DEFAULT_CHUNK_BYTES) + 1;
+    if (chunkCount > expectedMaximum) {
+      throw new FileTransferProtocol.Error('Invalid file chunk count.', 'invalid_chunk');
+    }
+  }
+
   async _failIncomingTransfer(transferId, state, error) {
     this.incomingTransfers.delete(transferId);
     this.reservedPaths.delete(state.destination);
+    if (state.timeout) this.clearTimer(state.timeout);
     try {
       await state.writePromise;
     } catch (_) {}

@@ -16,8 +16,8 @@ const { normalizeWebTarget } = require('./web-targets');
 const { parseLearningDirective } = require('../active-learning/LearningLanguage');
 const { analyzeDiscourse } = require('../language');
 
-const PREPARE_CACHE_LIMIT = 256;
-const PATTERN_CACHE_LIMIT = 512;
+const PREPARE_CACHE_LIMIT = 4096;
+const PATTERN_CACHE_LIMIT = 2048;
 
 class NlpProcessor {
   constructor(intentRegistry) {

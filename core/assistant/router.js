@@ -84,6 +84,20 @@ class ActionRouter {
       logging: config?.logging,
       contextProvider: config?.contextEngine || config?.contextProvider || null
     });
+    this.clauseActionableCache = new Map();
+    this.semanticParseCache = new Map();
+    this.matchIntentCache = new Map();
+  }
+
+  _rememberRouterCache(cache, key, value, limit = 2048) {
+    if (cache.has(key)) {
+      cache.delete(key);
+    }
+    cache.set(key, value);
+    while (cache.size > limit) {
+      cache.delete(cache.keys().next().value);
+    }
+    return value;
   }
 
   async process(inputText, source = 'chat', options = {}) {
@@ -263,8 +277,19 @@ class ActionRouter {
   }
 
   _safeNaturalLanguageParse(rawCommandText, preparedInput) {
+    const cacheKey = `${String(rawCommandText || '').trim()}\n${String(preparedInput?.correctedText || '').trim()}`;
+    if (this.semanticParseCache.has(cacheKey)) {
+      const cached = this.semanticParseCache.get(cacheKey);
+      this.semanticParseCache.delete(cacheKey);
+      this.semanticParseCache.set(cacheKey, cached);
+      return cached;
+    }
     try {
-      return this.naturalLanguageRouter.parse(rawCommandText, preparedInput);
+      return this._rememberRouterCache(
+        this.semanticParseCache,
+        cacheKey,
+        this.naturalLanguageRouter.parse(rawCommandText, preparedInput)
+      );
     } catch (error) {
       this.logger.warn('Natural language routing parse failed', { error: error.message, rawCommandText });
       return null;
@@ -1351,8 +1376,8 @@ class ActionRouter {
       return null;
     }
 
-    const preparedWholeText = this.nlp.prepare(text);
-    preparedWholeText.semanticParse = this.naturalLanguageRouter.parse(text, preparedWholeText);
+    const preparedWholeText = this._safePrepareInput(text);
+    preparedWholeText.semanticParse = this._safeNaturalLanguageParse(text, preparedWholeText);
     const wholeLocalInfo = this._resolveLocalInfoIntent(text, preparedWholeText);
     if (wholeLocalInfo?.intent?.id === 'system.processes' && wholeLocalInfo.entities?.queryApp) {
       return null;
@@ -1515,9 +1540,22 @@ class ActionRouter {
       return false;
     }
 
-    const prepared = this.nlp.prepare(clause);
+    const cacheKey = `${source || 'chat'}:${String(clause || '').trim().toLowerCase()}`;
+    if (this.clauseActionableCache.has(cacheKey)) {
+      const cached = this.clauseActionableCache.get(cacheKey);
+      this.clauseActionableCache.delete(cacheKey);
+      this.clauseActionableCache.set(cacheKey, cached);
+      return cached;
+    }
+
+    const prepared = this._safePrepareInput(clause);
     const intentResult = this._resolveIntent(clause, prepared, source);
-    return Boolean(intentResult && intentResult.confidence >= CONFIDENCE_THRESHOLD);
+    const actionable = Boolean(intentResult && intentResult.confidence >= CONFIDENCE_THRESHOLD);
+    this.clauseActionableCache.set(cacheKey, actionable);
+    while (this.clauseActionableCache.size > 1024) {
+      this.clauseActionableCache.delete(this.clauseActionableCache.keys().next().value);
+    }
+    return actionable;
   }
 
   _isPoliteLeadInClause(clause) {
@@ -1961,6 +1999,14 @@ class ActionRouter {
   _matchIntent(preparedInput) {
     const normalized = (preparedInput.intentText || preparedInput.correctedText || '').trim();
     if (!normalized) return null;
+    const revision = this.intentRegistry?.getRevision?.() || 0;
+    const cacheKey = `${revision}:${normalized}`;
+    if (this.matchIntentCache.has(cacheKey)) {
+      const cached = this.matchIntentCache.get(cacheKey);
+      this.matchIntentCache.delete(cacheKey);
+      this.matchIntentCache.set(cacheKey, cached);
+      return cached;
+    }
 
     const exactMatches = this.intentRegistry.getPatterns();
     let bestExactMatch = null;
@@ -1979,33 +2025,30 @@ class ActionRouter {
     }
 
     if (bestExactMatch) {
-      return bestExactMatch;
+      return this._rememberRouterCache(this.matchIntentCache, cacheKey, bestExactMatch);
     }
 
-    const rankedMatches = this.nlp.getPreparedIntentPatterns().map(candidate => ({
-      intent: candidate.intent,
-      pattern: candidate.pattern,
-      patternLength: candidate.length,
-      confidence: this.nlp.scorePattern(preparedInput, candidate.prepared)
-    }));
-
-    rankedMatches.sort((left, right) => {
-      if (right.confidence !== left.confidence) {
-        return right.confidence - left.confidence;
+    let bestMatch = null;
+    for (const candidate of this.nlp.getPreparedIntentPatterns()) {
+      const confidence = this.nlp.scorePattern(preparedInput, candidate.prepared);
+      if (!bestMatch ||
+        confidence > bestMatch.confidence ||
+        (confidence === bestMatch.confidence && candidate.length > bestMatch.patternLength)) {
+        bestMatch = {
+          intent: candidate.intent,
+          patternLength: candidate.length,
+          confidence
+        };
       }
-
-      return right.patternLength - left.patternLength;
-    });
-
-    const bestMatch = rankedMatches[0] || null;
+    }
     if (!bestMatch || bestMatch.confidence < CONFIDENCE_THRESHOLD) {
-      return null;
+      return this._rememberRouterCache(this.matchIntentCache, cacheKey, null);
     }
 
-    return {
+    return this._rememberRouterCache(this.matchIntentCache, cacheKey, {
       intent: bestMatch.intent,
       confidence: bestMatch.confidence
-    };
+    });
   }
 
   _buildLanguageUnderstanding(preparedInput, intentResult, missingRequired = [], status = 'passed') {
