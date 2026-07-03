@@ -446,4 +446,56 @@ describe('Phone file transfer', function() {
     assert.equal(success.fileName, 'empty.txt');
     assert.deepEqual(fs.readFileSync(path.join(receiveDirectory, 'empty.txt')), Buffer.alloc(0));
   });
+
+  it('rejects impossible chunk plans before reserving transfer state', async function() {
+    await assert.rejects(
+      () => manager.startIncomingTransfer({
+        type: 'file-transfer-start',
+        deviceId: 'phone001',
+        requestId: 'invalid-plan-1',
+        transferId: 'invalid-plan-1',
+        fileName: 'empty.txt',
+        fileSize: 0,
+        hash: new TransferIntegrity().createHash(Buffer.alloc(0)),
+        chunkCount: 2
+      }),
+      error => error.code === 'invalid_chunk'
+    );
+
+    assert.equal(manager.incomingTransfers.size, 0);
+    assert.equal(fs.existsSync(path.join(receiveDirectory, 'empty.txt')), false);
+  });
+
+  it('cleans up chunked transfer state when a chunk exceeds the transfer limit', async function() {
+    const transferId = 'oversized-chunk-1';
+    const oversizedChunk = Buffer.alloc(FileTransferProtocol.DEFAULT_CHUNK_BYTES + 3, 9);
+    const declaredContent = Buffer.alloc(oversizedChunk.length + 1, 9);
+
+    await manager.startIncomingTransfer({
+      type: 'file-transfer-start',
+      deviceId: 'phone001',
+      requestId: transferId,
+      transferId,
+      fileName: 'oversized.bin',
+      fileSize: declaredContent.length,
+      hash: new TransferIntegrity().createHash(declaredContent),
+      chunkCount: 2
+    });
+
+    await assert.rejects(
+      () => manager.receiveFileChunk({
+        type: 'file-transfer-chunk',
+        deviceId: 'phone001',
+        requestId: `${transferId}:0`,
+        transferId,
+        chunkIndex: 0,
+        data: oversizedChunk.toString('base64')
+      }),
+      error => error.code === 'invalid_chunk'
+    );
+
+    assert.equal(manager.incomingTransfers.has(transferId), false);
+    assert.equal(fs.existsSync(path.join(receiveDirectory, 'oversized.bin')), false);
+    assert.equal(history.list().at(-1).status, 'failed');
+  });
 });
