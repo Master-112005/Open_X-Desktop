@@ -1426,6 +1426,7 @@ class Assistant extends EventEmitter {
       clarifiedEntities,
       {
         source,
+        originalInput: pending.originalInput || input,
         permissionGuard: pending.permissionGuard,
         phoneContext: pending.phoneContext || null
       }

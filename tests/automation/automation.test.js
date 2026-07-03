@@ -286,6 +286,48 @@ describe('Automation Engine', function() {
     assert.match(multipleResult.error, /Pixel 10/);
   });
 
+  it('should return structured choices when a phone file transfer has multiple matching files', async function() {
+    const previousUserProfile = process.env.USERPROFILE;
+    const tempProfile = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-phone-choice-'));
+    const firstDir = path.join(tempProfile, 'Documents', 'Work');
+    const secondDir = path.join(tempProfile, 'Downloads', 'Archive');
+    fs.mkdirSync(firstDir, { recursive: true });
+    fs.mkdirSync(secondDir, { recursive: true });
+    const firstFile = path.join(firstDir, 'resume.docx');
+    const secondFile = path.join(secondDir, 'resume.docx');
+    fs.writeFileSync(firstFile, 'first', 'utf8');
+    fs.writeFileSync(secondFile, 'second', 'utf8');
+
+    process.env.USERPROFILE = tempProfile;
+    try {
+      const engine = new AutomationEngine({
+        fileTransferManager: {
+          async sendFileToDevice() {
+            throw new Error('should not transfer before user chooses a file');
+          }
+        }
+      });
+      const result = await engine.execute('phone.sendFile', {
+        path: 'resume.docx',
+        transferKind: 'file'
+      }, {
+        phoneContext: { deviceId: 'phone001', deviceName: 'My Android Phone' }
+      });
+
+      assert.equal(result.success, false);
+      assert.equal(result.needsClarification, true);
+      assert.equal(result.data.clarificationType, 'phone.sendFile.file');
+      assert.equal(result.data.matchCount, 2);
+      assert.equal(result.data.choices.length, 2);
+      assert.ok(result.data.choices.some(choice => choice.path === firstFile));
+      assert.ok(result.data.choices.some(choice => choice.path === secondFile));
+      assert.ok(result.data.choices.every(choice => choice.entities.selectedPath));
+    } finally {
+      process.env.USERPROFILE = previousUserProfile;
+      fs.rmSync(tempProfile, { recursive: true, force: true });
+    }
+  });
+
   it('should return error for unknown action', async function() {
     const engine = new AutomationEngine({});
     const result = await engine.execute('nonexistent.action', {});
