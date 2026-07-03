@@ -7,5 +7,7 @@ models/whisper/*.bin
 dist/
 build/
 .playwright-mcp/
-AGENTS.md
 models/
+AGENTS.md
+commands.md
+RULES.md
