@@ -33,6 +33,10 @@ const phoneServerVersionEl = document.getElementById('phone-server-version');
 const phoneDeviceListEl = document.getElementById('phone-device-list');
 const phoneSectionTabs = document.querySelectorAll('.phone-section-tab');
 const phonePanels = document.querySelectorAll('[data-phone-panel]');
+const phoneDeviceRemoveDialog = document.getElementById('phone-device-remove-dialog');
+const phoneDeviceRemoveMessage = document.getElementById('phone-device-remove-message');
+const phoneDeviceRemoveCancel = document.getElementById('phone-device-remove-cancel');
+const phoneDeviceRemoveConfirm = document.getElementById('phone-device-remove-confirm');
 const chatViewBtn = document.getElementById('chat-view-btn');
 const activityViewBtn = document.getElementById('activity-view-btn');
 const activityCalendarBtn = document.getElementById('activity-calendar-btn');
@@ -68,6 +72,7 @@ let scheduleItems = loadStoredList(SCHEDULE_STORAGE_KEY);
 let notificationHistory = loadStoredList(NOTIFICATION_STORAGE_KEY);
 let isAssistantMuted = localStorage.getItem(ASSISTANT_MUTED_STORAGE_KEY) === 'true';
 let glassTintAnimationFrame = null;
+let pendingPhoneDeviceRemoval = null;
 let pendingGlassTintValue = 42;
 let messageScrollAnimationFrame = null;
 let renderedMessageCount = messagesEl ? messagesEl.querySelectorAll('.message').length : 0;
@@ -1587,17 +1592,51 @@ function renderPhoneDevices(devices) {
     remove.type = 'button';
     remove.className = 'danger-btn';
     remove.textContent = 'Remove Device';
-    remove.addEventListener('click', async () => {
-      if (!window.confirm(`Remove ${device.deviceName} from trusted devices?`)) return;
-      await window.openx.removePhoneDevice(device.deviceId);
-      setSettingsStatus(`${device.deviceName} removed.`, 'success');
-      await loadPhoneDevices();
-    });
+    remove.addEventListener('click', () => openPhoneDeviceRemoveDialog(device));
 
     actions.append(save, disconnect, remove);
     card.append(heading, permissions, actions);
     phoneDeviceListEl.appendChild(card);
   });
+}
+
+function openPhoneDeviceRemoveDialog(device) {
+  if (!phoneDeviceRemoveDialog || !device?.deviceId) return;
+  pendingPhoneDeviceRemoval = {
+    deviceId: device.deviceId,
+    deviceName: device.deviceName || 'this phone'
+  };
+  if (phoneDeviceRemoveMessage) {
+    phoneDeviceRemoveMessage.textContent = `Remove ${pendingPhoneDeviceRemoval.deviceName} from trusted devices? It will lose remote command and file transfer access until paired again.`;
+  }
+  phoneDeviceRemoveDialog.hidden = false;
+  phoneDeviceRemoveConfirm?.focus?.();
+}
+
+function closePhoneDeviceRemoveDialog() {
+  pendingPhoneDeviceRemoval = null;
+  if (phoneDeviceRemoveDialog) phoneDeviceRemoveDialog.hidden = true;
+}
+
+async function confirmPhoneDeviceRemoval() {
+  if (!pendingPhoneDeviceRemoval?.deviceId || !window.openx?.removePhoneDevice) {
+    closePhoneDeviceRemoveDialog();
+    return;
+  }
+  const target = pendingPhoneDeviceRemoval;
+  if (phoneDeviceRemoveConfirm) phoneDeviceRemoveConfirm.disabled = true;
+  if (phoneDeviceRemoveCancel) phoneDeviceRemoveCancel.disabled = true;
+  try {
+    await window.openx.removePhoneDevice(target.deviceId);
+    setSettingsStatus(`${target.deviceName} removed.`, 'success');
+    closePhoneDeviceRemoveDialog();
+    await loadPhoneDevices();
+  } catch (_) {
+    setSettingsStatus('Unable to remove trusted phone.', 'error');
+  } finally {
+    if (phoneDeviceRemoveConfirm) phoneDeviceRemoveConfirm.disabled = false;
+    if (phoneDeviceRemoveCancel) phoneDeviceRemoveCancel.disabled = false;
+  }
 }
 
 async function loadPhoneDevices() {
@@ -1709,6 +1748,16 @@ modeAddBtn.addEventListener('click', () => {
 settingsOverlay.addEventListener('click', (event) => {
   if (event.target === settingsOverlay) {
     closeSettingsPanel();
+  }
+});
+phoneDeviceRemoveCancel?.addEventListener('click', closePhoneDeviceRemoveDialog);
+phoneDeviceRemoveConfirm?.addEventListener('click', confirmPhoneDeviceRemoval);
+phoneDeviceRemoveDialog?.addEventListener('click', (event) => {
+  if (event.target === phoneDeviceRemoveDialog) closePhoneDeviceRemoveDialog();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && phoneDeviceRemoveDialog && !phoneDeviceRemoveDialog.hidden) {
+    closePhoneDeviceRemoveDialog();
   }
 });
 

@@ -404,6 +404,29 @@ class AutomationEngine {
         };
       }
       if (folderMatches[0]) {
+        if (!this.folders._shouldOpenSingleFolderMatch(folderCandidate, folderMatches[0], entities)) {
+          const choice = {
+            index: 1,
+            title: `${path.basename(folderMatches[0])} - ${folderMatches[0]}`,
+            path: folderMatches[0],
+            entities: {
+              selectedPath: folderMatches[0],
+              transferKind: 'folder'
+            }
+          };
+          return {
+            success: false,
+            needsClarification: true,
+            error: `I found one possible folder for "${folderCandidate}". Choose 1 to send it.`,
+            data: {
+              clarificationType: 'phone.sendFile.folder',
+              transferKind: 'folder',
+              query: folderCandidate,
+              matchCount: 1,
+              choices: [choice]
+            }
+          };
+        }
         return { path: requireSafeUserPath(folderMatches[0], { allowRoot: true }), transferKind: 'folder' };
       }
     }
@@ -414,7 +437,11 @@ class AutomationEngine {
     }
 
     const fileCandidate = cleanEntityName(normalizedSource, { stripTypeWords: true }) || normalizedSource;
-    const fileMatches = this.files._findFileMatches(fileCandidate, entities);
+    const fileMatchOptions = {
+      selectedPath: entities.selectedPath,
+      targetPath: entities.targetPath
+    };
+    const fileMatches = this.files._findFileMatches(fileCandidate, fileMatchOptions);
     if (fileMatches.length > 1) {
       const choices = fileMatches.slice(0, 8).map((filePath, index) => ({
         index: index + 1,
@@ -439,6 +466,29 @@ class AutomationEngine {
       };
     }
     if (fileMatches[0]) {
+      if (!this.files._shouldOpenSingleFileMatch(fileCandidate, fileMatches[0], fileMatchOptions)) {
+        const choice = {
+          index: 1,
+          title: `${path.basename(fileMatches[0])} - ${fileMatches[0]}`,
+          path: fileMatches[0],
+          entities: {
+            selectedPath: fileMatches[0],
+            transferKind: imageLike ? 'image' : 'file'
+          }
+        };
+        return {
+          success: false,
+          needsClarification: true,
+          error: `I found one possible file for "${fileCandidate}". Choose 1 to send it.`,
+          data: {
+            clarificationType: 'phone.sendFile.file',
+            transferKind: imageLike ? 'image' : 'file',
+            query: fileCandidate,
+            matchCount: 1,
+            choices: [choice]
+          }
+        };
+      }
       return {
         path: requireSafeUserPath(fileMatches[0]),
         transferKind: imageLike ? 'image' : 'file'

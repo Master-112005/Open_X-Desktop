@@ -162,6 +162,10 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /Remove Device/);
     assert.match(script, /Disconnect Device/);
     assert.match(script, /updatePhonePermissions/);
+    assert.match(html, /id="phone-device-remove-dialog"/);
+    assert.match(script, /openPhoneDeviceRemoveDialog/);
+    assert.match(script, /confirmPhoneDeviceRemoval/);
+    assert.doesNotMatch(script, /window\.confirm\(/);
   });
 
   it('should bound long-session rendering and coalesce glass tint updates', function() {

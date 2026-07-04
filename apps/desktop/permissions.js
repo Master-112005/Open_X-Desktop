@@ -7,6 +7,15 @@ const LEVEL_HIERARCHY = {
   critical: 3
 };
 
+const CLOSE_CONFIRMATION_OPTIONAL_SOURCES = new Set(['chat', 'phone']);
+const CLOSE_INTENTS = new Set([
+  'app.close',
+  'browser.closeTab',
+  'file.close',
+  'folder.close',
+  'window.close'
+]);
+
 class PermissionValidator {
   constructor(config) {
     this.logger = new Logger(config?.logging || { level: 'info' });
@@ -55,11 +64,21 @@ class PermissionValidator {
 
     const confirmationMessage = this._buildConfirmationMessage(intent, entities);
 
+    const requiresConfirmation = Boolean(levelConfig.requiresConfirmation) &&
+      !this._canSkipCloseConfirmation(intent, source);
+
     return {
       allowed: true,
-      requiresConfirmation: Boolean(levelConfig.requiresConfirmation),
+      requiresConfirmation,
       confirmationMessage
     };
+  }
+
+  _canSkipCloseConfirmation(intent, source) {
+    const normalizedSource = String(source || '').trim().toLowerCase();
+    if (!CLOSE_CONFIRMATION_OPTIONAL_SOURCES.has(normalizedSource)) return false;
+    const intentId = String(intent?.id || intent?.action || '').trim();
+    return CLOSE_INTENTS.has(intentId);
   }
 
   _buildConfirmationMessage(intent, entities) {

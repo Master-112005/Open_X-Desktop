@@ -300,6 +300,11 @@ class PhoneServer {
       return;
     }
 
+    if (payload?.type === 'device-update') {
+      this._handleDeviceUpdate(clientId, payload);
+      return;
+    }
+
     if (
       !payload ||
       payload.type !== 'command' ||
@@ -322,7 +327,7 @@ class PhoneServer {
       return;
     }
 
-    const device = registry.getDevice(deviceId);
+    const device = this._applyDeviceNameFromPayload(deviceId, payload) || registry.getDevice(deviceId);
     this.connectionManager.setDevice(clientId, device);
     registry.updateLastSeen(deviceId);
 
@@ -347,6 +352,44 @@ class PhoneServer {
       message,
       timestamp: Number.isFinite(payload.timestamp) ? payload.timestamp : Date.now()
     });
+  }
+
+  _handleDeviceUpdate(clientId, payload) {
+    const client = this.connectionManager.get(clientId);
+    const authentication = this._authenticateRequest(clientId, client, payload);
+    if (!authentication) return;
+
+    if (typeof payload?.deviceName !== 'string' || payload.deviceName.trim().length === 0) {
+      this.sendToClient(clientId, { type: 'error', message: 'Invalid device name' });
+      return;
+    }
+
+    const device = this._applyDeviceNameFromPayload(authentication.deviceId, payload);
+    if (!device) {
+      this.sendToClient(clientId, { type: 'error', message: 'Invalid device name' });
+      return;
+    }
+
+    this.connectionManager.setDevice(clientId, device);
+    this.pairingService.deviceRegistry.updateLastSeen(authentication.deviceId);
+    this.sendToClient(clientId, {
+      type: 'device-updated',
+      deviceId: device.deviceId,
+      deviceName: device.deviceName,
+      timestamp: Number.isFinite(payload.timestamp) ? payload.timestamp : Date.now()
+    });
+  }
+
+  _applyDeviceNameFromPayload(deviceId, payload) {
+    const deviceName = typeof payload?.deviceName === 'string'
+      ? payload.deviceName.replace(/\s+/g, ' ').trim()
+      : '';
+    if (!deviceName) return this.pairingService.deviceRegistry.getDevice(deviceId);
+    try {
+      return this.pairingService.deviceRegistry.updateDeviceName(deviceId, deviceName);
+    } catch (_) {
+      return null;
+    }
   }
 
   _handlePairRequest(clientId, payload) {

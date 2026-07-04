@@ -2,13 +2,13 @@
 
 Project: OpenX
 
-Package version: 4.0.0
+Package version: 4.1.0
 
 Platform: Windows desktop
 
 Runtime: Electron 28, Node.js, CommonJS
 
-Report date: 2026-07-03
+Report date: 2026-07-04
 
 ## 1. Executive Summary
 
@@ -20,6 +20,7 @@ The current implementation includes:
 - automation controllers for apps, browser, files, folders, media, scheduler, planner, system, volume, brightness, windows, screenshots, and communications;
 - local voice capture, preprocessing, Sherpa-ONNX/Parakeet STT, transcript normalization, Dynamic Island voice UI, diagnostics, and TTS turn-taking;
 - OpenX Mobile pairing, session validation, device permissions, phone command routing, and bidirectional file transfer;
+- phone-origin file/folder fetching with desktop search context, structured choices, and safe confirmation before weak matches;
 - calendar, timetable, reminders, recurring reminders, alarms, timers, stopwatch, snooze, and alert display;
 - managed data storage under `OpenX_Data`;
 - Electron IPC security, crash recovery, and renderer isolation;
@@ -36,12 +37,12 @@ C:\Users\rakes\Documents\PROJECTS\open\OpenX
 
 Filtered project count:
 
-- Files in report tree: 265
+- Files in report tree: 276
 - Test files: 52
-- Core files: 68
+- Core files: 105
 - Desktop app files: 114
-- Plugin files: 12
-- Documentation/root metadata files: 14
+- Plugin files: 13
+- Root/config/documentation files: 10
 
 The tree excludes local-only or generated noise:
 

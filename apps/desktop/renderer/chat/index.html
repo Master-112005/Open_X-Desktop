@@ -378,6 +378,20 @@
         </div>
       </aside>
     </div>
+    <div class="device-confirm-overlay" id="phone-device-remove-dialog" hidden>
+      <div class="device-confirm-card" role="dialog" aria-modal="true" aria-labelledby="phone-device-remove-title">
+        <div class="device-confirm-icon">!</div>
+        <div>
+          <div class="device-confirm-kicker">Trusted phone</div>
+          <h3 id="phone-device-remove-title">Remove device?</h3>
+          <p id="phone-device-remove-message">This phone will lose permission to control OpenX and transfer files.</p>
+        </div>
+        <div class="device-confirm-actions">
+          <button class="secondary-btn" id="phone-device-remove-cancel" type="button">Cancel</button>
+          <button class="danger-btn" id="phone-device-remove-confirm" type="button">Remove</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="./index.js"></script>

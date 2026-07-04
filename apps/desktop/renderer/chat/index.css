@@ -734,6 +734,79 @@
   margin-top: 14px;
 }
 
+.device-confirm-overlay {
+  align-items: center;
+  background: rgba(3, 5, 10, 0.52);
+  backdrop-filter: blur(22px) saturate(130%);
+  -webkit-backdrop-filter: blur(22px) saturate(130%);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: absolute;
+  z-index: 40;
+}
+
+.device-confirm-overlay[hidden] {
+  display: none;
+}
+
+.device-confirm-card {
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.16), rgba(255,255,255,.055) 48%, transparent),
+    rgba(11, 12, 16, 0.92);
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 24px;
+  box-shadow: 0 28px 90px rgba(0,0,0,.42), inset 0 1px 1px rgba(255,255,255,.16);
+  color: var(--adaptive-text, #f8f8fa);
+  display: grid;
+  gap: 14px;
+  max-width: 360px;
+  padding: 18px;
+  transform: translate3d(0,0,0);
+  width: min(100%, 360px);
+}
+
+.device-confirm-icon {
+  align-items: center;
+  background: rgba(255, 123, 123, 0.14);
+  border: 1px solid rgba(255, 123, 123, 0.28);
+  border-radius: 16px;
+  color: #ffd6d6;
+  display: grid;
+  font-size: 18px;
+  font-weight: 900;
+  height: 42px;
+  place-items: center;
+  width: 42px;
+}
+
+.device-confirm-kicker {
+  color: var(--adaptive-muted, rgba(255,255,255,.68));
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.device-confirm-card h3 {
+  font-size: 20px;
+  margin: 3px 0 0;
+}
+
+.device-confirm-card p {
+  color: var(--adaptive-muted, rgba(255,255,255,.72));
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 8px 0 0;
+}
+
+.device-confirm-actions {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
 .theme-grid {
   gap: 14px;
 }
