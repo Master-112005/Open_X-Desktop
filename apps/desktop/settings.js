@@ -351,7 +351,12 @@ class SettingsService {
         heartbeatEnabled: true,
         connectionTimeoutMs: clampNumber(this.baseConfig?.cloud?.connectionTimeoutMs, 1000, 60000, 10000),
         heartbeatIntervalMs: clampNumber(this.baseConfig?.cloud?.heartbeatIntervalMs, 5000, 120000, 30000),
-        pairTokenTtlMs: clampNumber(this.baseConfig?.cloud?.pairTokenTtlMs, 30000, 900000, 5 * 60 * 1000)
+        pairTokenTtlMs: clampNumber(this.baseConfig?.cloud?.pairTokenTtlMs, 30000, 900000, 5 * 60 * 1000),
+        commandExecutionTimeoutMs: clampNumber(this.baseConfig?.cloud?.commandExecutionTimeoutMs, 1000, 300000, 60000),
+        commandQueueMode: this.baseConfig?.cloud?.commandQueueMode === 'busy' ? 'busy' : 'queue',
+        commandMaxQueueSize: clampNumber(this.baseConfig?.cloud?.commandMaxQueueSize, 1, 250, 25),
+        fileTransferChunkBytes: clampNumber(this.baseConfig?.cloud?.fileTransferChunkBytes, 1024, 16384, 12288),
+        fileTransferTimeoutMs: clampNumber(this.baseConfig?.cloud?.fileTransferTimeoutMs, 30000, 3600000, 10 * 60 * 1000)
       },
       modes: []
     };
@@ -515,7 +520,12 @@ class SettingsService {
         heartbeatEnabled: source.cloud?.heartbeatEnabled !== false,
         connectionTimeoutMs: clampNumber(source.cloud?.connectionTimeoutMs, 1000, 60000, this.defaults.cloud.connectionTimeoutMs),
         heartbeatIntervalMs: clampNumber(source.cloud?.heartbeatIntervalMs, 5000, 120000, this.defaults.cloud.heartbeatIntervalMs),
-        pairTokenTtlMs: clampNumber(source.cloud?.pairTokenTtlMs, 30000, 900000, this.defaults.cloud.pairTokenTtlMs)
+        pairTokenTtlMs: clampNumber(source.cloud?.pairTokenTtlMs, 30000, 900000, this.defaults.cloud.pairTokenTtlMs),
+        commandExecutionTimeoutMs: clampNumber(source.cloud?.commandExecutionTimeoutMs, 1000, 300000, this.defaults.cloud.commandExecutionTimeoutMs),
+        commandQueueMode: source.cloud?.commandQueueMode === 'busy' ? 'busy' : 'queue',
+        commandMaxQueueSize: clampNumber(source.cloud?.commandMaxQueueSize, 1, 250, this.defaults.cloud.commandMaxQueueSize),
+        fileTransferChunkBytes: clampNumber(source.cloud?.fileTransferChunkBytes, 1024, 16384, this.defaults.cloud.fileTransferChunkBytes),
+        fileTransferTimeoutMs: clampNumber(source.cloud?.fileTransferTimeoutMs, 30000, 3600000, this.defaults.cloud.fileTransferTimeoutMs)
       },
       modes: sanitizeModes(source.modes)
     };

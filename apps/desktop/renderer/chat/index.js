@@ -51,6 +51,10 @@ const cloudPairingExpiryEl = document.getElementById('cloud-pairing-expiry');
 const cloudPairingCountdownEl = document.getElementById('cloud-pairing-countdown');
 const cloudPairingRequestsEl = document.getElementById('cloud-pairing-requests');
 const phoneDeviceListEl = document.getElementById('phone-device-list');
+const deviceSearchEl = document.getElementById('device-search');
+const deviceFilterEl = document.getElementById('device-filter');
+const deviceSortEl = document.getElementById('device-sort');
+const deviceRefreshBtn = document.getElementById('device-refresh-btn');
 const phoneSectionTabs = document.querySelectorAll('.phone-section-tab');
 const phonePanels = document.querySelectorAll('[data-phone-panel]');
 const phoneDeviceRemoveDialog = document.getElementById('phone-device-remove-dialog');
@@ -94,6 +98,7 @@ let isAssistantMuted = localStorage.getItem(ASSISTANT_MUTED_STORAGE_KEY) === 'tr
 let glassTintAnimationFrame = null;
 let pendingPhoneDeviceRemoval = null;
 let pendingGlassTintValue = 42;
+let latestManagedDevices = [];
 let messageScrollAnimationFrame = null;
 let renderedMessageCount = messagesEl ? messagesEl.querySelectorAll('.message').length : 0;
 let phonePairingCountdownHandle = null;
@@ -101,11 +106,15 @@ let cloudPairingCountdownHandle = null;
 let cloudStatusPollHandle = null;
 let latestCloudStatus = null;
 const PHONE_PERMISSIONS = [
-  ['remoteCommands', 'Remote Commands'],
+  ['remoteCommands', 'Assistant Access'],
   ['fileTransfer', 'File Transfer'],
+  ['powerActions', 'Desktop Control'],
+  ['clipboard', 'Clipboard'],
+  ['screenSharing', 'Future Screen Sharing'],
+  ['camera', 'Future Camera'],
+  ['microphone', 'Future Microphone'],
   ['receiveFiles', 'Receive Files'],
-  ['sendFiles', 'Send Files'],
-  ['powerActions', 'Power Actions']
+  ['sendFiles', 'Send Files']
 ];
 const scheduleTimers = new Map();
 
@@ -1447,6 +1456,7 @@ function openSettingsPanel() {
   loadCloudPairingStatus();
   if (!cloudStatusPollHandle) {
     cloudStatusPollHandle = setInterval(() => {
+      loadPhoneServerStatus();
       loadCloudStatus();
       loadCloudPairingStatus();
     }, 5000);
@@ -1595,6 +1605,9 @@ function renderPhoneServerStatus(status) {
   phoneServerPortEl.textContent = Number.isInteger(safeStatus.currentPort) ? String(safeStatus.currentPort) : '--';
   phoneServerDevicesEl.textContent = String(Array.isArray(safeStatus.connectedDevices) ? safeStatus.connectedDevices.length : 0);
   phoneServerVersionEl.textContent = String(safeStatus.currentVersion ?? 1);
+  if (activeSettingsSection === 'phone' && activePhonePanel === 'devices') {
+    loadPhoneDevices();
+  }
 }
 
 async function generateCloudPairingQR() {
@@ -1699,6 +1712,9 @@ function renderCloudStatus(status) {
   }
   if (safeStatus.connected !== true && cloudPairingStatusEl) {
     cloudPairingStatusEl.textContent = 'Connect to Relay Server first.';
+  }
+  if (activeSettingsSection === 'phone' && activePhonePanel === 'devices') {
+    loadPhoneDevices();
   }
 }
 
@@ -1833,33 +1849,180 @@ function formatDeviceDate(timestamp) {
   return Number.isFinite(value) ? new Date(value).toLocaleString() : 'Unknown';
 }
 
-function renderPhoneDevices(devices) {
+function formatDeviceDuration(milliseconds) {
+  const value = Number(milliseconds);
+  if (!Number.isFinite(value) || value <= 0) return 'Not active';
+  const totalSeconds = Math.floor(value / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function formatDeviceType(type) {
+  const normalized = String(type || 'phone').toLowerCase();
+  if (normalized.includes('desktop') || normalized.includes('laptop') || normalized.includes('pc')) return 'Desktop';
+  if (normalized.includes('tablet')) return 'Tablet';
+  if (normalized.includes('cloud')) return 'Cloud Device';
+  return 'Phone';
+}
+
+function getDeviceTypeIcon(type) {
+  const label = formatDeviceType(type);
+  if (label === 'Desktop') return 'PC';
+  if (label === 'Tablet') return 'Tab';
+  return 'Phone';
+}
+
+function permissionSummary(device) {
+  const permissions = device?.permissions || {};
+  const enabled = PHONE_PERMISSIONS.filter(([permission]) => permissions[permission] === true)
+    .map(([, label]) => label);
+  if (enabled.length === 0) return 'No permissions enabled';
+  if (enabled.length <= 2) return enabled.join(', ');
+  return `${enabled.slice(0, 2).join(', ')} +${enabled.length - 2} more`;
+}
+
+function getFilteredDevices(devices) {
+  const query = String(deviceSearchEl?.value || '').trim().toLowerCase();
+  const filter = deviceFilterEl?.value || 'all';
+  const sort = deviceSortEl?.value || 'status';
+  const matchesFilter = device => {
+    const type = String(device.deviceType || '').toLowerCase();
+    if (filter === 'connected') return device.connected === true || device.connectionStatus === 'connected';
+    if (filter === 'offline') return device.connected !== true && device.connectionStatus !== 'connected';
+    if (filter === 'trusted') return device.trusted === true;
+    if (filter === 'untrusted') return device.trusted !== true;
+    if (filter === 'phone') return !type || type.includes('phone') || type.includes('mobile');
+    if (filter === 'desktop') return type.includes('desktop') || type.includes('laptop') || type.includes('pc');
+    if (filter === 'tablet') return type.includes('tablet');
+    return true;
+  };
+  const matchesQuery = device => {
+    if (!query) return true;
+    return [
+      device.deviceName,
+      device.friendlyName,
+      device.deviceId,
+      device.deviceType,
+      device.platform,
+      device.softwareVersion,
+      device.connectionStatus,
+      device.trustStatus
+    ].some(value => String(value || '').toLowerCase().includes(query));
+  };
+  return devices
+    .filter(device => matchesFilter(device) && matchesQuery(device))
+    .sort((left, right) => {
+      if (sort === 'name') return String(left.deviceName || '').localeCompare(String(right.deviceName || ''));
+      if (sort === 'lastSeen') return Number(right.lastSeen || 0) - Number(left.lastSeen || 0);
+      if (sort === 'pairedAt') return Number(right.pairedAt || 0) - Number(left.pairedAt || 0);
+      const leftConnected = left.connected ? 0 : 1;
+      const rightConnected = right.connected ? 0 : 1;
+      if (leftConnected !== rightConnected) return leftConnected - rightConnected;
+      const leftTrusted = left.trusted === true ? 0 : 1;
+      const rightTrusted = right.trusted === true ? 0 : 1;
+      if (leftTrusted !== rightTrusted) return leftTrusted - rightTrusted;
+      return String(left.deviceName || '').localeCompare(String(right.deviceName || ''));
+    });
+}
+
+function renderManagedPhoneDevices(devices) {
+  latestManagedDevices = Array.isArray(devices) ? devices.slice() : [];
   phoneDeviceListEl.replaceChildren();
-  if (!Array.isArray(devices) || devices.length === 0) {
+  const filteredDevices = getFilteredDevices(latestManagedDevices);
+  if (latestManagedDevices.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'phone-device-empty';
-    empty.textContent = 'No trusted phones paired.';
+    empty.textContent = 'No paired devices yet. Use Connect Phone to pair a device.';
+    phoneDeviceListEl.appendChild(empty);
+    return;
+  }
+  if (filteredDevices.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'phone-device-empty';
+    empty.textContent = 'No devices match this search or filter.';
     phoneDeviceListEl.appendChild(empty);
     return;
   }
 
-  devices.forEach(device => {
+  filteredDevices.forEach(device => {
+    const isCloudOnly = device.source === 'cloud';
+    const isConnected = device.connected === true || device.connectionStatus === 'connected';
     const card = document.createElement('article');
-    card.className = 'phone-device-card';
+    card.className = `phone-device-card${isConnected ? ' connected' : ''}${device.trusted !== true ? ' untrusted' : ''}`;
     card.dataset.deviceId = device.deviceId;
 
     const heading = document.createElement('div');
     heading.className = 'phone-device-card-heading';
+    const identityWrap = document.createElement('div');
+    identityWrap.className = 'phone-device-identity';
+    const icon = document.createElement('span');
+    icon.className = 'device-type-icon';
+    icon.textContent = getDeviceTypeIcon(device.deviceType);
     const identity = document.createElement('div');
     const name = document.createElement('strong');
-    name.textContent = device.deviceName;
+    name.textContent = device.friendlyName || device.deviceName || 'Unknown Device';
     const id = document.createElement('span');
     id.textContent = device.deviceId;
     identity.append(name, id);
+    identityWrap.append(icon, identity);
     const dates = document.createElement('div');
     dates.className = 'phone-device-dates';
-    dates.textContent = `Paired ${formatDeviceDate(device.pairedAt)} · Last seen ${formatDeviceDate(device.lastSeen)}`;
-    heading.append(identity, dates);
+    dates.textContent = `${isConnected ? 'Connected' : 'Offline'} - ${device.trusted === true ? 'Trusted' : 'Untrusted'}`;
+    heading.append(identityWrap, dates);
+
+    const meta = document.createElement('div');
+    meta.className = 'device-meta-grid';
+    [
+      ['Type', formatDeviceType(device.deviceType)],
+      ['Platform', device.platform || 'Unknown'],
+      ['Version', device.softwareVersion || 'Unknown'],
+      ['Connection', device.connectionStatus || (isConnected ? 'connected' : 'offline')],
+      ['Duration', formatDeviceDuration(device.connectionDurationMs)],
+      ['Last Seen', formatDeviceDate(device.lastSeen)],
+      ['Paired', formatDeviceDate(device.pairedAt)],
+      ['Session', device.sessionStatus || 'none'],
+      ['Permissions', permissionSummary(device)]
+    ].forEach(([label, value]) => {
+      const item = document.createElement('div');
+      item.className = 'device-meta-item';
+      const labelEl = document.createElement('span');
+      labelEl.textContent = label;
+      const valueEl = document.createElement('strong');
+      valueEl.textContent = value;
+      item.append(labelEl, valueEl);
+      meta.appendChild(item);
+    });
+
+    const renameRow = document.createElement('div');
+    renameRow.className = 'device-rename-row';
+    const renameInput = document.createElement('input');
+    renameInput.className = 'field';
+    renameInput.type = 'text';
+    renameInput.value = device.deviceName || '';
+    renameInput.placeholder = 'Device name';
+    const renameButton = document.createElement('button');
+    renameButton.type = 'button';
+    renameButton.className = 'secondary-btn';
+    renameButton.textContent = 'Rename';
+    renameButton.addEventListener('click', async () => {
+      const nextName = renameInput.value.trim();
+      if (!nextName || nextName === device.deviceName) return;
+      renameButton.disabled = true;
+      try {
+        await window.openx.renamePhoneDevice(device.deviceId, nextName);
+        setSettingsStatus(`${device.deviceName} renamed.`, 'success');
+        await loadPhoneDevices();
+      } catch (_) {
+        setSettingsStatus('Unable to rename device.', 'error');
+      } finally {
+        renameButton.disabled = false;
+      }
+    });
+    renameRow.append(renameInput, renameButton);
 
     const permissions = document.createElement('div');
     permissions.className = 'phone-device-permissions';
@@ -1870,6 +2033,7 @@ function renderPhoneDevices(devices) {
       checkbox.type = 'checkbox';
       checkbox.dataset.permission = permission;
       checkbox.checked = device.permissions?.[permission] === true;
+      checkbox.disabled = isCloudOnly;
       const text = document.createElement('span');
       text.textContent = label;
       control.append(checkbox, text);
@@ -1882,6 +2046,7 @@ function renderPhoneDevices(devices) {
     save.type = 'button';
     save.className = 'primary-btn';
     save.textContent = 'Save Permissions';
+    save.disabled = isCloudOnly;
     save.addEventListener('click', async () => {
       const updates = {};
       card.querySelectorAll('[data-permission]').forEach(input => {
@@ -1895,26 +2060,57 @@ function renderPhoneDevices(devices) {
       }
     });
 
+    const trust = document.createElement('button');
+    trust.type = 'button';
+    trust.className = device.trusted === true ? 'secondary-btn' : 'primary-btn';
+    trust.textContent = device.trusted === true ? 'Untrust' : 'Trust';
+    trust.disabled = isCloudOnly;
+    trust.addEventListener('click', async () => {
+      trust.disabled = true;
+      try {
+        const nextTrusted = device.trusted !== true;
+        await window.openx.updatePhoneTrust(device.deviceId, nextTrusted);
+        setSettingsStatus(`${device.deviceName} ${nextTrusted ? 'trusted' : 'untrusted'}.`, 'success');
+        await loadPhoneDevices();
+      } catch (_) {
+        setSettingsStatus('Unable to update device trust.', 'error');
+      } finally {
+        trust.disabled = false;
+      }
+    });
+
     const disconnect = document.createElement('button');
     disconnect.type = 'button';
     disconnect.className = 'secondary-btn';
-    disconnect.textContent = 'Disconnect Device';
+    disconnect.textContent = 'Disconnect';
+    disconnect.disabled = isCloudOnly || !isConnected;
     disconnect.addEventListener('click', async () => {
       await window.openx.disconnectPhoneDevice(device.deviceId);
       setSettingsStatus(`${device.deviceName} disconnected.`, 'success');
       await loadPhoneDevices();
     });
 
+    const reconnect = document.createElement('button');
+    reconnect.type = 'button';
+    reconnect.className = 'secondary-btn';
+    reconnect.textContent = 'Reconnect';
+    reconnect.disabled = true;
+    reconnect.title = 'Future reconnect support will use the existing pair.';
+
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'danger-btn';
-    remove.textContent = 'Remove Device';
+    remove.textContent = 'Remove';
     remove.addEventListener('click', () => openPhoneDeviceRemoveDialog(device));
 
-    actions.append(save, disconnect, remove);
-    card.append(heading, permissions, actions);
+    actions.append(save, trust, disconnect, reconnect, remove);
+    card.append(heading, meta, renameRow, permissions, actions);
     phoneDeviceListEl.appendChild(card);
   });
+}
+
+function renderPhoneDevices(devices) {
+  renderManagedPhoneDevices(devices);
 }
 
 function openPhoneDeviceRemoveDialog(device) {
@@ -1924,7 +2120,7 @@ function openPhoneDeviceRemoveDialog(device) {
     deviceName: device.deviceName || 'this phone'
   };
   if (phoneDeviceRemoveMessage) {
-    phoneDeviceRemoveMessage.textContent = `Remove ${pendingPhoneDeviceRemoval.deviceName} from trusted devices? It will lose remote command and file transfer access until paired again.`;
+    phoneDeviceRemoveMessage.textContent = `Remove ${pendingPhoneDeviceRemoval.deviceName} from paired devices? It will lose OpenX access until paired again.`;
   }
   phoneDeviceRemoveDialog.hidden = false;
   phoneDeviceRemoveConfirm?.focus?.();
@@ -2048,6 +2244,10 @@ phoneSectionTabs.forEach(button => {
     setActivePhonePanel(button.dataset.phonePanelTarget);
   });
 });
+deviceSearchEl?.addEventListener('input', () => renderPhoneDevices(latestManagedDevices));
+deviceFilterEl?.addEventListener('change', () => renderPhoneDevices(latestManagedDevices));
+deviceSortEl?.addEventListener('change', () => renderPhoneDevices(latestManagedDevices));
+deviceRefreshBtn?.addEventListener('click', () => loadPhoneDevices());
 document.getElementById('settings-save-btn').addEventListener('click', saveSettings);
 document.getElementById('settings-reset-btn').addEventListener('click', resetSettings);
 phoneGenerateTokenBtn.addEventListener('click', generatePairingQR);

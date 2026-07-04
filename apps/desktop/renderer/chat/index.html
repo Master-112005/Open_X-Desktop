@@ -411,11 +411,31 @@
               </div>
             </div>
             <div class="phone-panel" data-phone-panel="devices" hidden>
-              <div class="phone-devices-heading">
+              <div class="device-center-heading">
                 <div>
                   <strong>Connected Devices</strong>
-                  <div class="section-note">Manage what each trusted phone can do.</div>
+                  <div class="section-note">Manage trusted devices, permissions, sessions, and access.</div>
                 </div>
+                <button class="secondary-btn" id="device-refresh-btn" type="button">Refresh</button>
+              </div>
+              <div class="device-center-toolbar">
+                <input class="field" id="device-search" type="search" placeholder="Search devices..." aria-label="Search devices">
+                <select class="field-select" id="device-filter" aria-label="Filter devices">
+                  <option value="all">All devices</option>
+                  <option value="connected">Connected</option>
+                  <option value="offline">Offline</option>
+                  <option value="trusted">Trusted</option>
+                  <option value="untrusted">Untrusted</option>
+                  <option value="phone">Phones</option>
+                  <option value="desktop">Desktops</option>
+                  <option value="tablet">Tablets</option>
+                </select>
+                <select class="field-select" id="device-sort" aria-label="Sort devices">
+                  <option value="status">Status</option>
+                  <option value="name">Name</option>
+                  <option value="lastSeen">Last seen</option>
+                  <option value="pairedAt">Paired date</option>
+                </select>
               </div>
               <div class="phone-device-list" id="phone-device-list"></div>
             </div>

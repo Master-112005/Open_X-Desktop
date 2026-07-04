@@ -89,7 +89,11 @@ describe('Phone device permissions', function() {
       fileTransfer: true,
       receiveFiles: true,
       sendFiles: true,
-      powerActions: false
+      powerActions: false,
+      clipboard: false,
+      screenSharing: false,
+      camera: false,
+      microphone: false
     });
 
     registry.updatePermissions('phone001', { remoteCommands: false, powerActions: true });
@@ -114,7 +118,32 @@ describe('Phone device permissions', function() {
     const migrated = new DeviceRegistry({ filePath: legacyPath });
     assert.equal(migrated.hasPermission('legacy-phone', 'remoteCommands'), true);
     assert.equal(migrated.hasPermission('legacy-phone', 'powerActions'), false);
+    assert.equal(migrated.hasPermission('legacy-phone', 'clipboard'), false);
     assert.equal(JSON.parse(fs.readFileSync(legacyPath, 'utf8'))[0].permissions.powerActions, false);
+  });
+
+  it('stores device metadata and trust state for management center', function() {
+    const device = registry.registerDevice({
+      deviceId: 'phone002',
+      deviceName: 'Pixel 9 Pro',
+      deviceType: 'phone',
+      platform: 'android',
+      softwareVersion: '3.1.1'
+    });
+
+    assert.equal(device.deviceType, 'phone');
+    assert.equal(device.platform, 'android');
+    assert.equal(device.softwareVersion, '3.1.1');
+    assert.equal(device.trustStatus, 'trusted');
+
+    const untrusted = registry.updateTrust('phone002', false);
+    assert.equal(untrusted.trusted, false);
+    assert.equal(untrusted.trustStatus, 'revoked');
+    assert.equal(registry.hasPermission('phone002', 'remoteCommands'), false);
+
+    const trusted = registry.updateTrust('phone002', true);
+    assert.equal(trusted.trusted, true);
+    assert.equal(trusted.trustStatus, 'trusted');
   });
 
   it('denies remote commands before invoking the assistant', async function() {

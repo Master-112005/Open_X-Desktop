@@ -82,4 +82,117 @@ describe('CloudConnectionManager', () => {
     expect(CloudConnectionManager.normalizeRelayUrl('http://localhost:8080/custom'))
       .to.equal('ws://localhost:8080/custom');
   });
+
+  it('updates and removes cloud devices through correlated relay requests', async () => {
+    const relayUrl = await startRelayStub();
+    server.on('connection', socket => {
+      socket.on('message', data => {
+        const message = JSON.parse(data.toString('utf8'));
+        if (message.type === 'device:update') {
+          socket.send(JSON.stringify({
+            type: 'device:updated',
+            requestId: message.requestId,
+            success: true,
+            device: {
+              deviceId: message.deviceId,
+              friendlyName: message.friendlyName,
+              ownerId: 'owner-test',
+              connectionState: 'connected'
+            }
+          }));
+        }
+        if (message.type === 'device:remove') {
+          socket.send(JSON.stringify({
+            type: 'device:removed',
+            requestId: message.requestId,
+            success: true,
+            device: {
+              deviceId: message.deviceId
+            }
+          }));
+        }
+      });
+    });
+    const manager = new CloudConnectionManager({
+      logger: createSilentLogger(),
+      settings: { reconnectEnabled: false, heartbeatEnabled: false },
+      version: 'test'
+    });
+
+    await manager.connect({ relayUrl });
+    manager.pairedDevices = [{ deviceId: 'phone:001', friendlyName: 'Old Phone', ownerId: 'owner-test' }];
+
+    const updated = await manager.updateDevice('phone:001', { friendlyName: 'New Phone' });
+    expect(updated.success).to.equal(true);
+    expect(manager.getStatus().pairedDevices[0].friendlyName).to.equal('New Phone');
+
+    const removed = await manager.removeDevice('phone:001');
+    expect(removed.success).to.equal(true);
+    expect(manager.getStatus().pairedDevices).to.deep.equal([]);
+
+    await manager.disconnect('test-finished');
+  });
+
+  it('tracks presence and notifications sent by the relay', async () => {
+    const relayUrl = await startRelayStub();
+    server.on('connection', socket => {
+      socket.on('message', data => {
+        const message = JSON.parse(data.toString('utf8'));
+        if (message.type === 'device:register') {
+          socket.send(JSON.stringify({
+            type: 'device:registered',
+            requestId: message.requestId,
+            owner: { id: 'owner-test' },
+            device: { deviceId: message.deviceId, ownerId: 'owner-test', friendlyName: 'Desktop' }
+          }));
+          socket.send(JSON.stringify({
+            type: 'presence:subscribed',
+            requestId: 'presence-test',
+            presence: [{
+              deviceId: message.deviceId,
+              ownerId: 'owner-test',
+              state: 'online',
+              lastSeen: 1000
+            }]
+          }));
+          socket.send(JSON.stringify({
+            type: 'notification:new',
+            notification: {
+              notificationId: 'notice-1',
+              ownerId: 'owner-test',
+              sourceDeviceId: 'phone-test',
+              destinationDeviceId: message.deviceId,
+              category: 'device',
+              priority: 'high',
+              status: 'delivered',
+              read: false,
+              createdAt: 1000
+            }
+          }));
+        }
+      });
+    });
+    const manager = new CloudConnectionManager({
+      logger: createSilentLogger(),
+      settings: {
+        deviceId: 'desktop-test',
+        ownerId: 'owner-test',
+        reconnectEnabled: false,
+        heartbeatEnabled: false
+      },
+      version: 'test'
+    });
+
+    const presencePromise = waitForEvent(manager, 'presence', presence => presence.length === 1);
+    const notificationPromise = waitForEvent(manager, 'notification', notification => notification.notificationId === 'notice-1');
+    await manager.connect({ relayUrl });
+    const presence = await presencePromise;
+    const notification = await notificationPromise;
+
+    expect(presence[0].state).to.equal('online');
+    expect(notification.priority).to.equal('high');
+    expect(manager.getStatus().notifications).to.have.length(1);
+
+    await manager.disconnect('test-finished');
+  });
 });

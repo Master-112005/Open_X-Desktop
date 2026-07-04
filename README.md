@@ -10,8 +10,10 @@ Current package version: `4.1.0`
 - Local command processing through NLP, NLU, parser, router, NLE, automation, verification, response generation, context, and active learning.
 - Local voice subsystem with Sherpa-ONNX/Parakeet STT, RNNoise/VAD preprocessing, transcript normalization, continuous voice sessions, Dynamic Island voice UI, and TTS turn-taking.
 - Phone pairing, permission checks, session validation, command routing, and file transfer support for OpenX Mobile.
+- Desktop Device Management Center for paired phones and future cloud devices, including search, filters, rename, trust, disconnect, remove, and permission editing.
 - Optional desktop cloud relay connection and relay QR pairing, disabled by default so local mode works offline.
 - Stable desktop cloud device registration for relay-side multi-device management.
+- Cloud-mode presence and notification protocol support for paired devices, isolated from Local Mode.
 - Calendar, timetable, reminders, timers, alarms, snooze, stopwatch, and Dynamic Island alert display.
 - Managed runtime storage under `%USERPROFILE%\OpenX_Data`.
 - Plugin support for isolated Chrome, YouTube, Discord, forms, and communications integrations.
@@ -43,7 +45,7 @@ The assistant remains input-source agnostic. Chat, voice, and phone commands all
 | Assistant core | `core/assistant/` | NLP, NLU, parser, router, NLE, responses, context, learning, data handling |
 | Automation | `core/automation/` | Apps, browser, files, folders, media, planner, scheduler, system, volume, brightness, windows |
 | Phone integration | `core/phone/` | Pairing, sessions, permissions, WebSocket server, command routing, file transfer |
-| Cloud connection | `core/cloud/` | Optional relay WebSocket client, state, reconnect, heartbeat, cloud QR pairing, local cloud logs |
+| Cloud connection | `core/cloud/` | Optional relay WebSocket client, state, reconnect, heartbeat, cloud QR pairing, presence, notifications, local cloud logs |
 | Desktop app | `apps/desktop/` | Electron lifecycle, IPC, renderer UI, settings, security, crash recovery |
 | Voice | `apps/desktop/voice/` | Audio capture, preprocessing, STT, normalization, session lifecycle, voice UI, diagnostics, TTS |
 | Plugins | `plugins/` | Restricted external integration packages |
@@ -79,10 +81,43 @@ Desktop cloud mode is available from `Settings -> Phone -> Cloud Connection`:
 - The desktop registers a stable `desktop_*` device ID and placeholder `owner_*` ID with the relay.
 - The relay treats the desktop device, owner, and WebSocket connection as separate concepts.
 - Paired cloud devices can exchange validated opaque `relay:packet` messages through the relay transport layer.
-- `CloudConnectionManager.sendRelayPacket(packet)` and `relay-packet` / `relay-ack` / `relay-error` events expose the generic transport hook for future phases.
+- `CloudConnectionManager.sendRelayPacket(packet)` and `relay-packet` / `relay-ack` / `relay-error` events expose the generic transport hook.
+- `CloudCommandManager` receives cloud `assistant-command` packets, validates them, queues them, and routes them through the existing phone command path into `Assistant.processCommand()`.
 - Auto connect is off by default.
 - Reconnect uses bounded exponential backoff after unexpected disconnects.
-- No authentication, remote assistant commands, sessions, permissions, presence, notifications, or file transfer are implemented through the relay in this phase.
+- `CloudFileTransferManager` supports cloud file transfer with metadata-first approval, chunked upload/download, progress events, cancellation, timeout cleanup, and SHA-256 verification.
+- Cloud presence tracks paired device availability and marks the desktop busy during cloud assistant/file-transfer work.
+- Cloud notifications receive relay events such as pairing, device online/offline, and file-transfer status.
+- No cloud voice streaming, screen sharing, cloud backup, or offline sync is implemented through the relay in this phase.
+
+Cloud command flow:
+
+```text
+OpenX Mobile
+  -> relay:packet assistant-command
+  -> OpenX Relay Server
+  -> Desktop CloudCommandManager
+  -> PhoneCommandRouter
+  -> Assistant.processCommand(text, 'phone', phoneContext)
+  -> relay:packet assistant response
+  -> OpenX Mobile
+```
+
+The relay server never parses or executes the command payload.
+
+Cloud file transfer flow:
+
+```text
+Sender
+  -> metadata packet
+  -> receiver Accept / Reject
+  -> chunk packets
+  -> per-chunk acknowledgements
+  -> final checksum verification
+  -> complete acknowledgement
+```
+
+The relay server only forwards file-transfer packets. It never stores, renames, compresses, decrypts, or reads user files.
 
 Cloud QR payloads contain only:
 
@@ -102,6 +137,19 @@ Developer defaults:
 ```text
 OPENX_RELAY_URL=ws://localhost:8080/ws
 ```
+
+## Device Management Center
+
+Open `Settings -> Phone -> Connected Devices` to manage paired devices from the desktop authority surface.
+
+The page shows each device name, ID, type, platform, app version, connection state, trust state, session state, permission summary, paired date, last seen time, and connection duration. It supports search, status/type/trust filters, sorting, manual refresh, local device rename, permission editing, trust/untrust, disconnect, and remove.
+
+Device actions follow the existing local model:
+
+- Disconnect terminates the active local session and marks the device offline while keeping the pair.
+- Remove deletes the pair, session, trust, and permissions so QR pairing is required again.
+- Permission changes apply immediately through the existing phone permission guard.
+- Cloud-only devices support relay-backed rename and remove; trust and permission editing stay local-only until relay trust/permission endpoints are added.
 
 ## Requirements
 

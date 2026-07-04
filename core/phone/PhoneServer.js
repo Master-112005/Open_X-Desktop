@@ -224,6 +224,10 @@ class PhoneServer {
     return this.sessionManager.revokeSession(deviceId);
   }
 
+  getDeviceSession(deviceId) {
+    return this.sessionManager.getSession(deviceId);
+  }
+
   _handleConnection(socket, request) {
     const metadata = this._readClientMetadata(request);
     const clientId = this.connectionManager.add(socket, metadata);

@@ -7,14 +7,22 @@ const PERMISSION_NAMES = Object.freeze([
   'fileTransfer',
   'receiveFiles',
   'sendFiles',
-  'powerActions'
+  'powerActions',
+  'clipboard',
+  'screenSharing',
+  'camera',
+  'microphone'
 ]);
 const DEFAULT_PERMISSIONS = Object.freeze({
   remoteCommands: true,
   fileTransfer: true,
   receiveFiles: true,
   sendFiles: true,
-  powerActions: false
+  powerActions: false,
+  clipboard: false,
+  screenSharing: false,
+  camera: false,
+  microphone: false
 });
 
 class DeviceRegistry {
@@ -36,9 +44,13 @@ class DeviceRegistry {
     const device = {
       deviceId,
       deviceName,
+      deviceType: this._normalizeMetadata(input.deviceType, 'phone', 40),
+      platform: this._normalizeMetadata(input.platform, 'mobile', 80),
+      softwareVersion: this._normalizeMetadata(input.softwareVersion || input.version, '', 80),
       pairedAt: timestamp,
       lastSeen: timestamp,
       trusted: true,
+      trustStatus: 'trusted',
       permissions: this._normalizePermissions(input.permissions)
     };
     this.devices.set(deviceId, device);
@@ -115,6 +127,21 @@ class DeviceRegistry {
     return { ...device, permissions: { ...device.permissions } };
   }
 
+  updateTrust(deviceId, trusted) {
+    const normalizedId = this._tryNormalizeDeviceId(deviceId);
+    const device = normalizedId ? this.devices.get(normalizedId) : null;
+    if (!device) return null;
+    device.trusted = trusted === true;
+    device.trustStatus = device.trusted ? 'trusted' : 'revoked';
+    device.lastSeen = this.now();
+    this.save();
+    this.logger.info('[PHONE] Device trust changed', {
+      deviceId: normalizedId,
+      trusted: device.trusted
+    });
+    return { ...device, permissions: { ...device.permissions } };
+  }
+
   removeDevice(deviceId) {
     const normalized = this._tryNormalizeDeviceId(deviceId);
     if (!normalized || !this.devices.delete(normalized)) return false;
@@ -164,9 +191,13 @@ class DeviceRegistry {
       return {
         deviceId: this._normalizeDeviceId(candidate.deviceId),
         deviceName: this._normalizeDeviceName(candidate.deviceName),
+        deviceType: this._normalizeMetadata(candidate.deviceType, 'phone', 40),
+        platform: this._normalizeMetadata(candidate.platform, 'mobile', 80),
+        softwareVersion: this._normalizeMetadata(candidate.softwareVersion || candidate.version, '', 80),
         pairedAt,
         lastSeen,
         trusted: candidate.trusted === true,
+        trustStatus: candidate.trusted === true ? 'trusted' : (this._normalizeMetadata(candidate.trustStatus, 'revoked', 24) || 'revoked'),
         permissions: this._normalizePermissions(candidate.permissions)
       };
     } catch (_) {
@@ -196,6 +227,12 @@ class DeviceRegistry {
       throw new TypeError('Invalid device name');
     }
     return normalized;
+  }
+
+  _normalizeMetadata(value, fallback = '', maxLength = 100) {
+    const normalized = typeof value === 'string' ? value.trim() : '';
+    if (!normalized) return fallback;
+    return normalized.slice(0, maxLength);
   }
 
   _normalizePermissions(permissions) {

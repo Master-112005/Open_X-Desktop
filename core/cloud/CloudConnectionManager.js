@@ -70,6 +70,9 @@ class CloudConnectionManager extends EventEmitter {
     this.pendingRequests = new Map();
     this.device = null;
     this.owner = null;
+    this.pairedDevices = [];
+    this.presence = [];
+    this.notifications = [];
     this.settings = this.normalizeSettings(options.settings || {});
   }
 
@@ -140,6 +143,8 @@ class CloudConnectionManager extends EventEmitter {
     this.serverVersion = '';
     this.device = null;
     this.owner = null;
+    this.presence = [];
+    this.notifications = [];
     this.connectedAt = null;
     this.rejectPendingRequests(new Error('Cloud connection disconnected.'));
     this.lastDisconnectedAt = nowIso();
@@ -226,6 +231,104 @@ class CloudConnectionManager extends EventEmitter {
     });
   }
 
+  updateDevice(deviceId, updates = {}) {
+    return this.sendDeviceMutation('device:update', {
+      deviceId,
+      ...updates
+    });
+  }
+
+  removeDevice(deviceId) {
+    return this.sendDeviceMutation('device:remove', { deviceId });
+  }
+
+  updatePresence(state, metadata = {}) {
+    return this.send({
+      type: 'presence:update',
+      requestId: `presence-${Date.now()}`,
+      state,
+      metadata,
+      activity: true
+    });
+  }
+
+  subscribePresence() {
+    return this.send({
+      type: 'presence:subscribe',
+      requestId: `presence-subscribe-${Date.now()}`
+    });
+  }
+
+  requestPresenceList() {
+    return this.send({
+      type: 'presence:list',
+      requestId: `presence-list-${Date.now()}`
+    });
+  }
+
+  createNotification(payload = {}) {
+    return this.send({
+      ...payload,
+      type: 'notification:create',
+      requestId: payload.requestId || `notification-create-${Date.now()}`
+    });
+  }
+
+  requestNotificationList() {
+    return this.send({
+      type: 'notification:list',
+      requestId: `notification-list-${Date.now()}`
+    });
+  }
+
+  markNotificationRead(notificationId) {
+    return this.send({
+      type: 'notification:read',
+      requestId: `notification-read-${Date.now()}`,
+      notificationId
+    });
+  }
+
+  dismissNotification(notificationId) {
+    return this.send({
+      type: 'notification:dismiss',
+      requestId: `notification-dismiss-${Date.now()}`,
+      notificationId
+    });
+  }
+
+  clearNotifications() {
+    return this.send({
+      type: 'notification:clear',
+      requestId: `notification-clear-${Date.now()}`
+    });
+  }
+
+  sendDeviceMutation(type, payload = {}) {
+    if (!this.isConnected()) {
+      return Promise.reject(new Error('Connect to Relay Server first.'));
+    }
+    const requestId = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error('Cloud device request timed out.'));
+      }, DEFAULT_TIMEOUT_MS);
+      timeout.unref?.();
+      this.pendingRequests.set(requestId, { resolve, reject, timeout });
+      const sent = this.send({
+        ...payload,
+        type,
+        requestId
+      });
+      if (!sent) {
+        clearTimeout(timeout);
+        this.pendingRequests.delete(requestId);
+        reject(new Error('Cloud relay is not connected.'));
+      }
+    });
+  }
+
   async destroy(reason = 'destroy') {
     this.removeAllListeners();
     return this.disconnect(reason);
@@ -285,6 +388,9 @@ class CloudConnectionManager extends EventEmitter {
         this.serverVersion = '';
         this.device = null;
         this.owner = null;
+        this.pairedDevices = [];
+        this.presence = [];
+        this.notifications = [];
         this.rejectPendingRequests(new Error('Cloud connection closed.'));
         socket.removeAllListeners();
 
@@ -319,6 +425,30 @@ class CloudConnectionManager extends EventEmitter {
       this.device = payload.device || null;
       this.owner = payload.owner || null;
       this.emitStatus({ device: this.device, owner: this.owner });
+      this.subscribePresence();
+      this.requestNotificationList();
+      return;
+    }
+    if (payload?.type === 'device:updated') {
+      const updated = payload.device || null;
+      if (updated?.deviceId) {
+        if (this.device?.deviceId === updated.deviceId) this.device = updated;
+        this.pairedDevices = this.pairedDevices.map(device => (
+          device.deviceId === updated.deviceId ? { ...device, ...updated } : device
+        ));
+        this.emitStatus({ device: this.device, pairedDevices: this.pairedDevices });
+      }
+      this.resolvePendingRequest(payload.requestId, payload);
+      return;
+    }
+    if (payload?.type === 'device:removed') {
+      const removedId = payload.device?.deviceId || payload.deviceId || '';
+      if (removedId) {
+        this.pairedDevices = this.pairedDevices.filter(device => device.deviceId !== removedId);
+        if (this.device?.deviceId === removedId) this.device = null;
+        this.emitStatus({ device: this.device, pairedDevices: this.pairedDevices });
+      }
+      this.resolvePendingRequest(payload.requestId, payload);
       return;
     }
     if (payload?.type === 'device:error') {
@@ -326,6 +456,7 @@ class CloudConnectionManager extends EventEmitter {
         code: payload.code,
         message: payload.message
       });
+      this.rejectPendingRequest(payload.requestId, new Error(payload.message || 'Cloud device request failed.'));
       return;
     }
     if (payload?.type === 'cloud-pair-token:created') {
@@ -342,6 +473,10 @@ class CloudConnectionManager extends EventEmitter {
       return;
     }
     if (payload?.type === 'cloud-pair:paired' || payload?.type === 'cloud-pair:rejected') {
+      if (payload.type === 'cloud-pair:paired') {
+        this.pairedDevices = Array.isArray(payload.devices) ? payload.devices : [];
+        this.emitStatus({ pairedDevices: this.pairedDevices });
+      }
       this.emit('pairing-result', payload);
       return;
     }
@@ -355,7 +490,72 @@ class CloudConnectionManager extends EventEmitter {
     }
     if (payload?.type === 'relay:error') {
       this.emit('relay-error', payload);
+      return;
     }
+    if (payload?.type === 'presence:update') {
+      this.upsertPresence(payload.presence);
+      this.emit('presence', this.presence.slice());
+      this.emitStatus({ presence: this.presence.slice() });
+      return;
+    }
+    if (payload?.type === 'presence:list' || payload?.type === 'presence:subscribed') {
+      this.presence = Array.isArray(payload.presence) ? payload.presence : [];
+      this.emit('presence', this.presence.slice());
+      this.emitStatus({ presence: this.presence.slice() });
+      return;
+    }
+    if (payload?.type === 'notification:new') {
+      this.upsertNotification(payload.notification);
+      this.emit('notification', payload.notification);
+      this.emit('notifications', this.notifications.slice());
+      this.emitStatus({ notifications: this.notifications.slice() });
+      return;
+    }
+    if (payload?.type === 'notification:list') {
+      this.notifications = Array.isArray(payload.notifications) ? payload.notifications : [];
+      this.emit('notifications', this.notifications.slice());
+      this.emitStatus({ notifications: this.notifications.slice() });
+      return;
+    }
+    if (['notification:read', 'notification:dismiss', 'notification:queued'].includes(payload?.type)) {
+      if (payload.notification) this.upsertNotification(payload.notification);
+      this.emit('notifications', this.notifications.slice());
+      this.emitStatus({ notifications: this.notifications.slice() });
+      return;
+    }
+    if (payload?.type === 'notification:deleted') {
+      this.notifications = this.notifications.filter(item => item.notificationId !== payload.notificationId);
+      this.emit('notifications', this.notifications.slice());
+      this.emitStatus({ notifications: this.notifications.slice() });
+      return;
+    }
+    if (payload?.type === 'notification:cleared') {
+      this.notifications = [];
+      this.emit('notifications', this.notifications.slice());
+      this.emitStatus({ notifications: this.notifications.slice() });
+    }
+  }
+
+  upsertPresence(presence) {
+    if (!presence?.deviceId) return false;
+    const index = this.presence.findIndex(item => item.deviceId === presence.deviceId);
+    if (index >= 0) this.presence[index] = { ...this.presence[index], ...presence };
+    else this.presence.push(presence);
+    return true;
+  }
+
+  upsertNotification(notification) {
+    if (!notification?.notificationId) return false;
+    const index = this.notifications.findIndex(item => item.notificationId === notification.notificationId);
+    if (index >= 0) this.notifications[index] = { ...this.notifications[index], ...notification };
+    else this.notifications.unshift(notification);
+    this.notifications.sort((left, right) => {
+      const weights = { low: 0, normal: 1, high: 2, critical: 3 };
+      return (weights[right.priority] || 0) - (weights[left.priority] || 0) ||
+        Number(right.createdAt || 0) - Number(left.createdAt || 0);
+    });
+    this.notifications = this.notifications.slice(0, 100);
+    return true;
   }
 
   resolvePendingRequest(requestId, payload) {
@@ -546,6 +746,9 @@ class CloudConnectionManager extends EventEmitter {
       clientId: this.clientId,
       device: this.device,
       owner: this.owner,
+      pairedDevices: this.pairedDevices.slice(),
+      presence: this.presence.slice(),
+      notifications: this.notifications.slice(),
       friendlyMessage: this.getFriendlyMessage(),
       error: this.state === STATES.ERROR ? this.lastError : '',
       settings: { ...this.settings },

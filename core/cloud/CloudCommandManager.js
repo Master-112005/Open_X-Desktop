@@ -1,0 +1,289 @@
+const EventEmitter = require('events');
+const { PhoneCommandRouter } = require('../phone');
+const CloudRequestQueue = require('./CloudRequestQueue');
+const CloudResponseSerializer = require('./CloudResponseSerializer');
+
+const DEFAULT_EXECUTION_TIMEOUT_MS = 60000;
+const MAX_COMMAND_LENGTH = 4000;
+
+class CloudCommandManager extends EventEmitter {
+  constructor(options = {}) {
+    super();
+    this.connectionManager = options.connectionManager;
+    this.commandRouter = options.commandRouter || new PhoneCommandRouter(options.assistantProvider);
+    this.queue = options.queue || new CloudRequestQueue({
+      mode: options.queueMode,
+      maxQueueSize: options.maxQueueSize
+    });
+    this.serializer = options.serializer || new CloudResponseSerializer();
+    this.executionTimeoutMs = Number.isFinite(options.executionTimeoutMs)
+      ? Math.max(1000, Math.round(options.executionTimeoutMs))
+      : DEFAULT_EXECUTION_TIMEOUT_MS;
+    this.logger = options.logger || console;
+    this.lifecycle = new Map();
+    this.started = false;
+    this.processing = false;
+    this.boundPacketHandler = message => this.handleRelayPacket(message);
+    this.boundRelayErrorHandler = message => this.handleRelayError(message);
+  }
+
+  start() {
+    if (this.started || !this.connectionManager) return false;
+    this.connectionManager.on('relay-packet', this.boundPacketHandler);
+    this.connectionManager.on('relay-error', this.boundRelayErrorHandler);
+    this.started = true;
+    return true;
+  }
+
+  stop() {
+    if (!this.started || !this.connectionManager) return false;
+    this.connectionManager.off('relay-packet', this.boundPacketHandler);
+    this.connectionManager.off('relay-error', this.boundRelayErrorHandler);
+    this.started = false;
+    return true;
+  }
+
+  destroy() {
+    this.stop();
+    this.queue.clear();
+    this.lifecycle.clear();
+    this.removeAllListeners();
+  }
+
+  handleRelayPacket(message) {
+    const packet = message?.packet || null;
+    const validation = this.validatePacket(packet);
+    if (!validation.valid) {
+      this.log('warn', 'Validation Failed', {
+        packetId: packet?.packetId || null,
+        requestId: packet?.requestId || null,
+        code: validation.code
+      });
+      if (packet?.sourceDeviceId && packet?.destinationDeviceId && packet?.ownerId) {
+        this.sendSerializedResponse(this.serializer.error(this.normalizeRequest(packet), validation.code, validation.message, {
+          status: 'failed'
+        }));
+      }
+      return { accepted: false, code: validation.code };
+    }
+
+    const request = validation.request;
+    this.lifecycle.set(request.requestId, {
+      requestId: request.requestId,
+      state: 'received',
+      receivedAt: Date.now(),
+      sourceDeviceId: request.sourceDeviceId,
+      destinationDeviceId: request.destinationDeviceId
+    });
+    this.log('info', 'Request Received', {
+      requestId: request.requestId,
+      packetId: request.packetId,
+      sourceDeviceId: request.sourceDeviceId,
+      destinationDeviceId: request.destinationDeviceId
+    });
+
+    const queued = this.queue.enqueue(request);
+    if (!queued.accepted) {
+      this.setLifecycle(request.requestId, queued.code);
+      this.sendSerializedResponse(this.serializer.error(request, queued.code, queued.message, {
+        status: 'failed'
+      }));
+      return queued;
+    }
+
+    this.setLifecycle(request.requestId, 'queued');
+    this.processQueue();
+    return { accepted: true, requestId: request.requestId };
+  }
+
+  validatePacket(packet) {
+    if (!packet || typeof packet !== 'object') {
+      return this.fail('malformed-request', 'Malformed cloud command packet.');
+    }
+    if (packet.packetType !== 'request') {
+      return this.fail('unsupported-packet-type', 'Unsupported cloud command packet type.');
+    }
+    const status = this.connectionManager?.getStatus?.() || {};
+    const desktopDevice = status.device || null;
+    const owner = status.owner || null;
+    if (!this.connectionManager?.isConnected?.()) {
+      return this.fail('cloud-disconnected', 'Desktop cloud connection is not active.');
+    }
+    if (!desktopDevice?.deviceId || packet.destinationDeviceId !== desktopDevice.deviceId) {
+      return this.fail('invalid-destination', 'Invalid destination device.');
+    }
+    if (!owner?.id || packet.ownerId !== owner.id) {
+      return this.fail('owner-violation', 'Invalid owner.');
+    }
+
+    const payload = packet.payload && typeof packet.payload === 'object' ? packet.payload : {};
+    const kind = String(payload.type || payload.kind || payload.feature || '').trim();
+    if (kind && kind !== 'assistant-command') {
+      return this.fail('unsupported-request', 'Unsupported cloud request.');
+    }
+    const command = String(payload.command || payload.message || payload.text || '').trim();
+    if (!command) {
+      return this.fail('empty-command', 'Command is required.');
+    }
+    if (command.length > MAX_COMMAND_LENGTH) {
+      return this.fail('command-too-large', 'Command is too large.');
+    }
+    if (!packet.requestId) {
+      return this.fail('missing-request-id', 'Request ID is required.');
+    }
+
+    return {
+      valid: true,
+      request: {
+        ...this.normalizeRequest(packet),
+        command,
+        deviceName: String(payload.deviceName || payload.sourceDeviceName || packet.metadata?.deviceName || '').trim(),
+        metadata: {
+          ...(packet.metadata || {}),
+          ...(payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {})
+        }
+      }
+    };
+  }
+
+  normalizeRequest(packet) {
+    return {
+      packetId: String(packet.packetId || ''),
+      requestId: String(packet.requestId || packet.packetId || ''),
+      sourceDeviceId: String(packet.sourceDeviceId || ''),
+      destinationDeviceId: String(packet.destinationDeviceId || ''),
+      ownerId: String(packet.ownerId || ''),
+      timestamp: Number(packet.timestamp) || Date.now()
+    };
+  }
+
+  async processQueue() {
+    if (this.processing) return;
+    this.processing = true;
+    try {
+      while (true) {
+        const request = this.queue.next();
+        if (!request) break;
+        await this.executeRequest(request);
+      }
+    } finally {
+      this.processing = false;
+    }
+  }
+
+  async executeRequest(request) {
+    this.setLifecycle(request.requestId, 'executing');
+    this.log('info', 'Execution Started', {
+      requestId: request.requestId,
+      sourceDeviceId: request.sourceDeviceId
+    });
+    try {
+      const result = await this.withTimeout(
+        this.commandRouter.route(request.command, {
+          phoneContext: {
+            deviceId: request.sourceDeviceId,
+            deviceName: request.deviceName || null,
+            ownerId: request.ownerId,
+            cloud: true,
+            cloudRequestId: request.requestId
+          }
+        }),
+        this.executionTimeoutMs
+      );
+      this.setLifecycle(request.requestId, 'completed');
+      this.queue.finish(true);
+      this.sendSerializedResponse(this.serializer.serialize({
+        request,
+        result,
+        status: 'completed',
+        responseType: result?.needsClarification ? 'clarification' : 'assistant-response'
+      }));
+      this.log('info', 'Execution Finished', {
+        requestId: request.requestId,
+        success: result?.success === true
+      });
+    } catch (error) {
+      const timedOut = error?.code === 'execution-timeout';
+      this.setLifecycle(request.requestId, timedOut ? 'timed-out' : 'failed');
+      this.queue.finish(false);
+      this.sendSerializedResponse(this.serializer.error(
+        request,
+        timedOut ? 'execution-timeout' : 'assistant-execution-failed',
+        timedOut ? 'Execution Timed Out' : 'Assistant execution failed.',
+        { status: timedOut ? 'timed-out' : 'failed' }
+      ));
+      this.log('warn', timedOut ? 'Timeout' : 'Execution Failed', {
+        requestId: request.requestId,
+        error: error?.message || String(error)
+      });
+    }
+  }
+
+  sendSerializedResponse(packet) {
+    const sent = this.connectionManager?.sendRelayPacket?.(packet) === true;
+    if (!sent) {
+      this.log('warn', 'Relay Error', {
+        requestId: packet?.requestId || null,
+        responseId: packet?.responseId || null,
+        code: 'send-failed'
+      });
+    }
+    return sent;
+  }
+
+  handleRelayError(message) {
+    this.log('warn', 'Relay Error', {
+      packetId: message?.packetId || null,
+      requestId: message?.requestId || null,
+      code: message?.code || 'relay-error'
+    });
+  }
+
+  withTimeout(promise, timeoutMs) {
+    let timer = null;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error('Execution Timed Out');
+        error.code = 'execution-timeout';
+        reject(error);
+      }, timeoutMs);
+      timer.unref?.();
+    });
+    return Promise.race([promise, timeout]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+  }
+
+  setLifecycle(requestId, state) {
+    const current = this.lifecycle.get(requestId) || { requestId };
+    this.lifecycle.set(requestId, {
+      ...current,
+      state,
+      updatedAt: Date.now()
+    });
+    this.emit('lifecycle', this.lifecycle.get(requestId));
+  }
+
+  getStatus() {
+    return {
+      started: this.started,
+      processing: this.processing,
+      executionTimeoutMs: this.executionTimeoutMs,
+      queue: this.queue.getStatistics(),
+      requests: [...this.lifecycle.values()].slice(-25)
+    };
+  }
+
+  fail(code, message) {
+    return { valid: false, code, message };
+  }
+
+  log(level, message, data = {}) {
+    try {
+      const target = typeof this.logger[level] === 'function' ? level : 'info';
+      this.logger[target](`Cloud command ${message}`, data);
+    } catch (_) {}
+  }
+}
+
+module.exports = CloudCommandManager;
