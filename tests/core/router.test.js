@@ -3114,6 +3114,46 @@ describe('Action Router', function() {
     assert.equal(executed[0].actionId, 'file.open');
   });
 
+  it('should understand named document file-open commands', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const result = await router.process('open file named final report pdf', 'chat');
+
+    assert.equal(result.intent, 'file.open');
+    assert.equal(result.entities.filename, 'final report.pdf');
+    assert.equal(executed[0].actionId, 'file.open');
+  });
+
+  it('should route close-file commands to window close instead of app close', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const result = await router.process('close resume docx file', 'chat');
+
+    assert.equal(result.intent, 'window.close');
+    assert.equal(result.entities.windowName, 'resume.docx');
+    assert.equal(executed[0].actionId, 'window.close');
+  });
+
   it('should route misspelled folder searches through local execution', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }

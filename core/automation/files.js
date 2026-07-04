@@ -134,7 +134,9 @@ class FileController {
 
     const source = splitNameAndLocation(filename);
     const safeName = Validator.sanitizePath(source.name || filename);
-    const explicitDirectory = typeof targetPath === 'string' ? targetPath : source.location;
+    const explicitDirectory = typeof targetPath === 'string'
+      ? targetPath
+      : (targetPath?.path || source.location);
 
     if (explicitDirectory) {
       const dir = resolveDirectory(explicitDirectory, { mustExist: true });
@@ -222,6 +224,27 @@ class FileController {
             clarificationType: 'file.open',
             filename,
             matchCount: matches.length,
+            choices
+          }
+        };
+      }
+
+      if (matches.length === 1 && !this._shouldOpenSingleFileMatch(filename, matches[0], targetPath)) {
+        const choices = [{
+          index: 1,
+          title: `${path.basename(matches[0])} - ${matches[0]}`,
+          path: matches[0],
+          entities: { selectedPath: matches[0], path: null }
+        }];
+
+        return {
+          success: false,
+          needsClarification: true,
+          error: this._buildPossibleFileMessage(filename, choices[0]),
+          data: {
+            clarificationType: 'file.open',
+            filename,
+            matchCount: 1,
             choices
           }
         };
@@ -609,7 +632,9 @@ class FileController {
 
     const source = splitNameAndLocation(filename);
     const safeName = Validator.sanitizePath(source.name || filename);
-    const explicitDirectory = typeof targetPath === 'string' ? targetPath : source.location;
+    const explicitDirectory = typeof targetPath === 'string'
+      ? targetPath
+      : (targetPath?.path || source.location);
     if (explicitDirectory) {
       const resolved = this._resolveFilePath(filename, explicitDirectory);
       return resolved ? [resolved] : [];
@@ -653,6 +678,30 @@ class FileController {
       return [rankedMatches[0].path];
     }
     return rankedMatches.map(match => match.path);
+  }
+
+  _shouldOpenSingleFileMatch(filename, filePath, targetPath = null) {
+    if (!filename || !filePath) {
+      return false;
+    }
+
+    const selectedPath = targetPath?.selectedPath || targetPath?.targetPath;
+    if (selectedPath && path.resolve(selectedPath).toLowerCase() === path.resolve(filePath).toLowerCase()) {
+      return true;
+    }
+
+    if (path.isAbsolute(filename) && path.resolve(filename).toLowerCase() === path.resolve(filePath).toLowerCase()) {
+      return true;
+    }
+
+    const source = splitNameAndLocation(filename);
+    const requestedName = source.name || filename;
+    const explicitDirectory = typeof targetPath === 'string'
+      ? targetPath
+      : (targetPath?.path || source.location);
+    const score = this._fileNameMatchScore(path.basename(filePath), requestedName);
+    const threshold = explicitDirectory ? 78 : 82;
+    return score >= threshold;
   }
 
   _searchDirectoryRecursive(root, lowerQuery, results, options = {}) {
@@ -1067,6 +1116,10 @@ class FileController {
 
   _buildAmbiguousFileMessage(filename, choices) {
     return `I found ${choices.length} matching files for "${filename}". Choose a number to open one.`;
+  }
+
+  _buildPossibleFileMessage(filename, choice) {
+    return `I found one possible file for "${filename}": ${choice.title}. Choose 1 to open it.`;
   }
 }
 
