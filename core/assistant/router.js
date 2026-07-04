@@ -2955,6 +2955,24 @@ class ActionRouter {
       return null;
     }
 
+    if (/^(?:close|exit|dismiss)\b/.test(input) &&
+      /\b(?:file|document|pdf|docx?|xlsx?|pptx?|txt|csv|json|js|ts|html|css|java|py|md|png|jpe?g|gif|mp4|mp3)\b|[^\s]+\.[A-Za-z0-9]{1,10}\b/i.test(`${input} ${rawText || ''}`)) {
+      const windowIntent = this.intentRegistry.get('window.close');
+      if (windowIntent) {
+        const target = this._cleanWindowTarget(String(rawText || input)
+          .replace(/^(?:close|exit|dismiss)\s+/i, '')
+          .replace(/^(?:the|a|an|my)\s+/i, '')
+          .replace(/^(?:file|document)\s+/i, '')
+          .replace(/\s+(?:file|document)\s*$/i, '')
+          .replace(/\s+(pdf|txt|docx?|xlsx?|pptx?|csv|json|xml|html?|js|ts|py|java|md|png|jpe?g|gif|webp|mp[34]|mkv|wav|zip|rar)$/i, '.$1'));
+        return {
+          intent: windowIntent,
+          confidence: 0.98,
+          entities: target ? { windowName: target } : {}
+        };
+      }
+    }
+
     const configs = [
       { intentId: 'file.open', pattern: /^(?:open|show|play|watch)\b/ },
       { intentId: 'file.create', pattern: /^(?:create|new|make)\b/ },

@@ -298,6 +298,27 @@ class FolderController {
       }
 
       if (matches.length === 1) {
+        if (!this._shouldOpenSingleFolderMatch(folderName, matches[0], options)) {
+          const choices = [{
+            index: 1,
+            title: `${path.basename(matches[0])} - ${matches[0]}`,
+            path: matches[0],
+            entities: { selectedPath: matches[0] }
+          }];
+
+          return {
+            success: false,
+            needsClarification: true,
+            error: this._buildPossibleFolderMessage(folderName, choices[0]),
+            data: {
+              clarificationType: 'folder.open',
+              folderName,
+              matchCount: 1,
+              choices
+            }
+          };
+        }
+
         const matchedPath = requireSafeUserPath(matches[0], { allowRoot: true });
         this._openFolderPath(matchedPath, options);
         return { success: true, data: { path: matchedPath, folderName: path.basename(matchedPath), openWith: options.openWith || null } };
@@ -387,6 +408,32 @@ class FolderController {
       .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))
       .slice(0, 12)
       .map(entry => entry.path);
+  }
+
+  _shouldOpenSingleFolderMatch(folderName, folderPath, options = {}) {
+    if (!folderName || !folderPath) {
+      return false;
+    }
+
+    const selectedPath = options.selectedPath || options.targetPath;
+    if (selectedPath && path.resolve(selectedPath).toLowerCase() === path.resolve(folderPath).toLowerCase()) {
+      return true;
+    }
+
+    if (path.isAbsolute(folderName) && path.resolve(folderName).toLowerCase() === path.resolve(folderPath).toLowerCase()) {
+      return true;
+    }
+
+    const parsed = splitNameAndLocation(folderName);
+    const requestedName = parsed.name || folderName;
+    const explicitLocation = Boolean(parsed.location);
+    const specialFolders = getSpecialFolders();
+    if (specialFolders[normalizeLocation(requestedName)] === folderPath) {
+      return true;
+    }
+
+    const score = this._folderNameMatchScore(path.basename(folderPath), requestedName);
+    return score >= (explicitLocation ? 72 : 76);
   }
 
   _searchFoldersRecursive(root, lowerQuery, results, options = {}) {
@@ -515,6 +562,10 @@ class FolderController {
 
   _buildAmbiguousFolderMessage(folderName, choices) {
     return `I found ${choices.length} matching folders for "${folderName}". Choose a number to open one.`;
+  }
+
+  _buildPossibleFolderMessage(folderName, choice) {
+    return `I found one possible folder for "${folderName}": ${choice.title}. Choose 1 to open it.`;
   }
 }
 

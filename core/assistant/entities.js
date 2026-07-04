@@ -477,10 +477,15 @@ class EntityExtractor {
 
     const patterns = [
       { pattern: /\b(?:create|new|make)\s+file\s+(.+?)(?=\s+(?:on|in|at|to|from)\b|$)/i, existing: false },
+      { pattern: /\b(?:create|new|make)\s+(?:file|document)\s+(?:called|named)\s+(.+?)(?=\s+(?:on|in|at|to|from)\b|$)/i, existing: false },
       { pattern: /\b(?:create|new|make)\s+(.+?)\s+file(?=\s+(?:on|in|at|to|from)\b|$)/i, existing: false },
       { pattern: /\b(?:delete|remove|erase)\s+file\s+(.+?)(?=\s+(?:on|in|at|to|from)\b|$)/i, existing: true },
+      { pattern: /\b(?:delete|remove|erase)\s+(?:file|document)\s+(?:called|named)\s+(.+?)(?=\s+(?:on|in|at|to|from)\b|$)/i, existing: true },
       { pattern: /\b(?:delete|remove|erase)\s+(.+?)\s+file(?=\s+(?:on|in|at|to|from)\b|$)/i, existing: true },
       { pattern: /\b(?:delete|remove|erase)\s+(.+?)(?=\s+(?:on|in|at|from)\b|$)/i, existing: true },
+      { pattern: /\b(?:open|show|play|watch)\s+(?:file|document)\s+(?:called|named)\s+(.+?)(?=\s+(?:on|in|at|from|with|using)\b|$)/i, existing: true },
+      { pattern: /\b(?:open|show|play|watch)\s+(?:the\s+)?(?:file|document)\s+(.+?)(?=\s+(?:on|in|at|from|with|using)\b|$)/i, existing: true },
+      { pattern: /\b(?:open|show|play|watch)\s+(.+?)\s+(?:file|document)(?=\s+(?:on|in|at|from|with|using)\b|$)/i, existing: true },
       { pattern: /\b(?:open|show|play|watch)\s+(?:file\s+)?(.+?)(?=\s+(?:on|in|at|from|with|using)\b|$)/i, existing: true },
       { pattern: /\b(?:rename|copy|move)\s+file\s+(.+?)(?=\s+(?:to|into|in|on|from)\b|$)/i, existing: true }
     ];
@@ -504,8 +509,12 @@ class EntityExtractor {
   _cleanExistingFileReference(value) {
     return String(value || '')
       .trim()
-      .replace(/^(?:the|my|a|an)\s+/i, '')
+      .replace(/^(?:please\s+|kindly\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+)+/i, '')
+      .replace(/^(?:the|my|a|an|this|that)\s+/i, '')
+      .replace(/^(?:file|document)\s+(?:called|named)\s+/i, '')
       .replace(/\s+(?:file|document)\s*$/i, '')
+      .replace(/\s+(?:please|for\s+me|now)\s*$/i, '')
+      .replace(/\s+(pdf|txt|docx?|xlsx?|pptx?|csv|json|xml|html?|js|ts|py|java|md|png|jpe?g|gif|webp|mp[34]|mkv|wav|zip|rar)$/i, '.$1')
       .trim();
   }
 

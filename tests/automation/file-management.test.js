@@ -413,4 +413,45 @@ describe('File Management Automation', function() {
       [firstPath, secondPath].sort()
     );
   });
+
+  it('should constrain file-open matching to the parsed location entity', function() {
+    const desktopPath = path.join(tempProfile, 'Desktop', 'Resume.docx');
+    const downloadsPath = path.join(tempProfile, 'Downloads', 'Resume.docx');
+    fs.writeFileSync(desktopPath, 'desktop', 'utf8');
+    fs.writeFileSync(downloadsPath, 'downloads', 'utf8');
+
+    const desktopMatches = engine.files._findFileMatches('Resume.docx', { path: 'desktop' });
+    const downloadMatches = engine.files._findFileMatches('Resume.docx', { path: 'downloads' });
+
+    assert.deepEqual(desktopMatches, [desktopPath]);
+    assert.deepEqual(downloadMatches, [downloadsPath]);
+  });
+
+  it('should ask before opening a weak single fuzzy file match', function() {
+    const targetDir = path.join(tempProfile, 'Documents', 'Reports');
+    fs.mkdirSync(targetDir, { recursive: true });
+    const target = path.join(targetDir, 'Quarterly Project Report.docx');
+    fs.writeFileSync(target, 'report', 'utf8');
+
+    const result = engine.files.open('quaterly projet reprt');
+
+    assert.equal(result.success, false);
+    assert.equal(result.needsClarification, true);
+    assert.equal(result.data.clarificationType, 'file.open');
+    assert.equal(result.data.matchCount, 1);
+    assert.equal(result.data.choices[0].path, target);
+  });
+
+  it('should ask before opening a weak single fuzzy folder match', function() {
+    const target = path.join(tempProfile, 'Documents', 'Quarterly Project Archive');
+    fs.mkdirSync(target, { recursive: true });
+
+    const result = engine.folders.open('quaterly archv');
+
+    assert.equal(result.success, false);
+    assert.equal(result.needsClarification, true);
+    assert.equal(result.data.clarificationType, 'folder.open');
+    assert.equal(result.data.matchCount, 1);
+    assert.equal(result.data.choices[0].path, target);
+  });
 });
