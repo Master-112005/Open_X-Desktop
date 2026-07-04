@@ -94,6 +94,17 @@ describe('Electron Security Boundary', function() {
     );
   });
 
+  it('should validate cloud pairing approval payloads', function() {
+    assert.deepEqual(
+      IPC_VALIDATORS['cloud:pairing:approve']({ pairRequestId: 'pair_001' }),
+      { pairRequestId: 'pair_001' }
+    );
+    assert.throws(
+      () => IPC_VALIDATORS['cloud:pairing:reject']({ pairRequestId: '../bad' }),
+      /pairRequestId is invalid/
+    );
+  });
+
   it('should validate planner IPC payloads', function() {
     assert.deepEqual(
       IPC_VALIDATORS['window:openPlanner']({ view: 'timetable' }),
@@ -113,7 +124,8 @@ describe('Electron Security Boundary', function() {
     const expectedChannels = [
       'command:process', 'command:confirm', 'assistant:status', 'tts:speak', 'tts:stop', 'voice:start',
       'window:openChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
-      'config:get', 'settings:get',
+      'config:get', 'settings:get', 'cloud:status', 'cloud:connect', 'cloud:disconnect',
+      'cloud:pairingQR:create', 'cloud:pairing:status', 'cloud:pairing:approve', 'cloud:pairing:reject',
       'phone:pairingQR:create', 'phone:server:status', 'phone:devices:list',
       'phone:device:permissions:update', 'phone:device:remove', 'phone:device:disconnect',
       'settings:save', 'settings:reset',

@@ -29,6 +29,7 @@ function buildDataPaths(config = {}) {
   const runtimeDir = path.join(root, 'runtime');
   const phoneDir = path.join(root, 'phone');
   const voiceDir = path.join(root, 'voice');
+  const cloudDir = path.join(root, 'cloud');
   const phoneReceivedDir = path.join(os.homedir(), 'Downloads', 'OpenX Received');
 
   return {
@@ -50,6 +51,8 @@ function buildDataPaths(config = {}) {
     mediaProfileDir: path.join(runtimeDir, 'chrome-media-profile'),
     voiceDir,
     voiceDiagnosticsDir: path.join(voiceDir, 'diagnostics'),
+    cloudDir,
+    cloudLogPath: path.join(cloudDir, 'connection.log'),
     phoneDir,
     phoneReceivedDir,
     phoneTempDir: path.join(runtimeDir, 'phone-transfer'),
@@ -217,6 +220,7 @@ function ensureDataRoot(config = {}) {
     paths.screenshotsDir,
     paths.voiceDir,
     paths.voiceDiagnosticsDir,
+    paths.cloudDir,
     paths.phoneDir,
     paths.phoneReceivedDir,
     paths.phoneTempDir

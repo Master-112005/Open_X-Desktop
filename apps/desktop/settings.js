@@ -1,4 +1,5 @@
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 const { ensureDataRoot, migrateLegacyData, readJsonFile, writeJsonAtomic } = require('../../core/assistant/Data');
 
@@ -247,6 +248,29 @@ function normalizePhoneNumber(value) {
   return source.startsWith('+') ? `+${digits}` : digits;
 }
 
+function createStableCloudId(prefix, seed) {
+  const hash = crypto
+    .createHash('sha256')
+    .update(String(seed || prefix))
+    .digest('hex')
+    .slice(0, 24);
+  return `${prefix}_${hash}`;
+}
+
+function normalizeCloudRelayUrl(value, fallback = 'ws://localhost:8080/ws') {
+  const raw = String(value || '').trim();
+  if (!raw) return fallback;
+  try {
+    const parsed = new URL(raw);
+    if (!['http:', 'https:', 'ws:', 'wss:'].includes(parsed.protocol)) return fallback;
+    if (!parsed.pathname || parsed.pathname === '/') parsed.pathname = '/ws';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch (_) {
+    return fallback;
+  }
+}
+
 function normalizeTtsRate(value, fallback) {
   const number = Number(value);
   if (!Number.isFinite(number) || number === -1) {
@@ -314,6 +338,20 @@ class SettingsService {
         themeId: CHAT_THEMES[this.baseConfig?.chat?.activeTheme] ? this.baseConfig.chat.activeTheme : 'graphite',
         glassTint: clampNumber(this.baseConfig?.chat?.glassTint, 0, 100, 42),
         maxHistory: clampNumber(this.baseConfig?.chat?.maxHistory, 50, 2000, 500)
+      },
+      cloud: {
+        enabled: false,
+        deviceId: createStableCloudId('desktop', this.dataPaths.root),
+        ownerId: createStableCloudId('owner', this.dataPaths.root),
+        deviceType: 'desktop',
+        friendlyName: String(this.baseConfig?.assistant?.displayName || this.baseConfig?.app?.name || 'OpenX Desktop').trim(),
+        relayUrl: normalizeCloudRelayUrl(this.baseConfig?.cloud?.relayUrl || process.env.OPENX_RELAY_URL || 'ws://localhost:8080/ws'),
+        autoConnect: false,
+        reconnectEnabled: true,
+        heartbeatEnabled: true,
+        connectionTimeoutMs: clampNumber(this.baseConfig?.cloud?.connectionTimeoutMs, 1000, 60000, 10000),
+        heartbeatIntervalMs: clampNumber(this.baseConfig?.cloud?.heartbeatIntervalMs, 5000, 120000, 30000),
+        pairTokenTtlMs: clampNumber(this.baseConfig?.cloud?.pairTokenTtlMs, 30000, 900000, 5 * 60 * 1000)
       },
       modes: []
     };
@@ -407,6 +445,7 @@ class SettingsService {
     runtimeConfig.chat.activeTheme = settings.chat.themeId;
     runtimeConfig.chat.glassTint = settings.chat.glassTint;
     runtimeConfig.modes = deepClone(settings.modes);
+    runtimeConfig.cloud = deepClone(settings.cloud);
 
     return runtimeConfig;
   }
@@ -463,6 +502,20 @@ class SettingsService {
         themeId,
         glassTint: clampNumber(source.chat?.glassTint, 0, 100, this.defaults.chat.glassTint),
         maxHistory: clampNumber(source.chat?.maxHistory, 50, 2000, this.defaults.chat.maxHistory)
+      },
+      cloud: {
+        enabled: source.cloud?.enabled === true,
+        deviceId: String(source.cloud?.deviceId || this.defaults.cloud.deviceId).trim(),
+        ownerId: String(source.cloud?.ownerId || this.defaults.cloud.ownerId).trim(),
+        deviceType: String(source.cloud?.deviceType || this.defaults.cloud.deviceType).trim(),
+        friendlyName: String(source.cloud?.friendlyName || source.assistant?.displayName || this.defaults.cloud.friendlyName).trim(),
+        relayUrl: normalizeCloudRelayUrl(source.cloud?.relayUrl, this.defaults.cloud.relayUrl),
+        autoConnect: source.cloud?.autoConnect === true,
+        reconnectEnabled: source.cloud?.reconnectEnabled !== false,
+        heartbeatEnabled: source.cloud?.heartbeatEnabled !== false,
+        connectionTimeoutMs: clampNumber(source.cloud?.connectionTimeoutMs, 1000, 60000, this.defaults.cloud.connectionTimeoutMs),
+        heartbeatIntervalMs: clampNumber(source.cloud?.heartbeatIntervalMs, 5000, 120000, this.defaults.cloud.heartbeatIntervalMs),
+        pairTokenTtlMs: clampNumber(source.cloud?.pairTokenTtlMs, 30000, 900000, this.defaults.cloud.pairTokenTtlMs)
       },
       modes: sanitizeModes(source.modes)
     };

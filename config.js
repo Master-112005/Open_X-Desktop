@@ -109,6 +109,13 @@ const CONFIG = {
     port: 8080
   },
 
+  cloud: {
+    relayUrl: process.env.OPENX_RELAY_URL || 'ws://localhost:8080/ws',
+    connectionTimeoutMs: 10000,
+    heartbeatIntervalMs: 30000,
+    pairTokenTtlMs: 5 * 60 * 1000
+  },
+
   logging: {
     level: 'info',
     maxFileSize: 10485760,

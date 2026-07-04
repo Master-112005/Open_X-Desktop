@@ -67,12 +67,12 @@ describe('Assistant Confirmation Flow', function() {
       eventBus: { publish() {} }
     });
 
-    const first = await assistant.processCommand('close chrome and set vol 100');
+    const first = await assistant.processCommand('close chrome and set vol 100', 'voice');
     assert.equal(first.requiresConfirmation, true);
     assert.equal(first.intent, 'multi.command');
     assert.match(first.response, /Close an application/i);
 
-    const confirmed = await assistant.processCommand('yes');
+    const confirmed = await assistant.processCommand('yes', 'voice');
 
     assert.equal(confirmed.success, true);
     assert.equal(confirmed.intent, 'multi.command');

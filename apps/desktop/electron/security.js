@@ -122,6 +122,38 @@ function validateSettings(payload) {
   return validateStructuredPayload(payload, 'settings', 256 * 1024);
 }
 
+function normalizeCloudUrl(value) {
+  const relayUrl = requireString(value, 'relayUrl', { maxLength: 2048 });
+  const parsed = new URL(relayUrl);
+  if (!['http:', 'https:', 'ws:', 'wss:'].includes(parsed.protocol)) {
+    throw new TypeError('relayUrl protocol is not supported');
+  }
+  return relayUrl;
+}
+
+function validateCloudConnect(payload) {
+  requirePlainObject(payload);
+  const normalized = {};
+  if (payload.relayUrl !== undefined) normalized.relayUrl = normalizeCloudUrl(payload.relayUrl);
+  if (payload.autoConnect !== undefined) normalized.autoConnect = payload.autoConnect === true;
+  if (payload.reconnectEnabled !== undefined) normalized.reconnectEnabled = payload.reconnectEnabled !== false;
+  if (payload.heartbeatEnabled !== undefined) normalized.heartbeatEnabled = payload.heartbeatEnabled !== false;
+  if (payload.connectionTimeoutMs !== undefined) {
+    normalized.connectionTimeoutMs = Math.max(1000, Math.min(60000, Number(payload.connectionTimeoutMs) || 10000));
+  }
+  if (payload.heartbeatIntervalMs !== undefined) {
+    normalized.heartbeatIntervalMs = Math.max(5000, Math.min(120000, Number(payload.heartbeatIntervalMs) || 30000));
+  }
+  return normalized;
+}
+
+function validateCloudPairRequest(payload) {
+  requirePlainObject(payload);
+  const pairRequestId = requireString(payload.pairRequestId, 'pairRequestId', { maxLength: 128 });
+  if (!/^[A-Za-z0-9._-]+$/.test(pairRequestId)) throw new TypeError('pairRequestId is invalid');
+  return { pairRequestId };
+}
+
 function validateScheduleAction(payload) {
   requirePlainObject(payload);
   const id = requireString(payload.id, 'id', { maxLength: 200 });
@@ -209,6 +241,13 @@ const IPC_VALIDATORS = Object.freeze({
   'window:closePlanner': validateEmpty,
   'config:get': validateEmpty,
   'settings:get': validateEmpty,
+  'cloud:status': validateEmpty,
+  'cloud:connect': validateCloudConnect,
+  'cloud:disconnect': validateEmpty,
+  'cloud:pairingQR:create': validateEmpty,
+  'cloud:pairing:status': validateEmpty,
+  'cloud:pairing:approve': validateCloudPairRequest,
+  'cloud:pairing:reject': validateCloudPairRequest,
   'phone:pairingQR:create': validateEmpty,
   'phone:server:status': validateEmpty,
   'phone:devices:list': validateEmpty,
