@@ -328,6 +328,77 @@ describe('Automation Engine', function() {
     }
   });
 
+  it('should constrain phone-origin file transfer searches to spoken locations', async function() {
+    const previousUserProfile = process.env.USERPROFILE;
+    const tempProfile = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-phone-location-'));
+    const desktopFile = path.join(tempProfile, 'Desktop', 'resume.docx');
+    const downloadsFile = path.join(tempProfile, 'Downloads', 'resume.docx');
+    fs.mkdirSync(path.dirname(desktopFile), { recursive: true });
+    fs.mkdirSync(path.dirname(downloadsFile), { recursive: true });
+    fs.writeFileSync(desktopFile, 'desktop', 'utf8');
+    fs.writeFileSync(downloadsFile, 'downloads', 'utf8');
+
+    const sent = [];
+    process.env.USERPROFILE = tempProfile;
+    try {
+      const engine = new AutomationEngine({
+        fileTransferManager: {
+          async sendFileToDevice(deviceId, sourcePath) {
+            sent.push({ deviceId, sourcePath });
+            return { record: { deviceId, fileName: path.basename(sourcePath) } };
+          }
+        }
+      });
+      const result = await engine.execute('phone.sendFile', {
+        path: 'resume in desktop',
+        transferKind: 'file'
+      }, {
+        phoneContext: { deviceId: 'phone001', deviceName: 'My Android Phone' }
+      });
+
+      assert.equal(result.success, true);
+      assert.deepEqual(sent, [{ deviceId: 'phone001', sourcePath: desktopFile }]);
+    } finally {
+      process.env.USERPROFILE = previousUserProfile;
+      fs.rmSync(tempProfile, { recursive: true, force: true });
+    }
+  });
+
+  it('should ask before sending a weak single fuzzy phone file match', async function() {
+    const previousUserProfile = process.env.USERPROFILE;
+    const tempProfile = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-phone-weak-choice-'));
+    const targetDir = path.join(tempProfile, 'Documents', 'Reports');
+    fs.mkdirSync(targetDir, { recursive: true });
+    const weakMatch = path.join(targetDir, 'Quarterly Project Report.docx');
+    fs.writeFileSync(weakMatch, 'report', 'utf8');
+
+    process.env.USERPROFILE = tempProfile;
+    try {
+      const engine = new AutomationEngine({
+        fileTransferManager: {
+          async sendFileToDevice() {
+            throw new Error('should not transfer before user confirms a weak match');
+          }
+        }
+      });
+      const result = await engine.execute('phone.sendFile', {
+        path: 'quaterly projet reprt',
+        transferKind: 'file'
+      }, {
+        phoneContext: { deviceId: 'phone001', deviceName: 'My Android Phone' }
+      });
+
+      assert.equal(result.success, false);
+      assert.equal(result.needsClarification, true);
+      assert.equal(result.data.clarificationType, 'phone.sendFile.file');
+      assert.equal(result.data.matchCount, 1);
+      assert.equal(result.data.choices[0].path, weakMatch);
+    } finally {
+      process.env.USERPROFILE = previousUserProfile;
+      fs.rmSync(tempProfile, { recursive: true, force: true });
+    }
+  });
+
   it('should return error for unknown action', async function() {
     const engine = new AutomationEngine({});
     const result = await engine.execute('nonexistent.action', {});

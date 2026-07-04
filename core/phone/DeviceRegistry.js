@@ -101,6 +101,20 @@ class DeviceRegistry {
     return true;
   }
 
+  updateDeviceName(deviceId, deviceName) {
+    const normalizedId = this._tryNormalizeDeviceId(deviceId);
+    const device = normalizedId ? this.devices.get(normalizedId) : null;
+    if (!device) return null;
+    const normalizedName = this._normalizeDeviceName(deviceName);
+    if (device.deviceName !== normalizedName) {
+      device.deviceName = normalizedName;
+      device.lastSeen = this.now();
+      this.save();
+      this.logger.info('[PHONE] Device name changed', { deviceId: normalizedId, deviceName: normalizedName });
+    }
+    return { ...device, permissions: { ...device.permissions } };
+  }
+
   removeDevice(deviceId) {
     const normalized = this._tryNormalizeDeviceId(deviceId);
     if (!normalized || !this.devices.delete(normalized)) return false;

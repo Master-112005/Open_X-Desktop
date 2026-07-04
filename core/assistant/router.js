@@ -2870,14 +2870,17 @@ class ActionRouter {
     }
 
     const lower = input.toLowerCase();
-    if (!PHONE_TRANSFER_ACTION_PATTERN.test(lower)) {
+    const sourceIsPhone = source === 'phone';
+    const phoneFetchRequest = sourceIsPhone &&
+      /^(?:find|search|locate|open|fetch|download|show)\b/i.test(lower) &&
+      PHONE_TRANSFER_FILE_EVIDENCE_PATTERN.test(`${raw} ${input}`);
+    if (!PHONE_TRANSFER_ACTION_PATTERN.test(lower) && !phoneFetchRequest) {
       return null;
     }
 
     const rawPhoneTargetMatch = raw.match(PHONE_TRANSFER_TRAILING_TARGET_PATTERN);
     const inputPhoneTargetMatch = input.match(PHONE_TRANSFER_TRAILING_TARGET_PATTERN);
     const phoneTargetMatch = rawPhoneTargetMatch || inputPhoneTargetMatch;
-    const sourceIsPhone = source === 'phone';
     if (!phoneTargetMatch && !sourceIsPhone) {
       return null;
     }
@@ -2929,9 +2932,20 @@ class ActionRouter {
     return String(value || '')
       .trim()
       .replace(PHONE_TRANSFER_ACTION_PATTERN, '')
+      .replace(/^(?:find|search|locate|open|fetch|download|show)\s+(?:and\s+)?(?:send|share|transfer|copy|push|get|bring)?\s*/i, '')
       .replace(/^(?:me\s+|the\s+|a\s+|an\s+|my\s+)+/i, '')
+      .replace(/^(?:file|document)\s+(?:called|named)\s+/i, '')
+      .replace(/\s+and\s+(?:send|share|transfer|copy|push|get|bring)\s+(?:it\s+)?(?:to\s+)?(?:me|here)$/i, '')
+      .replace(/\s+(?:from|in|on|at)\s+(?:my\s+)?(?:computer|pc|laptop|system|desktop)$/i, ' in desktop')
+      .replace(/\s+(?:from|in|on|at)\s+(?:my\s+)?(?:downloads?)$/i, ' in downloads')
+      .replace(/\s+(?:from|in|on|at)\s+(?:my\s+)?(?:documents?)$/i, ' in documents')
+      .replace(/\s+(?:from|in|on|at)\s+(?:my\s+)?(?:pictures?|photos?)$/i, ' in pictures')
+      .replace(/\s+(?:from|in|on|at)\s+(?:my\s+)?(?:videos?)$/i, ' in videos')
+      .replace(/\s+(?:file|document)\s+(in\s+(?:desktop|downloads|documents|pictures|videos))$/i, ' $1')
       .replace(/\s+(?:here|to\s+me|for\s+me|on\s+this\s+(?:phone|device)|to\s+this\s+(?:phone|device))$/i, '')
       .replace(/\b(?:over|across)\s*$/i, '')
+      .replace(/\s+(?:file|document)\s*$/i, '')
+      .replace(/\s+(pdf|txt|docx?|xlsx?|pptx?|csv|json|xml|html?|js|ts|py|java|md|png|jpe?g|gif|webp|mp[34]|mkv|wav|zip|rar|apk)$/i, '.$1')
       .replace(/\s+/g, ' ')
       .trim();
   }

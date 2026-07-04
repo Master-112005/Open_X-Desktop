@@ -2472,6 +2472,12 @@ describe('Action Router', function() {
     const getPhoneOriginResult = await router.process('get latest photo for me', 'phone', {
       phoneContext: { deviceId: 'phone001', deviceName: 'Galaxy S25' }
     });
+    const phoneFindOriginResult = await router.process('find resume docx file', 'phone', {
+      phoneContext: { deviceId: 'phone001', deviceName: 'Galaxy S25' }
+    });
+    const phoneDesktopOriginResult = await router.process('find resume file from desktop', 'phone', {
+      phoneContext: { deviceId: 'phone001', deviceName: 'Galaxy S25' }
+    });
     const phoneSendCountBeforeChat = executed.filter(step => step.actionId === 'phone.sendFile').length;
     const chatMissingTarget = await router.process('send me latest screenshot', 'chat');
 
@@ -2487,18 +2493,24 @@ describe('Action Router', function() {
     assert.equal(naturalResult.entities.path, 'latest photo');
     assert.equal(naturalResult.entities.transferKind, 'image');
     assert.equal(tabletResult.intent, 'phone.sendFile');
-    assert.equal(tabletResult.entities.path, 'report pdf');
+    assert.equal(tabletResult.entities.path, 'report.pdf');
     assert.equal(phoneOriginResult.intent, 'phone.sendFile');
     assert.equal(phoneOriginResult.entities.path, 'latest screenshot');
     assert.equal(phoneOriginResult.entities.transferKind, 'image');
     assert.equal(politePhoneOriginResult.intent, 'phone.sendFile');
-    assert.equal(politePhoneOriginResult.entities.path, 'report pdf');
+    assert.equal(politePhoneOriginResult.entities.path, 'report.pdf');
     assert.equal(getPhoneOriginResult.intent, 'phone.sendFile');
     assert.equal(getPhoneOriginResult.entities.path, 'latest photo');
     assert.equal(getPhoneOriginResult.entities.transferKind, 'image');
+    assert.equal(phoneFindOriginResult.intent, 'phone.sendFile');
+    assert.equal(phoneFindOriginResult.entities.path, 'resume.docx');
+    assert.equal(phoneDesktopOriginResult.intent, 'phone.sendFile');
+    assert.equal(phoneDesktopOriginResult.entities.path, 'resume in desktop');
     assert.notEqual(chatMissingTarget.intent, 'phone.sendFile');
     assert.equal(executed.filter(step => step.actionId === 'phone.sendFile').length, phoneSendCountBeforeChat);
     assert.deepEqual(executed.filter(step => step.actionId === 'phone.sendFile').map(step => step.actionId), [
+      'phone.sendFile',
+      'phone.sendFile',
       'phone.sendFile',
       'phone.sendFile',
       'phone.sendFile',

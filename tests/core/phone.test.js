@@ -130,6 +130,39 @@ describe('Phone communication', function() {
     assert.equal([...server.clients.values()][0].deviceName, 'Test Phone');
   });
 
+  it('updates the trusted phone name and connected-device display over WebSocket', async function() {
+    const router = new PhoneCommandRouter({
+      processCommand: async () => ({ success: true, response: 'done' })
+    });
+    const pairingService = createPairingService(tempDir);
+    pairingService.deviceRegistry.registerDevice('phone001', 'Old Phone');
+    const session = pairingService.sessionManager.createSession('phone001');
+    server = new PhoneServer({ port: 0, commandRouter: router, pairingService, logger: createLogger() });
+    const address = await server.start();
+
+    socket = new WebSocket(`ws://127.0.0.1:${address.port}?deviceId=phone001&deviceName=Old%20Phone`);
+    const statusPromise = nextJson(socket);
+    await once(socket, 'open');
+    await statusPromise;
+
+    const updatePromise = nextJson(socket);
+    socket.send(JSON.stringify({
+      type: 'device-update',
+      deviceId: 'phone001',
+      sessionToken: session.sessionToken,
+      requestId: 'rename-1',
+      timestamp: Date.now(),
+      deviceName: 'Rakesh Phone'
+    }));
+
+    const update = await updatePromise;
+    assert.equal(update.type, 'device-updated');
+    assert.equal(update.deviceId, 'phone001');
+    assert.equal(update.deviceName, 'Rakesh Phone');
+    assert.equal(pairingService.deviceRegistry.getDevice('phone001').deviceName, 'Rakesh Phone');
+    assert.equal(server.getStatus().connectedDevices[0].deviceName, 'Rakesh Phone');
+  });
+
   it('rejects malformed and unsupported messages without invoking the assistant', async function() {
     let commandCount = 0;
     const router = new PhoneCommandRouter({
