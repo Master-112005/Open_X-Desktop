@@ -30,6 +30,26 @@ const phoneServerAddressEl = document.getElementById('phone-server-address');
 const phoneServerPortEl = document.getElementById('phone-server-port');
 const phoneServerDevicesEl = document.getElementById('phone-server-devices');
 const phoneServerVersionEl = document.getElementById('phone-server-version');
+const cloudConnectionStateEl = document.getElementById('cloud-connection-state');
+const cloudRelayUrlEl = document.getElementById('cloud-relay-url');
+const cloudAutoConnectEl = document.getElementById('cloud-auto-connect');
+const cloudReconnectEnabledEl = document.getElementById('cloud-reconnect-enabled');
+const cloudHeartbeatEnabledEl = document.getElementById('cloud-heartbeat-enabled');
+const cloudConnectionTimeoutEl = document.getElementById('cloud-connection-timeout');
+const cloudLastConnectedEl = document.getElementById('cloud-last-connected');
+const cloudDurationEl = document.getElementById('cloud-duration');
+const cloudPingEl = document.getElementById('cloud-ping');
+const cloudReconnectAttemptsEl = document.getElementById('cloud-reconnect-attempts');
+const cloudVersionEl = document.getElementById('cloud-version');
+const cloudConnectBtn = document.getElementById('cloud-connect-btn');
+const cloudFriendlyStatusEl = document.getElementById('cloud-friendly-status');
+const cloudGenerateQrBtn = document.getElementById('cloud-generate-qr-btn');
+const cloudPairingStatusEl = document.getElementById('cloud-pairing-status');
+const cloudPairingQrEl = document.getElementById('cloud-pairing-qr');
+const cloudPairingTokenEl = document.getElementById('cloud-pairing-token');
+const cloudPairingExpiryEl = document.getElementById('cloud-pairing-expiry');
+const cloudPairingCountdownEl = document.getElementById('cloud-pairing-countdown');
+const cloudPairingRequestsEl = document.getElementById('cloud-pairing-requests');
 const phoneDeviceListEl = document.getElementById('phone-device-list');
 const phoneSectionTabs = document.querySelectorAll('.phone-section-tab');
 const phonePanels = document.querySelectorAll('[data-phone-panel]');
@@ -77,6 +97,9 @@ let pendingGlassTintValue = 42;
 let messageScrollAnimationFrame = null;
 let renderedMessageCount = messagesEl ? messagesEl.querySelectorAll('.message').length : 0;
 let phonePairingCountdownHandle = null;
+let cloudPairingCountdownHandle = null;
+let cloudStatusPollHandle = null;
+let latestCloudStatus = null;
 const PHONE_PERMISSIONS = [
   ['remoteCommands', 'Remote Commands'],
   ['fileTransfer', 'File Transfer'],
@@ -103,7 +126,12 @@ const fieldIds = {
   profileRole: 'profile-role',
   chatMaxHistory: 'chat-max-history',
   glassTint: 'glass-tint',
-  systemPermissionLevel: 'system-permission-level'
+  systemPermissionLevel: 'system-permission-level',
+  cloudRelayUrl: 'cloud-relay-url',
+  cloudAutoConnect: 'cloud-auto-connect',
+  cloudReconnectEnabled: 'cloud-reconnect-enabled',
+  cloudHeartbeatEnabled: 'cloud-heartbeat-enabled',
+  cloudConnectionTimeout: 'cloud-connection-timeout'
 };
 
 function getAssistantDisplayName() {
@@ -980,6 +1008,11 @@ function populateSettingsForm() {
   setFieldValue(fieldIds.glassTint, String(settings.chat.glassTint ?? 42));
   applyGlassTint(settings.chat.glassTint ?? 42);
   setFieldValue(fieldIds.systemPermissionLevel, settings.system.permissionLevel);
+  setFieldValue(fieldIds.cloudRelayUrl, settings.cloud?.relayUrl || 'ws://localhost:8080/ws');
+  setFieldValue(fieldIds.cloudConnectionTimeout, String(settings.cloud?.connectionTimeoutMs || 10000));
+  if (cloudAutoConnectEl) cloudAutoConnectEl.checked = settings.cloud?.autoConnect === true;
+  if (cloudReconnectEnabledEl) cloudReconnectEnabledEl.checked = settings.cloud?.reconnectEnabled !== false;
+  if (cloudHeartbeatEnabledEl) cloudHeartbeatEnabledEl.checked = settings.cloud?.heartbeatEnabled !== false;
   updatePermissionScale();
   populateModeFields(settings.modes || []);
 
@@ -1335,6 +1368,15 @@ function collectSettingsPayload() {
     system: {
       permissionLevel: document.getElementById(fieldIds.systemPermissionLevel).value
     },
+    cloud: {
+      enabled: latestCloudStatus?.connected === true || settingsSnapshot?.settings?.cloud?.enabled === true,
+      relayUrl: document.getElementById(fieldIds.cloudRelayUrl).value.trim(),
+      autoConnect: document.getElementById(fieldIds.cloudAutoConnect).checked,
+      reconnectEnabled: document.getElementById(fieldIds.cloudReconnectEnabled).checked,
+      heartbeatEnabled: document.getElementById(fieldIds.cloudHeartbeatEnabled).checked,
+      connectionTimeoutMs: Number(document.getElementById(fieldIds.cloudConnectionTimeout).value || 10000),
+      heartbeatIntervalMs: settingsSnapshot?.settings?.cloud?.heartbeatIntervalMs || 30000
+    },
     modes: collectModesPayload()
   };
 }
@@ -1386,6 +1428,12 @@ function applySnapshot(snapshot) {
   updateBranding();
   populateSettingsForm();
   updateSettingsSummary();
+  if (snapshot?.cloudStatus) {
+    renderCloudStatus(snapshot.cloudStatus);
+  }
+  if (snapshot?.cloudPairingStatus) {
+    renderCloudPairingStatus(snapshot.cloudPairingStatus);
+  }
   ensureWelcomeMessage();
 }
 
@@ -1395,6 +1443,14 @@ function openSettingsPanel() {
   setSettingsStatus('Settings are stored locally on this machine.', 'info');
   loadPhoneServerStatus();
   loadPhoneDevices();
+  loadCloudStatus();
+  loadCloudPairingStatus();
+  if (!cloudStatusPollHandle) {
+    cloudStatusPollHandle = setInterval(() => {
+      loadCloudStatus();
+      loadCloudPairingStatus();
+    }, 5000);
+  }
 }
 
 function closeSettingsPanel() {
@@ -1403,6 +1459,11 @@ function closeSettingsPanel() {
     return;
   }
   settingsOverlay.classList.remove('open');
+  if (cloudStatusPollHandle) {
+    clearInterval(cloudStatusPollHandle);
+    cloudStatusPollHandle = null;
+  }
+  stopCloudPairingCountdown();
   inputBox.focus();
 }
 
@@ -1471,6 +1532,31 @@ function startPairingCountdown(expiresAt) {
   phonePairingCountdownHandle = setInterval(update, 1000);
 }
 
+function stopCloudPairingCountdown() {
+  if (cloudPairingCountdownHandle) clearInterval(cloudPairingCountdownHandle);
+  cloudPairingCountdownHandle = null;
+}
+
+function startCloudPairingCountdown(expiresAt) {
+  stopCloudPairingCountdown();
+  const update = () => {
+    const remaining = expiresAt - Date.now();
+    if (remaining <= 0) {
+      stopCloudPairingCountdown();
+      if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'Cloud pairing QR expired.';
+      if (cloudPairingCountdownEl) cloudPairingCountdownEl.textContent = 'Expired';
+      if (cloudPairingQrEl) cloudPairingQrEl.classList.add('expired');
+      if (cloudGenerateQrBtn) cloudGenerateQrBtn.textContent = 'Generate New Cloud QR';
+      return;
+    }
+    if (cloudPairingCountdownEl) {
+      cloudPairingCountdownEl.textContent = `Expires in ${formatPairingCountdown(remaining)}`;
+    }
+  };
+  update();
+  cloudPairingCountdownHandle = setInterval(update, 1000);
+}
+
 async function generatePairingQR() {
   stopPairingCountdown();
   phoneGenerateTokenBtn.disabled = true;
@@ -1509,6 +1595,237 @@ function renderPhoneServerStatus(status) {
   phoneServerPortEl.textContent = Number.isInteger(safeStatus.currentPort) ? String(safeStatus.currentPort) : '--';
   phoneServerDevicesEl.textContent = String(Array.isArray(safeStatus.connectedDevices) ? safeStatus.connectedDevices.length : 0);
   phoneServerVersionEl.textContent = String(safeStatus.currentVersion ?? 1);
+}
+
+async function generateCloudPairingQR() {
+  stopCloudPairingCountdown();
+  if (!cloudGenerateQrBtn) return;
+  cloudGenerateQrBtn.disabled = true;
+  if (cloudPairingTokenEl) cloudPairingTokenEl.textContent = '--------';
+  if (cloudPairingExpiryEl) cloudPairingExpiryEl.textContent = '';
+  if (cloudPairingCountdownEl) cloudPairingCountdownEl.textContent = '';
+  if (cloudPairingQrEl) {
+    cloudPairingQrEl.hidden = true;
+    cloudPairingQrEl.removeAttribute('src');
+    cloudPairingQrEl.classList.remove('expired');
+  }
+  if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'Requesting secure token from relay...';
+  try {
+    const result = await window.openx.generateCloudPairingQR();
+    if (result?.success !== true) {
+      if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = result?.message || 'Connect to Relay Server first.';
+      return;
+    }
+    if (cloudPairingQrEl) {
+      cloudPairingQrEl.src = result.qrDataUrl;
+      cloudPairingQrEl.hidden = false;
+    }
+    if (cloudPairingTokenEl) cloudPairingTokenEl.textContent = result.payload.pairToken;
+    if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'Waiting for phone scan...';
+    if (cloudPairingExpiryEl) {
+      cloudPairingExpiryEl.textContent = `Expires at ${new Date(result.payload.expiresAt).toLocaleTimeString()}.`;
+    }
+    cloudGenerateQrBtn.textContent = 'Generate New Cloud QR';
+    startCloudPairingCountdown(result.payload.expiresAt);
+    await loadCloudPairingStatus();
+  } catch (_) {
+    if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'Unable to generate cloud pairing QR.';
+  } finally {
+    cloudGenerateQrBtn.disabled = latestCloudStatus?.connected !== true;
+  }
+}
+
+function formatCloudDate(value) {
+  const timestamp = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(timestamp) && timestamp > 0
+    ? new Date(timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : '--';
+}
+
+function formatCloudDuration(milliseconds) {
+  const totalSeconds = Math.floor(Math.max(0, Number(milliseconds) || 0) / 1000);
+  if (totalSeconds <= 0) return '--';
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function cloudStateClass(state) {
+  return String(state || 'disconnected').toLowerCase();
+}
+
+function collectCloudRuntimeSettings() {
+  return {
+    relayUrl: cloudRelayUrlEl?.value?.trim() || settingsSnapshot?.settings?.cloud?.relayUrl || 'ws://localhost:8080/ws',
+    autoConnect: cloudAutoConnectEl?.checked === true,
+    reconnectEnabled: cloudReconnectEnabledEl?.checked !== false,
+    heartbeatEnabled: cloudHeartbeatEnabledEl?.checked !== false,
+    connectionTimeoutMs: Number(cloudConnectionTimeoutEl?.value || settingsSnapshot?.settings?.cloud?.connectionTimeoutMs || 10000),
+    heartbeatIntervalMs: settingsSnapshot?.settings?.cloud?.heartbeatIntervalMs || 30000
+  };
+}
+
+function renderCloudStatus(status) {
+  const safeStatus = status && typeof status === 'object' ? status : {};
+  latestCloudStatus = safeStatus;
+  const state = safeStatus.state || 'Disconnected';
+  if (cloudConnectionStateEl) {
+    cloudConnectionStateEl.textContent = state;
+    cloudConnectionStateEl.className = cloudStateClass(state);
+  }
+  if (cloudLastConnectedEl) cloudLastConnectedEl.textContent = formatCloudDate(safeStatus.lastConnectedAt);
+  if (cloudDurationEl) cloudDurationEl.textContent = formatCloudDuration(safeStatus.connectionDurationMs);
+  if (cloudPingEl) cloudPingEl.textContent = Number.isFinite(Number(safeStatus.pingMs)) ? `${Math.round(Number(safeStatus.pingMs))} ms` : 'Pending';
+  if (cloudReconnectAttemptsEl) cloudReconnectAttemptsEl.textContent = String(Number(safeStatus.reconnectAttempts) || 0);
+  if (cloudVersionEl) {
+    const versions = [safeStatus.version, safeStatus.serverVersion ? `server ${safeStatus.serverVersion}` : '']
+      .filter(Boolean)
+      .join(' / ');
+    cloudVersionEl.textContent = versions || '--';
+  }
+  if (cloudFriendlyStatusEl) {
+    cloudFriendlyStatusEl.textContent = safeStatus.friendlyMessage || 'Cloud mode is disconnected. Local mode is active.';
+  }
+  if (cloudConnectBtn) {
+    const busy = ['Connecting', 'Reconnecting', 'Disconnecting'].includes(state);
+    cloudConnectBtn.disabled = busy;
+    cloudConnectBtn.textContent = safeStatus.connected ? 'Disconnect' : 'Connect to Server';
+  }
+  if (cloudGenerateQrBtn) {
+    cloudGenerateQrBtn.disabled = safeStatus.connected !== true;
+  }
+  if (safeStatus.connected !== true && cloudPairingStatusEl) {
+    cloudPairingStatusEl.textContent = 'Connect to Relay Server first.';
+  }
+}
+
+async function loadCloudStatus() {
+  if (!window.openx?.getCloudStatus) return;
+  try {
+    renderCloudStatus(await window.openx.getCloudStatus());
+  } catch (_) {
+    renderCloudStatus({
+      state: 'Disconnected',
+      connected: false,
+      friendlyMessage: 'Cloud mode is disconnected. Local mode is active.'
+    });
+  }
+}
+
+function renderCloudPairingRequests(requests) {
+  if (!cloudPairingRequestsEl) return;
+  cloudPairingRequestsEl.replaceChildren();
+  if (!Array.isArray(requests) || requests.length === 0) return;
+  requests.forEach(request => {
+    const card = document.createElement('div');
+    card.className = 'cloud-pairing-request';
+    const copy = document.createElement('div');
+    const title = document.createElement('strong');
+    title.textContent = request.device?.name || 'OpenX Mobile';
+    const meta = document.createElement('span');
+    meta.textContent = `${request.device?.type || 'mobile'} wants to pair through the relay.`;
+    copy.append(title, meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'cloud-pairing-request-actions';
+    const accept = document.createElement('button');
+    accept.type = 'button';
+    accept.className = 'primary-btn';
+    accept.textContent = 'Accept';
+    accept.addEventListener('click', async () => {
+      accept.disabled = true;
+      reject.disabled = true;
+      try {
+        await window.openx.approveCloudPairing(request.pairRequestId);
+        setSettingsStatus('Cloud pairing approved.', 'success');
+      } catch (_) {
+        setSettingsStatus('Unable to approve cloud pairing.', 'error');
+      }
+    });
+    const reject = document.createElement('button');
+    reject.type = 'button';
+    reject.className = 'secondary-btn';
+    reject.textContent = 'Reject';
+    reject.addEventListener('click', async () => {
+      accept.disabled = true;
+      reject.disabled = true;
+      try {
+        await window.openx.rejectCloudPairing(request.pairRequestId);
+        setSettingsStatus('Cloud pairing rejected.', 'info');
+      } catch (_) {
+        setSettingsStatus('Unable to reject cloud pairing.', 'error');
+      }
+    });
+    actions.append(accept, reject);
+    card.append(copy, actions);
+    cloudPairingRequestsEl.appendChild(card);
+  });
+}
+
+function renderCloudPairingStatus(status) {
+  const safeStatus = status && typeof status === 'object' ? status : {};
+  const current = safeStatus.currentPairing;
+  const pending = Array.isArray(safeStatus.pendingRequests) ? safeStatus.pendingRequests : [];
+  if (cloudGenerateQrBtn) {
+    cloudGenerateQrBtn.disabled = latestCloudStatus?.connected !== true;
+  }
+  if (current?.expiresAt && current.expiresAt > Date.now()) {
+    if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = pending.length > 0 ? 'Incoming pair request.' : 'Waiting for phone scan...';
+    if (cloudPairingTokenEl) cloudPairingTokenEl.textContent = current.pairToken || '--------';
+    if (cloudPairingExpiryEl) cloudPairingExpiryEl.textContent = `Expires at ${new Date(current.expiresAt).toLocaleTimeString()}.`;
+    if (cloudPairingQrEl && current.qrDataUrl) {
+      cloudPairingQrEl.src = current.qrDataUrl;
+      cloudPairingQrEl.hidden = false;
+      cloudPairingQrEl.classList.remove('expired');
+    } else if (cloudPairingQrEl && !cloudPairingQrEl.src) {
+      cloudPairingQrEl.hidden = true;
+    }
+    startCloudPairingCountdown(current.expiresAt);
+  } else {
+    stopCloudPairingCountdown();
+    if (cloudPairingStatusEl) {
+      cloudPairingStatusEl.textContent = latestCloudStatus?.connected === true
+        ? 'Generate a cloud QR when your phone is ready.'
+        : 'Connect to Relay Server first.';
+    }
+    if (cloudPairingCountdownEl) cloudPairingCountdownEl.textContent = '';
+  }
+  renderCloudPairingRequests(pending);
+}
+
+async function loadCloudPairingStatus() {
+  if (!window.openx?.getCloudPairingStatus) return;
+  try {
+    renderCloudPairingStatus(await window.openx.getCloudPairingStatus());
+  } catch (_) {
+    renderCloudPairingStatus({
+      connected: false,
+      hasActiveQr: false,
+      currentPairing: null,
+      pendingRequests: []
+    });
+  }
+}
+
+async function toggleCloudConnection() {
+  if (!window.openx || !cloudConnectBtn) return;
+  cloudConnectBtn.disabled = true;
+  try {
+    const isConnected = latestCloudStatus?.connected === true;
+    const status = isConnected
+      ? await window.openx.disconnectCloud()
+      : await window.openx.connectCloud(collectCloudRuntimeSettings());
+    renderCloudStatus(status);
+    const tone = status?.connected ? 'success' : 'info';
+    setSettingsStatus(status?.friendlyMessage || 'Cloud connection updated.', tone);
+  } catch (_) {
+    setSettingsStatus('Unable to update cloud connection.', 'error');
+  } finally {
+    cloudConnectBtn.disabled = false;
+  }
 }
 
 function formatDeviceDate(timestamp) {
@@ -1752,6 +2069,8 @@ settingsOverlay.addEventListener('click', (event) => {
 });
 phoneDeviceRemoveCancel?.addEventListener('click', closePhoneDeviceRemoveDialog);
 phoneDeviceRemoveConfirm?.addEventListener('click', confirmPhoneDeviceRemoval);
+cloudConnectBtn?.addEventListener('click', toggleCloudConnection);
+cloudGenerateQrBtn?.addEventListener('click', generateCloudPairingQR);
 phoneDeviceRemoveDialog?.addEventListener('click', (event) => {
   if (event.target === phoneDeviceRemoveDialog) closePhoneDeviceRemoveDialog();
 });
@@ -1765,6 +2084,8 @@ if (window.openx) {
   window.openx.onSettingsChanged((snapshot) => {
     applySnapshot(snapshot);
   });
+  window.openx.onCloudStatus?.(renderCloudStatus);
+  window.openx.onCloudPairingStatus?.(renderCloudPairingStatus);
   window.openx.onOpenSettings?.(openSettingsPanel);
 }
 

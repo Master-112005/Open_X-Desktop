@@ -639,7 +639,8 @@
   font-weight: 700;
 }
 
-.phone-server-card {
+.phone-server-card,
+.cloud-connection-card {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 18px;
@@ -647,6 +648,58 @@
   gap: 14px;
   margin-top: 14px;
   padding: 16px;
+}
+
+.cloud-connection-card {
+  gap: 12px;
+}
+
+.cloud-url-field {
+  margin: 0;
+}
+
+.cloud-toggle-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cloud-timeout-field {
+  margin: 0;
+}
+
+.cloud-status-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cloud-status-grid .phone-server-item:last-child {
+  grid-column: 1 / -1;
+}
+
+.cloud-action-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.cloud-action-row span {
+  color: var(--muted-color);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+#cloud-connection-state.connected {
+  color: var(--success-color);
+}
+
+#cloud-connection-state.connecting,
+#cloud-connection-state.reconnecting {
+  color: var(--warning-color);
+}
+
+#cloud-connection-state.error {
+  color: var(--danger-color);
 }
 
 .phone-server-heading {
@@ -3776,9 +3829,59 @@ html[data-glass-contrast] #send-btn {
 
 .phone-panel .phone-pairing-card,
 .phone-panel .phone-server-card,
+.phone-panel .cloud-connection-card,
+.phone-panel .cloud-pairing-card,
 .phone-panel .phone-devices-heading,
 .phone-panel .phone-device-list {
   margin-top: 0;
+}
+
+.cloud-pairing-card {
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+}
+
+.cloud-pairing-card .primary-btn {
+  align-self: flex-start;
+}
+
+.cloud-pairing-requests {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cloud-pairing-request {
+  align-items: center;
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 16px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.cloud-pairing-request strong,
+.cloud-pairing-request span {
+  display: block;
+}
+
+.cloud-pairing-request span {
+  color: var(--muted-color);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.cloud-pairing-request-actions {
+  display: flex;
+  gap: 8px;
 }
 
 @media (max-width: 460px) {

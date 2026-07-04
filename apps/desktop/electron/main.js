@@ -24,6 +24,7 @@ const {
 const { SettingsService } = require('../settings');
 const { AssistantEventBus, EVENTS, Logger } = require('../../../core/assistant/Data');
 const { ensureDataRoot, migrateLegacyData } = require('../../../core/assistant/Data');
+const { CloudConnectionManager, CloudLogger, CloudPairingManager } = require('../../../core/cloud');
 const CrashRecoveryPolicy = require('./crash-recovery');
 const {
   DeviceRegistry,
@@ -204,6 +205,8 @@ let chatLoweredForPlanner = false;
 let phoneServer = null;
 let qrPairingService = null;
 let phoneDeviceRegistry = null;
+let cloudConnectionManager = null;
+let cloudPairingManager = null;
 const rendererCrashHistory = new Map();
 const recoveryTimeouts = new Set();
 const unresponsiveTimeouts = new Map();
@@ -223,6 +226,13 @@ const IPC_CHANNELS = [
   'window:closePlanner',
   'config:get',
   'settings:get',
+  'cloud:status',
+  'cloud:connect',
+  'cloud:disconnect',
+  'cloud:pairingQR:create',
+  'cloud:pairing:status',
+  'cloud:pairing:approve',
+  'cloud:pairing:reject',
   'phone:pairingQR:create',
   'phone:server:status',
   'phone:devices:list',
@@ -1330,6 +1340,98 @@ function createTray() {
   tray.on('double-click', () => createChatWindow());
 }
 
+function sendCloudStatus(status = null) {
+  const payload = status || cloudConnectionManager?.getStatus?.() || {
+    state: 'Disconnected',
+    connected: false,
+    friendlyMessage: 'Cloud mode is disconnected. Local mode is active.'
+  };
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.webContents.send('cloud:status', payload);
+  }
+}
+
+function sendCloudPairingStatus(status = null) {
+  const payload = status || cloudPairingManager?.getStatus?.() || {
+    connected: false,
+    hasActiveQr: false,
+    currentPairing: null,
+    pendingRequests: []
+  };
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.webContents.send('cloud:pairing:status', payload);
+  }
+}
+
+function initializeCloudConnection() {
+  if (cloudConnectionManager) return cloudConnectionManager;
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG.app?.dataPaths || {};
+  const cloudLogger = new CloudLogger({
+    logger: mainLogger,
+    logPath: dataPaths.cloudLogPath
+  });
+  cloudConnectionManager = new CloudConnectionManager({
+    settings: runtimeConfig?.cloud || {},
+    version: app.getVersion?.() || BASE_CONFIG.app?.version || '0.0.0',
+    logger: cloudLogger
+  });
+  cloudConnectionManager.on('status', status => sendCloudStatus(status));
+  return cloudConnectionManager;
+}
+
+function initializeCloudPairing() {
+  if (cloudPairingManager) return cloudPairingManager;
+  const manager = initializeCloudConnection();
+  cloudPairingManager = new CloudPairingManager({
+    connectionManager: manager,
+    logger: mainLogger,
+    tokenTtlMs: runtimeConfig?.cloud?.pairTokenTtlMs || 5 * 60 * 1000
+  });
+  cloudPairingManager.on('request', status => {
+    sendCloudPairingStatus(status);
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.show();
+      chatWindow.focus();
+    }
+  });
+  cloudPairingManager.on('result', result => {
+    sendCloudPairingStatus();
+    mainLogger.info('[CLOUD] Pairing result received', {
+      pairRequestId: result?.pairRequestId,
+      type: result?.type
+    });
+  });
+  cloudPairingManager.on('status', status => sendCloudPairingStatus(status));
+  return cloudPairingManager;
+}
+
+async function maybeAutoConnectCloud(reason = 'startup') {
+  const manager = initializeCloudConnection();
+  manager.updateSettings(runtimeConfig?.cloud || {});
+  const cloudSettings = runtimeConfig?.cloud || {};
+  if (cloudSettings.enabled !== true || cloudSettings.autoConnect !== true) {
+    mainLogger.info('[CLOUD] Auto connect skipped; local mode remains active', {
+      reason,
+      enabled: cloudSettings.enabled === true,
+      autoConnect: cloudSettings.autoConnect === true
+    });
+    sendCloudStatus(manager.getStatus());
+    return manager.getStatus();
+  }
+
+  try {
+    return await manager.connect(cloudSettings);
+  } catch (error) {
+    mainLogger.warn('[CLOUD] Auto connect failed safely', { reason, error: error.message });
+    return manager.getStatus();
+  }
+}
+
+function currentCloudSettings() {
+  const settings = settingsService?.getSettings?.()?.cloud || runtimeConfig?.cloud || {};
+  return { ...settings };
+}
+
 function registerIpcHandler(channel, handler) {
   const validator = IPC_VALIDATORS[channel];
   if (!validator) throw new Error(`No IPC validator registered for ${channel}`);
@@ -1465,7 +1567,93 @@ function setupIPC() {
   });
 
   registerIpcHandler('settings:get', async () => {
-    return settingsService.getSnapshot();
+    const snapshot = settingsService.getSnapshot();
+    return {
+      ...snapshot,
+      cloudStatus: cloudConnectionManager?.getStatus?.() || null,
+      cloudPairingStatus: cloudPairingManager?.getStatus?.() || null
+    };
+  });
+
+  registerIpcHandler('cloud:status', async () => {
+    const manager = initializeCloudConnection();
+    manager.updateSettings(currentCloudSettings());
+    return manager.getStatus();
+  });
+
+  registerIpcHandler('cloud:connect', async (_event, payload) => {
+    const nextSettings = settingsService.saveSettings({
+      cloud: {
+        ...currentCloudSettings(),
+        ...payload,
+        enabled: true
+      }
+    }).cloud;
+    runtimeConfig = settingsService.buildRuntimeConfig();
+    const manager = initializeCloudConnection();
+    manager.updateSettings(nextSettings);
+    const status = await manager.connect(nextSettings);
+    sendCloudStatus(status);
+    initializeCloudPairing();
+    sendCloudPairingStatus();
+    if (chatWindow?.webContents) {
+      chatWindow.webContents.send('settings:changed', {
+        ...settingsService.getSnapshot(),
+        cloudStatus: status,
+        cloudPairingStatus: cloudPairingManager?.getStatus?.() || null
+      });
+    }
+    return status;
+  });
+
+  registerIpcHandler('cloud:disconnect', async () => {
+    const nextSettings = settingsService.saveSettings({
+      cloud: {
+        ...currentCloudSettings(),
+        enabled: false
+      }
+    }).cloud;
+    runtimeConfig = settingsService.buildRuntimeConfig();
+    const manager = initializeCloudConnection();
+    manager.updateSettings(nextSettings);
+    const status = await manager.disconnect('manual-disconnect');
+    sendCloudStatus(status);
+    cloudPairingManager?.clearPairing?.('manual-disconnect');
+    sendCloudPairingStatus();
+    if (chatWindow?.webContents) {
+      chatWindow.webContents.send('settings:changed', {
+        ...settingsService.getSnapshot(),
+        cloudStatus: status,
+        cloudPairingStatus: cloudPairingManager?.getStatus?.() || null
+      });
+    }
+    return status;
+  });
+
+  registerIpcHandler('cloud:pairingQR:create', async () => {
+    const manager = initializeCloudPairing();
+    const result = await manager.generatePairingQR({
+      ttlMs: runtimeConfig?.cloud?.pairTokenTtlMs || 5 * 60 * 1000
+    });
+    sendCloudPairingStatus(manager.getStatus());
+    return result;
+  });
+
+  registerIpcHandler('cloud:pairing:status', async () => {
+    const manager = initializeCloudPairing();
+    return manager.getStatus();
+  });
+
+  registerIpcHandler('cloud:pairing:approve', async (_event, { pairRequestId }) => {
+    const result = initializeCloudPairing().approvePairing(pairRequestId);
+    sendCloudPairingStatus();
+    return result;
+  });
+
+  registerIpcHandler('cloud:pairing:reject', async (_event, { pairRequestId }) => {
+    const result = initializeCloudPairing().rejectPairing(pairRequestId);
+    sendCloudPairingStatus();
+    return result;
   });
 
   registerIpcHandler('phone:pairingQR:create', async () => {
@@ -1511,13 +1699,28 @@ function setupIPC() {
   registerIpcHandler('settings:save', async (_event, payload) => {
     settingsService.saveSettings(payload);
     await reloadRuntimeServices();
-    return settingsService.getSnapshot();
+    const manager = initializeCloudConnection();
+    const cloudSettings = currentCloudSettings();
+    manager.updateSettings(cloudSettings);
+    if (cloudSettings.enabled !== true && manager.state !== 'Disconnected') {
+      await manager.disconnect('cloud-disabled-in-settings');
+    }
+    return {
+      ...settingsService.getSnapshot(),
+      cloudStatus: manager.getStatus()
+    };
   });
 
   registerIpcHandler('settings:reset', async () => {
     settingsService.resetSettings();
     await reloadRuntimeServices();
-    return settingsService.getSnapshot();
+    const manager = initializeCloudConnection();
+    await manager.disconnect('settings-reset');
+    manager.updateSettings(currentCloudSettings());
+    return {
+      ...settingsService.getSnapshot(),
+      cloudStatus: manager.getStatus()
+    };
   });
 
   registerIpcHandler('schedule:alertAction', async (_event, { id, action, minutes }) => {
@@ -1720,6 +1923,24 @@ async function cleanupRuntime() {
       }
     }
     phoneDeviceRegistry = null;
+    if (cloudPairingManager) {
+      try {
+        cloudPairingManager.destroy();
+      } catch (error) {
+        mainLogger.error('[CLOUD] Pairing cleanup failed', { error: error.message });
+      } finally {
+        cloudPairingManager = null;
+      }
+    }
+    if (cloudConnectionManager) {
+      try {
+        await cloudConnectionManager.destroy('runtime-cleanup');
+      } catch (error) {
+        mainLogger.error('[CLOUD] Cleanup failed', { error: error.message });
+      } finally {
+        cloudConnectionManager = null;
+      }
+    }
     destroyTextToSpeech();
     await destroyAssistantInstance();
     eventBus?.removeAllListeners?.();
@@ -2283,6 +2504,9 @@ app.whenReady().then(async () => {
   createTray();
   await initializeAssistant();
   await initializePhoneServer();
+  initializeCloudConnection();
+  initializeCloudPairing();
+  await maybeAutoConnectCloud('desktop-startup');
   showTimerWidget();
   if (!app.isPackaged) {
     createChatWindow();

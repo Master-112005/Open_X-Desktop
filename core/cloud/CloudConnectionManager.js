@@ -1,0 +1,569 @@
+const EventEmitter = require('events');
+const { WebSocket } = require('ws');
+
+const STATES = Object.freeze({
+  DISCONNECTED: 'Disconnected',
+  CONNECTING: 'Connecting',
+  CONNECTED: 'Connected',
+  RECONNECTING: 'Reconnecting',
+  DISCONNECTING: 'Disconnecting',
+  ERROR: 'Error'
+});
+
+const DEFAULT_RECONNECT_DELAYS = Object.freeze([1000, 2000, 5000, 10000, 20000]);
+const DEFAULT_TIMEOUT_MS = 10000;
+const DEFAULT_HEARTBEAT_MS = 30000;
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function normalizeRelayUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) throw new Error('Relay URL is required');
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch (_) {
+    throw new Error('Relay URL is invalid');
+  }
+
+  if (!['http:', 'https:', 'ws:', 'wss:'].includes(parsed.protocol)) {
+    throw new Error('Relay URL must use http, https, ws, or wss');
+  }
+
+  if (parsed.protocol === 'http:') parsed.protocol = 'ws:';
+  if (parsed.protocol === 'https:') parsed.protocol = 'wss:';
+  if (!parsed.pathname || parsed.pathname === '/') parsed.pathname = '/ws';
+  parsed.hash = '';
+  return parsed.toString();
+}
+
+function socketIsOpen(socket) {
+  return Boolean(socket && socket.readyState === WebSocket.OPEN);
+}
+
+class CloudConnectionManager extends EventEmitter {
+  constructor(options = {}) {
+    super();
+    this.WebSocketImpl = options.WebSocketImpl || WebSocket;
+    this.logger = options.logger || console;
+    this.now = options.now || (() => Date.now());
+    this.version = String(options.version || '0.0.0');
+
+    this.socket = null;
+    this.state = STATES.DISCONNECTED;
+    this.userDisconnected = true;
+    this.reconnectAttempts = 0;
+    this.reconnectTimer = null;
+    this.connectionTimer = null;
+    this.heartbeatTimer = null;
+    this.connectedAt = null;
+    this.lastConnectedAt = null;
+    this.lastDisconnectedAt = null;
+    this.lastError = '';
+    this.latencyMs = null;
+    this.pendingPingAt = 0;
+    this.clientId = '';
+    this.serverVersion = '';
+    this.relayUrl = '';
+    this.pendingRequests = new Map();
+    this.device = null;
+    this.owner = null;
+    this.settings = this.normalizeSettings(options.settings || {});
+  }
+
+  normalizeSettings(settings = {}) {
+    const source = settings && typeof settings === 'object' ? settings : {};
+    return {
+      enabled: source.enabled === true,
+      deviceId: String(source.deviceId || '').trim(),
+      ownerId: String(source.ownerId || '').trim(),
+      deviceType: String(source.deviceType || 'desktop').trim() || 'desktop',
+      friendlyName: String(source.friendlyName || 'OpenX Desktop').trim() || 'OpenX Desktop',
+      relayUrl: String(source.relayUrl || process.env.OPENX_RELAY_URL || '').trim() || 'ws://localhost:8080/ws',
+      autoConnect: source.autoConnect === true,
+      reconnectEnabled: source.reconnectEnabled !== false,
+      heartbeatEnabled: source.heartbeatEnabled !== false,
+      connectionTimeoutMs: this.clamp(source.connectionTimeoutMs, 1000, 60000, DEFAULT_TIMEOUT_MS),
+      heartbeatIntervalMs: this.clamp(source.heartbeatIntervalMs, 5000, 120000, DEFAULT_HEARTBEAT_MS)
+    };
+  }
+
+  clamp(value, min, max, fallback) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.max(min, Math.min(max, Math.round(number)));
+  }
+
+  updateSettings(settings = {}) {
+    this.settings = this.normalizeSettings({ ...this.settings, ...settings });
+    if (this.state === STATES.CONNECTED) {
+      this.relayUrl = this.getWebSocketUrl(this.settings.relayUrl);
+      this.restartHeartbeat();
+    }
+    return this.getStatus();
+  }
+
+  async connect(settings = {}) {
+    this.settings = this.normalizeSettings({ ...this.settings, ...settings });
+    this.relayUrl = this.getWebSocketUrl(this.settings.relayUrl);
+    this.userDisconnected = false;
+    this.clearReconnectTimer();
+
+    if ([STATES.CONNECTING, STATES.RECONNECTING].includes(this.state)) {
+      return this.getStatus();
+    }
+    if (this.isConnected()) {
+      return this.getStatus();
+    }
+
+    return this.openSocket(STATES.CONNECTING);
+  }
+
+  async disconnect(reason = 'manual-disconnect') {
+    this.userDisconnected = true;
+    this.clearReconnectTimer();
+    this.clearConnectionTimer();
+    this.stopHeartbeat();
+
+    if (!this.socket) {
+      this.setState(STATES.DISCONNECTED, { reason });
+      return this.getStatus();
+    }
+
+    this.setState(STATES.DISCONNECTING, { reason });
+    const socket = this.socket;
+    this.socket = null;
+    await this.closeSocket(socket, 1000, reason);
+    this.clientId = '';
+    this.serverVersion = '';
+    this.device = null;
+    this.owner = null;
+    this.connectedAt = null;
+    this.rejectPendingRequests(new Error('Cloud connection disconnected.'));
+    this.lastDisconnectedAt = nowIso();
+    this.setState(STATES.DISCONNECTED, { reason });
+    this.logger.info('Disconnected', { reason });
+    return this.getStatus();
+  }
+
+  async reconnect(reason = 'manual-reconnect') {
+    this.userDisconnected = false;
+    this.clearReconnectTimer();
+    if (this.socket) {
+      const socket = this.socket;
+      this.socket = null;
+      await this.closeSocket(socket, 1000, reason);
+    }
+    this.reconnectAttempts += 1;
+    return this.openSocket(STATES.RECONNECTING);
+  }
+
+  isConnected() {
+    return socketIsOpen(this.socket) && this.state === STATES.CONNECTED;
+  }
+
+  getLatency() {
+    return Number.isFinite(this.latencyMs) ? this.latencyMs : null;
+  }
+
+  send(payload) {
+    if (!this.isConnected()) return false;
+    try {
+      this.socket.send(JSON.stringify(payload || {}));
+      return true;
+    } catch (error) {
+      this.logger.warn('Send failed', { error: error.message });
+      return false;
+    }
+  }
+
+  sendRelayPacket(packet) {
+    return this.send({
+      type: 'relay:packet',
+      packet
+    });
+  }
+
+  requestPairToken(options = {}) {
+    if (!this.isConnected()) {
+      return Promise.reject(new Error('Connect to Relay Server first.'));
+    }
+    const requestId = `cloud-pair-token-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const timeoutMs = this.clamp(options.timeoutMs, 1000, 30000, 10000);
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error('Cloud pair token request timed out.'));
+      }, timeoutMs);
+      timeout.unref?.();
+      this.pendingRequests.set(requestId, { resolve, reject, timeout });
+      const sent = this.send({
+        type: 'cloud-pair-token:create',
+        requestId,
+        ttlMs: this.clamp(options.ttlMs, 30000, 900000, 5 * 60 * 1000)
+      });
+      if (!sent) {
+        clearTimeout(timeout);
+        this.pendingRequests.delete(requestId);
+        reject(new Error('Cloud relay is not connected.'));
+      }
+    });
+  }
+
+  approvePairingRequest(pairRequestId) {
+    return this.send({
+      type: 'cloud-pair:approve',
+      pairRequestId
+    });
+  }
+
+  rejectPairingRequest(pairRequestId) {
+    return this.send({
+      type: 'cloud-pair:reject',
+      pairRequestId
+    });
+  }
+
+  async destroy(reason = 'destroy') {
+    this.removeAllListeners();
+    return this.disconnect(reason);
+  }
+
+  async openSocket(nextState) {
+    this.setState(nextState, { relayUrl: this.relayUrl });
+    this.logger.info('Connection Started', { relayUrl: this.relayUrl, state: nextState });
+
+    return new Promise(resolve => {
+      let settled = false;
+      const socket = new this.WebSocketImpl(this.relayUrl, {
+        handshakeTimeout: this.settings.connectionTimeoutMs
+      });
+      this.socket = socket;
+
+      const finish = status => {
+        if (settled) return;
+        settled = true;
+        resolve(status || this.getStatus());
+      };
+
+      this.connectionTimer = setTimeout(() => {
+        this.lastError = 'Unable to connect';
+        this.logger.warn('Timeout', { relayUrl: this.relayUrl, timeoutMs: this.settings.connectionTimeoutMs });
+        this.safeTerminate(socket);
+      }, this.settings.connectionTimeoutMs);
+      this.connectionTimer.unref?.();
+
+      socket.once('open', () => {
+        this.clearConnectionTimer();
+        this.connectedAt = nowIso();
+        this.lastConnectedAt = this.connectedAt;
+        this.lastError = '';
+        this.reconnectAttempts = 0;
+        this.setState(STATES.CONNECTED, { relayUrl: this.relayUrl });
+        this.registerDevice();
+        this.startHeartbeat();
+        this.logger.info('Connected', { relayUrl: this.relayUrl });
+        finish(this.getStatus());
+      });
+
+      socket.on('message', data => this.handleMessage(data));
+      socket.on('pong', () => this.handlePong());
+      socket.on('error', error => {
+        this.lastError = error.message || 'Cloud connection error';
+        this.logger.warn('Unexpected Error', { error: this.lastError });
+      });
+      socket.once('close', (code, reasonBuffer) => {
+        this.clearConnectionTimer();
+        this.stopHeartbeat();
+        if (this.socket === socket) this.socket = null;
+        const reason = reasonBuffer?.toString?.() || '';
+        this.connectedAt = null;
+        this.lastDisconnectedAt = nowIso();
+        this.clientId = '';
+        this.serverVersion = '';
+        this.device = null;
+        this.owner = null;
+        this.rejectPendingRequests(new Error('Cloud connection closed.'));
+        socket.removeAllListeners();
+
+        if (this.userDisconnected || this.state === STATES.DISCONNECTING) {
+          this.setState(STATES.DISCONNECTED, { code, reason });
+          this.logger.info('Disconnected', { code, reason });
+          finish(this.getStatus());
+          return;
+        }
+
+        this.logger.warn('Server Closed', { code, reason });
+        this.handleUnexpectedDisconnect(`closed-${code || 'unknown'}`);
+        finish(this.getStatus());
+      });
+    });
+  }
+
+  handleMessage(data) {
+    let payload = null;
+    try {
+      payload = JSON.parse(data.toString('utf8'));
+    } catch (_) {
+      return;
+    }
+    if (payload?.type === 'connected') {
+      this.clientId = String(payload.clientId || '');
+      this.serverVersion = String(payload.version || '');
+      this.emitStatus({ handshake: true });
+      return;
+    }
+    if (payload?.type === 'device:registered') {
+      this.device = payload.device || null;
+      this.owner = payload.owner || null;
+      this.emitStatus({ device: this.device, owner: this.owner });
+      return;
+    }
+    if (payload?.type === 'device:error') {
+      this.logger.warn('Device registration error', {
+        code: payload.code,
+        message: payload.message
+      });
+      return;
+    }
+    if (payload?.type === 'cloud-pair-token:created') {
+      this.resolvePendingRequest(payload.requestId, payload);
+      return;
+    }
+    if (payload?.type === 'cloud-pair:error') {
+      this.rejectPendingRequest(payload.requestId, new Error(payload.message || 'Cloud pairing failed.'));
+      this.emit('pairing-error', payload);
+      return;
+    }
+    if (payload?.type === 'cloud-pair:request') {
+      this.emit('pairing-request', payload);
+      return;
+    }
+    if (payload?.type === 'cloud-pair:paired' || payload?.type === 'cloud-pair:rejected') {
+      this.emit('pairing-result', payload);
+      return;
+    }
+    if (payload?.type === 'relay:packet') {
+      this.emit('relay-packet', payload);
+      return;
+    }
+    if (payload?.type === 'relay:ack') {
+      this.emit('relay-ack', payload);
+      return;
+    }
+    if (payload?.type === 'relay:error') {
+      this.emit('relay-error', payload);
+    }
+  }
+
+  resolvePendingRequest(requestId, payload) {
+    const pending = this.pendingRequests.get(requestId);
+    if (!pending) return false;
+    clearTimeout(pending.timeout);
+    this.pendingRequests.delete(requestId);
+    pending.resolve(payload);
+    return true;
+  }
+
+  rejectPendingRequest(requestId, error) {
+    const pending = this.pendingRequests.get(requestId);
+    if (!pending) return false;
+    clearTimeout(pending.timeout);
+    this.pendingRequests.delete(requestId);
+    pending.reject(error);
+    return true;
+  }
+
+  rejectPendingRequests(error) {
+    for (const [requestId, pending] of this.pendingRequests) {
+      clearTimeout(pending.timeout);
+      pending.reject(error);
+      this.pendingRequests.delete(requestId);
+    }
+  }
+
+  handlePong() {
+    if (this.pendingPingAt > 0) {
+      this.latencyMs = Math.max(0, this.now() - this.pendingPingAt);
+      this.pendingPingAt = 0;
+      this.emitStatus({ latencyMs: this.latencyMs });
+    }
+  }
+
+  registerDevice() {
+    if (!this.settings.deviceId) return false;
+    return this.send({
+      type: 'device:register',
+      requestId: `desktop-device-${Date.now()}`,
+      deviceId: this.settings.deviceId,
+      ownerId: this.settings.ownerId,
+      deviceType: this.settings.deviceType || 'desktop',
+      friendlyName: this.settings.friendlyName || 'OpenX Desktop',
+      platform: process.platform,
+      softwareVersion: this.version,
+      capabilities: {
+        cloudPairing: true,
+        localFirst: true
+      }
+    });
+  }
+
+  handleUnexpectedDisconnect(reason) {
+    this.stopHeartbeat();
+    if (this.userDisconnected || this.settings.reconnectEnabled === false) {
+      this.setState(STATES.ERROR, { reason, friendlyMessage: 'Disconnected from cloud relay.' });
+      return;
+    }
+    this.scheduleReconnect(reason);
+  }
+
+  scheduleReconnect(reason) {
+    this.clearReconnectTimer();
+    this.reconnectAttempts += 1;
+    const delay = DEFAULT_RECONNECT_DELAYS[Math.min(this.reconnectAttempts - 1, DEFAULT_RECONNECT_DELAYS.length - 1)];
+    this.setState(STATES.RECONNECTING, { reason, delayMs: delay, reconnectAttempts: this.reconnectAttempts });
+    this.logger.info('Reconnect Started', { reason, delayMs: delay, reconnectAttempts: this.reconnectAttempts });
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.openSocket(STATES.RECONNECTING).then(status => {
+        if (status.state === STATES.CONNECTED) {
+          this.logger.info('Reconnect Success', { relayUrl: this.relayUrl });
+        } else {
+          this.logger.warn('Reconnect Failed', { state: status.state, reconnectAttempts: this.reconnectAttempts });
+        }
+      }).catch(error => {
+        this.lastError = error.message;
+        this.logger.warn('Reconnect Failed', { error: error.message, reconnectAttempts: this.reconnectAttempts });
+        this.scheduleReconnect('reconnect-error');
+      });
+    }, delay);
+    this.reconnectTimer.unref?.();
+  }
+
+  startHeartbeat() {
+    this.stopHeartbeat();
+    if (!this.settings.heartbeatEnabled) return;
+    this.heartbeatTimer = setInterval(() => {
+      if (!socketIsOpen(this.socket)) return;
+      try {
+        this.pendingPingAt = this.now();
+        this.socket.ping();
+      } catch (error) {
+        this.lastError = error.message;
+        this.logger.warn('Heartbeat failed', { error: error.message });
+        this.safeTerminate(this.socket);
+      }
+    }, this.settings.heartbeatIntervalMs);
+    this.heartbeatTimer.unref?.();
+  }
+
+  restartHeartbeat() {
+    if (this.isConnected()) this.startHeartbeat();
+  }
+
+  stopHeartbeat() {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
+    this.pendingPingAt = 0;
+  }
+
+  clearConnectionTimer() {
+    if (this.connectionTimer) clearTimeout(this.connectionTimer);
+    this.connectionTimer = null;
+  }
+
+  clearReconnectTimer() {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  }
+
+  closeSocket(socket, code, reason) {
+    return new Promise(resolve => {
+      if (!socket || socket.readyState === WebSocket.CLOSED) {
+        resolve();
+        return;
+      }
+      const done = () => {
+        socket.removeAllListeners();
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        this.safeTerminate(socket);
+        done();
+      }, 1000);
+      timer.unref?.();
+      socket.once('close', () => {
+        clearTimeout(timer);
+        done();
+      });
+      try {
+        if ([WebSocket.OPEN, WebSocket.CONNECTING].includes(socket.readyState)) {
+          socket.close(code, reason);
+        } else {
+          this.safeTerminate(socket);
+        }
+      } catch (_) {
+        this.safeTerminate(socket);
+      }
+    });
+  }
+
+  safeTerminate(socket) {
+    try {
+      socket?.terminate?.();
+    } catch (_) {}
+  }
+
+  getWebSocketUrl(url) {
+    return normalizeRelayUrl(url);
+  }
+
+  setState(state, meta = {}) {
+    this.state = state;
+    this.emitStatus(meta);
+  }
+
+  emitStatus(meta = {}) {
+    this.emit('status', this.getStatus(meta));
+  }
+
+  getStatus(meta = {}) {
+    const connectedSince = this.connectedAt ? new Date(this.connectedAt).getTime() : 0;
+    return {
+      state: this.state,
+      connected: this.isConnected(),
+      relayUrl: this.relayUrl || this.settings.relayUrl,
+      lastConnectedAt: this.lastConnectedAt,
+      lastDisconnectedAt: this.lastDisconnectedAt,
+      connectedAt: this.connectedAt,
+      connectionDurationMs: connectedSince ? Math.max(0, Date.now() - connectedSince) : 0,
+      pingMs: this.getLatency(),
+      reconnectAttempts: this.reconnectAttempts,
+      version: this.version,
+      serverVersion: this.serverVersion,
+      clientId: this.clientId,
+      device: this.device,
+      owner: this.owner,
+      friendlyMessage: this.getFriendlyMessage(),
+      error: this.state === STATES.ERROR ? this.lastError : '',
+      settings: { ...this.settings },
+      ...meta
+    };
+  }
+
+  getFriendlyMessage() {
+    if (this.state === STATES.CONNECTED) return 'Connected to the relay server.';
+    if (this.state === STATES.CONNECTING) return 'Connecting to the relay server...';
+    if (this.state === STATES.RECONNECTING) return 'Connection dropped. Reconnecting safely...';
+    if (this.state === STATES.DISCONNECTING) return 'Disconnecting from the relay server...';
+    if (this.state === STATES.ERROR) return this.lastError ? 'Unable to connect.' : 'Cloud connection needs attention.';
+    return 'Cloud mode is disconnected. Local mode is active.';
+  }
+}
+
+CloudConnectionManager.STATES = STATES;
+CloudConnectionManager.normalizeRelayUrl = normalizeRelayUrl;
+
+module.exports = CloudConnectionManager;

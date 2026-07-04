@@ -56,6 +56,9 @@ describe('Settings Service', function() {
     assert.equal(snapshot.settings.chat.activationShortcut, 'Control+Space');
     assert.equal(snapshot.settings.chat.themeId, 'graphite');
     assert.equal(snapshot.settings.chat.glassTint, 42);
+    assert.equal(snapshot.settings.cloud.enabled, false);
+    assert.equal(snapshot.settings.cloud.autoConnect, false);
+    assert.equal(snapshot.settings.cloud.reconnectEnabled, true);
     assert.equal(snapshot.dataRoot, tempDir);
     assert.equal(snapshot.dataPaths.settingsPath, path.join(tempDir, 'settings.json'));
     assert.equal(snapshot.dataPaths.learningPath, path.join(tempDir, 'learning.json'));
@@ -95,6 +98,15 @@ describe('Settings Service', function() {
         enabled: false,
         askForFeedback: false
       },
+      cloud: {
+        enabled: true,
+        relayUrl: 'https://relay.example.com',
+        autoConnect: true,
+        reconnectEnabled: false,
+        heartbeatEnabled: false,
+        connectionTimeoutMs: 12000,
+        heartbeatIntervalMs: 45000
+      },
       modes: [
         {
           name: 'gaming',
@@ -121,6 +133,13 @@ describe('Settings Service', function() {
     assert.equal(saved.system.permissionLevel, 'critical');
     assert.equal(saved.activeLearning.enabled, false);
     assert.equal(saved.activeLearning.askForFeedback, false);
+    assert.equal(saved.cloud.enabled, true);
+    assert.equal(saved.cloud.relayUrl, 'https://relay.example.com/ws');
+    assert.equal(saved.cloud.autoConnect, true);
+    assert.equal(saved.cloud.reconnectEnabled, false);
+    assert.equal(saved.cloud.heartbeatEnabled, false);
+    assert.equal(saved.cloud.connectionTimeoutMs, 12000);
+    assert.equal(saved.cloud.heartbeatIntervalMs, 45000);
     assert.equal(saved.modes.length, 2);
     assert.deepEqual(saved.modes[0].apps, [
       { name: 'chrome', instructions: ['search for games'] },
@@ -145,6 +164,7 @@ describe('Settings Service', function() {
     assert.equal(runtimeConfig.system.permissionLevel, 'critical');
     assert.equal(runtimeConfig.activeLearning.enabled, false);
     assert.equal(runtimeConfig.activeLearning.askForFeedback, false);
+    assert.deepEqual(runtimeConfig.cloud, saved.cloud);
     assert.equal(runtimeConfig.app.dataDir, service.dataPaths.root);
     assert.equal(runtimeConfig.app.dataPaths.learningPath, path.join(service.dataPaths.root, 'learning.json'));
     assert.equal(runtimeConfig.activeLearning.storePath, path.join(service.dataPaths.root, 'learning.json'));

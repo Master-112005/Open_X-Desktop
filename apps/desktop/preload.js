@@ -322,6 +322,27 @@ const openxApi = {
   getSettings: () =>
     ipcRenderer.invoke('settings:get'),
 
+  getCloudStatus: () =>
+    ipcRenderer.invoke('cloud:status'),
+
+  connectCloud: (settings = {}) =>
+    ipcRenderer.invoke('cloud:connect', settings),
+
+  disconnectCloud: () =>
+    ipcRenderer.invoke('cloud:disconnect'),
+
+  generateCloudPairingQR: () =>
+    ipcRenderer.invoke('cloud:pairingQR:create'),
+
+  getCloudPairingStatus: () =>
+    ipcRenderer.invoke('cloud:pairing:status'),
+
+  approveCloudPairing: (pairRequestId) =>
+    ipcRenderer.invoke('cloud:pairing:approve', { pairRequestId }),
+
+  rejectCloudPairing: (pairRequestId) =>
+    ipcRenderer.invoke('cloud:pairing:reject', { pairRequestId }),
+
   generatePairingQR: () =>
     ipcRenderer.invoke('phone:pairingQR:create'),
 
@@ -383,6 +404,24 @@ const openxApi = {
     const handler = (_event, data) => callback(data);
     ipcRenderer.on('settings:changed', handler);
     return () => ipcRenderer.removeListener('settings:changed', handler);
+  },
+
+  onCloudStatus: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Cloud status listener must be a function');
+    }
+    const handler = (_event, status) => callback(status);
+    ipcRenderer.on('cloud:status', handler);
+    return () => ipcRenderer.removeListener('cloud:status', handler);
+  },
+
+  onCloudPairingStatus: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Cloud pairing listener must be a function');
+    }
+    const handler = (_event, status) => callback(status);
+    ipcRenderer.on('cloud:pairing:status', handler);
+    return () => ipcRenderer.removeListener('cloud:pairing:status', handler);
   },
 
   onOpenSettings: (callback) => {

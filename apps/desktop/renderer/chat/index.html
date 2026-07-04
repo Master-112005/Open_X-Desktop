@@ -341,6 +341,74 @@
                   </div>
                 </div>
               </div>
+              <div class="cloud-connection-card">
+                <div class="phone-server-heading">
+                  <strong>Cloud Connection</strong>
+                  <span id="cloud-connection-state">Disconnected</span>
+                </div>
+                <label class="field-wrap cloud-url-field">
+                  <span class="field-label">Relay Server</span>
+                  <input class="field" id="cloud-relay-url" type="url" spellcheck="false" placeholder="ws://localhost:8080/ws">
+                </label>
+                <div class="cloud-toggle-grid">
+                  <label class="phone-permission-toggle">
+                    <input id="cloud-auto-connect" type="checkbox">
+                    <span>Auto Connect on Startup</span>
+                  </label>
+                  <label class="phone-permission-toggle">
+                    <input id="cloud-reconnect-enabled" type="checkbox">
+                    <span>Reconnect Automatically</span>
+                  </label>
+                  <label class="phone-permission-toggle">
+                    <input id="cloud-heartbeat-enabled" type="checkbox">
+                    <span>Heartbeat Health Check</span>
+                  </label>
+                  <label class="field-wrap cloud-timeout-field">
+                    <span class="field-label">Connection Timeout</span>
+                    <input class="field" id="cloud-connection-timeout" type="number" min="1000" max="60000" step="1000">
+                  </label>
+                </div>
+                <div class="phone-server-grid cloud-status-grid">
+                  <div class="phone-server-item">
+                    <span>Last Connected</span>
+                    <strong id="cloud-last-connected">--</strong>
+                  </div>
+                  <div class="phone-server-item">
+                    <span>Duration</span>
+                    <strong id="cloud-duration">--</strong>
+                  </div>
+                  <div class="phone-server-item">
+                    <span>Ping</span>
+                    <strong id="cloud-ping">--</strong>
+                  </div>
+                  <div class="phone-server-item">
+                    <span>Reconnect Attempts</span>
+                    <strong id="cloud-reconnect-attempts">0</strong>
+                  </div>
+                  <div class="phone-server-item">
+                    <span>Version</span>
+                    <strong id="cloud-version">--</strong>
+                  </div>
+                </div>
+                <div class="cloud-action-row">
+                  <button class="primary-btn" id="cloud-connect-btn" type="button">Connect to Server</button>
+                  <span id="cloud-friendly-status">Cloud mode is disconnected. Local mode is active.</span>
+                </div>
+                <div class="cloud-pairing-card">
+                  <div class="phone-server-heading">
+                    <strong>Cloud Pairing</strong>
+                    <span id="cloud-pairing-status">Connect to Relay Server first.</span>
+                  </div>
+                  <button class="primary-btn" id="cloud-generate-qr-btn" type="button" disabled>Generate Cloud QR</button>
+                  <div class="phone-pairing-qr-wrap">
+                    <img id="cloud-pairing-qr" alt="OpenX cloud pairing QR code" hidden>
+                  </div>
+                  <output class="phone-pairing-token" id="cloud-pairing-token" aria-live="polite">--------</output>
+                  <div class="section-note" id="cloud-pairing-expiry"></div>
+                  <div class="phone-pairing-countdown" id="cloud-pairing-countdown" aria-live="polite"></div>
+                  <div class="cloud-pairing-requests" id="cloud-pairing-requests"></div>
+                </div>
+              </div>
             </div>
             <div class="phone-panel" data-phone-panel="devices" hidden>
               <div class="phone-devices-heading">

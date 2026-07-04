@@ -20,6 +20,7 @@ The current implementation includes:
 - automation controllers for apps, browser, files, folders, media, scheduler, planner, system, volume, brightness, windows, screenshots, and communications;
 - local voice capture, preprocessing, Sherpa-ONNX/Parakeet STT, transcript normalization, Dynamic Island voice UI, diagnostics, and TTS turn-taking;
 - OpenX Mobile pairing, session validation, device permissions, phone command routing, and bidirectional file transfer;
+- optional desktop cloud relay connection, disabled by default, isolated from local assistant and local phone behavior;
 - phone-origin file/folder fetching with desktop search context, structured choices, and safe confirmation before weak matches;
 - calendar, timetable, reminders, recurring reminders, alarms, timers, stopwatch, snooze, and alert display;
 - managed data storage under `OpenX_Data`;
@@ -37,9 +38,9 @@ C:\Users\rakes\Documents\PROJECTS\open\OpenX
 
 Filtered project count:
 
-- Files in report tree: 276
-- Test files: 52
-- Core files: 105
+- Files in report tree: 280
+- Test files: 53
+- Core files: 109
 - Desktop app files: 114
 - Plugin files: 13
 - Root/config/documentation files: 10
@@ -108,6 +109,7 @@ The assistant must not need to know whether the text came from chat, phone, voic
 | Data | `core/assistant/Data.js` | Data root, atomic JSON storage, migration, event bus, logging, redaction, retention |
 | Automation | `core/automation/` | Desktop action controllers and verification helpers |
 | Phone | `core/phone/` | Pairing, sessions, permissions, phone command routing, file transfer, security |
+| Cloud | `core/cloud/` | Optional relay WebSocket client, device registration, connection states, reconnect, heartbeat, cloud QR pairing, generic opaque relay packet hooks, and local cloud logs |
 | Voice | `apps/desktop/voice/` | Audio, preprocessing, STT, transcript processing, session lifecycle, UI, diagnostics, TTS |
 | Desktop | `apps/desktop/` | Electron lifecycle, IPC, windows, tray, shortcuts, settings, security, crash recovery |
 | Plugins | `plugins/` | Restricted plugin packages and plugin action facades |
@@ -142,6 +144,31 @@ The assistant must not need to know whether the text came from chat, phone, voic
 | `migrateLegacyData(config)` | `core/assistant/Data.js` | Moves legacy `.jarvis` and accidental root files into `OpenX_Data`. |
 | `Logger._redact(value)` | `core/assistant/Data.js` | Redacts private values before writing logs. |
 | `Logger._writeEntry(type, entry)` | `core/assistant/Data.js` | Writes bounded log entries with rotation and retention. |
+
+### Cloud Relay Connection
+
+| Function or method | File | Purpose |
+|---|---|---|
+| `CloudConnectionManager.connect(settings)` | `core/cloud/CloudConnectionManager.js` | Opens the optional desktop WebSocket connection to the configured relay server. |
+| `CloudConnectionManager.disconnect(reason)` | `core/cloud/CloudConnectionManager.js` | Manually closes the relay socket, disables reconnect timers, and keeps local mode active. |
+| `CloudConnectionManager.reconnect(reason)` | `core/cloud/CloudConnectionManager.js` | Reopens the relay connection without exposing WebSocket details to the rest of the app. |
+| `CloudConnectionManager.getStatus(meta)` | `core/cloud/CloudConnectionManager.js` | Returns UI-safe state, relay URL, timestamps, duration, ping, attempts, version, and friendly status text. |
+| `CloudConnectionManager.send(payload)` | `core/cloud/CloudConnectionManager.js` | Sends relay protocol payloads only when connected. |
+| `CloudConnectionManager.sendRelayPacket(packet)` | `core/cloud/CloudConnectionManager.js` | Sends a Phase 6 opaque relay packet without invoking assistant command logic. |
+| `CloudConnectionManager.registerDevice()` | `core/cloud/CloudConnectionManager.js` | Registers the stable desktop cloud device ID and placeholder owner with the relay. |
+| `CloudConnectionManager.requestPairToken(options)` | `core/cloud/CloudConnectionManager.js` | Requests a relay-owned secure cloud pair token and resolves the matching response safely. |
+| `CloudConnectionManager.approvePairingRequest(pairRequestId)` | `core/cloud/CloudConnectionManager.js` | Sends explicit desktop approval for a pending cloud pair request. |
+| `CloudConnectionManager.rejectPairingRequest(pairRequestId)` | `core/cloud/CloudConnectionManager.js` | Sends explicit desktop rejection for a pending cloud pair request. |
+| `CloudConnectionManager.destroy(reason)` | `core/cloud/CloudConnectionManager.js` | Deterministically releases sockets, heartbeat timers, reconnect timers, and listeners during shutdown. |
+| `CloudPairingManager.generatePairingQR(options)` | `core/cloud/CloudPairingManager.js` | Creates a QR from relay URL, relay-generated token, version, and expiry only. |
+| `CloudPairingManager.approvePairing(pairRequestId)` | `core/cloud/CloudPairingManager.js` | Approves an incoming cloud pair request after desktop user confirmation. |
+| `CloudPairingManager.rejectPairing(pairRequestId)` | `core/cloud/CloudPairingManager.js` | Rejects and cleans an incoming cloud pair request. |
+| `CloudPairingManager.getStatus()` | `core/cloud/CloudPairingManager.js` | Returns active QR and pending request state for the settings UI. |
+| `CloudLogger.write(level, message, data)` | `core/cloud/CloudLogger.js` | Records local cloud lifecycle logs without analytics or sensitive data leakage. |
+| `initializeCloudConnection()` | `apps/desktop/electron/main.js` | Creates the desktop cloud manager and publishes state to the settings UI. |
+| `initializeCloudPairing()` | `apps/desktop/electron/main.js` | Creates the desktop cloud pairing manager and forwards incoming requests to the UI. |
+| `maybeAutoConnectCloud(reason)` | `apps/desktop/electron/main.js` | Connects on startup only when cloud mode and auto connect are both explicitly enabled. |
+| `cloud:*` IPC handlers | `apps/desktop/electron/main.js`, `apps/desktop/electron/security.js`, `apps/desktop/preload.js` | Validate and expose status/connect/disconnect through the existing secure renderer bridge. |
 
 ### Automation
 
