@@ -74,12 +74,20 @@ describe('Electron Security Boundary', function() {
     assert.deepEqual(
       IPC_VALIDATORS['phone:device:permissions:update']({
         deviceId: 'phone001',
-        permissions: { remoteCommands: false, powerActions: true }
+        permissions: { remoteCommands: false, powerActions: true, clipboard: true }
       }),
       {
         deviceId: 'phone001',
-        permissions: { remoteCommands: false, powerActions: true }
+        permissions: { remoteCommands: false, powerActions: true, clipboard: true }
       }
+    );
+    assert.deepEqual(
+      IPC_VALIDATORS['phone:device:rename']({ deviceId: 'phone001', deviceName: '  Rakesh   Phone  ' }),
+      { deviceId: 'phone001', deviceName: 'Rakesh Phone' }
+    );
+    assert.deepEqual(
+      IPC_VALIDATORS['phone:device:trust:update']({ deviceId: 'phone001', trusted: false }),
+      { deviceId: 'phone001', trusted: false }
     );
     assert.throws(
       () => IPC_VALIDATORS['phone:device:permissions:update']({
@@ -127,7 +135,8 @@ describe('Electron Security Boundary', function() {
       'config:get', 'settings:get', 'cloud:status', 'cloud:connect', 'cloud:disconnect',
       'cloud:pairingQR:create', 'cloud:pairing:status', 'cloud:pairing:approve', 'cloud:pairing:reject',
       'phone:pairingQR:create', 'phone:server:status', 'phone:devices:list',
-      'phone:device:permissions:update', 'phone:device:remove', 'phone:device:disconnect',
+      'phone:device:rename', 'phone:device:trust:update', 'phone:device:permissions:update',
+      'phone:device:remove', 'phone:device:disconnect',
       'settings:save', 'settings:reset',
       'schedule:alertAction', 'timerWidget:getState', 'timerWidget:close',
       'timerWidget:stopStopwatch', 'timerWidget:resumeStopwatch',

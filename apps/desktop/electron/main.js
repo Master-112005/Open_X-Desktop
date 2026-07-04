@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, globalShortcut, session, screen, powerMonitor } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, globalShortcut, session, screen, powerMonitor, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -24,7 +24,7 @@ const {
 const { SettingsService } = require('../settings');
 const { AssistantEventBus, EVENTS, Logger } = require('../../../core/assistant/Data');
 const { ensureDataRoot, migrateLegacyData } = require('../../../core/assistant/Data');
-const { CloudConnectionManager, CloudLogger, CloudPairingManager } = require('../../../core/cloud');
+const { CloudCommandManager, CloudConnectionManager, CloudFileTransferManager, CloudLogger, CloudPairingManager } = require('../../../core/cloud');
 const CrashRecoveryPolicy = require('./crash-recovery');
 const {
   DeviceRegistry,
@@ -207,6 +207,8 @@ let qrPairingService = null;
 let phoneDeviceRegistry = null;
 let cloudConnectionManager = null;
 let cloudPairingManager = null;
+let cloudCommandManager = null;
+let cloudFileTransferManager = null;
 const rendererCrashHistory = new Map();
 const recoveryTimeouts = new Set();
 const unresponsiveTimeouts = new Map();
@@ -236,6 +238,8 @@ const IPC_CHANNELS = [
   'phone:pairingQR:create',
   'phone:server:status',
   'phone:devices:list',
+  'phone:device:rename',
+  'phone:device:trust:update',
   'phone:device:permissions:update',
   'phone:device:remove',
   'phone:device:disconnect',
@@ -1405,6 +1409,118 @@ function initializeCloudPairing() {
   return cloudPairingManager;
 }
 
+function initializeCloudCommands() {
+  if (cloudCommandManager) return cloudCommandManager;
+  const manager = initializeCloudConnection();
+  const cloudSettings = runtimeConfig?.cloud || {};
+  cloudCommandManager = new CloudCommandManager({
+    connectionManager: manager,
+    assistantProvider: () => assistant,
+    logger: mainLogger,
+    executionTimeoutMs: cloudSettings.commandExecutionTimeoutMs || 60000,
+    queueMode: cloudSettings.commandQueueMode || 'queue',
+    maxQueueSize: cloudSettings.commandMaxQueueSize || 25
+  });
+  cloudCommandManager.on('lifecycle', event => {
+    mainLogger.info('[CLOUD] Command lifecycle', {
+      requestId: event?.requestId || null,
+      state: event?.state || 'unknown',
+      sourceDeviceId: event?.sourceDeviceId || null,
+      destinationDeviceId: event?.destinationDeviceId || null
+    });
+    if (['executing', 'queued'].includes(event?.state)) {
+      manager.updatePresence?.('busy', { reason: 'assistant-executing' });
+    } else if (['completed', 'failed', 'timed-out', 'rejected'].includes(event?.state)) {
+      manager.updatePresence?.('online', { reason: 'assistant-idle' });
+    }
+  });
+  cloudCommandManager.start();
+  return cloudCommandManager;
+}
+
+function initializeCloudFileTransfers(localFileTransferManager = null) {
+  if (cloudFileTransferManager) return cloudFileTransferManager;
+  const manager = initializeCloudConnection();
+  cloudFileTransferManager = new CloudFileTransferManager({
+    connectionManager: manager,
+    localFileTransferManager,
+    logger: mainLogger,
+    chunkBytes: runtimeConfig?.cloud?.fileTransferChunkBytes || 12 * 1024,
+    timeoutMs: runtimeConfig?.cloud?.fileTransferTimeoutMs || 10 * 60 * 1000
+  });
+  cloudFileTransferManager.on('incoming-transfer', transfer => {
+    const fileSize = Number(transfer.fileSize || 0);
+    const message = `${transfer.fileName} (${Math.max(0, fileSize)} bytes) from cloud device ${transfer.sourceDeviceId}`;
+    dialog.showMessageBox({
+      type: 'question',
+      buttons: ['Accept', 'Reject'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Incoming OpenX Cloud File',
+      message: 'Accept incoming file transfer?',
+      detail: message,
+      noLink: true
+    }).then(result => {
+      if (result.response === 0) {
+        cloudFileTransferManager?.acceptTransfer?.(transfer.transferId);
+      } else {
+        cloudFileTransferManager?.rejectTransfer?.(transfer.transferId, 'rejected-by-desktop');
+      }
+    }).catch(error => {
+      mainLogger.warn('[CLOUD-FILE] Incoming transfer prompt failed', {
+        transferId: transfer.transferId,
+        error: error.message
+      });
+      cloudFileTransferManager?.rejectTransfer?.(transfer.transferId, 'prompt-failed');
+    });
+  });
+  cloudFileTransferManager.on('progress', transfer => {
+    mainLogger.info('[CLOUD-FILE] Transfer progress', {
+      transferId: transfer.transferId,
+      state: transfer.state,
+      percent: transfer.percent
+    });
+    const busyStates = new Set(['pending', 'accepted', 'transferring', 'receiving']);
+    if (busyStates.has(String(transfer.state || '').toLowerCase())) {
+      manager.updatePresence?.('busy', { reason: 'file-transfer' });
+    } else {
+      manager.updatePresence?.('online', { reason: 'file-transfer-complete' });
+    }
+  });
+  cloudFileTransferManager.start();
+  return cloudFileTransferManager;
+}
+
+function createCompositeFileTransferManager(localFileTransferManager, cloudManager) {
+  return {
+    getConnectedDevices() {
+      const localDevices = typeof localFileTransferManager?.getConnectedDevices === 'function'
+        ? localFileTransferManager.getConnectedDevices()
+        : [];
+      const cloudDevices = typeof cloudManager?.getConnectedDevices === 'function'
+        ? cloudManager.getConnectedDevices()
+        : [];
+      return [...localDevices, ...cloudDevices];
+    },
+    async sendFileToDevice(deviceId, sourcePath) {
+      const targetId = String(deviceId || '').trim();
+      const localDevices = typeof localFileTransferManager?.getConnectedDevices === 'function'
+        ? localFileTransferManager.getConnectedDevices()
+        : [];
+      if (localDevices.some(device => device.deviceId === targetId)) {
+        return localFileTransferManager.sendFileToDevice(targetId, sourcePath);
+      }
+      const cloudDevices = typeof cloudManager?.getConnectedDevices === 'function'
+        ? cloudManager.getConnectedDevices()
+        : [];
+      if (cloudDevices.some(device => device.deviceId === targetId)) {
+        return cloudManager.sendFileToDevice(targetId, sourcePath);
+      }
+      return localFileTransferManager.sendFileToDevice(targetId, sourcePath);
+    }
+  };
+}
+
 async function maybeAutoConnectCloud(reason = 'startup') {
   const manager = initializeCloudConnection();
   manager.updateSettings(runtimeConfig?.cloud || {});
@@ -1430,6 +1546,62 @@ async function maybeAutoConnectCloud(reason = 'startup') {
 function currentCloudSettings() {
   const settings = settingsService?.getSettings?.()?.cloud || runtimeConfig?.cloud || {};
   return { ...settings };
+}
+
+function buildManagedDeviceList() {
+  const localDevices = phoneDeviceRegistry?.listDevices?.() || [];
+  const serverStatus = phoneServer?.getStatus?.() || { connectedDevices: [] };
+  const connectedById = new Map((serverStatus.connectedDevices || []).map(device => [device.deviceId, device]));
+  const cloudStatus = cloudConnectionManager?.getStatus?.() || {};
+  const cloudById = new Map((cloudStatus.pairedDevices || []).map(device => [device.deviceId, device]));
+  const output = localDevices.map(device => {
+    const connected = connectedById.get(device.deviceId);
+    const cloud = cloudById.get(device.deviceId);
+    const sessionInfo = phoneServer?.getDeviceSession?.(device.deviceId) || null;
+    const connectionState = connected ? 'connected' : (cloud ? 'cloud-paired' : 'offline');
+    return {
+      ...device,
+      source: cloud ? 'local+cloud' : 'local',
+      friendlyName: device.deviceName,
+      connectionStatus: connectionState,
+      connected: Boolean(connected),
+      connectionDurationMs: connected?.connectedAt ? Math.max(0, Date.now() - Number(connected.connectedAt)) : 0,
+      lastSeen: connected?.lastSeen || device.lastSeen,
+      sessionStatus: sessionInfo?.active ? 'active' : (sessionInfo?.expired ? 'expired' : 'none'),
+      session: sessionInfo,
+      cloud: cloud || null
+    };
+  });
+
+  for (const cloud of cloudById.values()) {
+    if (output.some(device => device.deviceId === cloud.deviceId)) continue;
+    output.push({
+      deviceId: cloud.deviceId,
+      deviceName: cloud.friendlyName || cloud.deviceName || cloud.deviceId,
+      friendlyName: cloud.friendlyName || cloud.deviceName || cloud.deviceId,
+      deviceType: cloud.deviceType || 'future',
+      platform: cloud.platform || '',
+      softwareVersion: cloud.softwareVersion || '',
+      pairedAt: cloud.createdAt ? Date.parse(cloud.createdAt) : Date.now(),
+      lastSeen: cloud.lastSeen || Date.now(),
+      trusted: true,
+      trustStatus: 'trusted',
+      permissions: {},
+      source: 'cloud',
+      connectionStatus: cloud.connectionState || 'cloud-paired',
+      connected: cloud.connectionState === 'connected',
+      connectionDurationMs: 0,
+      sessionStatus: 'cloud',
+      session: null,
+      cloud
+    });
+  }
+  return output.sort((left, right) => {
+    const leftConnected = left.connected ? 0 : 1;
+    const rightConnected = right.connected ? 0 : 1;
+    if (leftConnected !== rightConnected) return leftConnected - rightConnected;
+    return String(left.deviceName || '').localeCompare(String(right.deviceName || ''));
+  });
 }
 
 function registerIpcHandler(channel, handler) {
@@ -1571,7 +1743,8 @@ function setupIPC() {
     return {
       ...snapshot,
       cloudStatus: cloudConnectionManager?.getStatus?.() || null,
-      cloudPairingStatus: cloudPairingManager?.getStatus?.() || null
+      cloudPairingStatus: cloudPairingManager?.getStatus?.() || null,
+      cloudCommandStatus: cloudCommandManager?.getStatus?.() || null
     };
   });
 
@@ -1595,6 +1768,7 @@ function setupIPC() {
     const status = await manager.connect(nextSettings);
     sendCloudStatus(status);
     initializeCloudPairing();
+    initializeCloudCommands();
     sendCloudPairingStatus();
     if (chatWindow?.webContents) {
       chatWindow.webContents.send('settings:changed', {
@@ -1677,7 +1851,29 @@ function setupIPC() {
   });
 
   registerIpcHandler('phone:devices:list', async () => {
-    return phoneDeviceRegistry?.listDevices() || [];
+    return buildManagedDeviceList();
+  });
+
+  registerIpcHandler('phone:device:rename', async (_event, { deviceId, deviceName }) => {
+    const updated = phoneDeviceRegistry?.updateDeviceName(deviceId, deviceName);
+    if (updated) return { success: true, device: phoneDeviceRegistry.getDevice(deviceId) };
+
+    const manager = initializeCloudConnection();
+    const cloudDevice = manager.getStatus()?.pairedDevices?.find?.(device => device.deviceId === deviceId);
+    if (!cloudDevice) return { success: false, message: 'Device not found.' };
+    const result = await manager.updateDevice(deviceId, { friendlyName: deviceName, deviceName });
+    sendCloudStatus(manager.getStatus());
+    return { success: result?.success === true, device: result?.device || null };
+  });
+
+  registerIpcHandler('phone:device:trust:update', async (_event, { deviceId, trusted }) => {
+    const updated = phoneDeviceRegistry?.updateTrust(deviceId, trusted);
+    if (!updated) return { success: false, message: 'Device not found.' };
+    if (trusted !== true) {
+      phoneServer?.disconnectDevice(deviceId);
+      phoneServer?.revokeDeviceSession(deviceId);
+    }
+    return { success: true, device: phoneDeviceRegistry.getDevice(deviceId) };
   });
 
   registerIpcHandler('phone:device:permissions:update', async (_event, { deviceId, permissions }) => {
@@ -1693,7 +1889,15 @@ function setupIPC() {
   registerIpcHandler('phone:device:remove', async (_event, { deviceId }) => {
     phoneServer?.disconnectDevice(deviceId);
     phoneServer?.revokeDeviceSession(deviceId);
-    return { success: phoneDeviceRegistry?.removeDevice(deviceId) === true };
+    if (phoneDeviceRegistry?.removeDevice(deviceId) === true) {
+      return { success: true };
+    }
+    const manager = initializeCloudConnection();
+    const cloudDevice = manager.getStatus()?.pairedDevices?.find?.(device => device.deviceId === deviceId);
+    if (!cloudDevice) return { success: false };
+    const result = await manager.removeDevice(deviceId);
+    sendCloudStatus(manager.getStatus());
+    return { success: result?.success === true };
   });
 
   registerIpcHandler('settings:save', async (_event, payload) => {
@@ -1923,6 +2127,24 @@ async function cleanupRuntime() {
       }
     }
     phoneDeviceRegistry = null;
+    if (cloudFileTransferManager) {
+      try {
+        cloudFileTransferManager.destroy();
+      } catch (error) {
+        mainLogger.error('[CLOUD-FILE] Cleanup failed', { error: error.message });
+      } finally {
+        cloudFileTransferManager = null;
+      }
+    }
+    if (cloudCommandManager) {
+      try {
+        cloudCommandManager.destroy();
+      } catch (error) {
+        mainLogger.error('[CLOUD] Command cleanup failed', { error: error.message });
+      } finally {
+        cloudCommandManager = null;
+      }
+    }
     if (cloudPairingManager) {
       try {
         cloudPairingManager.destroy();
@@ -2319,8 +2541,9 @@ async function initializePhoneServer() {
     connectedDevicesProvider: () => phoneServer?.getStatus?.().connectedDevices || [],
     sendToDevice: (deviceId, payload) => phoneServer?.sendToDevice(deviceId, payload) === true
   });
+  const cloudTransfers = initializeCloudFileTransfers(fileTransferManager);
   if (assistant?.automation) {
-    assistant.automation.fileTransferManager = fileTransferManager;
+    assistant.automation.fileTransferManager = createCompositeFileTransferManager(fileTransferManager, cloudTransfers);
   }
   const configuredPort = runtimeConfig?.phone?.port;
   const maxPortAttempts = 20;
@@ -2506,6 +2729,7 @@ app.whenReady().then(async () => {
   await initializePhoneServer();
   initializeCloudConnection();
   initializeCloudPairing();
+  initializeCloudCommands();
   await maybeAutoConnectCloud('desktop-startup');
   showTimerWidget();
   if (!app.isPackaged) {

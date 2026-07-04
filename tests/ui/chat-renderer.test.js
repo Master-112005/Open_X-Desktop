@@ -153,15 +153,19 @@ describe('Chat Renderer UI', function() {
   it('should manage trusted device permissions and device actions', function() {
     assert.match(html, /id="phone-device-list"/);
     assert.match(html, /<button class="phone-section-tab"[^>]*>Connected Devices<\/button>[\s\S]*<div class="phone-panel" data-phone-panel="devices" hidden>/);
-    assert.match(script, /Remote Commands/);
+    assert.match(script, /Assistant Access/);
     assert.match(script, /File Transfer/);
     assert.match(script, /Receive Files/);
     assert.match(script, /Send Files/);
-    assert.match(script, /Power Actions/);
+    assert.match(script, /Desktop Control/);
     assert.match(script, /Save Permissions/);
-    assert.match(script, /Remove Device/);
-    assert.match(script, /Disconnect Device/);
+    assert.match(script, /Remove/);
+    assert.match(script, /Disconnect/);
+    assert.match(script, /Rename/);
+    assert.match(script, /Trust/);
     assert.match(script, /updatePhonePermissions/);
+    assert.match(script, /renamePhoneDevice/);
+    assert.match(script, /updatePhoneTrust/);
     assert.match(html, /id="phone-device-remove-dialog"/);
     assert.match(script, /openPhoneDeviceRemoveDialog/);
     assert.match(script, /confirmPhoneDeviceRemoval/);

@@ -133,6 +133,9 @@ describe('Phone device pairing', function() {
       type: 'pair',
       deviceId: 'phone001',
       deviceName: 'Galaxy S25',
+      deviceType: 'phone',
+      platform: 'android',
+      softwareVersion: '3.1.1',
       token: generated.token
     }));
     const paired = await responsePromise;
@@ -142,6 +145,8 @@ describe('Phone device pairing', function() {
     assert.equal(typeof paired.serverIp, 'string');
     assert.equal(paired.serverPort, address.port);
     assert.equal(registry.isTrusted('phone001'), true);
+    assert.equal(registry.getDevice('phone001').platform, 'android');
+    assert.equal(registry.getDevice('phone001').softwareVersion, '3.1.1');
     assert.equal(tokenManager.validateToken(generated.token), false);
 
     responsePromise = nextJson(socket);

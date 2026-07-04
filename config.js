@@ -113,7 +113,12 @@ const CONFIG = {
     relayUrl: process.env.OPENX_RELAY_URL || 'ws://localhost:8080/ws',
     connectionTimeoutMs: 10000,
     heartbeatIntervalMs: 30000,
-    pairTokenTtlMs: 5 * 60 * 1000
+    pairTokenTtlMs: 5 * 60 * 1000,
+    commandExecutionTimeoutMs: 60000,
+    commandQueueMode: 'queue',
+    commandMaxQueueSize: 25,
+    fileTransferChunkBytes: 12288,
+    fileTransferTimeoutMs: 10 * 60 * 1000
   },
 
   logging: {

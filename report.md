@@ -20,7 +20,9 @@ The current implementation includes:
 - automation controllers for apps, browser, files, folders, media, scheduler, planner, system, volume, brightness, windows, screenshots, and communications;
 - local voice capture, preprocessing, Sherpa-ONNX/Parakeet STT, transcript normalization, Dynamic Island voice UI, diagnostics, and TTS turn-taking;
 - OpenX Mobile pairing, session validation, device permissions, phone command routing, and bidirectional file transfer;
+- desktop Device Management Center for local paired devices and cloud-paired device visibility, with search, filtering, rename, trust, disconnect, remove, and permission editing;
 - optional desktop cloud relay connection, disabled by default, isolated from local assistant and local phone behavior;
+- cloud-mode presence and notification protocol support for paired relay devices;
 - phone-origin file/folder fetching with desktop search context, structured choices, and safe confirmation before weak matches;
 - calendar, timetable, reminders, recurring reminders, alarms, timers, stopwatch, snooze, and alert display;
 - managed data storage under `OpenX_Data`;
@@ -109,7 +111,7 @@ The assistant must not need to know whether the text came from chat, phone, voic
 | Data | `core/assistant/Data.js` | Data root, atomic JSON storage, migration, event bus, logging, redaction, retention |
 | Automation | `core/automation/` | Desktop action controllers and verification helpers |
 | Phone | `core/phone/` | Pairing, sessions, permissions, phone command routing, file transfer, security |
-| Cloud | `core/cloud/` | Optional relay WebSocket client, device registration, connection states, reconnect, heartbeat, cloud QR pairing, generic opaque relay packet hooks, and local cloud logs |
+| Cloud | `core/cloud/` | Optional relay WebSocket client, device registration, connection states, reconnect, heartbeat, cloud QR pairing, generic opaque relay packet hooks, remote assistant command queueing, cloud file transfer, presence, notifications, and local cloud logs |
 | Voice | `apps/desktop/voice/` | Audio, preprocessing, STT, transcript processing, session lifecycle, UI, diagnostics, TTS |
 | Desktop | `apps/desktop/` | Electron lifecycle, IPC, windows, tray, shortcuts, settings, security, crash recovery |
 | Plugins | `plugins/` | Restricted plugin packages and plugin action facades |
@@ -155,10 +157,26 @@ The assistant must not need to know whether the text came from chat, phone, voic
 | `CloudConnectionManager.getStatus(meta)` | `core/cloud/CloudConnectionManager.js` | Returns UI-safe state, relay URL, timestamps, duration, ping, attempts, version, and friendly status text. |
 | `CloudConnectionManager.send(payload)` | `core/cloud/CloudConnectionManager.js` | Sends relay protocol payloads only when connected. |
 | `CloudConnectionManager.sendRelayPacket(packet)` | `core/cloud/CloudConnectionManager.js` | Sends a Phase 6 opaque relay packet without invoking assistant command logic. |
+| `CloudCommandManager.start()` | `core/cloud/CloudCommandManager.js` | Subscribes to relay packets and enables Phase 7 desktop-side cloud assistant command handling. |
+| `CloudCommandManager.handleRelayPacket(message)` | `core/cloud/CloudCommandManager.js` | Validates `assistant-command` packets, rejects invalid requests, and queues valid requests. |
+| `CloudCommandManager.executeRequest(request)` | `core/cloud/CloudCommandManager.js` | Calls the existing phone command route into `Assistant.processCommand()` and sends a serialized relay response. |
+| `CloudRequestQueue.enqueue(item)` | `core/cloud/CloudRequestQueue.js` | Queues cloud command requests with bounded capacity and configurable busy/queue behavior. |
+| `CloudResponseSerializer.serialize(payload)` | `core/cloud/CloudResponseSerializer.js` | Preserves structured assistant responses inside a standard cloud response packet. |
+| `CloudFileTransferManager.sendFileToDevice(deviceId, sourcePath)` | `core/cloud/CloudFileTransferManager.js` | Starts a metadata-first, receiver-approved cloud file transfer and sends chunks through relay packets. |
+| `CloudFileTransferManager.acceptTransfer(transferId)` | `core/cloud/CloudFileTransferManager.js` | Accepts an incoming cloud file transfer before any chunks are written to desktop storage. |
+| `CloudFileTransferManager.handleChunk(packet, payload)` | `core/cloud/CloudFileTransferManager.js` | Validates chunk sequence and checksum, appends to a temp file, and sends progress acknowledgements. |
+| `CloudFileTransferManager.handleComplete(payload)` | `core/cloud/CloudFileTransferManager.js` | Verifies final size and SHA-256 before moving the temp file into the existing received-file storage. |
 | `CloudConnectionManager.registerDevice()` | `core/cloud/CloudConnectionManager.js` | Registers the stable desktop cloud device ID and placeholder owner with the relay. |
 | `CloudConnectionManager.requestPairToken(options)` | `core/cloud/CloudConnectionManager.js` | Requests a relay-owned secure cloud pair token and resolves the matching response safely. |
 | `CloudConnectionManager.approvePairingRequest(pairRequestId)` | `core/cloud/CloudConnectionManager.js` | Sends explicit desktop approval for a pending cloud pair request. |
 | `CloudConnectionManager.rejectPairingRequest(pairRequestId)` | `core/cloud/CloudConnectionManager.js` | Sends explicit desktop rejection for a pending cloud pair request. |
+| `CloudConnectionManager.updateDevice(deviceId, updates)` | `core/cloud/CloudConnectionManager.js` | Sends a correlated relay request for cloud device rename and metadata updates. |
+| `CloudConnectionManager.removeDevice(deviceId)` | `core/cloud/CloudConnectionManager.js` | Sends a correlated relay request to remove a cloud-paired device owned by the desktop owner. |
+| `CloudConnectionManager.updatePresence(state, metadata)` | `core/cloud/CloudConnectionManager.js` | Publishes desktop cloud presence such as online, busy, idle, syncing, or sleeping. |
+| `CloudConnectionManager.subscribePresence()` | `core/cloud/CloudConnectionManager.js` | Subscribes to owner-scoped paired-device presence updates. |
+| `CloudConnectionManager.createNotification(payload)` | `core/cloud/CloudConnectionManager.js` | Sends cloud notification records through the relay notification manager. |
+| `CloudConnectionManager.markNotificationRead(notificationId)` | `core/cloud/CloudConnectionManager.js` | Marks a cloud notification read. |
+| `CloudConnectionManager.dismissNotification(notificationId)` | `core/cloud/CloudConnectionManager.js` | Dismisses a cloud notification. |
 | `CloudConnectionManager.destroy(reason)` | `core/cloud/CloudConnectionManager.js` | Deterministically releases sockets, heartbeat timers, reconnect timers, and listeners during shutdown. |
 | `CloudPairingManager.generatePairingQR(options)` | `core/cloud/CloudPairingManager.js` | Creates a QR from relay URL, relay-generated token, version, and expiry only. |
 | `CloudPairingManager.approvePairing(pairRequestId)` | `core/cloud/CloudPairingManager.js` | Approves an incoming cloud pair request after desktop user confirmation. |
@@ -199,6 +217,13 @@ The assistant must not need to know whether the text came from chat, phone, voic
 | `PhoneServer._handleFileTransfer(clientId, payload)` | `core/phone/PhoneServer.js` | Handles complete file-transfer payloads. |
 | `PhoneServer._handleChunkedFileTransfer(clientId, payload)` | `core/phone/PhoneServer.js` | Handles chunked transfer start, chunk, and complete events. |
 | `PhoneServer._handleFileTransferReceipt(clientId, payload)` | `core/phone/PhoneServer.js` | Records mobile receive acknowledgements. |
+| `PhoneServer.getDeviceSession(deviceId)` | `core/phone/PhoneServer.js` | Returns UI-safe session state for a managed device without exposing tokens. |
+| `DeviceRegistry.registerDevice(device)` | `core/phone/DeviceRegistry.js` | Stores paired device identity, metadata, trust state, and default permissions. |
+| `DeviceRegistry.updateDeviceName(deviceId, deviceName)` | `core/phone/DeviceRegistry.js` | Renames a paired device from the desktop Device Management Center. |
+| `DeviceRegistry.updateTrust(deviceId, trusted)` | `core/phone/DeviceRegistry.js` | Toggles trusted/untrusted state and disables permission checks when untrusted. |
+| `DeviceRegistry.updatePermissions(deviceId, permissions)` | `core/phone/DeviceRegistry.js` | Applies immediate assistant, file transfer, desktop control, clipboard, and future permission changes. |
+| `SessionManager.getSession(deviceId)` | `core/phone/SessionManager.js` | Produces active/expired session summaries without leaking the session token. |
+| `PairingService.pairDevice(request)` | `core/phone/PairingService.js` | Registers local paired devices and carries optional device type/platform/version metadata. |
 | `FileTransferManager.sendFileToDevice(deviceId, sourcePath)` | `core/phone/FileTransferManager.js` | Sends desktop files/folders to a phone, zipping folders when needed. |
 | `FileTransferManager.startIncomingTransfer(payload)` | `core/phone/FileTransferManager.js` | Starts a chunked phone-to-desktop transfer and creates a guarded temp file. |
 | `FileTransferManager.receiveFileChunk(payload)` | `core/phone/FileTransferManager.js` | Validates chunk order/size and appends chunk data. |
@@ -245,6 +270,9 @@ The assistant must not need to know whether the text came from chat, phone, voic
 | Function or method | File | Purpose |
 |---|---|---|
 | Electron startup/lifecycle handlers | `apps/desktop/electron/main.js` | Own app lifecycle, tray, shortcuts, windows, assistant startup, phone server, voice runtime, and IPC registration. |
+| `buildManagedDeviceList()` | `apps/desktop/electron/main.js` | Merges local registry, active phone sessions, and cloud-paired visibility into one Device Management Center list. |
+| `phone:device:rename` IPC handler | `apps/desktop/electron/main.js`, `apps/desktop/electron/security.js`, `apps/desktop/preload.js` | Validates and applies desktop-owned device renames. |
+| `phone:device:trust:update` IPC handler | `apps/desktop/electron/main.js`, `apps/desktop/electron/security.js`, `apps/desktop/preload.js` | Validates trust changes, disconnects untrusted devices, and revokes sessions. |
 | `processCommand` preload bridge | `apps/desktop/preload.js` | Exposes a narrow validated renderer API for chat commands. |
 | Voice overlay preload helpers | `apps/desktop/preload.js` | Render Dynamic Island assistant results and schedule controls. |
 | IPC validation helpers | `apps/desktop/electron/security.js` | Validate renderer origins and payload schemas. |
@@ -288,6 +316,28 @@ Important behavior:
 ## 7. Phone And File Transfer Architecture
 
 OpenX Mobile communicates with the desktop through the phone server in `core/phone/PhoneServer.js`.
+
+### Device Management Center
+
+The desktop Settings page is the authority for local device management. `phone:devices:list` returns a merged management view from `buildManagedDeviceList()`:
+
+```text
+DeviceRegistry.listDevices()
+  + PhoneServer.getStatus().connectedDevices
+  + PhoneServer.getDeviceSession(deviceId)
+  + CloudConnectionManager.getStatus().pairedDevices
+  -> Settings -> Phone -> Connected Devices
+```
+
+The page displays friendly name, device ID, type, platform, software version, connection status, trust status, permission summary, connection duration, last seen, paired date, and session state. Search, status/type/trust filters, sorting, and manual refresh are renderer-only. Local device actions are validated through Electron IPC:
+
+- Rename updates `DeviceRegistry.updateDeviceName()`.
+- Disconnect closes the active socket/session path while keeping the pair.
+- Remove deletes the pair and revokes session/trust/permissions so QR pairing is required again.
+- Trust/untrust updates `DeviceRegistry.updateTrust()` and disconnects/revokes active sessions when untrusted.
+- Permission changes immediately affect the existing phone permission guard.
+
+Cloud-only paired devices support relay-backed rename and remove. Trust and permission editing remain local-only until relay trust/permission endpoints are implemented. Local Mode behavior remains unchanged.
 
 Desktop-to-phone flow:
 

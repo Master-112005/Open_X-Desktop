@@ -80,6 +80,28 @@ describe('Phone security hardening', function() {
     assert.equal(sessionManager.validateSession('phone001', session.sessionToken).reason, 'expired-session');
   });
 
+  it('exposes session status for device management without leaking tokens', function() {
+    const session = sessionManager.createSession('phone001');
+    const summary = sessionManager.getSession('phone001');
+    assert.deepEqual(summary, {
+      deviceId: 'phone001',
+      issuedAt: session.issuedAt,
+      expiresAt: session.expiresAt,
+      active: true,
+      expired: false
+    });
+    assert.equal(Object.prototype.hasOwnProperty.call(summary, 'sessionToken'), false);
+
+    now = session.expiresAt + 1;
+    assert.deepEqual(sessionManager.listSessions(), [{
+      deviceId: 'phone001',
+      issuedAt: session.issuedAt,
+      expiresAt: session.expiresAt,
+      active: false,
+      expired: true
+    }]);
+  });
+
   it('rejects missing, invalid, expired, stale, and replayed authentication data', function() {
     const security = new SecurityManager({
       deviceRegistry: registry,

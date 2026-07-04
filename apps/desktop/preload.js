@@ -352,6 +352,12 @@ const openxApi = {
   getPhoneDevices: () =>
     ipcRenderer.invoke('phone:devices:list'),
 
+  renamePhoneDevice: (deviceId, deviceName) =>
+    ipcRenderer.invoke('phone:device:rename', { deviceId, deviceName }),
+
+  updatePhoneTrust: (deviceId, trusted) =>
+    ipcRenderer.invoke('phone:device:trust:update', { deviceId, trusted }),
+
   updatePhonePermissions: (deviceId, permissions) =>
     ipcRenderer.invoke('phone:device:permissions:update', { deviceId, permissions }),
 

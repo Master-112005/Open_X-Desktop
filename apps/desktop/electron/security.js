@@ -4,7 +4,15 @@ const { fileURLToPath } = require('url');
 const FORBIDDEN_OBJECT_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const ALLOWED_COMMAND_SOURCES = new Set(['chat', 'voice']);
 const PHONE_PERMISSION_NAMES = new Set([
-  'remoteCommands', 'fileTransfer', 'receiveFiles', 'sendFiles', 'powerActions'
+  'remoteCommands',
+  'fileTransfer',
+  'receiveFiles',
+  'sendFiles',
+  'powerActions',
+  'clipboard',
+  'screenSharing',
+  'camera',
+  'microphone'
 ]);
 const UNSAFE_TEXT_CONTROL_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 const UNSAFE_DIRECTIONAL_PATTERN = /[\u202A-\u202E\u2066-\u2069]/;
@@ -204,7 +212,7 @@ function validatePlannerDelete(payload) {
 function validatePhoneDevice(payload) {
   requirePlainObject(payload);
   const deviceId = requireString(payload.deviceId, 'deviceId', { maxLength: 128 });
-  if (!/^[A-Za-z0-9._-]+$/.test(deviceId)) throw new TypeError('deviceId is invalid');
+  if (!/^[A-Za-z0-9._:-]+$/.test(deviceId)) throw new TypeError('deviceId is invalid');
   return { deviceId };
 }
 
@@ -221,6 +229,19 @@ function validatePhonePermissions(payload) {
     normalized[name] = value;
   }
   return { deviceId, permissions: normalized };
+}
+
+function validatePhoneDeviceRename(payload) {
+  const { deviceId } = validatePhoneDevice(payload);
+  const deviceName = requireString(payload.deviceName, 'deviceName', { maxLength: 100 }).replace(/\s+/g, ' ').trim();
+  if (!deviceName) throw new TypeError('deviceName is required');
+  return { deviceId, deviceName };
+}
+
+function validatePhoneDeviceTrust(payload) {
+  const { deviceId } = validatePhoneDevice(payload);
+  if (typeof payload.trusted !== 'boolean') throw new TypeError('trusted is required');
+  return { deviceId, trusted: payload.trusted };
 }
 
 function validateEmpty(payload) {
@@ -251,6 +272,8 @@ const IPC_VALIDATORS = Object.freeze({
   'phone:pairingQR:create': validateEmpty,
   'phone:server:status': validateEmpty,
   'phone:devices:list': validateEmpty,
+  'phone:device:rename': validatePhoneDeviceRename,
+  'phone:device:trust:update': validatePhoneDeviceTrust,
   'phone:device:permissions:update': validatePhonePermissions,
   'phone:device:remove': validatePhoneDevice,
   'phone:device:disconnect': validatePhoneDevice,

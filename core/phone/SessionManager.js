@@ -51,6 +51,25 @@ class SessionManager {
     return normalizedDeviceId ? this.sessions.delete(normalizedDeviceId) : false;
   }
 
+  getSession(deviceId) {
+    const normalizedDeviceId = this._tryNormalizeDeviceId(deviceId);
+    if (!normalizedDeviceId) return null;
+    const session = this.sessions.get(normalizedDeviceId);
+    if (!session) return null;
+    const expired = session.expiresAt <= this.now();
+    return {
+      deviceId: session.deviceId,
+      issuedAt: session.issuedAt,
+      expiresAt: session.expiresAt,
+      active: !expired,
+      expired
+    };
+  }
+
+  listSessions() {
+    return [...this.sessions.values()].map(session => this.getSession(session.deviceId)).filter(Boolean);
+  }
+
   cleanupExpiredSessions() {
     const now = this.now();
     let removed = 0;

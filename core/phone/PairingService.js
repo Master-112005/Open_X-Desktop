@@ -51,7 +51,15 @@ class PairingService {
       return { valid: false, reason: 'invalid-token' };
     }
 
-    return { valid: true, deviceId, deviceName, token };
+    return {
+      valid: true,
+      deviceId,
+      deviceName,
+      token,
+      deviceType: this._normalizeOptionalText(request.deviceType, 40),
+      platform: this._normalizeOptionalText(request.platform, 80),
+      softwareVersion: this._normalizeOptionalText(request.softwareVersion || request.version, 80)
+    };
   }
 
   pairDevice(request) {
@@ -61,7 +69,10 @@ class PairingService {
     try {
       const device = this.deviceRegistry.registerDevice({
         deviceId: validation.deviceId,
-        deviceName: validation.deviceName
+        deviceName: validation.deviceName,
+        deviceType: validation.deviceType || 'phone',
+        platform: validation.platform || 'mobile',
+        softwareVersion: validation.softwareVersion || ''
       });
       this.tokenManager.invalidateToken(validation.token);
       const session = this.sessionManager.createSession(device.deviceId);
@@ -74,6 +85,11 @@ class PairingService {
   destroy() {
     this.tokenManager.destroy?.();
     this.sessionManager.destroy?.();
+  }
+
+  _normalizeOptionalText(value, maxLength) {
+    const normalized = typeof value === 'string' ? value.trim() : '';
+    return normalized ? normalized.slice(0, maxLength) : '';
   }
 }
 
