@@ -224,6 +224,8 @@ const IPC_CHANNELS = [
   'assistant:status',
   'tts:speak',
   'tts:stop',
+  'voice:start',
+  'voiceOverlay:collapse',
   'window:openChat',
   'window:openSettings',
   'window:openPlanner',
@@ -1765,7 +1767,9 @@ function registerIpcHandler(channel, handler) {
 
   ipcMain.handle(channel, async (event, payload) => {
     try {
-      assertTrustedIpcSender(event, RENDERER_ROOT);
+      if (!isTrustedVoiceOverlayIpcSender(event, channel)) {
+        assertTrustedIpcSender(event, RENDERER_ROOT);
+      }
       const validatedPayload = validator(payload);
       return await handler(event, validatedPayload);
     } catch (error) {
@@ -2095,14 +2099,20 @@ function setupIPC() {
       if (action === 'snooze') showTimerWidget(result.data.id || result.data.taskName || id);
       if (action === 'stop') hideTimerWidget();
     }
-    if (result?.success) {
-      try {
-        voiceOverlay?.windowController?.updateAssistantResult?.({});
-      } catch (error) {
-        mainLogger.warn('Dynamic Island schedule action collapse failed', { error: error.message });
-      }
-    }
     return result || { success: false, error: 'Scheduler unavailable' };
+  });
+
+  registerIpcHandler('voiceOverlay:collapse', async (_event, options = {}) => {
+    try {
+      if (typeof voiceOverlay?.windowController?.collapseAssistantResult === 'function') {
+        return voiceOverlay.windowController.collapseAssistantResult(options);
+      }
+      voiceOverlay?.windowController?.updateAssistantResult?.({});
+      return { success: true };
+    } catch (error) {
+      mainLogger.warn('Dynamic Island collapse request failed', { error: error.message });
+      return { success: false, error: error.message };
+    }
   });
 
   registerIpcHandler('timerWidget:getState', async () => {
@@ -2790,6 +2800,14 @@ function registerPowerRecoveryHandlers() {
     mainLogger.info('Screen unlock detected; refreshing voice runtime');
     scheduleVoiceResumeRecovery('screen-unlock');
   });
+}
+
+function isTrustedVoiceOverlayIpcSender(event, channel) {
+  if (!['schedule:alertAction', 'voiceOverlay:collapse'].includes(channel)) return false;
+  const overlayContents = voiceOverlay?.windowController?.window?.webContents;
+  if (!overlayContents || event?.sender !== overlayContents) return false;
+  const senderUrl = getIpcSenderUrl(event);
+  return typeof senderUrl === 'string' && senderUrl.startsWith('data:text/html');
 }
 
 function normalizeError(reason) {

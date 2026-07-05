@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 let voiceAssistantResultClearTimer = null;
+let voiceAssistantActionCollapseTimer = null;
 let voiceAlertAudioContext = null;
 let voiceAlertSoundInterval = null;
 let voiceAlertActiveTones = [];
@@ -111,6 +112,67 @@ function playVoiceScheduleSound(kind) {
   voiceAlertSoundInterval = setInterval(playPattern, normalized === 'alarm' ? 1200 : 2200);
 }
 
+function clearVoiceActionCollapseTimer() {
+  if (voiceAssistantActionCollapseTimer) {
+    clearTimeout(voiceAssistantActionCollapseTimer);
+    voiceAssistantActionCollapseTimer = null;
+  }
+}
+
+function collapseVoiceIslandAfter(delayMs = 80, options = {}) {
+  clearVoiceActionCollapseTimer();
+  voiceAssistantActionCollapseTimer = setTimeout(async () => {
+    voiceAssistantActionCollapseTimer = null;
+    try {
+      await ipcRenderer.invoke('voiceOverlay:collapse', options);
+    } catch (_) {
+      renderVoiceAssistantResult({});
+    }
+  }, Math.max(0, Math.min(1500, Number(delayMs) || 80)));
+}
+
+function buildVoiceActionFeedback(action = {}, result = {}) {
+  const kind = String(action.kind || action.id || '').toLowerCase();
+  const scheduleKind = String(result?.data?.kind || action.scheduleKind || 'Schedule').trim() || 'Schedule';
+  const minutes = Math.max(1, Math.min(180, Number(action.minutes) || 5));
+  if (kind === 'snooze') {
+    return {
+      heading: 'Snoozed',
+      response: `${scheduleKind} will return in ${minutes} minute${minutes === 1 ? '' : 's'}.`,
+      icon: 'OK',
+      statusText: `Snoozed for ${minutes} min`,
+      intent: 'schedule.action',
+      displayMode: 'medium'
+    };
+  }
+  if (kind === 'stop' || kind === 'end') {
+    return {
+      heading: 'Stopped',
+      response: `${scheduleKind} dismissed.`,
+      icon: 'OK',
+      statusText: 'Stopped',
+      intent: 'schedule.action',
+      displayMode: 'medium'
+    };
+  }
+  return {
+    heading: 'Done',
+    response: 'Closed.',
+    icon: 'OK',
+    statusText: 'Closed',
+    intent: 'dismiss',
+    displayMode: 'medium'
+  };
+}
+
+function setVoiceActionRowResolving(row, activeButton, resolving) {
+  row.classList.toggle('is-resolving', resolving);
+  Array.from(row.querySelectorAll('.voice-action')).forEach(button => {
+    button.disabled = resolving;
+    button.toggleAttribute('data-active', resolving && button === activeButton);
+  });
+}
+
 function appendVoiceActions(fragment, payload = {}) {
   const actions = Array.isArray(payload.actions) ? payload.actions : [];
   if (actions.length === 0) return;
@@ -124,21 +186,43 @@ function appendVoiceActions(fragment, payload = {}) {
     button.setAttribute('aria-label', button.textContent);
     button.title = button.textContent;
     button.addEventListener('click', async () => {
-      button.disabled = true;
+      const kind = String(action.kind || action.id || '').toLowerCase();
+      const originalLabel = button.textContent;
+      setVoiceActionRowResolving(row, button, true);
+      button.textContent = kind === 'snooze'
+        ? 'Snoozing...'
+        : (kind === 'stop' || kind === 'end')
+          ? 'Stopping...'
+          : 'Closing...';
       stopVoiceAlertSound();
-      if (['ok', 'dismiss', 'close'].includes(String(action.kind || action.id || '').toLowerCase())) {
-        renderVoiceAssistantResult({});
+      if (['ok', 'dismiss', 'close'].includes(kind)) {
+        const feedback = buildVoiceActionFeedback(action);
+        collapseVoiceIslandAfter(80, {
+          statusText: feedback.statusText,
+          icon: feedback.icon,
+          hideAfterMs: 5000
+        });
         return;
       }
       try {
-        await ipcRenderer.invoke('schedule:alertAction', {
+        const scheduleAction = kind === 'end' ? 'stop' : kind;
+        const result = await ipcRenderer.invoke('schedule:alertAction', {
           id: action.scheduleId,
-          action: action.kind || action.id,
+          action: scheduleAction,
           minutes: action.minutes || 5
         });
-        renderVoiceAssistantResult({});
+        if (!result?.success) {
+          throw new Error(result?.error || 'Action failed');
+        }
+        const feedback = buildVoiceActionFeedback(action, result);
+        collapseVoiceIslandAfter(80, {
+          statusText: feedback.statusText,
+          icon: feedback.icon,
+          hideAfterMs: 5000
+        });
       } catch (_) {
-        button.disabled = false;
+        button.textContent = originalLabel;
+        setVoiceActionRowResolving(row, button, false);
       }
     });
     row.appendChild(button);
@@ -161,6 +245,7 @@ function renderVoiceAssistantResult(payload = {}) {
     (Array.isArray(payload.actions) && payload.actions.length > 0);
   if (!hasPayload) {
     stopVoiceAlertSound();
+    clearVoiceActionCollapseTimer();
     if (root) root.classList.remove('expanded', 'medium', 'large');
     responseEl.classList.remove('visible');
     voiceAssistantResultClearTimer = setTimeout(() => {

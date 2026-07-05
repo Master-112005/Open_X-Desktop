@@ -34,6 +34,7 @@ class VoiceWindowController {
     this.boundsAnimationTimer = null;
     this.resultRevealTimer = null;
     this.resultAutoHideTimer = null;
+    this.resultDismissTimer = null;
     this.pendingSizeMode = null;
     this.pendingSize = null;
     this.lastBounds = null;
@@ -255,6 +256,34 @@ class VoiceWindowController {
     return { updated: true, payload };
   }
 
+  collapseAssistantResult(options = {}) {
+    if (!this.window || this._isDestroyed(this.window)) return { collapsed: false };
+    this._clearResultTimers();
+    this.resultSticky = false;
+    const statusText = String(options.statusText || 'Done').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Done';
+    const icon = String(options.icon || 'OK').replace(/\s+/g, '').trim().slice(0, 3).toUpperCase() || 'OK';
+    this._setSizeMode('compact', { delayMs: 0 });
+    this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.DISPLAY_ASSISTANT_RESULT, {});
+    this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.UPDATE_STATE, {
+      view: {
+        ...(this.lastView || {}),
+        state: String(options.state || this.lastView?.state || 'READY'),
+        title: 'OpenX',
+        statusText,
+        icon
+      }
+    });
+    const hideAfterMs = Math.max(0, Math.min(30000, Number(options.hideAfterMs) || 0));
+    if (hideAfterMs > 0) {
+      this.resultDismissTimer = setTimeout(() => {
+        this.resultDismissTimer = null;
+        this.hide();
+      }, hideAfterMs);
+      if (typeof this.resultDismissTimer.unref === 'function') this.resultDismissTimer.unref();
+    }
+    return { collapsed: true, hideAfterMs };
+  }
+
   /**
    * Display an error payload.
    * @param {object} view Error view payload.
@@ -377,6 +406,7 @@ body { animation: overlay-in 220ms var(--voice-ease) both; }
 #assistant-response.visible { opacity: 1; transform: translate3d(0,0,0); }
 #voice-overlay.expanded.medium #assistant-response { margin-top: 6px; max-height: 74px; overflow: hidden; padding-right: 0; }
 .voice-response-heading { margin-bottom: 6px; color: rgba(247,248,251,.58); font-size: 10.5px; font-weight: 800; letter-spacing: .06em; line-height: 1.1; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#voice-overlay.expanded.medium .voice-response-heading { margin-bottom: 4px; color: rgba(247,248,251,.74); }
 .voice-response-text { font-size: 13.5px; line-height: 1.42; color: var(--voice-text); overflow-wrap: break-word; }
 #voice-overlay.expanded.medium .voice-response-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 12.7px; line-height: 1.32; }
 .voice-content-summary { display: inline-flex; align-items: center; min-height: 22px; margin-top: 10px; padding: 0 9px; border: 1px solid rgba(255,255,255,.10); border-radius: 999px; color: rgba(247,248,251,.72); background: rgba(255,255,255,.06); font-size: 11px; font-weight: 750; }
@@ -387,12 +417,15 @@ body { animation: overlay-in 220ms var(--voice-ease) both; }
 .voice-card strong { display: -webkit-box; min-width: 0; color: rgba(247,248,251,.96); font-size: 13px; line-height: 1.25; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .voice-card small { display: -webkit-box; margin-top: 4px; color: var(--voice-muted); font-size: 11px; line-height: 1.28; overflow: hidden; overflow-wrap: anywhere; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .voice-card-path { color: rgba(247,248,251,.52); font-family: Consolas, 'Courier New', monospace; }
-.voice-action-row { position: sticky; bottom: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; margin-top: 13px; padding-top: 10px; background: linear-gradient(180deg, rgba(0,0,0,0), #000 34%); }
-.voice-action { min-width: 0; height: 36px; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; background: rgba(255,255,255,.085); color: var(--voice-text); font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; transform: translate3d(0,0,0); transition: transform 160ms var(--voice-ease), background 160ms var(--voice-ease), border-color 160ms var(--voice-ease), opacity 160ms var(--voice-ease); }
-.voice-action:hover { background: rgba(255,255,255,.13); border-color: rgba(255,255,255,.22); }
-.voice-action:active { transform: translate3d(0,1px,0) scale(.985); }
+.voice-action-row { position: sticky; bottom: 0; z-index: 2; display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 9px; margin-top: 14px; padding: 12px 0 1px; background: linear-gradient(180deg, rgba(0,0,0,0), #000 30%); }
+.voice-action { min-width: 0; height: 40px; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; background: rgba(255,255,255,.092); color: var(--voice-text); font: inherit; font-size: 12px; font-weight: 850; cursor: pointer; transform: translate3d(0,0,0); transition: transform 180ms var(--voice-ease), background 180ms var(--voice-ease), border-color 180ms var(--voice-ease), opacity 180ms var(--voice-ease), filter 180ms var(--voice-ease); touch-action: manipulation; user-select: none; }
+.voice-action:hover { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.24); }
+.voice-action:focus-visible { outline: 2px solid color-mix(in srgb, var(--voice-accent) 70%, white); outline-offset: 2px; }
+.voice-action:active { transform: translate3d(0,1px,0) scale(.972); }
 .voice-action.primary { background: color-mix(in srgb, var(--voice-accent) 34%, rgba(255,255,255,.08)); border-color: color-mix(in srgb, var(--voice-accent) 50%, transparent); }
-.voice-action[disabled] { opacity: .55; cursor: default; transform: none; }
+.voice-action-row.is-resolving .voice-action:not([data-active]) { opacity: .32; filter: saturate(.6); }
+.voice-action[disabled] { cursor: default; }
+.voice-action[disabled][data-active] { opacity: 1; transform: scale(.985); background: color-mix(in srgb, var(--voice-accent) 42%, rgba(255,255,255,.08)); border-color: color-mix(in srgb, var(--voice-accent) 62%, transparent); }
 .listening #icon { animation: pulse 1.4s var(--voice-ease) infinite; }
 .processing #icon { animation: pulse 1.7s var(--voice-ease) infinite; }
 .error #icon { color: #ffb1b1; border-color: rgba(255,120,120,.45); }
@@ -521,6 +554,10 @@ body { animation: overlay-in 220ms var(--voice-ease) both; }
     if (this.resultAutoHideTimer) {
       clearTimeout(this.resultAutoHideTimer);
       this.resultAutoHideTimer = null;
+    }
+    if (this.resultDismissTimer) {
+      clearTimeout(this.resultDismissTimer);
+      this.resultDismissTimer = null;
     }
   }
 
