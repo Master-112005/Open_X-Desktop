@@ -13,6 +13,8 @@ const STATES = Object.freeze({
 const DEFAULT_RECONNECT_DELAYS = Object.freeze([1000, 2000, 5000, 10000, 20000, 30000]);
 const DEFAULT_TIMEOUT_MS = 10000;
 const DEFAULT_HEARTBEAT_MS = 30000;
+const DEFAULT_RELAY_URL = 'wss://openx-server.onrender.com/ws';
+const LEGACY_DEFAULT_RELAY_URLS = new Set(['ws://localhost:8081/ws']);
 
 function nowIso() {
   return new Date().toISOString();
@@ -36,7 +38,8 @@ function normalizeRelayUrl(value) {
   if (parsed.protocol === 'https:') parsed.protocol = 'wss:';
   if (!parsed.pathname || parsed.pathname === '/') parsed.pathname = '/ws';
   parsed.hash = '';
-  return parsed.toString();
+  const normalized = parsed.toString();
+  return LEGACY_DEFAULT_RELAY_URLS.has(normalized) ? DEFAULT_RELAY_URL : normalized;
 }
 
 function socketIsOpen(socket) {
@@ -98,7 +101,7 @@ class CloudConnectionManager extends EventEmitter {
       ownerId: String(source.ownerId || '').trim(),
       deviceType: String(source.deviceType || 'desktop').trim() || 'desktop',
       friendlyName: String(source.friendlyName || 'OpenX Desktop').trim() || 'OpenX Desktop',
-      relayUrl: String(source.relayUrl || process.env.OPENX_RELAY_URL || '').trim() || 'ws://localhost:8081/ws',
+      relayUrl: String(source.relayUrl || process.env.OPENX_RELAY_URL || '').trim() || DEFAULT_RELAY_URL,
       autoConnect: source.autoConnect === true,
       reconnectEnabled: source.reconnectEnabled !== false,
       heartbeatEnabled: source.heartbeatEnabled !== false,
