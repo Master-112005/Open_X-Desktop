@@ -206,6 +206,7 @@ let chatLoweredForPlanner = false;
 let phoneServer = null;
 let qrPairingService = null;
 let phoneDeviceRegistry = null;
+let phoneIdentityVerificationService = null;
 let cloudConnectionManager = null;
 let cloudPairingManager = null;
 let cloudCommandManager = null;
@@ -1292,6 +1293,73 @@ function presentScheduleInDynamicIsland(schedule = {}) {
   }
 }
 
+function normalizePhoneNotification(notification = {}, metadata = {}) {
+  const sourceName = String(
+    notification.sourceDeviceName ||
+    notification.deviceName ||
+    metadata.deviceName ||
+    notification.details?.deviceName ||
+    'Mobile'
+  ).replace(/\s+/g, ' ').trim().slice(0, 80);
+  const appName = String(
+    notification.appName ||
+    notification.packageName ||
+    notification.details?.appName ||
+    notification.category ||
+    'Notification'
+  ).replace(/\s+/g, ' ').trim().slice(0, 80);
+  const title = String(notification.title || appName || 'Notification').replace(/\s+/g, ' ').trim().slice(0, 140);
+  const message = String(notification.message || notification.text || notification.body || '').replace(/\s+/g, ' ').trim().slice(0, 360);
+  return {
+    notificationId: String(notification.notificationId || notification.id || `phone_notification_${Date.now()}`).trim(),
+    sourceName,
+    appName,
+    title,
+    message,
+    receivedAt: notification.createdAt || notification.timestamp || Date.now(),
+    priority: String(notification.priority || 'normal').toLowerCase()
+  };
+}
+
+function presentPhoneNotificationInDynamicIsland(notification = {}, metadata = {}) {
+  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
+  const normalized = normalizePhoneNotification(notification, metadata);
+  const line = normalized.message ? `${normalized.title}: ${normalized.message}` : normalized.title;
+  try {
+    voiceOverlay.displayAssistantResult({
+      success: true,
+      intent: 'phone.notification',
+      response: line,
+      data: {
+        notification: normalized,
+        actions: [{
+          id: 'ok',
+          label: 'OK',
+          kind: 'dismiss',
+          primary: true
+        }],
+        resultEntries: [{
+          index: 1,
+          name: normalized.title,
+          type: normalized.appName,
+          location: normalized.sourceName,
+          snippet: normalized.message
+        }]
+      },
+      ui: {
+        icon: 'NO',
+        previewStatus: `${normalized.sourceName} notification`,
+        preExpandDelayMs: 1000,
+        autoHideMs: normalized.priority === 'high' ? 18000 : 12000
+      }
+    });
+    return true;
+  } catch (error) {
+    mainLogger.warn('Dynamic Island phone notification failed', { error: error.message });
+    return false;
+  }
+}
+
 function getTimerWidgetState(preferredId = null, options = {}) {
   const includeStopwatch = options.includeStopwatch === true || timerWidgetMode === 'stopwatch';
   const state = assistant?.automation?.scheduler?.getTimerWidgetState?.(preferredId, { includeStopwatch });
@@ -1460,6 +1528,10 @@ function initializeCloudConnection() {
     logger: cloudLogger
   });
   cloudConnectionManager.on('status', status => sendCloudStatus(status));
+  cloudConnectionManager.on('notification', notification => {
+    if (String(notification?.category || '').toLowerCase() !== 'phone' && !notification?.details?.appName) return;
+    presentPhoneNotificationInDynamicIsland(notification, { source: 'phone-cloud' });
+  });
   return cloudConnectionManager;
 }
 
@@ -1887,6 +1959,10 @@ function setupIPC() {
   });
 
   registerIpcHandler('cloud:pairingQR:create', async () => {
+    const verification = await phoneIdentityVerificationService?.verifyIdentity?.();
+    if (verification?.success !== true) {
+      return { success: false, message: 'Windows identity verification required.' };
+    }
     const manager = initializeCloudPairing();
     const result = await manager.generatePairingQR({
       ttlMs: runtimeConfig?.cloud?.pairTokenTtlMs || 5 * 60 * 1000
@@ -1914,7 +1990,7 @@ function setupIPC() {
 
   registerIpcHandler('phone:pairingQR:create', async () => {
     if (!qrPairingService) {
-      return { success: false, message: 'Phone service unavailable.' };
+      return { success: false, message: 'Mobile connection service unavailable.' };
     }
     return qrPairingService.generatePairingQR();
   });
@@ -2209,6 +2285,7 @@ async function cleanupRuntime() {
       }
     }
     phoneDeviceRegistry = null;
+    phoneIdentityVerificationService = null;
     if (cloudFileTransferManager) {
       try {
         cloudFileTransferManager.destroy();
@@ -2605,6 +2682,7 @@ async function initializePhoneServer() {
     verifier: new WindowsIdentityVerifier(),
     logger: mainLogger
   });
+  phoneIdentityVerificationService = identityVerificationService;
   const pairingService = new PairingService({
     deviceRegistry,
     identityVerificationService,
@@ -2644,6 +2722,7 @@ async function initializePhoneServer() {
       fileTransferManager,
       scheduleProvider: getScheduleSyncSnapshot,
       scheduleUpsertHandler: upsertScheduleFromPhone,
+      notificationHandler: presentPhoneNotificationInDynamicIsland,
       logger: mainLogger
     });
 
@@ -2663,7 +2742,7 @@ async function initializePhoneServer() {
     }
   }
 
-  if (!phoneServerAddress) throw phoneServerError || new Error('Unable to start phone server');
+  if (!phoneServerAddress) throw phoneServerError || new Error('Unable to start mobile connection service');
 
   qrPairingService = new QRPairingService({
     pairingService,
