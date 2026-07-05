@@ -1017,7 +1017,7 @@ function populateSettingsForm() {
   setFieldValue(fieldIds.glassTint, String(settings.chat.glassTint ?? 42));
   applyGlassTint(settings.chat.glassTint ?? 42);
   setFieldValue(fieldIds.systemPermissionLevel, settings.system.permissionLevel);
-  setFieldValue(fieldIds.cloudRelayUrl, settings.cloud?.relayUrl || 'ws://localhost:8080/ws');
+  setFieldValue(fieldIds.cloudRelayUrl, settings.cloud?.relayUrl || 'ws://localhost:8081/ws');
   setFieldValue(fieldIds.cloudConnectionTimeout, String(settings.cloud?.connectionTimeoutMs || 10000));
   if (cloudAutoConnectEl) cloudAutoConnectEl.checked = settings.cloud?.autoConnect === true;
   if (cloudReconnectEnabledEl) cloudReconnectEnabledEl.checked = settings.cloud?.reconnectEnabled !== false;
@@ -1672,7 +1672,7 @@ function cloudStateClass(state) {
 
 function collectCloudRuntimeSettings() {
   return {
-    relayUrl: cloudRelayUrlEl?.value?.trim() || settingsSnapshot?.settings?.cloud?.relayUrl || 'ws://localhost:8080/ws',
+    relayUrl: cloudRelayUrlEl?.value?.trim() || settingsSnapshot?.settings?.cloud?.relayUrl || 'ws://localhost:8081/ws',
     autoConnect: cloudAutoConnectEl?.checked === true,
     reconnectEnabled: cloudReconnectEnabledEl?.checked !== false,
     heartbeatEnabled: cloudHeartbeatEnabledEl?.checked !== false,
