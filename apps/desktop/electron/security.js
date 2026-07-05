@@ -166,9 +166,25 @@ function validateScheduleAction(payload) {
   requirePlainObject(payload);
   const id = requireString(payload.id, 'id', { maxLength: 200 });
   const action = requireString(payload.action, 'action', { maxLength: 20 });
-  if (!['snooze', 'stop'].includes(action)) throw new TypeError('schedule action is not supported');
+  if (!['snooze', 'stop', 'end'].includes(action)) throw new TypeError('schedule action is not supported');
   const minutes = Math.max(1, Math.min(60, Number(payload.minutes) || 5));
-  return { id, action, minutes };
+  return { id, action: action === 'end' ? 'stop' : action, minutes };
+}
+
+function validateVoiceOverlayCollapse(payload) {
+  if (payload === undefined) return {};
+  requirePlainObject(payload);
+  const normalized = {};
+  if (payload.statusText !== undefined) {
+    normalized.statusText = requireString(payload.statusText, 'statusText', { maxLength: 80 });
+  }
+  if (payload.icon !== undefined) {
+    normalized.icon = requireString(payload.icon, 'icon', { maxLength: 3 });
+  }
+  if (payload.hideAfterMs !== undefined) {
+    normalized.hideAfterMs = Math.max(0, Math.min(30000, Number(payload.hideAfterMs) || 0));
+  }
+  return normalized;
 }
 
 function validateTimerWidgetClose(payload) {
@@ -256,6 +272,7 @@ const IPC_VALIDATORS = Object.freeze({
   'tts:speak': validateSpeech,
   'tts:stop': validateEmpty,
   'voice:start': validateEmpty,
+  'voiceOverlay:collapse': validateVoiceOverlayCollapse,
   'window:openChat': validateEmpty,
   'window:openSettings': validateEmpty,
   'window:openPlanner': validatePlannerView,

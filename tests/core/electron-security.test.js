@@ -128,9 +128,29 @@ describe('Electron Security Boundary', function() {
     assert.throws(() => IPC_VALIDATORS['planner:addEntry']({ type: 'calendar', title: 'Bad', startTime: '9:30' }), /HH:MM/);
   });
 
+  it('should validate Dynamic Island collapse payloads', function() {
+    assert.deepEqual(
+      IPC_VALIDATORS['voiceOverlay:collapse']({ statusText: ' Snoozed ', icon: 'ok', hideAfterMs: 5000 }),
+      { statusText: 'Snoozed', icon: 'ok', hideAfterMs: 5000 }
+    );
+    assert.deepEqual(IPC_VALIDATORS['voiceOverlay:collapse'](), {});
+    assert.throws(
+      () => IPC_VALIDATORS['voiceOverlay:collapse']({ statusText: 'x'.repeat(81) }),
+      /exceeds/
+    );
+  });
+
+  it('should normalize Dynamic Island end actions as stop actions', function() {
+    assert.deepEqual(
+      IPC_VALIDATORS['schedule:alertAction']({ id: 'reminder-1', action: 'end', minutes: 5 }),
+      { id: 'reminder-1', action: 'stop', minutes: 5 }
+    );
+  });
+
   it('should provide a validator for every registered IPC channel', function() {
     const expectedChannels = [
       'command:process', 'command:confirm', 'assistant:status', 'tts:speak', 'tts:stop', 'voice:start',
+      'voiceOverlay:collapse',
       'window:openChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
       'config:get', 'settings:get', 'cloud:status', 'cloud:connect', 'cloud:disconnect',
       'cloud:pairingQR:create', 'cloud:pairing:status', 'cloud:pairing:approve', 'cloud:pairing:reject',
