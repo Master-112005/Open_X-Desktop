@@ -276,6 +276,33 @@ class SchedulerController {
       return dueAt;
     }
 
+    const monthDayMatch = value.match(/^(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?(?:\s+(?:of\s+)?(this|next)\s+month|\s+(this|next)\s+month)(?:\s+(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?))?$/i);
+    if (monthDayMatch) {
+      const day = parseInt(monthDayMatch[1], 10);
+      if (day < 1 || day > 31) return null;
+      const monthDirective = String(monthDayMatch[2] || monthDayMatch[3] || 'this').toLowerCase();
+      const timeParts = this._parseClockParts(monthDayMatch[4] || '9 am');
+      if (!timeParts) return null;
+
+      const now = new Date();
+      const dueAt = new Date(now);
+      dueAt.setSeconds(0, 0);
+      dueAt.setHours(timeParts.hours, timeParts.minutes, 0, 0);
+      if (monthDirective === 'next') {
+        dueAt.setMonth(dueAt.getMonth() + 1, 1);
+      }
+      const targetMonth = dueAt.getMonth();
+      dueAt.setDate(day);
+      if (dueAt.getMonth() !== targetMonth) return null;
+      if (dueAt.getTime() <= Date.now()) {
+        dueAt.setMonth(dueAt.getMonth() + (monthDirective === 'next' ? 1 : 1), 1);
+        const fallbackMonth = dueAt.getMonth();
+        dueAt.setDate(day);
+        if (dueAt.getMonth() !== fallbackMonth) return null;
+      }
+      return dueAt;
+    }
+
     const tomorrowMatch = value.match(/^(tomorrow)\s+(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?$/i);
     if (tomorrowMatch) {
       const dueAt = new Date();

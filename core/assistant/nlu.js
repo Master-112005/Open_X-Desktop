@@ -280,6 +280,10 @@ class NaturalLanguageRouter {
     const hasFileEvidence = /\.[a-z0-9]{1,10}\b/i.test(text) || has('file');
     const hasPhoneTransferTarget = has('phoneTransfer') ||
       /\b(?:my\s+)?(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset)\b/i.test(text);
+    const explicitAppDomain = (
+      tokens.some(token => APP_CUES.has(token)) ||
+      /\b(?:app|apps|application|applications|program|programs|software)\b|\bnot\s+(?:a\s+|an\s+|the\s+)?(?:file|folder|document|pdf|docx?)\b/i.test(text)
+    ) && !/\bnot\s+(?:a\s+|an\s+|the\s+)?(?:app|application|program|software)\b/i.test(text);
 
     if (hasFileEvidence && ['send', 'share', 'transfer', 'copy', 'push', 'move', 'give', 'get', 'bring'].includes(action) && hasPhoneTransferTarget) {
       return 'phone-transfer';
@@ -302,6 +306,9 @@ class NaturalLanguageRouter {
     }
     if (has('mediaPlatform') && ['play', 'pause', 'resume', 'stop', 'next', 'previous', 'mute', 'unmute'].includes(action)) {
       return 'media';
+    }
+    if (explicitAppDomain && ['open', 'close', 'switch'].includes(action)) {
+      return 'app';
     }
     if (hasFileEvidence) {
       return 'local-file';

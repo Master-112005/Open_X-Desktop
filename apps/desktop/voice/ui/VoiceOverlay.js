@@ -304,7 +304,8 @@ class VoiceOverlay extends EventEmitter {
       icon: String(result?.ui?.icon || result?.data?.icon || '').slice(0, 3),
       previewStatus: String(result?.ui?.previewStatus || '').slice(0, 80),
       preExpandDelayMs: Number(result?.ui?.preExpandDelayMs) || 0,
-      autoHideMs: Number(result?.ui?.autoHideMs) || 0
+      autoHideMs: Number(result?.ui?.autoHideMs) || 0,
+      persistUntilAction: result?.ui?.persistUntilAction === true
     });
   }
 
@@ -324,7 +325,9 @@ class VoiceOverlay extends EventEmitter {
     if (/^file\./.test(intent)) return 'Files';
     if (intent === 'browser.search') return 'Search';
     if (intent === 'schedule.due') return 'Due now';
-    if (intent === 'phone.notification') return 'Notification';
+    if (intent === 'phone.notification') {
+      return String(result?.data?.notification?.appName || 'Phone notification').slice(0, 40);
+    }
     if (/^(?:timer|alarm|reminder)\./.test(intent)) return 'Schedule';
     if (/^media\./.test(intent)) return 'Media';
     if (result?.success === false) return 'Needs attention';

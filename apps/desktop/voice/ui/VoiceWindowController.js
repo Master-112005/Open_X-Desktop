@@ -37,6 +37,7 @@ class VoiceWindowController {
     this.pendingSizeMode = null;
     this.pendingSize = null;
     this.lastBounds = null;
+    this.resultSticky = false;
     this.pendingOverlayOperations = new Map();
     this.overlayFlushAttached = false;
   }
@@ -161,6 +162,9 @@ class VoiceWindowController {
     if (this.window && !this._isDestroyed(this.window)) {
       this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.UPDATE_STATE, { view });
       if (this._shouldCollapseForState(view?.state)) {
+        if (this.resultSticky) {
+          return { updated: true, view };
+        }
         this._clearResultTimers();
         this._setSizeMode('compact', { delayMs: 140 });
         this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.DISPLAY_ASSISTANT_RESULT, {});
@@ -197,10 +201,12 @@ class VoiceWindowController {
     if (this.window && !this._isDestroyed(this.window)) {
       this._clearResultTimers();
       if (!hasPayload) {
+        this.resultSticky = false;
         this._setSizeMode('compact', { delayMs: 120 });
         this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.DISPLAY_ASSISTANT_RESULT, {});
         return { updated: true, payload };
       }
+      this.resultSticky = payload.persistUntilAction === true;
 
       if (!this.visible) {
         if (typeof this.window.setAlwaysOnTop === 'function') this.window.setAlwaysOnTop(true, 'screen-saver');
@@ -235,7 +241,7 @@ class VoiceWindowController {
         });
         this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.DISPLAY_ASSISTANT_RESULT, { ...payload, displayMode });
         const autoHideMs = Number(payload.autoHideMs) || 0;
-        if (autoHideMs > 0) {
+        if (autoHideMs > 0 && !this.resultSticky) {
           this.resultAutoHideTimer = setTimeout(() => {
             this.resultAutoHideTimer = null;
             this._setSizeMode('compact', { delayMs: 120 });
@@ -350,9 +356,9 @@ class VoiceWindowController {
 :root { --voice-bg: #000; --voice-text: #f7f8fb; --voice-muted: rgba(247,248,251,.66); --voice-accent: #4488ff; --voice-border: rgba(255,255,255,.08); --voice-blur: 0px; --voice-ease: cubic-bezier(.16,1,.3,1); }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; font-family: Segoe UI, system-ui, sans-serif; color: var(--voice-text); -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; }
 body { animation: overlay-in 220ms var(--voice-ease) both; }
-#voice-overlay { box-sizing: border-box; height: 100vh; padding: 7px 13px; border: 1px solid var(--voice-border); border-radius: 999px; background: #000; box-shadow: 0 12px 30px rgba(0,0,0,.40), inset 0 1px 1px rgba(255,255,255,.08); display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 9px; align-items: center; contain: layout paint style; transform: translate3d(0,0,0); transition: border-radius 320ms var(--voice-ease), box-shadow 320ms var(--voice-ease), padding 320ms var(--voice-ease), grid-template-columns 320ms var(--voice-ease), gap 320ms var(--voice-ease); will-change: transform, opacity; }
-#voice-overlay.expanded { padding: 18px; border-radius: 34px; grid-template-columns: 48px minmax(0,1fr); align-items: start; box-shadow: 0 20px 64px rgba(0,0,0,.44), inset 0 1px 1px rgba(255,255,255,.10); }
-#voice-overlay.expanded.medium { padding: 13px 15px; border-radius: 26px; grid-template-columns: 42px minmax(0,1fr); gap: 10px; align-items: center; box-shadow: 0 18px 48px rgba(0,0,0,.42), inset 0 1px 1px rgba(255,255,255,.10); }
+#voice-overlay { box-sizing: border-box; height: 100vh; padding: 7px 13px; border: 1px solid var(--voice-border); border-radius: 999px; background: #000; box-shadow: 0 12px 30px rgba(0,0,0,.40), inset 0 1px 1px rgba(255,255,255,.08); display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 9px; align-items: center; contain: layout paint style; transform: translate3d(0,0,0); transition: border-radius 360ms var(--voice-ease), box-shadow 360ms var(--voice-ease), padding 360ms var(--voice-ease), grid-template-columns 360ms var(--voice-ease), gap 360ms var(--voice-ease); will-change: transform, opacity; }
+#voice-overlay.expanded { padding: 17px; border-radius: 32px; grid-template-columns: 46px minmax(0,1fr); align-items: start; box-shadow: 0 22px 68px rgba(0,0,0,.48), inset 0 1px 1px rgba(255,255,255,.10); }
+#voice-overlay.expanded.medium { padding: 13px 15px; border-radius: 26px; grid-template-columns: 40px minmax(0,1fr); gap: 10px; align-items: center; box-shadow: 0 18px 48px rgba(0,0,0,.42), inset 0 1px 1px rgba(255,255,255,.10); }
 #voice-overlay section { min-width: 0; overflow: hidden; }
 #icon { width: 32px; height: 32px; border-radius: 999px; display: grid; place-items: center; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.10); font-size: 11px; font-weight: 750; transform: translate3d(0,0,0); transition: width 320ms var(--voice-ease), height 320ms var(--voice-ease), border-radius 320ms var(--voice-ease), transform 320ms var(--voice-ease), opacity 320ms var(--voice-ease), border-color 320ms var(--voice-ease); will-change: transform, opacity; }
 #voice-overlay.expanded #icon { width: 48px; height: 48px; border-radius: 18px; background: color-mix(in srgb, var(--voice-accent) 18%, transparent); border-color: color-mix(in srgb, var(--voice-accent) 36%, transparent); font-size: 13px; }
@@ -366,20 +372,23 @@ body { animation: overlay-in 220ms var(--voice-ease) both; }
 #transcript { margin-top: 2px; min-height: 0; max-width: 100%; color: var(--voice-muted); font-size: 12px; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transform: translate3d(0,0,0); transition: opacity 160ms var(--voice-ease), transform 160ms var(--voice-ease); will-change: opacity, transform; }
 #voice-overlay.expanded #transcript { margin-top: 10px; min-height: 20px; color: var(--voice-text); font-size: 14px; line-height: 1.35; }
 #voice-overlay.expanded.medium #transcript { margin-top: 3px; min-height: 0; color: var(--voice-muted); font-size: 12px; line-height: 1.2; white-space: nowrap; }
-#assistant-response { margin-top: 10px; max-height: 248px; overflow: hidden auto; padding-right: 0; opacity: 0; transform: translate3d(0, 8px, 0) scale(.992); transform-origin: top center; transition: opacity 260ms var(--voice-ease), transform 260ms var(--voice-ease); will-change: opacity, transform; contain: layout paint style; scrollbar-width: none; -ms-overflow-style: none; }
+#assistant-response { margin-top: 10px; max-height: calc(100vh - 92px); overflow: hidden auto; padding: 0 1px 1px 0; opacity: 0; transform: translate3d(0, 8px, 0) scale(.992); transform-origin: top center; transition: opacity 260ms var(--voice-ease), transform 260ms var(--voice-ease); will-change: opacity, transform; contain: layout paint style; scrollbar-width: none; -ms-overflow-style: none; overscroll-behavior: contain; }
 #assistant-response::-webkit-scrollbar { width: 0; height: 0; display: none; }
 #assistant-response.visible { opacity: 1; transform: translate3d(0,0,0); }
-#voice-overlay.expanded.medium #assistant-response { margin-top: 6px; max-height: 48px; overflow: hidden; padding-right: 0; }
-.voice-response-heading { margin-bottom: 5px; color: rgba(247,248,251,.56); font-size: 11px; font-weight: 700; letter-spacing: .08em; line-height: 1.1; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.voice-response-text { font-size: 13px; line-height: 1.35; color: var(--voice-text); overflow-wrap: anywhere; }
-#voice-overlay.expanded.medium .voice-response-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12.5px; line-height: 1.28; }
-.voice-card-list { display: grid; gap: 7px; margin: 9px 0 0; padding: 0; list-style: none; }
-.voice-card { display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 8px; align-items: start; padding: 8px 9px; border-radius: 13px; border: 1px solid rgba(255,255,255,.13); background: rgba(255,255,255,.08); box-shadow: inset 0 1px 0 rgba(255,255,255,.08); contain: layout paint style; transform: translateZ(0); }
+#voice-overlay.expanded.medium #assistant-response { margin-top: 6px; max-height: 74px; overflow: hidden; padding-right: 0; }
+.voice-response-heading { margin-bottom: 6px; color: rgba(247,248,251,.58); font-size: 10.5px; font-weight: 800; letter-spacing: .06em; line-height: 1.1; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.voice-response-text { font-size: 13.5px; line-height: 1.42; color: var(--voice-text); overflow-wrap: break-word; }
+#voice-overlay.expanded.medium .voice-response-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 12.7px; line-height: 1.32; }
+.voice-content-summary { display: inline-flex; align-items: center; min-height: 22px; margin-top: 10px; padding: 0 9px; border: 1px solid rgba(255,255,255,.10); border-radius: 999px; color: rgba(247,248,251,.72); background: rgba(255,255,255,.06); font-size: 11px; font-weight: 750; }
+.voice-card-list { display: grid; gap: 8px; margin: 8px 0 0; padding: 0; list-style: none; }
+.voice-card { display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 9px; align-items: start; padding: 9px 10px; border-radius: 15px; border: 1px solid rgba(255,255,255,.13); background: linear-gradient(145deg, rgba(255,255,255,.105), rgba(255,255,255,.055)); box-shadow: inset 0 1px 0 rgba(255,255,255,.08); contain: layout paint style; transform: translateZ(0); }
 .voice-card-number { width: 24px; height: 24px; border-radius: 9px; display: grid; place-items: center; color: var(--voice-text); background: color-mix(in srgb, var(--voice-accent) 28%, transparent); border: 1px solid color-mix(in srgb, var(--voice-accent) 45%, transparent); font-size: 12px; font-weight: 700; }
-.voice-card strong { display: block; min-width: 0; font-size: 13px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.voice-card small { display: block; margin-top: 3px; color: var(--voice-muted); font-size: 11px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.voice-action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
-.voice-action { min-width: 0; height: 34px; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; background: rgba(255,255,255,.08); color: var(--voice-text); font: inherit; font-size: 12px; font-weight: 750; cursor: pointer; transform: translate3d(0,0,0); transition: transform 160ms var(--voice-ease), background 160ms var(--voice-ease), border-color 160ms var(--voice-ease), opacity 160ms var(--voice-ease); }
+.voice-card-body { min-width: 0; display: block; }
+.voice-card strong { display: -webkit-box; min-width: 0; color: rgba(247,248,251,.96); font-size: 13px; line-height: 1.25; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.voice-card small { display: -webkit-box; margin-top: 4px; color: var(--voice-muted); font-size: 11px; line-height: 1.28; overflow: hidden; overflow-wrap: anywhere; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.voice-card-path { color: rgba(247,248,251,.52); font-family: Consolas, 'Courier New', monospace; }
+.voice-action-row { position: sticky; bottom: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; margin-top: 13px; padding-top: 10px; background: linear-gradient(180deg, rgba(0,0,0,0), #000 34%); }
+.voice-action { min-width: 0; height: 36px; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; background: rgba(255,255,255,.085); color: var(--voice-text); font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; transform: translate3d(0,0,0); transition: transform 160ms var(--voice-ease), background 160ms var(--voice-ease), border-color 160ms var(--voice-ease), opacity 160ms var(--voice-ease); }
 .voice-action:hover { background: rgba(255,255,255,.13); border-color: rgba(255,255,255,.22); }
 .voice-action:active { transform: translate3d(0,1px,0) scale(.985); }
 .voice-action.primary { background: color-mix(in srgb, var(--voice-accent) 34%, rgba(255,255,255,.08)); border-color: color-mix(in srgb, var(--voice-accent) 50%, transparent); }
@@ -621,15 +630,24 @@ body { animation: overlay-in 220ms var(--voice-ease) both; }
     const resultEntries = Array.isArray(payload.resultEntries) ? payload.resultEntries : [];
     const responseLength = String(payload.response || '').trim().length;
     const cardCount = Math.min(4, Math.max(0, choices.length || resultEntries.length));
+    const actionCount = Array.isArray(payload.actions) ? Math.min(3, payload.actions.length) : 0;
+    const hasHeading = String(payload.heading || '').trim().length > 0;
+    const hasSummary = cardCount > 0;
+    const responseLines = Math.min(5, Math.ceil(responseLength / 52));
+    const baseHeight = 94 +
+      (hasHeading ? 18 : 0) +
+      (responseLength > 0 ? Math.max(24, responseLines * 19) : 0) +
+      (hasSummary ? 30 : 0) +
+      (actionCount > 0 ? 54 : 0);
     if (cardCount > 0) {
       return this._normalizeSize({
         width: 360,
-        height: 156 + (cardCount * 46)
+        height: baseHeight + (cardCount * 58)
       });
     }
     return this._normalizeSize({
       width: 360,
-      height: responseLength > 340 ? 320 : 236
+      height: baseHeight + (responseLength > 260 ? 44 : 18)
     });
   }
 

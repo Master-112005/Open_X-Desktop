@@ -107,4 +107,13 @@ describe('Input Parser', function() {
       relation.to === 'latest'
     ), true);
   });
+
+  it('should let explicit app-domain wording override file words', function() {
+    const { CommandFrameParser } = require('../../core/assistant/parser');
+    const frame = new CommandFrameParser().parse('open resume app not file');
+
+    assert.equal(frame.action, 'open');
+    assert.equal(frame.domain, 'app');
+    assert.equal(frame.appRouteAllowed, true);
+  });
 });

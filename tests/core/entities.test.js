@@ -214,6 +214,24 @@ describe('Entity Extractor', function() {
     assert.equal(create.reminderText, null);
   });
 
+  it('should extract day-of-month reminder dates and spoken message text', function() {
+    const extractor = new EntityExtractor({});
+    const intent = {
+      entities: [
+        { name: 'timeExpression', type: 'string', required: false },
+        { name: 'reminderText', type: 'string', required: true }
+      ]
+    };
+
+    const thisMonth = extractor.extract(intent, 'remind me 12 of this month say birthday wish to charan');
+    const nextMonth = extractor.extract(intent, 'remind me 12 next month to wish charan happy birthday');
+
+    assert.equal(thisMonth.timeExpression, '12 of this month');
+    assert.equal(thisMonth.reminderText, 'birthday wish to charan');
+    assert.equal(nextMonth.timeExpression, '12 next month');
+    assert.equal(nextMonth.reminderText, 'wish charan happy birthday');
+  });
+
   it('should extract message details for whatsapp drafts', function() {
     const extractor = new EntityExtractor({});
     const intent = {

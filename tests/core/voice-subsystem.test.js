@@ -1855,7 +1855,7 @@ describe('Voice Subsystem Architecture', function() {
     assert.equal(controller.getStatus().created, true);
     assert.deepEqual(bounds[0], { x: 382, y: 32, width: 256, height: 50 });
     assert.ok(bounds.some(entry => entry.x === 350 && entry.y === 32 && entry.width === 320 && entry.height === 148));
-    assert.ok(bounds.some(entry => entry.x === 330 && entry.y === 32 && entry.width === 360 && entry.height === 248));
+    assert.ok(bounds.some(entry => entry.x === 330 && entry.y === 32 && entry.width === 360 && entry.height === 264));
     assert.deepEqual(bounds[bounds.length - 1], { x: 382, y: 32, width: 256, height: 50 });
     assert.ok(sent.some(message => message.operation === 'showOverlay'));
     assert.ok(sent.some(message => message.operation === 'displayAssistantResult'));

@@ -1,4 +1,9 @@
 const PROTOCOL_VERSION = 1;
+const MAX_RESPONSE_TEXT = 1200;
+const MAX_ERROR_TEXT = 400;
+const MAX_CHOICES = 8;
+const MAX_ENTRIES = 8;
+const MAX_FIELD = 320;
 
 function createId(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
@@ -12,6 +17,10 @@ class CloudResponseSerializer {
   serialize({ request, result, status = 'completed', responseType = 'assistant-response', error = null }) {
     const now = Date.now();
     const responseId = createId('cloud_response');
+    const payloadResult = responseType === 'schedule-sync'
+      ? (result || null)
+      : this.sanitizeAssistantResult(result);
+    const feature = responseType === 'schedule-sync' ? 'schedule-sync' : 'assistant-command';
     return {
       packetId: createId('cloud_packet'),
       protocolVersion: this.version,
@@ -23,7 +32,7 @@ class CloudResponseSerializer {
       requestId: request.requestId,
       responseId,
       metadata: {
-        feature: 'assistant-command',
+        feature,
         lifecycle: status,
         source: 'desktop',
         destination: 'cloud-phone',
@@ -40,14 +49,115 @@ class CloudResponseSerializer {
         sourceDeviceId: request.destinationDeviceId,
         destinationDeviceId: request.sourceDeviceId,
         responseType,
-        payload: result || null,
+        payload: payloadResult,
         error,
         metadata: {
           streaming: false,
-          structured: Boolean(result && typeof result === 'object')
+          structured: Boolean(payloadResult && typeof payloadResult === 'object')
         }
       }
     };
+  }
+
+  sanitizeAssistantResult(result = {}) {
+    if (!result || typeof result !== 'object') {
+      return {
+        success: false,
+        response: 'Command completed.',
+        message: 'Command completed.',
+        data: null
+      };
+    }
+
+    const data = result.data && typeof result.data === 'object' ? result.data : null;
+    const safeData = this.sanitizeData(data, result.intent);
+    return {
+      success: result.success === true,
+      response: this.cleanText(result.response || result.message || (result.success === false ? 'Command failed.' : 'Command completed.'), MAX_RESPONSE_TEXT),
+      message: this.cleanText(result.message || result.response || (result.success === false ? 'Command failed.' : 'Command completed.'), MAX_RESPONSE_TEXT),
+      commandId: this.cleanText(result.commandId || '', 128) || null,
+      intent: this.cleanText(result.intent || '', 120) || null,
+      needsClarification: result.needsClarification === true,
+      requiresConfirmation: result.requiresConfirmation === true,
+      entities: this.sanitizePlainObject(result.entities || {}, 20),
+      data: safeData,
+      error: result.error ? this.cleanText(result.error, MAX_ERROR_TEXT) : null
+    };
+  }
+
+  sanitizeData(data, intent = '') {
+    if (!data) return null;
+    const safe = {};
+    if (Array.isArray(data.choices)) {
+      safe.choices = data.choices.slice(0, MAX_CHOICES).map((choice, index) => ({
+        index: Number(choice?.index) || index + 1,
+        title: this.cleanText(choice?.title || choice?.name || `Option ${index + 1}`, MAX_FIELD),
+        path: this.cleanText(choice?.path || '', MAX_FIELD),
+        type: this.cleanText(choice?.type || '', 80),
+        entities: this.sanitizePlainObject(choice?.entities || {}, 12)
+      }));
+    }
+    if (Array.isArray(data.entries)) {
+      safe.entries = data.entries.slice(0, MAX_ENTRIES).map((entry, index) => this.sanitizeEntry(entry, index, intent));
+    }
+    if (Array.isArray(data.resultEntries)) {
+      safe.resultEntries = data.resultEntries.slice(0, MAX_ENTRIES).map((entry, index) => this.sanitizeEntry(entry, index, intent));
+    }
+    if (data.searchSummary && typeof data.searchSummary === 'object') {
+      const sources = Array.isArray(data.searchSummary.sources)
+        ? data.searchSummary.sources.slice(0, 4).map((entry, index) => this.sanitizeEntry(entry, index, 'browser.search'))
+        : [];
+      safe.searchSummary = {
+        answer: this.cleanText(data.searchSummary.answer || data.searchSummary.summary || '', MAX_RESPONSE_TEXT),
+        sources
+      };
+    }
+    for (const key of ['path', 'filename', 'folderName', 'url', 'query', 'count', 'dueAt', 'kind', 'message', 'title', 'status']) {
+      if (Object.prototype.hasOwnProperty.call(data, key)) {
+        safe[key] = typeof data[key] === 'number' || typeof data[key] === 'boolean'
+          ? data[key]
+          : this.cleanText(data[key], MAX_FIELD);
+      }
+    }
+    return Object.keys(safe).length > 0 ? safe : null;
+  }
+
+  sanitizeEntry(entry = {}, index = 0, intent = '') {
+    const value = entry && typeof entry === 'object' ? entry : {};
+    return {
+      index: Number(value.index) || index + 1,
+      name: this.cleanText(value.name || value.title || value.sourceDomain || `Result ${index + 1}`, 180),
+      title: this.cleanText(value.title || value.name || '', 180),
+      type: this.cleanText(value.type || (intent === 'folder.search' ? 'folder' : intent === 'browser.search' ? 'web' : 'file'), 40),
+      path: this.cleanText(value.path || value.url || '', MAX_FIELD),
+      url: this.cleanText(value.url || value.path || '', MAX_FIELD),
+      location: this.cleanText(value.location || value.sourceDomain || '', 140),
+      snippet: this.cleanText(value.snippet || value.summary || '', 220),
+      sizeMB: Number(value.sizeMB || 0),
+      matchScore: Number(value.matchScore || value.score || 0)
+    };
+  }
+
+  sanitizePlainObject(value = {}, maxKeys = 16) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const output = {};
+    for (const key of Object.keys(value).slice(0, maxKeys)) {
+      const current = value[key];
+      if (current === null || current === undefined) continue;
+      if (typeof current === 'number' || typeof current === 'boolean') {
+        output[key] = current;
+      } else if (typeof current === 'string') {
+        output[key] = this.cleanText(current, MAX_FIELD);
+      }
+    }
+    return output;
+  }
+
+  cleanText(value, limit = MAX_FIELD) {
+    return String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, limit);
   }
 
   error(request, code, message, metadata = {}) {

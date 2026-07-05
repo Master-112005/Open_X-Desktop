@@ -3945,6 +3945,7 @@ html[data-glass-contrast] #send-btn {
 .settings-nav-chip.active,
 .system-option.active,
 .phone-section-tab.active,
+.phone-connect-mode-tab.active,
 .permission-option.active,
 .mode-tab.active,
 .mode-app-tab.active {
@@ -3972,6 +3973,51 @@ html[data-glass-contrast] #send-btn {
 
 .phone-panel.active {
   animation: compact-section-in .22s ease;
+  display: flex;
+}
+
+.phone-connect-mode-tabs {
+  align-items: center;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.09), rgba(255,255,255,.035)),
+    rgba(8, 10, 14, .58);
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 18px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 6px;
+}
+
+.phone-connect-mode-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  color: var(--adaptive-muted, rgba(255,255,255,.72));
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  min-height: 38px;
+  padding: 0 14px;
+  transition: background-color .22s ease, border-color .22s ease, color .22s ease, transform .22s ease;
+}
+
+.phone-connect-mode-tab:hover {
+  background: var(--adaptive-control, rgba(255,255,255,.09));
+  color: var(--adaptive-text, #f8f8fa);
+  transform: translateY(-1px);
+}
+
+.phone-connect-view {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.phone-connect-view.active {
+  animation: compact-section-in .18s ease;
   display: flex;
 }
 

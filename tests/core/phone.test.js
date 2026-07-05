@@ -112,6 +112,7 @@ describe('Phone communication', function() {
     }));
     const response = await responsePromise;
     assert.equal(response.type, 'response');
+    assert.equal(response.requestId, 'command-1');
     assert.equal(response.success, true);
     assert.equal(response.message, 'Chrome launched successfully');
     assert.equal(response.timestamp, timestamp);
@@ -128,6 +129,54 @@ describe('Phone communication', function() {
     assert.equal(typeof calls[0][2].permissionGuard, 'function');
     assert.equal(server.clients.size, 1);
     assert.equal([...server.clients.values()][0].deviceName, 'Test Phone');
+  });
+
+  it('keeps phone command responses compact while preserving choice data', async function() {
+    const router = new PhoneCommandRouter({
+      processCommand: async () => ({
+        success: true,
+        response: 'I found matching files. Choose a number.',
+        intent: 'file.search',
+        data: {
+          choices: Array.from({ length: 20 }, (_, index) => ({
+            index: index + 1,
+            title: `resume ${index + 1} ${'x'.repeat(2000)}`,
+            path: `C:\\Users\\rakes\\Documents\\${'nested\\'.repeat(100)}resume-${index + 1}.docx`,
+            entities: {
+              selectedPath: `C:\\Users\\rakes\\Documents\\${'nested\\'.repeat(100)}resume-${index + 1}.docx`
+            }
+          })),
+          rawScan: 'private-large-debug-payload'.repeat(2000)
+        }
+      })
+    });
+    const pairingService = createPairingService(tempDir);
+    pairingService.deviceRegistry.registerDevice('phone001', 'Test Phone');
+    const session = pairingService.sessionManager.createSession('phone001');
+    server = new PhoneServer({ port: 0, commandRouter: router, pairingService, logger: createLogger() });
+    const address = await server.start();
+
+    socket = new WebSocket(`ws://127.0.0.1:${address.port}?deviceId=phone001&deviceName=Test%20Phone`);
+    const statusPromise = nextJson(socket);
+    await once(socket, 'open');
+    await statusPromise;
+
+    const responsePromise = nextJson(socket);
+    socket.send(JSON.stringify({
+      type: 'command',
+      deviceId: 'phone001',
+      sessionToken: session.sessionToken,
+      requestId: 'command-large-response',
+      message: 'send me resume file',
+      timestamp: Date.now()
+    }));
+    const response = await responsePromise;
+    assert.equal(response.type, 'response');
+    assert.equal(response.requestId, 'command-large-response');
+    assert.equal(response.intent, 'file.search');
+    assert.equal(response.data.choices.length, 8);
+    assert.equal(response.data.rawScan, undefined);
+    assert.ok(Buffer.byteLength(JSON.stringify(response), 'utf8') < 32768);
   });
 
   it('updates the trusted phone name and connected-device display over WebSocket', async function() {

@@ -83,6 +83,52 @@ describe('CloudCommandManager', () => {
     assert.equal(connection.sent[0].payload.payload.data.choices[0].title, 'Downloads');
   });
 
+  it('keeps cloud assistant responses small enough for the relay packet limit', async () => {
+    const connection = createConnection();
+    const manager = new CloudCommandManager({
+      connectionManager: connection,
+      executionTimeoutMs: 1000,
+      commandRouter: {
+        async route() {
+          return {
+            success: true,
+            response: 'Found matching files.',
+            intent: 'file.search',
+            data: {
+              choices: Array.from({ length: 20 }, (_, index) => ({
+                index: index + 1,
+                title: `Very long file result ${index + 1} ${'x'.repeat(2000)}`,
+                path: `C:\\Users\\rakes\\Documents\\${'nested\\'.repeat(100)}file-${index + 1}.txt`,
+                entities: {
+                  selectedPath: `C:\\Users\\rakes\\Documents\\${'nested\\'.repeat(100)}file-${index + 1}.txt`
+                }
+              })),
+              entries: Array.from({ length: 100 }, (_, index) => ({
+                name: `entry-${index}-${'y'.repeat(1000)}`,
+                path: `C:\\large\\${'folder\\'.repeat(100)}entry-${index}.txt`,
+                snippet: 'z'.repeat(2000)
+              })),
+              rawScan: 'private-large-debug-payload'.repeat(2000)
+            }
+          };
+        }
+      },
+      logger: { info() {}, warn() {}, error() {} }
+    });
+
+    manager.handleRelayPacket(createPacket());
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.equal(connection.sent.length, 1);
+    const packet = connection.sent[0];
+    assert.ok(Buffer.byteLength(JSON.stringify(packet), 'utf8') < 32768);
+    assert.equal(packet.payload.payload.response, 'Found matching files.');
+    assert.equal(packet.payload.payload.intent, 'file.search');
+    assert.equal(packet.payload.payload.data.choices.length, 8);
+    assert.equal(packet.payload.payload.data.entries.length, 8);
+    assert.equal(packet.payload.payload.data.rawScan, undefined);
+  });
+
   it('rejects invalid owner packets before assistant execution', async () => {
     const connection = createConnection();
     let executed = false;
