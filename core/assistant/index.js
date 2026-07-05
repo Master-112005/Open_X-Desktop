@@ -71,25 +71,36 @@ const CANCEL_PATTERNS = [
 
 const SPOKEN_CHOICE_NUMBERS = Object.freeze({
   one: 1,
+  'this one': 1,
+  'that one': 1,
+  'the one': 1,
+  'first one': 1,
   first: 1,
   won: 1,
   two: 2,
+  'second one': 2,
   second: 2,
   too: 2,
   to: 2,
   three: 3,
+  'third one': 3,
   third: 3,
   tree: 3,
   four: 4,
+  'fourth one': 4,
   fourth: 4,
   for: 4,
   five: 5,
+  'fifth one': 5,
   fifth: 5,
   six: 6,
+  'sixth one': 6,
   sixth: 6,
   seven: 7,
+  'seventh one': 7,
   seventh: 7,
   eight: 8,
+  'eighth one': 8,
   eighth: 8,
   ate: 8
 });
@@ -1619,10 +1630,17 @@ class Assistant extends EventEmitter {
     const numeric = normalized.match(/\b(?:number|option|choice|folder|file|result)?\s*(\d+)(?:st|nd|rd|th)?\b/);
     if (numeric) return Number(numeric[1]);
     const cleaned = normalized
-      .replace(/\b(?:number|option|choice|folder|file|result|open|select|choose|pick|the|one\s+number)\b/g, ' ')
+      .replace(/\b(?:number|option|choice|folder|file|result|open|select|choose|pick|please|ok|okay|yes|yeah|yep|the|one\s+number)\b/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    return SPOKEN_CHOICE_NUMBERS[cleaned] || 0;
+    if (SPOKEN_CHOICE_NUMBERS[cleaned]) return SPOKEN_CHOICE_NUMBERS[cleaned];
+
+    const words = cleaned.split(/\s+/).filter(Boolean);
+    for (const word of words) {
+      if (SPOKEN_CHOICE_NUMBERS[word]) return SPOKEN_CHOICE_NUMBERS[word];
+    }
+    const phraseMatch = cleaned.match(/\b(this\s+one|that\s+one|first\s+one|second\s+one|third\s+one|fourth\s+one|fifth\s+one|sixth\s+one|seventh\s+one|eighth\s+one)\b/);
+    return phraseMatch ? SPOKEN_CHOICE_NUMBERS[phraseMatch[1]] || 0 : 0;
   }
 
   _looksLikeChoiceResponse(input, choices) {

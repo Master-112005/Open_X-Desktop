@@ -18,6 +18,7 @@ const ResponseGenerator = require('./responses');
 
 const CONFIDENCE_THRESHOLD = 0.5;
 const PHONE_TRANSFER_ACTION_PATTERN = /^(?:(?:please|can\s+you|could\s+you|would\s+you|can\s+u)\s+)?(?:send|share|transfer|copy|export|push|move|give|get|bring|send\s+over|send\s+across)\b/i;
+const PHONE_ORIGIN_FETCH_PATTERN = /^(?:(?:please|can\s+you|could\s+you|would\s+you|can\s+u)\s+)?(?:find|search|locate|open|fetch|download|show|get|give|send|share|transfer|copy|bring|i\s+need|i\s+want|need|want)\b/i;
 const PHONE_TRANSFER_TRAILING_TARGET_PATTERN = /\s+(?:to|with|onto|on|into|over\s+to|across\s+to|here\s+on)\s+(?:my\s+)?(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset|this\s+phone|this\s+device)\s*$/i;
 const PHONE_TRANSFER_TARGET_WORD_PATTERN = /\b(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset)\b/i;
 const PHONE_TRANSFER_FILE_EVIDENCE_PATTERN = /\b(?:file|files|folder|folders|directory|document|documents|pdf|pdfs|docx?|xlsx?|pptx?|csv|json|txt|log|zip|rar|7z|apk|image|images|photo|photos|picture|pictures|pic|pics|screenshot|screenshots|video|videos|audio|music|downloads?|documents?|desktop|resume|report|presentation|spreadsheet|sheet|archive)\b|[^\s]+\.[a-z0-9]{1,10}\b/i;
@@ -118,7 +119,8 @@ class ActionRouter {
     const useNoisyRepair = !this._classifyCapabilityCommand(
       initialPreparedInput.correctedText,
       parseResult.rawCommandText || parseResult.commandText
-    ) && !this._shouldPreserveStructuralCommand(parseResult.rawCommandText || parseResult.commandText)
+    ) && !(source === 'phone' && PHONE_TRANSFER_FILE_EVIDENCE_PATTERN.test(`${parseResult.rawCommandText || ''} ${parseResult.commandText || ''}`))
+      && !this._shouldPreserveStructuralCommand(parseResult.rawCommandText || parseResult.commandText)
       && this._shouldUseNoisyRepair(
       initialPreparedInput,
       parseResult.rawCommandText || parseResult.commandText,
@@ -2872,7 +2874,7 @@ class ActionRouter {
     const lower = input.toLowerCase();
     const sourceIsPhone = source === 'phone';
     const phoneFetchRequest = sourceIsPhone &&
-      /^(?:find|search|locate|open|fetch|download|show)\b/i.test(lower) &&
+      PHONE_ORIGIN_FETCH_PATTERN.test(lower) &&
       PHONE_TRANSFER_FILE_EVIDENCE_PATTERN.test(`${raw} ${input}`);
     if (!PHONE_TRANSFER_ACTION_PATTERN.test(lower) && !phoneFetchRequest) {
       return null;
@@ -2932,7 +2934,8 @@ class ActionRouter {
     return String(value || '')
       .trim()
       .replace(PHONE_TRANSFER_ACTION_PATTERN, '')
-      .replace(/^(?:find|search|locate|open|fetch|download|show)\s+(?:and\s+)?(?:send|share|transfer|copy|push|get|bring)?\s*/i, '')
+      .replace(PHONE_ORIGIN_FETCH_PATTERN, '')
+      .replace(/^(?:and\s+)?(?:send|share|transfer|copy|push|get|bring)?\s*/i, '')
       .replace(/^(?:me\s+|the\s+|a\s+|an\s+|my\s+)+/i, '')
       .replace(/^(?:file|document)\s+(?:called|named)\s+/i, '')
       .replace(/\s+and\s+(?:send|share|transfer|copy|push|get|bring)\s+(?:it\s+)?(?:to\s+)?(?:me|here)$/i, '')
