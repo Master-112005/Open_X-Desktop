@@ -324,6 +324,7 @@ class VoiceOverlay extends EventEmitter {
     if (/^file\./.test(intent)) return 'Files';
     if (intent === 'browser.search') return 'Search';
     if (intent === 'schedule.due') return 'Due now';
+    if (intent === 'phone.notification') return 'Notification';
     if (/^(?:timer|alarm|reminder)\./.test(intent)) return 'Schedule';
     if (/^media\./.test(intent)) return 'Media';
     if (result?.success === false) return 'Needs attention';

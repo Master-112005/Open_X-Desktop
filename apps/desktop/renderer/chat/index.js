@@ -1048,7 +1048,7 @@ function setActiveSystemBlock(blockName) {
 }
 
 function setActivePhonePanel(panelName) {
-  const allowedPanels = new Set(['connect', 'devices', 'cloud']);
+  const allowedPanels = new Set(['connect', 'devices']);
   activePhonePanel = allowedPanels.has(panelName) ? panelName : 'connect';
   phoneSectionTabs.forEach(button => {
     const isActive = button.dataset.phonePanelTarget === activePhonePanel;
@@ -1062,8 +1062,10 @@ function setActivePhonePanel(panelName) {
   });
   if (activePhonePanel === 'devices') {
     loadPhoneDevices();
-  } else if (activePhonePanel === 'cloud') {
+  } else {
+    loadPhoneServerStatus();
     loadCloudStatus();
+    loadCloudPairingStatus();
   }
 }
 
@@ -1547,7 +1549,7 @@ function startCloudPairingCountdown(expiresAt) {
       if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'Cloud pairing QR expired.';
       if (cloudPairingCountdownEl) cloudPairingCountdownEl.textContent = 'Expired';
       if (cloudPairingQrEl) cloudPairingQrEl.classList.add('expired');
-      if (cloudGenerateQrBtn) cloudGenerateQrBtn.textContent = 'Generate New Cloud QR';
+      if (cloudGenerateQrBtn) cloudGenerateQrBtn.textContent = 'Generate New QR';
       return;
     }
     if (cloudPairingCountdownEl) {
@@ -1577,7 +1579,7 @@ async function generatePairingQR() {
     phonePairingQrEl.src = result.qrDataUrl;
     phonePairingQrEl.hidden = false;
     phonePairingTokenEl.textContent = result.payload.pairingToken;
-    phonePairingStatusEl.textContent = 'Identity verified. Scan this QR code with your phone.';
+    phonePairingStatusEl.textContent = 'Identity verified. Scan this QR code with the mobile app.';
     phonePairingExpiryEl.textContent = `Expires at ${new Date(result.payload.expiresAt).toLocaleTimeString()}.`;
     phoneGenerateTokenBtn.textContent = 'Generate New QR';
     startPairingCountdown(result.payload.expiresAt);
@@ -1612,7 +1614,7 @@ async function generateCloudPairingQR() {
     cloudPairingQrEl.removeAttribute('src');
     cloudPairingQrEl.classList.remove('expired');
   }
-  if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'Requesting secure token from relay...';
+  if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'Waiting for Windows identity verification...';
   try {
     const result = await window.openx.generateCloudPairingQR();
     if (result?.success !== true) {
@@ -1623,11 +1625,11 @@ async function generateCloudPairingQR() {
       cloudPairingQrEl.src = result.qrDataUrl;
       cloudPairingQrEl.hidden = false;
     }
-    if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'Waiting for phone scan...';
+    if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'Identity verified. Scan this QR code with the mobile app.';
     if (cloudPairingExpiryEl) {
       cloudPairingExpiryEl.textContent = `Expires at ${new Date(result.payload.expiresAt).toLocaleTimeString()}.`;
     }
-    cloudGenerateQrBtn.textContent = 'Generate New Cloud QR';
+    cloudGenerateQrBtn.textContent = 'Generate New QR';
     startCloudPairingCountdown(result.payload.expiresAt);
     await loadCloudPairingStatus();
   } catch (_) {
@@ -1778,7 +1780,7 @@ function renderCloudPairingStatus(status) {
     cloudGenerateQrBtn.disabled = latestCloudStatus?.connected !== true;
   }
   if (current?.expiresAt && current.expiresAt > Date.now()) {
-    if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = pending.length > 0 ? 'Incoming pair request.' : 'Waiting for phone scan...';
+    if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = pending.length > 0 ? 'Incoming pair request.' : 'Waiting for mobile scan...';
     if (cloudPairingExpiryEl) cloudPairingExpiryEl.textContent = `Expires at ${new Date(current.expiresAt).toLocaleTimeString()}.`;
     if (cloudPairingQrEl && current.qrDataUrl) {
       cloudPairingQrEl.src = current.qrDataUrl;
@@ -1792,7 +1794,7 @@ function renderCloudPairingStatus(status) {
     stopCloudPairingCountdown();
     if (cloudPairingStatusEl) {
       cloudPairingStatusEl.textContent = latestCloudStatus?.connected === true
-        ? 'Generate a cloud QR when your phone is ready.'
+        ? 'Generate a cloud QR when your mobile app is ready.'
         : 'Connect to Relay Server first.';
     }
     if (cloudPairingCountdownEl) cloudPairingCountdownEl.textContent = '';
@@ -1892,7 +1894,7 @@ function renderManagedPhoneDevices(devices) {
   if (latestManagedDevices.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'phone-device-empty';
-    empty.textContent = 'No paired devices yet. Use Connect Phone to pair a device.';
+    empty.textContent = 'No paired devices yet. Use Connect Mobile to pair a device.';
     phoneDeviceListEl.appendChild(empty);
     return;
   }
@@ -1994,7 +1996,7 @@ function openPhoneDeviceRemoveDialog(device) {
   if (!phoneDeviceRemoveDialog || !device?.deviceId) return;
   pendingPhoneDeviceRemoval = {
     deviceId: device.deviceId,
-    deviceName: device.deviceName || 'this phone'
+    deviceName: device.deviceName || 'this mobile device'
   };
   if (phoneDeviceRemoveMessage) {
     phoneDeviceRemoveMessage.textContent = `Remove ${pendingPhoneDeviceRemoval.deviceName} from paired devices? It will lose OpenX access until paired again.`;
@@ -2022,7 +2024,7 @@ async function confirmPhoneDeviceRemoval() {
     closePhoneDeviceRemoveDialog();
     await loadPhoneDevices();
   } catch (_) {
-    setSettingsStatus('Unable to remove trusted phone.', 'error');
+    setSettingsStatus('Unable to remove trusted mobile device.', 'error');
   } finally {
     if (phoneDeviceRemoveConfirm) phoneDeviceRemoveConfirm.disabled = false;
     if (phoneDeviceRemoveCancel) phoneDeviceRemoveCancel.disabled = false;
@@ -2035,7 +2037,7 @@ async function loadPhoneDevices() {
     renderPhoneDevices(await window.openx.getPhoneDevices());
   } catch (_) {
     renderPhoneDevices([]);
-    setSettingsStatus('Unable to load trusted phones.', 'error');
+    setSettingsStatus('Unable to load trusted mobile devices.', 'error');
   }
 }
 
@@ -2045,7 +2047,7 @@ async function loadPhoneServerStatus() {
     renderPhoneServerStatus(await window.openx.getPhoneServerStatus());
   } catch (_) {
     renderPhoneServerStatus({ serverStatus: 'stopped', currentVersion: 1, connectedDevices: [] });
-    setSettingsStatus('Unable to load phone server status.', 'error');
+    setSettingsStatus('Unable to load mobile server status.', 'error');
   }
 }
 
@@ -2106,6 +2108,8 @@ settingsNavButtons.forEach(button => {
     if (sectionName === 'phone') {
       loadPhoneServerStatus();
       loadPhoneDevices();
+      loadCloudStatus();
+      loadCloudPairingStatus();
     }
   });
 });

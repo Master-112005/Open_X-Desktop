@@ -148,8 +148,8 @@
               <span class="nav-hint">Personal details for future form-filling workflows.</span>
             </button>
             <button class="settings-nav-chip" data-section-target="phone" type="button">
-              <span class="nav-label">Phone</span>
-              <span class="nav-hint">Verify your Windows identity and connect a trusted phone.</span>
+              <span class="nav-label">Mobile</span>
+              <span class="nav-hint">Verify your Windows identity and connect a trusted mobile device.</span>
             </button>
             <button class="settings-nav-chip" data-section-target="modes" type="button">
               <span class="nav-label">Modes</span>
@@ -296,23 +296,21 @@
 
           <section class="settings-section" data-settings-section="phone" id="settings-section-phone">
             <div class="phone-section-header">
-              <div class="section-heading">Phone</div>
-              <div class="phone-section-tabs" role="tablist" aria-label="Phone settings">
-                <button class="phone-section-tab active" data-phone-panel-target="connect" type="button" role="tab" aria-selected="true">Connect Phone</button>
+              <div class="phone-section-tabs" role="tablist" aria-label="Mobile connection settings">
+                <button class="phone-section-tab active" data-phone-panel-target="connect" type="button" role="tab" aria-selected="true">Connect Mobile</button>
                 <button class="phone-section-tab" data-phone-panel-target="devices" type="button" role="tab" aria-selected="false">Connected Devices</button>
-                <button class="phone-section-tab" data-phone-panel-target="cloud" type="button" role="tab" aria-selected="false">Cloud</button>
               </div>
             </div>
             <div class="phone-panel active" data-phone-panel="connect">
-              <div class="section-note">Windows will verify your identity before OpenX creates a five-minute pairing code. OpenX never receives or stores your Windows credentials.</div>
+              <div class="section-note">Windows will verify your identity before OpenX creates local or cloud pairing QR codes. OpenX never receives or stores your Windows credentials.</div>
               <div class="phone-pairing-card">
                 <div class="phone-pairing-copy">
-                  <strong>Desktop identity verification</strong>
-                  <span id="phone-pairing-status">Generate a code when your phone is ready to pair.</span>
+                  <strong>Local QR</strong>
+                  <span id="phone-pairing-status">Generate a code when your mobile app is ready to pair.</span>
                 </div>
-                <button class="primary-btn" id="phone-generate-token-btn" type="button">Generate Pairing QR</button>
+                <button class="primary-btn" id="phone-generate-token-btn" type="button">Generate Local QR</button>
                 <div class="phone-pairing-qr-wrap">
-                  <img id="phone-pairing-qr" alt="OpenX phone pairing QR code" hidden>
+                  <img id="phone-pairing-qr" alt="OpenX mobile pairing QR code" hidden>
                 </div>
                 <output class="phone-pairing-token" id="phone-pairing-token" aria-live="polite">--------</output>
                 <div class="section-note" id="phone-pairing-expiry"></div>
@@ -343,15 +341,15 @@
                 </div>
               </div>
             </div>
-            <div class="phone-panel" data-phone-panel="cloud" hidden>
-              <div class="section-note">Use the OpenX relay when your phone is not on the same local network. Cloud mode keeps local pairing and local file transfer unchanged.</div>
+            <div class="phone-panel active connect-cloud-panel" data-phone-panel="connect">
+              <div class="section-note">Use the OpenX relay when your mobile app is not on the same local network. Cloud mode keeps local pairing and local file transfer unchanged.</div>
               <div class="cloud-action-row cloud-action-row-top">
                 <button class="primary-btn" id="cloud-connect-btn" type="button">Connect to Server</button>
                 <span id="cloud-friendly-status">Cloud mode is disconnected. Local mode is active.</span>
               </div>
               <div class="cloud-pairing-card">
                 <div class="phone-server-heading">
-                  <strong>Cloud Pairing</strong>
+                  <strong>Cloud QR</strong>
                   <span id="cloud-pairing-status">Connect to Relay Server first.</span>
                 </div>
                 <button class="primary-btn" id="cloud-generate-qr-btn" type="button" disabled>Generate Cloud QR</button>
@@ -416,7 +414,7 @@
             <div class="phone-panel" data-phone-panel="devices" hidden>
               <div class="device-center-heading">
                 <div>
-                  <strong>Phone</strong>
+                  <strong>Connected Devices</strong>
                   <div class="section-note">Connected mobile devices appear here.</div>
                 </div>
                 <button class="secondary-btn" id="device-refresh-btn" type="button">Refresh</button>
@@ -457,9 +455,9 @@
       <div class="device-confirm-card" role="dialog" aria-modal="true" aria-labelledby="phone-device-remove-title">
         <div class="device-confirm-icon">!</div>
         <div>
-          <div class="device-confirm-kicker">Trusted phone</div>
+          <div class="device-confirm-kicker">Trusted mobile</div>
           <h3 id="phone-device-remove-title">Remove device?</h3>
-          <p id="phone-device-remove-message">This phone will lose permission to control OpenX and transfer files.</p>
+          <p id="phone-device-remove-message">This mobile device will lose permission to control OpenX and transfer files.</p>
         </div>
         <div class="device-confirm-actions">
           <button class="secondary-btn" id="phone-device-remove-cancel" type="button">Cancel</button>

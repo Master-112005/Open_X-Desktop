@@ -36,6 +36,7 @@ class PhoneServer {
     this.fileTransferManager = options.fileTransferManager || null;
     this.scheduleProvider = typeof options.scheduleProvider === 'function' ? options.scheduleProvider : null;
     this.scheduleUpsertHandler = typeof options.scheduleUpsertHandler === 'function' ? options.scheduleUpsertHandler : null;
+    this.notificationHandler = typeof options.notificationHandler === 'function' ? options.notificationHandler : null;
     this.logger = options.logger || console;
     this.sessionManager = options.sessionManager || this.pairingService.sessionManager;
     this.securityManager = options.securityManager || new SecurityManager({
@@ -311,6 +312,11 @@ class PhoneServer {
       return;
     }
 
+    if (payload?.type === 'phone-notification') {
+      this._handlePhoneNotification(clientId, payload);
+      return;
+    }
+
     if (payload?.type === 'schedule-sync:request' || payload?.type === 'schedule-sync:upsert') {
       await this._handleScheduleSync(clientId, payload);
       return;
@@ -388,6 +394,32 @@ class PhoneServer {
       deviceId: device.deviceId,
       deviceName: device.deviceName,
       timestamp: Number.isFinite(payload.timestamp) ? payload.timestamp : Date.now()
+    });
+  }
+
+  _handlePhoneNotification(clientId, payload) {
+    const client = this.connectionManager.get(clientId);
+    const authentication = this._authenticateRequest(clientId, client, payload);
+    if (!authentication) return;
+
+    const device = this._applyDeviceNameFromPayload(authentication.deviceId, payload) ||
+      this.pairingService.deviceRegistry.getDevice(authentication.deviceId);
+    if (device) this.connectionManager.setDevice(clientId, device);
+    this.pairingService.deviceRegistry.updateLastSeen(authentication.deviceId);
+
+    const notification = payload.notification && typeof payload.notification === 'object'
+      ? payload.notification
+      : payload;
+    const accepted = this.notificationHandler?.(notification, {
+      deviceId: authentication.deviceId,
+      deviceName: device?.deviceName || client?.deviceName || payload.deviceName || null,
+      source: 'phone-local'
+    }) === true;
+
+    this.sendToClient(clientId, {
+      type: accepted ? 'phone-notification:shown' : 'phone-notification:ignored',
+      requestId: payload.requestId || null,
+      timestamp: Date.now()
     });
   }
 

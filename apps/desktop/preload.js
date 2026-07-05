@@ -122,6 +122,10 @@ function appendVoiceActions(fragment, payload = {}) {
     button.addEventListener('click', async () => {
       button.disabled = true;
       stopVoiceAlertSound();
+      if (['ok', 'dismiss', 'close'].includes(String(action.kind || action.id || '').toLowerCase())) {
+        renderVoiceAssistantResult({});
+        return;
+      }
       try {
         await ipcRenderer.invoke('schedule:alertAction', {
           id: action.scheduleId,
