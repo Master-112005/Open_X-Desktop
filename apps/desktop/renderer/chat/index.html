@@ -300,6 +300,7 @@
               <div class="phone-section-tabs" role="tablist" aria-label="Phone settings">
                 <button class="phone-section-tab active" data-phone-panel-target="connect" type="button" role="tab" aria-selected="true">Connect Phone</button>
                 <button class="phone-section-tab" data-phone-panel-target="devices" type="button" role="tab" aria-selected="false">Connected Devices</button>
+                <button class="phone-section-tab" data-phone-panel-target="cloud" type="button" role="tab" aria-selected="false">Cloud</button>
               </div>
             </div>
             <div class="phone-panel active" data-phone-panel="connect">
@@ -341,14 +342,35 @@
                   </div>
                 </div>
               </div>
+            </div>
+            <div class="phone-panel" data-phone-panel="cloud" hidden>
+              <div class="section-note">Use the OpenX relay when your phone is not on the same local network. Cloud mode keeps local pairing and local file transfer unchanged.</div>
+              <div class="cloud-action-row cloud-action-row-top">
+                <button class="primary-btn" id="cloud-connect-btn" type="button">Connect to Server</button>
+                <span id="cloud-friendly-status">Cloud mode is disconnected. Local mode is active.</span>
+              </div>
+              <div class="cloud-pairing-card">
+                <div class="phone-server-heading">
+                  <strong>Cloud Pairing</strong>
+                  <span id="cloud-pairing-status">Connect to Relay Server first.</span>
+                </div>
+                <button class="primary-btn" id="cloud-generate-qr-btn" type="button" disabled>Generate Cloud QR</button>
+                <div class="phone-pairing-qr-wrap cloud-pairing-qr-wrap">
+                  <img id="cloud-pairing-qr" alt="OpenX cloud pairing QR code" hidden>
+                </div>
+                <output class="phone-pairing-token" id="cloud-pairing-token" aria-live="polite">--------</output>
+                <div class="section-note" id="cloud-pairing-expiry"></div>
+                <div class="phone-pairing-countdown" id="cloud-pairing-countdown" aria-live="polite"></div>
+                <div class="cloud-pairing-requests" id="cloud-pairing-requests"></div>
+              </div>
               <div class="cloud-connection-card">
                 <div class="phone-server-heading">
-                  <strong>Cloud Connection</strong>
+                  <strong>Server Details</strong>
                   <span id="cloud-connection-state">Disconnected</span>
                 </div>
                 <label class="field-wrap cloud-url-field">
                   <span class="field-label">Relay Server</span>
-                  <input class="field" id="cloud-relay-url" type="url" spellcheck="false" placeholder="ws://localhost:8081/ws">
+                  <input class="field" id="cloud-relay-url" type="url" spellcheck="false" placeholder="wss://openx-server.onrender.com/ws">
                 </label>
                 <div class="cloud-toggle-grid">
                   <label class="phone-permission-toggle">
@@ -390,52 +412,18 @@
                     <strong id="cloud-version">--</strong>
                   </div>
                 </div>
-                <div class="cloud-action-row">
-                  <button class="primary-btn" id="cloud-connect-btn" type="button">Connect to Server</button>
-                  <span id="cloud-friendly-status">Cloud mode is disconnected. Local mode is active.</span>
-                </div>
-                <div class="cloud-pairing-card">
-                  <div class="phone-server-heading">
-                    <strong>Cloud Pairing</strong>
-                    <span id="cloud-pairing-status">Connect to Relay Server first.</span>
-                  </div>
-                  <button class="primary-btn" id="cloud-generate-qr-btn" type="button" disabled>Generate Cloud QR</button>
-                  <div class="phone-pairing-qr-wrap">
-                    <img id="cloud-pairing-qr" alt="OpenX cloud pairing QR code" hidden>
-                  </div>
-                  <output class="phone-pairing-token" id="cloud-pairing-token" aria-live="polite">--------</output>
-                  <div class="section-note" id="cloud-pairing-expiry"></div>
-                  <div class="phone-pairing-countdown" id="cloud-pairing-countdown" aria-live="polite"></div>
-                  <div class="cloud-pairing-requests" id="cloud-pairing-requests"></div>
-                </div>
               </div>
             </div>
             <div class="phone-panel" data-phone-panel="devices" hidden>
               <div class="device-center-heading">
                 <div>
-                  <strong>Connected Devices</strong>
-                  <div class="section-note">Manage trusted devices, permissions, sessions, and access.</div>
+                  <strong>Phone</strong>
+                  <div class="section-note">Connected mobile devices appear here.</div>
                 </div>
                 <button class="secondary-btn" id="device-refresh-btn" type="button">Refresh</button>
               </div>
               <div class="device-center-toolbar">
                 <input class="field" id="device-search" type="search" placeholder="Search devices..." aria-label="Search devices">
-                <select class="field-select" id="device-filter" aria-label="Filter devices">
-                  <option value="all">All devices</option>
-                  <option value="connected">Connected</option>
-                  <option value="offline">Offline</option>
-                  <option value="trusted">Trusted</option>
-                  <option value="untrusted">Untrusted</option>
-                  <option value="phone">Phones</option>
-                  <option value="desktop">Desktops</option>
-                  <option value="tablet">Tablets</option>
-                </select>
-                <select class="field-select" id="device-sort" aria-label="Sort devices">
-                  <option value="status">Status</option>
-                  <option value="name">Name</option>
-                  <option value="lastSeen">Last seen</option>
-                  <option value="pairedAt">Paired date</option>
-                </select>
               </div>
               <div class="phone-device-list" id="phone-device-list"></div>
             </div>

@@ -3,6 +3,11 @@ const crypto = require('crypto');
 const path = require('path');
 const { ensureDataRoot, migrateLegacyData, readJsonFile, writeJsonAtomic } = require('../../core/assistant/Data');
 
+const DEFAULT_CLOUD_RELAY_URL = 'wss://openx-server.onrender.com/ws';
+const LEGACY_DEFAULT_CLOUD_RELAY_URLS = new Set([
+  'ws://localhost:8081/ws'
+]);
+
 const CHAT_THEMES = {
   graphite: {
     id: 'graphite',
@@ -257,7 +262,7 @@ function createStableCloudId(prefix, seed) {
   return `${prefix}_${hash}`;
 }
 
-function normalizeCloudRelayUrl(value, fallback = 'ws://localhost:8081/ws') {
+function normalizeCloudRelayUrl(value, fallback = DEFAULT_CLOUD_RELAY_URL) {
   const raw = String(value || '').trim();
   if (!raw) return fallback;
   try {
@@ -265,7 +270,8 @@ function normalizeCloudRelayUrl(value, fallback = 'ws://localhost:8081/ws') {
     if (!['http:', 'https:', 'ws:', 'wss:'].includes(parsed.protocol)) return fallback;
     if (!parsed.pathname || parsed.pathname === '/') parsed.pathname = '/ws';
     parsed.hash = '';
-    return parsed.toString();
+    const normalized = parsed.toString();
+    return LEGACY_DEFAULT_CLOUD_RELAY_URLS.has(normalized) ? fallback : normalized;
   } catch (_) {
     return fallback;
   }
@@ -345,7 +351,7 @@ class SettingsService {
         ownerId: createStableCloudId('owner', this.dataPaths.root),
         deviceType: 'desktop',
         friendlyName: String(this.baseConfig?.assistant?.displayName || this.baseConfig?.app?.name || 'OpenX Desktop').trim(),
-        relayUrl: normalizeCloudRelayUrl(this.baseConfig?.cloud?.relayUrl || process.env.OPENX_RELAY_URL || 'ws://localhost:8081/ws'),
+        relayUrl: normalizeCloudRelayUrl(this.baseConfig?.cloud?.relayUrl || process.env.OPENX_RELAY_URL || DEFAULT_CLOUD_RELAY_URL),
         autoConnect: false,
         reconnectEnabled: true,
         heartbeatEnabled: true,

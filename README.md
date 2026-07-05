@@ -124,7 +124,7 @@ Cloud QR payloads contain only:
 ```json
 {
   "version": 1,
-  "relayUrl": "ws://localhost:8081/ws",
+  "relayUrl": "wss://openx-server.onrender.com/ws",
   "pairToken": "relay-generated-token",
   "expiresAt": 1767225600000
 }
@@ -135,7 +135,7 @@ The local LAN QR payload and local phone workflow remain unchanged.
 Developer defaults:
 
 ```text
-OPENX_RELAY_URL=ws://localhost:8081/ws
+OPENX_RELAY_URL=wss://openx-server.onrender.com/ws
 ```
 
 ## Device Management Center

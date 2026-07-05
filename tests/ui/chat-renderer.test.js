@@ -150,22 +150,25 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(script, /getActivationShortcut|assistantActivationShortcut/);
   });
 
-  it('should manage trusted device permissions and device actions', function() {
+  it('should render compact trusted device cards and device actions', function() {
     assert.match(html, /id="phone-device-list"/);
     assert.match(html, /<button class="phone-section-tab"[^>]*>Connected Devices<\/button>[\s\S]*<div class="phone-panel" data-phone-panel="devices" hidden>/);
-    assert.match(script, /Assistant Access/);
-    assert.match(script, /File Transfer/);
-    assert.match(script, /Receive Files/);
-    assert.match(script, /Send Files/);
-    assert.match(script, /Desktop Control/);
-    assert.match(script, /Save Permissions/);
+    assert.match(script, /phone-device-status-dot/);
+    assert.match(script, /phone-device-essentials/);
+    assert.match(script, /Status/);
+    assert.match(script, /Trust/);
+    assert.match(script, /Version/);
+    assert.match(script, /Last seen/);
+    assert.doesNotMatch(script, /Assistant Access|File Transfer|Receive Files|Send Files|Desktop Control|Clipboard|Future Screen Sharing|Future Camera|Future Microphone/);
+    assert.doesNotMatch(script, /Save Permissions|updatePhonePermissions/);
     assert.match(script, /Remove/);
     assert.match(script, /Disconnect/);
-    assert.match(script, /Rename/);
+    assert.doesNotMatch(script, /Rename/);
     assert.match(script, /Trust/);
-    assert.match(script, /updatePhonePermissions/);
-    assert.match(script, /renamePhoneDevice/);
+    assert.doesNotMatch(script, /renamePhoneDevice/);
     assert.match(script, /updatePhoneTrust/);
+    assert.doesNotMatch(html, /All devices|<option value="status">Status<\/option>/);
+    assert.doesNotMatch(script, /device-meta-item|device-type-icon|permissionSummary|\['Type'|\['Platform'/);
     assert.match(html, /id="phone-device-remove-dialog"/);
     assert.match(script, /openPhoneDeviceRemoveDialog/);
     assert.match(script, /confirmPhoneDeviceRemoval/);
