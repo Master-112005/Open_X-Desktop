@@ -532,6 +532,9 @@ class SchedulerController {
       .map(item => this._normalizeStoredSchedule(item))
       .filter(Boolean);
     writeJsonAtomic(this.schedulePath, this.scheduledItems.slice(-100), { backup: true });
+    if (typeof this.eventBus?.subscribe === 'function') {
+      this.eventBus.publish?.(EVENTS.SCHEDULE_CHANGED, this.getScheduleSnapshot());
+    }
   }
 
   _scheduleTaskName(kind) {
@@ -610,6 +613,42 @@ class SchedulerController {
     }
     this._saveScheduledItems();
     return { success: true, data: { ...item } };
+  }
+
+  upsertSyncedSchedule(input = {}, metadata = {}) {
+    const normalized = this._normalizeIncomingSchedule(input, metadata);
+    if (!normalized) return { success: false, error: 'Invalid schedule item' };
+
+    const existingIndex = this.scheduledItems.findIndex(item => item.id === normalized.id || item.taskName === normalized.taskName);
+    if (existingIndex >= 0) {
+      const existing = this.scheduledItems[existingIndex];
+      const existingTimer = this.timers.get(existing.id);
+      if (existingTimer) clearTimeout(existingTimer);
+      this.timers.delete(existing.id);
+      this.scheduledItems[existingIndex] = {
+        ...existing,
+        ...normalized,
+        updatedAt: new Date().toISOString()
+      };
+    } else {
+      this.scheduledItems.push(normalized);
+    }
+
+    const item = existingIndex >= 0 ? this.scheduledItems[existingIndex] : normalized;
+    this._saveScheduledItems();
+    if (item.status === 'scheduled') this._arm(item);
+    return { success: true, data: { ...item } };
+  }
+
+  getScheduleSnapshot(scope = 'all') {
+    const entries = this.listSchedules(null, scope)?.data?.entries || [];
+    return {
+      version: 1,
+      source: 'desktop',
+      generatedAt: new Date().toISOString(),
+      count: entries.length,
+      entries
+    };
   }
 
   pauseActiveTimer() {
@@ -769,6 +808,42 @@ class SchedulerController {
       if (preferred) return preferred;
     }
     return active.slice().reverse()[0] || null;
+  }
+
+  _normalizeIncomingSchedule(input = {}, metadata = {}) {
+    if (!input || typeof input !== 'object') return null;
+    const kind = String(input.kind || input.type || 'Reminder').trim();
+    const normalizedKind = kind.toLowerCase();
+    if (!/^(?:reminder|alarm|timer)$/i.test(kind)) return null;
+    const dueAt = new Date(input.dueAt || input.time || input.when || 0);
+    if (!Number.isFinite(dueAt.getTime())) return null;
+    const message = String(input.message || input.title || `${kind} from phone`).replace(/\s+/g, ' ').trim().slice(0, 500);
+    if (!message) return null;
+    const sourceDeviceId = String(metadata.deviceId || input.sourceDeviceId || input.deviceId || '').trim().slice(0, 128);
+    const baseId = String(input.id || input.taskName || '').trim();
+    const taskName = baseId && /^OpenX_/i.test(baseId)
+      ? baseId
+      : `${PRODUCT_NAME}_${kind}_${IdGenerator.short()}`;
+    const now = new Date().toISOString();
+    return this._normalizeStoredSchedule({
+      ...input,
+      id: taskName,
+      taskName,
+      kind: kind.charAt(0).toUpperCase() + normalizedKind.slice(1),
+      title: String(input.title || `${PRODUCT_NAME} ${kind}`).replace(/\s+/g, ' ').trim().slice(0, 160),
+      message,
+      category: String(input.category || normalizedKind).trim().slice(0, 60),
+      symbol: input.symbol || (normalizedKind === 'alarm' ? '\u23F0' : normalizedKind === 'timer' ? '\u23F1\uFE0F' : '\u{1F4DD}'),
+      dueAt: dueAt.toISOString(),
+      status: ['scheduled', 'paused', 'due', 'completed'].includes(String(input.status || '').toLowerCase())
+        ? String(input.status).toLowerCase()
+        : 'scheduled',
+      createdAt: input.createdAt || now,
+      updatedAt: now,
+      source: 'phone',
+      sourceDeviceId: sourceDeviceId || undefined,
+      sourceDeviceName: metadata.deviceName || input.sourceDeviceName || undefined
+    });
   }
 
   _stopwatchElapsedMs(item) {

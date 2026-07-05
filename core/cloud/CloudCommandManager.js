@@ -16,6 +16,8 @@ class CloudCommandManager extends EventEmitter {
       maxQueueSize: options.maxQueueSize
     });
     this.serializer = options.serializer || new CloudResponseSerializer();
+    this.scheduleProvider = typeof options.scheduleProvider === 'function' ? options.scheduleProvider : null;
+    this.scheduleUpsertHandler = typeof options.scheduleUpsertHandler === 'function' ? options.scheduleUpsertHandler : null;
     this.executionTimeoutMs = Number.isFinite(options.executionTimeoutMs)
       ? Math.max(1000, Math.round(options.executionTimeoutMs))
       : DEFAULT_EXECUTION_TIMEOUT_MS;
@@ -82,6 +84,11 @@ class CloudCommandManager extends EventEmitter {
       destinationDeviceId: request.destinationDeviceId
     });
 
+    if (request.feature === 'schedule-sync') {
+      this.executeScheduleSync(request);
+      return { accepted: true, requestId: request.requestId };
+    }
+
     const queued = this.queue.enqueue(request);
     if (!queued.accepted) {
       this.setLifecycle(request.requestId, queued.code);
@@ -118,6 +125,30 @@ class CloudCommandManager extends EventEmitter {
 
     const payload = packet.payload && typeof packet.payload === 'object' ? packet.payload : {};
     const kind = String(payload.type || payload.kind || payload.feature || '').trim();
+    if (kind === 'schedule-sync') {
+      if (!packet.requestId) {
+        return this.fail('missing-request-id', 'Request ID is required.');
+      }
+      const action = String(payload.action || payload.operation || 'request').trim().toLowerCase();
+      if (!['request', 'upsert'].includes(action)) {
+        return this.fail('unsupported-schedule-sync-action', 'Unsupported schedule sync action.');
+      }
+      return {
+        valid: true,
+        request: {
+          ...this.normalizeRequest(packet),
+          feature: 'schedule-sync',
+          action,
+          schedule: payload.schedule || payload.item || null,
+          deviceName: String(payload.deviceName || payload.sourceDeviceName || packet.metadata?.deviceName || '').trim(),
+          metadata: {
+            ...(packet.metadata || {}),
+            ...(payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {})
+          }
+        }
+      };
+    }
+
     if (kind && kind !== 'assistant-command') {
       return this.fail('unsupported-request', 'Unsupported cloud request.');
     }
@@ -136,6 +167,7 @@ class CloudCommandManager extends EventEmitter {
       valid: true,
       request: {
         ...this.normalizeRequest(packet),
+        feature: 'assistant-command',
         command,
         deviceName: String(payload.deviceName || payload.sourceDeviceName || packet.metadata?.deviceName || '').trim(),
         metadata: {
@@ -216,6 +248,57 @@ class CloudCommandManager extends EventEmitter {
         requestId: request.requestId,
         error: error?.message || String(error)
       });
+    }
+  }
+
+  async executeScheduleSync(request) {
+    this.setLifecycle(request.requestId, 'executing');
+    try {
+      if (request.action === 'upsert') {
+        if (!this.scheduleUpsertHandler) {
+          throw Object.assign(new Error('Schedule sync unavailable.'), { code: 'schedule-sync-unavailable' });
+        }
+        const result = await this.scheduleUpsertHandler(request.schedule || {}, {
+          deviceId: request.sourceDeviceId,
+          deviceName: request.deviceName || null,
+          ownerId: request.ownerId,
+          source: 'phone-cloud',
+          cloudRequestId: request.requestId
+        });
+        if (result?.success !== true) {
+          throw Object.assign(new Error(result?.error || 'Unable to sync schedule.'), { code: 'schedule-sync-failed' });
+        }
+      }
+
+      const snapshot = this.scheduleProvider?.() || {
+        version: 1,
+        source: 'desktop',
+        generatedAt: new Date().toISOString(),
+        entries: []
+      };
+      this.setLifecycle(request.requestId, 'completed');
+      this.sendSerializedResponse(this.serializer.serialize({
+        request,
+        result: {
+          success: true,
+          response: 'Schedules synced.',
+          message: 'Schedules synced.',
+          data: {
+            scheduleSync: true,
+            snapshot
+          }
+        },
+        status: 'completed',
+        responseType: 'schedule-sync'
+      }));
+    } catch (error) {
+      this.setLifecycle(request.requestId, 'failed');
+      this.sendSerializedResponse(this.serializer.error(
+        request,
+        error?.code || 'schedule-sync-failed',
+        error?.message || 'Schedule sync failed.',
+        { status: 'failed' }
+      ));
     }
   }
 

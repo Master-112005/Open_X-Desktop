@@ -49,7 +49,13 @@ class CloudPairingManager extends EventEmitter {
       expiresAt: token.expiresAt
     };
     this.validatePayload(payload);
-    const qrDataUrl = await this.qrCode.toDataURL(JSON.stringify(payload), {
+    const qrPayload = {
+      v: CLOUD_PAIR_VERSION,
+      u: relayUrl,
+      t: token.token,
+      e: token.expiresAt
+    };
+    const qrDataUrl = await this.qrCode.toDataURL(JSON.stringify(qrPayload), {
       errorCorrectionLevel: 'M',
       margin: 1,
       width: 320
@@ -110,6 +116,35 @@ class CloudPairingManager extends EventEmitter {
 
   handlePairingRequest(request = {}) {
     if (!request.pairRequestId) return;
+    const current = this.currentPairing || null;
+    const isActiveQrRequest =
+      current?.tokenId &&
+      current?.payload?.expiresAt > this.now() &&
+      request.tokenId === current.tokenId;
+
+    if (isActiveQrRequest) {
+      this.pendingRequests.set(request.pairRequestId, {
+        pairRequestId: request.pairRequestId,
+        requestId: request.requestId || request.pairRequestId,
+        tokenId: request.tokenId || '',
+        phoneConnectionId: request.phoneConnectionId || '',
+        device: {
+          name: request.device?.name || 'OpenX Mobile',
+          type: request.device?.type || 'mobile'
+        },
+        createdAt: request.createdAt || this.now(),
+        autoApproved: true
+      });
+      const result = this.approvePairing(request.pairRequestId);
+      this.emit('request', this.getStatus());
+      this.logger.info('[CLOUD] Cloud pairing auto-approved from active QR', {
+        pairRequestId: request.pairRequestId,
+        tokenId: request.tokenId || '',
+        success: result.success === true
+      });
+      return;
+    }
+
     this.pendingRequests.set(request.pairRequestId, {
       pairRequestId: request.pairRequestId,
       requestId: request.requestId || request.pairRequestId,

@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, globalShortcut, se
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 
 const BASE_CONFIG = require('../../../config');
 const Assistant = require('../../../core/assistant/index');
@@ -1070,6 +1071,85 @@ function getPlannerEntriesForRenderer() {
   }
 }
 
+function getScheduleSyncSnapshot() {
+  try {
+    return assistant?.automation?.scheduler?.getScheduleSnapshot?.('all') || {
+      version: 1,
+      source: 'desktop',
+      generatedAt: new Date().toISOString(),
+      count: 0,
+      entries: []
+    };
+  } catch (error) {
+    mainLogger.warn('Failed to collect schedule sync snapshot', { error: error.message });
+    return { version: 1, source: 'desktop', generatedAt: new Date().toISOString(), count: 0, entries: [] };
+  }
+}
+
+function upsertScheduleFromPhone(schedule, metadata = {}) {
+  try {
+    return assistant?.automation?.scheduler?.upsertSyncedSchedule?.(schedule, metadata) ||
+      { success: false, error: 'Schedule sync unavailable' };
+  } catch (error) {
+    mainLogger.warn('[SCHEDULE] Phone sync failed', { error: error.message, source: metadata.source || 'phone' });
+    return { success: false, error: 'Unable to sync schedule' };
+  }
+}
+
+function createCloudSchedulePacket(destinationDevice, snapshot) {
+  const status = cloudConnectionManager?.getStatus?.() || {};
+  const sourceDevice = status.device || {};
+  const owner = status.owner || {};
+  const destinationDeviceId = String(destinationDevice?.deviceId || '').trim();
+  if (!sourceDevice.deviceId || !owner.id || !destinationDeviceId) return null;
+  const requestId = `schedule_sync_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+  return {
+    packetId: `schedule_packet_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    protocolVersion: 1,
+    packetType: 'system',
+    sourceDeviceId: sourceDevice.deviceId,
+    destinationDeviceId,
+    ownerId: owner.id,
+    timestamp: Date.now(),
+    requestId,
+    responseId: null,
+    metadata: {
+      feature: 'schedule-sync',
+      source: 'desktop',
+      retryable: false
+    },
+    checksum: null,
+    encryption: null,
+    payload: {
+      type: 'schedule-sync',
+      action: 'snapshot',
+      snapshot
+    }
+  };
+}
+
+function broadcastScheduleSync(snapshot = null) {
+  const nextSnapshot = snapshot || getScheduleSyncSnapshot();
+  try {
+    phoneServer?.broadcastScheduleSnapshot?.(nextSnapshot);
+  } catch (error) {
+    mainLogger.warn('[SCHEDULE] Local phone sync broadcast failed', { error: error.message });
+  }
+
+  try {
+    const status = cloudConnectionManager?.getStatus?.() || {};
+    if (status.connected !== true) return;
+    const devices = Array.isArray(status.pairedDevices) ? status.pairedDevices : [];
+    for (const device of devices) {
+      if (device?.deviceId === status.device?.deviceId) continue;
+      const packet = createCloudSchedulePacket(device, nextSnapshot);
+      if (packet) cloudConnectionManager.sendRelayPacket(packet);
+    }
+  } catch (error) {
+    mainLogger.warn('[SCHEDULE] Cloud phone sync broadcast failed', { error: error.message });
+  }
+}
+
 function lowerChatWindowForPlanner() {
   if (!chatWindow || chatWindow.isDestroyed() || !chatWindow.isVisible()) return;
   chatWindow.setAlwaysOnTop(false);
@@ -1417,6 +1497,8 @@ function initializeCloudCommands() {
     connectionManager: manager,
     assistantProvider: () => assistant,
     logger: mainLogger,
+    scheduleProvider: getScheduleSyncSnapshot,
+    scheduleUpsertHandler: upsertScheduleFromPhone,
     executionTimeoutMs: cloudSettings.commandExecutionTimeoutMs || 60000,
     queueMode: cloudSettings.commandQueueMode || 'queue',
     maxQueueSize: cloudSettings.commandMaxQueueSize || 25
@@ -2560,6 +2642,8 @@ async function initializePhoneServer() {
       commandRouter,
       pairingService,
       fileTransferManager,
+      scheduleProvider: getScheduleSyncSnapshot,
+      scheduleUpsertHandler: upsertScheduleFromPhone,
       logger: mainLogger
     });
 
@@ -2719,6 +2803,10 @@ app.whenReady().then(async () => {
     if (String(envelope.payload?.kind || '').toLowerCase() === 'timer') showTimerWidget();
     presentScheduleInDynamicIsland(envelope.payload);
     sendPlannerEntries('calendar');
+  });
+  eventBus.subscribe(EVENTS.SCHEDULE_CHANGED, envelope => {
+    sendPlannerEntries('calendar');
+    broadcastScheduleSync(envelope.payload);
   });
   eventBus.subscribe(EVENTS.COMMAND_EXECUTED, envelope => handleTimerWidgetCommand(envelope.payload));
   eventBus.subscribe(EVENTS.COMMAND_EXECUTED, envelope => handlePlannerCommand(envelope.payload));

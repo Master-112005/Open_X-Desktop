@@ -34,6 +34,8 @@ class PhoneServer {
     this.commandRouter = options.commandRouter;
     this.pairingService = options.pairingService;
     this.fileTransferManager = options.fileTransferManager || null;
+    this.scheduleProvider = typeof options.scheduleProvider === 'function' ? options.scheduleProvider : null;
+    this.scheduleUpsertHandler = typeof options.scheduleUpsertHandler === 'function' ? options.scheduleUpsertHandler : null;
     this.logger = options.logger || console;
     this.sessionManager = options.sessionManager || this.pairingService.sessionManager;
     this.securityManager = options.securityManager || new SecurityManager({
@@ -309,6 +311,11 @@ class PhoneServer {
       return;
     }
 
+    if (payload?.type === 'schedule-sync:request' || payload?.type === 'schedule-sync:upsert') {
+      await this._handleScheduleSync(clientId, payload);
+      return;
+    }
+
     if (
       !payload ||
       payload.type !== 'command' ||
@@ -381,6 +388,53 @@ class PhoneServer {
       deviceId: device.deviceId,
       deviceName: device.deviceName,
       timestamp: Number.isFinite(payload.timestamp) ? payload.timestamp : Date.now()
+    });
+  }
+
+  async _handleScheduleSync(clientId, payload) {
+    const client = this.connectionManager.get(clientId);
+    const authentication = this._authenticateRequest(clientId, client, payload);
+    if (!authentication) return;
+
+    const device = this._applyDeviceNameFromPayload(authentication.deviceId, payload) ||
+      this.pairingService.deviceRegistry.getDevice(authentication.deviceId);
+    if (device) this.connectionManager.setDevice(clientId, device);
+    this.pairingService.deviceRegistry.updateLastSeen(authentication.deviceId);
+
+    if (payload.type === 'schedule-sync:upsert') {
+      if (!this.scheduleUpsertHandler) {
+        this.sendToClient(clientId, { type: 'error', message: 'Schedule sync unavailable.' });
+        return;
+      }
+      const result = await this.scheduleUpsertHandler(payload.schedule || payload.item || {}, {
+        deviceId: authentication.deviceId,
+        deviceName: device?.deviceName || client?.deviceName || null,
+        source: 'phone-local'
+      });
+      if (result?.success !== true) {
+        this.sendToClient(clientId, {
+          type: 'error',
+          requestId: payload.requestId || null,
+          message: result?.error || 'Unable to sync schedule.'
+        });
+        return;
+      }
+    }
+
+    const snapshot = this.scheduleProvider?.() || { version: 1, source: 'desktop', generatedAt: new Date().toISOString(), entries: [] };
+    this.sendToClient(clientId, {
+      type: 'schedule-sync:snapshot',
+      requestId: payload.requestId || null,
+      timestamp: Date.now(),
+      snapshot
+    });
+  }
+
+  broadcastScheduleSnapshot(snapshot) {
+    return this.broadcast({
+      type: 'schedule-sync:snapshot',
+      timestamp: Date.now(),
+      snapshot: snapshot || this.scheduleProvider?.() || null
     });
   }
 
