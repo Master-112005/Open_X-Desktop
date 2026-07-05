@@ -1674,6 +1674,27 @@ describe('Action Router', function() {
     assert.equal(notify.entities.reminderText, 'submit the lab form');
   });
 
+  it('should route day-of-month reminder wording with spoken message text', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const router = new ActionRouter(config, {
+      execute(actionId, entities) {
+        return { success: true, data: { actionId, ...entities, dueAt: new Date().toISOString(), kind: 'Reminder' } };
+      }
+    });
+
+    const thisMonth = await router.process('remind me 12 of this month say birthday wish to charan', 'chat');
+    const nextMonth = await router.process('remind me 12 next month to wish charan happy birthday', 'chat');
+
+    assert.equal(thisMonth.intent, 'reminder.set');
+    assert.equal(thisMonth.entities.timeExpression, '12 of this month');
+    assert.equal(thisMonth.entities.reminderText, 'birthday wish to charan');
+    assert.equal(nextMonth.intent, 'reminder.set');
+    assert.equal(nextMonth.entities.timeExpression, '12 next month');
+    assert.equal(nextMonth.entities.reminderText, 'wish charan happy birthday');
+  });
+
   it('should treat task-at-clock timer wording as a reminder', async function() {
     const config = { permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } } };
     const router = new ActionRouter(config, {
@@ -3136,6 +3157,55 @@ describe('Action Router', function() {
     assert.equal(result.intent, 'file.open');
     assert.equal(result.entities.filename, 'resume');
     assert.equal(executed[0].actionId, 'file.open');
+  });
+
+  it('should keep phone-origin open commands separate from phone file transfers', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const sendRequest = await router.process('send me resume.docx file', 'phone');
+    const openRequest = await router.process('open resume.docx file', 'phone');
+
+    assert.equal(sendRequest.intent, 'phone.sendFile');
+    assert.equal(sendRequest.entities.path, 'resume.docx');
+    assert.equal(openRequest.intent, 'file.open');
+    assert.equal(openRequest.entities.filename, 'resume.docx');
+    assert.deepEqual(executed.map(step => step.actionId), ['phone.sendFile', 'file.open']);
+  });
+
+  it('should prefer explicit app qualifiers over file keywords', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const suffixApp = await router.process('open resume app not file', 'chat');
+    const namedApp = await router.process('open app called resume', 'chat');
+    const correctedApp = await router.process('open report it is an application not a file', 'phone');
+
+    assert.equal(suffixApp.intent, 'app.open');
+    assert.equal(suffixApp.entities.appName, 'resume');
+    assert.equal(namedApp.intent, 'app.open');
+    assert.equal(namedApp.entities.appName, 'resume');
+    assert.equal(correctedApp.intent, 'app.open');
+    assert.equal(correctedApp.entities.appName, 'report');
+    assert.deepEqual(executed.map(step => step.actionId), ['app.open', 'app.open', 'app.open']);
   });
 
   it('should understand named document file-open commands', async function() {

@@ -56,6 +56,8 @@ const deviceSortEl = document.getElementById('device-sort');
 const deviceRefreshBtn = document.getElementById('device-refresh-btn');
 const phoneSectionTabs = document.querySelectorAll('.phone-section-tab');
 const phonePanels = document.querySelectorAll('[data-phone-panel]');
+const phoneConnectModeTabs = document.querySelectorAll('[data-phone-connect-mode]');
+const phoneConnectViews = document.querySelectorAll('[data-phone-connect-view]');
 const phoneDeviceRemoveDialog = document.getElementById('phone-device-remove-dialog');
 const phoneDeviceRemoveMessage = document.getElementById('phone-device-remove-message');
 const phoneDeviceRemoveCancel = document.getElementById('phone-device-remove-cancel');
@@ -86,6 +88,7 @@ let selectedThemeId = 'graphite';
 let activeSettingsSection = null;
 let activeSystemBlock = 'identity';
 let activePhonePanel = 'connect';
+let activePhoneConnectMode = 'local';
 let hasRenderedWelcome = false;
 let modeDrafts = [];
 let selectedModeIndex = 0;
@@ -1069,6 +1072,27 @@ function setActivePhonePanel(panelName) {
   }
 }
 
+function setActivePhoneConnectMode(modeName) {
+  const allowedModes = new Set(['local', 'cloud']);
+  activePhoneConnectMode = allowedModes.has(modeName) ? modeName : 'local';
+  phoneConnectModeTabs.forEach(button => {
+    const isActive = button.dataset.phoneConnectMode === activePhoneConnectMode;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-selected', String(isActive));
+  });
+  phoneConnectViews.forEach(view => {
+    const isOpen = view.dataset.phoneConnectView === activePhoneConnectMode;
+    view.classList.toggle('active', isOpen);
+    view.hidden = !isOpen;
+  });
+  if (activePhoneConnectMode === 'cloud') {
+    loadCloudStatus();
+    loadCloudPairingStatus();
+  } else {
+    loadPhoneServerStatus();
+  }
+}
+
 function setActiveSettingsSection(sectionName) {
   activeSettingsSection = sectionName || null;
 
@@ -1696,7 +1720,7 @@ function renderCloudStatus(status) {
   if (cloudConnectBtn) {
     const busy = ['Connecting', 'Reconnecting', 'Disconnecting'].includes(state);
     cloudConnectBtn.disabled = busy;
-    cloudConnectBtn.textContent = safeStatus.connected ? 'Disconnect' : 'Connect to Server';
+    cloudConnectBtn.textContent = safeStatus.connected ? 'Disconnect' : 'Connect to Cloud';
   }
   if (cloudGenerateQrBtn) {
     cloudGenerateQrBtn.disabled = safeStatus.connected !== true;
@@ -2123,6 +2147,11 @@ systemOptionButtons.forEach(button => {
 phoneSectionTabs.forEach(button => {
   button.addEventListener('click', () => {
     setActivePhonePanel(button.dataset.phonePanelTarget);
+  });
+});
+phoneConnectModeTabs.forEach(button => {
+  button.addEventListener('click', () => {
+    setActivePhoneConnectMode(button.dataset.phoneConnectMode);
   });
 });
 deviceSearchEl?.addEventListener('input', () => renderPhoneDevices(latestManagedDevices));

@@ -22,6 +22,9 @@ const PHONE_ORIGIN_FETCH_PATTERN = /^(?:(?:please|can\s+you|could\s+you|would\s+
 const PHONE_TRANSFER_TRAILING_TARGET_PATTERN = /\s+(?:to|with|onto|on|into|over\s+to|across\s+to|here\s+on)\s+(?:my\s+)?(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset|this\s+phone|this\s+device)\s*$/i;
 const PHONE_TRANSFER_TARGET_WORD_PATTERN = /\b(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset)\b/i;
 const PHONE_TRANSFER_FILE_EVIDENCE_PATTERN = /\b(?:file|files|folder|folders|directory|document|documents|pdf|pdfs|docx?|xlsx?|pptx?|csv|json|txt|log|zip|rar|7z|apk|image|images|photo|photos|picture|pictures|pic|pics|screenshot|screenshots|video|videos|audio|music|downloads?|documents?|desktop|resume|report|presentation|spreadsheet|sheet|archive)\b|[^\s]+\.[a-z0-9]{1,10}\b/i;
+const EXPLICIT_APP_DOMAIN_PATTERN = /\b(?:app|apps|application|applications|program|programs|software)\b|\bnot\s+(?:a\s+|an\s+|the\s+)?(?:file|folder|document|pdf|docx?)\b/i;
+const EXPLICIT_FILE_DOMAIN_PATTERN = /\b(?:file|files|folder|folders|directory|directories|document|documents)\b|\.[a-z0-9]{1,10}\b/i;
+const EXPLICIT_NOT_APP_PATTERN = /\bnot\s+(?:a\s+|an\s+|the\s+)?(?:app|application|program|software)\b/i;
 
 const WEBSITE_URL_MAP = {
   'github': 'https://github.com',
@@ -347,6 +350,7 @@ class ActionRouter {
       ['_resolveAppLanguageIntent', () => this._resolveAppLanguageIntent(rawCommandText, preparedInput)],
       ['_resolveBrowserLanguageIntent', () => this._resolveBrowserLanguageIntent(rawCommandText, preparedInput)],
       ['_resolveBrowserTabIntent', () => this._resolveBrowserTabIntent(rawCommandText, preparedInput)],
+      ['_resolveExplicitAppDomainIntent', () => this._resolveExplicitAppDomainIntent(rawCommandText, preparedInput)],
       ['_resolveNaturalLanguageRouteIntent', () => this._resolveNaturalLanguageRouteIntent(rawCommandText, preparedInput)],
       ['_resolveCommandFrameIntent', () => this._resolveCommandFrameIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitMediaControlIntent', () => this._resolveExplicitMediaControlIntent(rawCommandText, preparedInput)],
@@ -2873,6 +2877,15 @@ class ActionRouter {
 
     const lower = input.toLowerCase();
     const sourceIsPhone = source === 'phone';
+    if (sourceIsPhone &&
+      EXPLICIT_APP_DOMAIN_PATTERN.test(`${raw} ${input}`) &&
+      !EXPLICIT_NOT_APP_PATTERN.test(`${raw} ${input}`) &&
+      /^(?:open|launch|start|run|switch|focus|activate|go\s+to)\b/i.test(lower)) {
+      return null;
+    }
+    if (sourceIsPhone && /^(?:open|launch|start|run|play|watch)\b/i.test(lower)) {
+      return null;
+    }
     const phoneFetchRequest = sourceIsPhone &&
       PHONE_ORIGIN_FETCH_PATTERN.test(lower) &&
       PHONE_TRANSFER_FILE_EVIDENCE_PATTERN.test(`${raw} ${input}`);
@@ -3056,6 +3069,106 @@ class ActionRouter {
     }
 
     return { intent, confidence: 1, entities: { modeName } };
+  }
+
+  _resolveExplicitAppDomainIntent(rawText, preparedInput = {}) {
+    const raw = String(rawText || '').trim();
+    const corrected = String(preparedInput?.correctedText || raw || '').trim();
+    const lower = corrected.toLowerCase();
+    if (!lower || /^(?:what|who|when|where|why|how|which)\b/.test(lower)) {
+      return null;
+    }
+
+    if (!EXPLICIT_APP_DOMAIN_PATTERN.test(`${raw} ${corrected}`) || EXPLICIT_NOT_APP_PATTERN.test(lower)) {
+      return null;
+    }
+
+    if (/\b(?:application\s+(?:form|file|document)|form\s+application)\b/i.test(`${raw} ${corrected}`)) {
+      return null;
+    }
+
+    const actionMatch = lower.match(/^(?:please\s+|kindly\s+)?(?:can\s+you\s+|could\s+you\s+|would\s+you\s+)?(open|launch|start|run|close|quit|exit|terminate|switch|focus|activate|go\s+to)\b/i);
+    if (!actionMatch) {
+      return null;
+    }
+
+    const action = actionMatch[1].replace(/\s+/g, ' ');
+    const intentId = ['close', 'quit', 'exit', 'terminate'].includes(action)
+      ? 'app.close'
+      : ['switch', 'focus', 'activate', 'go to'].includes(action)
+        ? 'app.switch'
+        : 'app.open';
+    const intent = this.intentRegistry.get(intentId);
+    if (!intent) {
+      return null;
+    }
+
+    const appName = this._extractExplicitAppDomainTarget(raw || corrected, corrected);
+    if (!appName) {
+      return null;
+    }
+
+    const forceNewWindow = intentId === 'app.open' && this._hasExplicitNewKeyword(raw, lower);
+    return {
+      intent,
+      confidence: 1,
+      entities: {
+        appName,
+        routeSource: 'explicit-app-domain',
+        ...(intentId === 'app.open'
+          ? {
+              requestedOperation: forceNewWindow ? 'open-new-window' : 'open-or-focus',
+              ...(forceNewWindow ? { forceNewWindow: true } : {})
+            }
+          : {})
+      }
+    };
+  }
+
+  _extractExplicitAppDomainTarget(rawText, correctedText) {
+    const source = String(rawText || correctedText || '').trim();
+    const corrected = String(correctedText || source || '').trim();
+    const candidates = [source, corrected].filter(Boolean);
+
+    for (const value of candidates) {
+      const patterns = [
+        /^(?:please\s+|kindly\s+)?(?:can\s+you\s+|could\s+you\s+|would\s+you\s+)?(?:open|launch|start|run|close|quit|exit|terminate|switch|focus|activate|go\s+to)\s+(?:the\s+)?(?:app|apps|application|applications|program|programs|software)\s+(?:called|named|name\s+is\s+)?(.+)$/i,
+        /^(?:please\s+|kindly\s+)?(?:can\s+you\s+|could\s+you\s+|would\s+you\s+)?(?:open|launch|start|run|close|quit|exit|terminate|switch|focus|activate|go\s+to)\s+(.+?)\s+(?:as\s+|like\s+)?(?:an?\s+|the\s+)?(?:app|application|program|software)(?:\s+not\s+(?:a\s+|an\s+|the\s+)?(?:file|folder|document|pdf|docx?))?$/i,
+        /^(?:please\s+|kindly\s+)?(?:can\s+you\s+|could\s+you\s+|would\s+you\s+)?(?:open|launch|start|run|close|quit|exit|terminate|switch|focus|activate|go\s+to)\s+(.+?)\s+(?:it\s+is|it's|this\s+is|that\s+is)\s+(?:an?\s+|the\s+)?(?:app|application|program|software)(?:\s+not\s+(?:a\s+|an\s+|the\s+)?(?:file|folder|document|pdf|docx?))?$/i,
+        /^(?:please\s+|kindly\s+)?(?:can\s+you\s+|could\s+you\s+|would\s+you\s+)?(?:open|launch|start|run|close|quit|exit|terminate|switch|focus|activate|go\s+to)\s+(.+?)\s+not\s+(?:a\s+|an\s+|the\s+)?(?:file|folder|document|pdf|docx?)$/i
+      ];
+
+      for (const pattern of patterns) {
+        const match = value.match(pattern);
+        if (!match?.[1]) {
+          continue;
+        }
+        const clean = this._cleanExplicitAppDomainTarget(match[1]);
+        if (clean) {
+          return clean;
+        }
+      }
+    }
+
+    const intent = this.intentRegistry.get('app.open');
+    if (!intent) {
+      return '';
+    }
+    const extracted = this.entityExtractor.extract(intent, source);
+    return this._cleanExplicitAppDomainTarget(extracted.appName || '');
+  }
+
+  _cleanExplicitAppDomainTarget(value) {
+    return String(value || '')
+      .replace(/\b(?:please|kindly|now|only)\b/gi, ' ')
+      .replace(/\b(?:it\s+is|it's|this\s+is|that\s+is)\b/gi, ' ')
+      .replace(/\b(?:as|like)\s+(?:an?\s+|the\s+)?(?:app|application|program|software)\b/gi, ' ')
+      .replace(/\b(?:app|apps|application|applications|program|programs|software)\b/gi, ' ')
+      .replace(/\bnot\s+(?:a\s+|an\s+|the\s+)?(?:file|folder|document|pdf|docx?)\b/gi, ' ')
+      .replace(/\b(?:called|named|name\s+is)\b/gi, ' ')
+      .replace(/[.,;:]+$/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   _resolveLiveKnowledgeIntent(rawText, preparedInput) {

@@ -303,110 +303,116 @@
             </div>
             <div class="phone-panel active" data-phone-panel="connect">
               <div class="section-note">Windows will verify your identity before OpenX creates local or cloud pairing QR codes. OpenX never receives or stores your Windows credentials.</div>
-              <div class="phone-pairing-card">
-                <div class="phone-pairing-copy">
-                  <strong>Local QR</strong>
-                  <span id="phone-pairing-status">Generate a code when your mobile app is ready to pair.</span>
-                </div>
-                <button class="primary-btn" id="phone-generate-token-btn" type="button">Generate Local QR</button>
-                <div class="phone-pairing-qr-wrap">
-                  <img id="phone-pairing-qr" alt="OpenX mobile pairing QR code" hidden>
-                </div>
-                <output class="phone-pairing-token" id="phone-pairing-token" aria-live="polite">--------</output>
-                <div class="section-note" id="phone-pairing-expiry"></div>
-                <div class="phone-pairing-countdown" id="phone-pairing-countdown" aria-live="polite"></div>
+              <div class="phone-connect-mode-tabs" role="tablist" aria-label="Connection mode">
+                <button class="phone-connect-mode-tab active" data-phone-connect-mode="local" type="button" role="tab" aria-selected="true">Local</button>
+                <button class="phone-connect-mode-tab" data-phone-connect-mode="cloud" type="button" role="tab" aria-selected="false">Cloud</button>
               </div>
-              <div class="phone-server-card">
-                <div class="phone-server-heading">
-                  <strong>Server Status</strong>
-                  <span id="phone-server-status">Checking...</span>
+              <div class="phone-connect-view active" data-phone-connect-view="local">
+                <div class="phone-pairing-card">
+                  <div class="phone-pairing-copy">
+                    <strong>Local QR</strong>
+                    <span id="phone-pairing-status">Generate a code when your mobile app is ready to pair.</span>
+                  </div>
+                  <button class="primary-btn" id="phone-generate-token-btn" type="button">Generate Local QR</button>
+                  <div class="phone-pairing-qr-wrap">
+                    <img id="phone-pairing-qr" alt="OpenX mobile pairing QR code" hidden>
+                  </div>
+                  <output class="phone-pairing-token" id="phone-pairing-token" aria-live="polite">--------</output>
+                  <div class="section-note" id="phone-pairing-expiry"></div>
+                  <div class="phone-pairing-countdown" id="phone-pairing-countdown" aria-live="polite"></div>
                 </div>
-                <div class="phone-server-grid">
-                  <div class="phone-server-item">
-                    <span>Current Listening Address</span>
-                    <strong id="phone-server-address">--</strong>
+                <div class="phone-server-card">
+                  <div class="phone-server-heading">
+                    <strong>Local Details</strong>
+                    <span id="phone-server-status">Checking...</span>
                   </div>
-                  <div class="phone-server-item">
-                    <span>Current Port</span>
-                    <strong id="phone-server-port">--</strong>
-                  </div>
-                  <div class="phone-server-item">
-                    <span>Connected Devices</span>
-                    <strong id="phone-server-devices">0</strong>
-                  </div>
-                  <div class="phone-server-item">
-                    <span>Protocol Version</span>
-                    <strong id="phone-server-version">1</strong>
+                  <div class="phone-server-grid">
+                    <div class="phone-server-item">
+                      <span>Listening Address</span>
+                      <strong id="phone-server-address">--</strong>
+                    </div>
+                    <div class="phone-server-item">
+                      <span>Port</span>
+                      <strong id="phone-server-port">--</strong>
+                    </div>
+                    <div class="phone-server-item">
+                      <span>Connected Devices</span>
+                      <strong id="phone-server-devices">0</strong>
+                    </div>
+                    <div class="phone-server-item">
+                      <span>Protocol Version</span>
+                      <strong id="phone-server-version">1</strong>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-            <div class="phone-panel active connect-cloud-panel" data-phone-panel="connect">
-              <div class="section-note">Use the OpenX relay when your mobile app is not on the same local network. Cloud mode keeps local pairing and local file transfer unchanged.</div>
-              <div class="cloud-action-row cloud-action-row-top">
-                <button class="primary-btn" id="cloud-connect-btn" type="button">Connect to Server</button>
-                <span id="cloud-friendly-status">Cloud mode is disconnected. Local mode is active.</span>
-              </div>
-              <div class="cloud-pairing-card">
-                <div class="phone-server-heading">
-                  <strong>Cloud QR</strong>
-                  <span id="cloud-pairing-status">Connect to Relay Server first.</span>
+              <div class="phone-connect-view" data-phone-connect-view="cloud" hidden>
+                <div class="section-note">Use the OpenX relay when your mobile app is not on the same local network. Cloud mode keeps local pairing and local file transfer unchanged.</div>
+                <div class="cloud-action-row cloud-action-row-top">
+                  <button class="primary-btn" id="cloud-connect-btn" type="button">Connect to Cloud</button>
+                  <span id="cloud-friendly-status">Cloud mode is disconnected. Local mode is active.</span>
                 </div>
-                <button class="primary-btn" id="cloud-generate-qr-btn" type="button" disabled>Generate Cloud QR</button>
-                <div class="phone-pairing-qr-wrap cloud-pairing-qr-wrap">
-                  <img id="cloud-pairing-qr" alt="OpenX cloud pairing QR code" hidden>
+                <div class="cloud-pairing-card">
+                  <div class="phone-server-heading">
+                    <strong>Cloud QR</strong>
+                    <span id="cloud-pairing-status">Connect to Relay Server first.</span>
+                  </div>
+                  <button class="primary-btn" id="cloud-generate-qr-btn" type="button" disabled>Generate Cloud QR</button>
+                  <div class="phone-pairing-qr-wrap cloud-pairing-qr-wrap">
+                    <img id="cloud-pairing-qr" alt="OpenX cloud pairing QR code" hidden>
+                  </div>
+                  <div class="section-note" id="cloud-pairing-expiry"></div>
+                  <div class="phone-pairing-countdown" id="cloud-pairing-countdown" aria-live="polite"></div>
+                  <div class="cloud-pairing-requests" id="cloud-pairing-requests"></div>
                 </div>
-                <div class="section-note" id="cloud-pairing-expiry"></div>
-                <div class="phone-pairing-countdown" id="cloud-pairing-countdown" aria-live="polite"></div>
-                <div class="cloud-pairing-requests" id="cloud-pairing-requests"></div>
-              </div>
-              <div class="cloud-connection-card">
-                <div class="phone-server-heading">
-                  <strong>Server Details</strong>
-                  <span id="cloud-connection-state">Disconnected</span>
-                </div>
-                <label class="field-wrap cloud-url-field">
-                  <span class="field-label">Relay Server</span>
-                  <input class="field" id="cloud-relay-url" type="url" spellcheck="false" placeholder="wss://openx-server.onrender.com/ws">
-                </label>
-                <div class="cloud-toggle-grid">
-                  <label class="phone-permission-toggle">
-                    <input id="cloud-auto-connect" type="checkbox">
-                    <span>Auto Connect on Startup</span>
-                  </label>
-                  <label class="phone-permission-toggle">
-                    <input id="cloud-reconnect-enabled" type="checkbox">
-                    <span>Reconnect Automatically</span>
-                  </label>
-                  <label class="phone-permission-toggle">
-                    <input id="cloud-heartbeat-enabled" type="checkbox">
-                    <span>Heartbeat Health Check</span>
-                  </label>
-                  <label class="field-wrap cloud-timeout-field">
-                    <span class="field-label">Connection Timeout</span>
-                    <input class="field" id="cloud-connection-timeout" type="number" min="1000" max="60000" step="1000">
-                  </label>
-                </div>
-                <div class="phone-server-grid cloud-status-grid">
-                  <div class="phone-server-item">
-                    <span>Last Connected</span>
-                    <strong id="cloud-last-connected">--</strong>
+                <div class="cloud-connection-card">
+                  <div class="phone-server-heading">
+                    <strong>Server Details</strong>
+                    <span id="cloud-connection-state">Disconnected</span>
                   </div>
-                  <div class="phone-server-item">
-                    <span>Duration</span>
-                    <strong id="cloud-duration">--</strong>
+                  <label class="field-wrap cloud-url-field">
+                    <span class="field-label">Relay Server</span>
+                    <input class="field" id="cloud-relay-url" type="url" spellcheck="false" placeholder="wss://openx-server.onrender.com/ws">
+                  </label>
+                  <div class="cloud-toggle-grid">
+                    <label class="phone-permission-toggle">
+                      <input id="cloud-auto-connect" type="checkbox">
+                      <span>Auto Connect on Startup</span>
+                    </label>
+                    <label class="phone-permission-toggle">
+                      <input id="cloud-reconnect-enabled" type="checkbox">
+                      <span>Reconnect Automatically</span>
+                    </label>
+                    <label class="phone-permission-toggle">
+                      <input id="cloud-heartbeat-enabled" type="checkbox">
+                      <span>Heartbeat Health Check</span>
+                    </label>
+                    <label class="field-wrap cloud-timeout-field">
+                      <span class="field-label">Connection Timeout</span>
+                      <input class="field" id="cloud-connection-timeout" type="number" min="1000" max="60000" step="1000">
+                    </label>
                   </div>
-                  <div class="phone-server-item">
-                    <span>Ping</span>
-                    <strong id="cloud-ping">--</strong>
-                  </div>
-                  <div class="phone-server-item">
-                    <span>Reconnect Attempts</span>
-                    <strong id="cloud-reconnect-attempts">0</strong>
-                  </div>
-                  <div class="phone-server-item">
-                    <span>Version</span>
-                    <strong id="cloud-version">--</strong>
+                  <div class="phone-server-grid cloud-status-grid">
+                    <div class="phone-server-item">
+                      <span>Last Connected</span>
+                      <strong id="cloud-last-connected">--</strong>
+                    </div>
+                    <div class="phone-server-item">
+                      <span>Duration</span>
+                      <strong id="cloud-duration">--</strong>
+                    </div>
+                    <div class="phone-server-item">
+                      <span>Ping</span>
+                      <strong id="cloud-ping">--</strong>
+                    </div>
+                    <div class="phone-server-item">
+                      <span>Reconnect Attempts</span>
+                      <strong id="cloud-reconnect-attempts">0</strong>
+                    </div>
+                    <div class="phone-server-item">
+                      <span>Version</span>
+                      <strong id="cloud-version">--</strong>
+                    </div>
                   </div>
                 </div>
               </div>

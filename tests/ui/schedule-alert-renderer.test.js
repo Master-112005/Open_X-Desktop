@@ -19,6 +19,8 @@ describe('Dynamic Island Schedule Alerts', function() {
     assert.match(main, /label: 'Stop'/);
     assert.match(main, /actions: buildScheduleDynamicIslandActions\(schedule\)/);
     assert.match(main, /scheduleId,\s*\n\s*primary: true/s);
+    assert.match(main, /persistUntilAction: true/);
+    assert.match(main, /autoHideMs: 0/);
     assert.doesNotMatch(main, /new BrowserWindow\(\{\s*width:\s*420,\s*height:\s*440/s);
     assert.doesNotMatch(main, /windowType: 'schedule-alert'/);
     assert.doesNotMatch(main, /alertWindow/);
@@ -28,9 +30,16 @@ describe('Dynamic Island Schedule Alerts', function() {
     assert.match(preload, /function appendVoiceActions\(fragment, payload = \{\}\)/);
     assert.match(preload, /ipcRenderer\.invoke\('schedule:alertAction'/);
     assert.match(preload, /button\.setAttribute\('aria-label', button\.textContent\)/);
+    assert.match(preload, /keepExpandedResult/);
     assert.match(preload, /function playVoiceScheduleSound\(kind\)/);
     assert.match(preload, /function stopVoiceAlertSound\(\)/);
     assert.match(voiceWindow, /\.voice-action-row/);
+    assert.match(voiceWindow, /position: sticky; bottom: 0/);
+    assert.match(voiceWindow, /\.voice-card-body/);
+    assert.match(voiceWindow, /-webkit-line-clamp: 2/);
+    assert.match(voiceWindow, /resultSticky/);
     assert.match(voiceWindow, /scrollbar-width: none/);
+    assert.match(preload, /voice-content-summary/);
+    assert.match(preload, /voice-card-path/);
   });
 });

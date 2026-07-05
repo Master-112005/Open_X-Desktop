@@ -1283,7 +1283,8 @@ function presentScheduleInDynamicIsland(schedule = {}) {
         icon: kind.slice(0, 2).toUpperCase(),
         previewStatus: `${kind} due`,
         preExpandDelayMs: 1000,
-        autoHideMs: 14000
+        autoHideMs: 0,
+        persistUntilAction: true
       }
     });
     return true;
@@ -1324,7 +1325,7 @@ function normalizePhoneNotification(notification = {}, metadata = {}) {
 function presentPhoneNotificationInDynamicIsland(notification = {}, metadata = {}) {
   if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
   const normalized = normalizePhoneNotification(notification, metadata);
-  const line = normalized.message ? `${normalized.title}: ${normalized.message}` : normalized.title;
+  const line = normalized.message || normalized.title;
   try {
     voiceOverlay.displayAssistantResult({
       success: true,
@@ -1343,14 +1344,14 @@ function presentPhoneNotificationInDynamicIsland(notification = {}, metadata = {
           name: normalized.title,
           type: normalized.appName,
           location: normalized.sourceName,
-          snippet: normalized.message
+          snippet: normalized.message || 'Received from OpenX Mobile.'
         }]
       },
       ui: {
-        icon: 'NO',
-        previewStatus: `${normalized.sourceName} notification`,
-        preExpandDelayMs: 1000,
-        autoHideMs: normalized.priority === 'high' ? 18000 : 12000
+        icon: 'PH',
+        previewStatus: `${normalized.appName} from ${normalized.sourceName}`,
+        preExpandDelayMs: 650,
+        autoHideMs: normalized.priority === 'high' ? 20000 : 14000
       }
     });
     return true;

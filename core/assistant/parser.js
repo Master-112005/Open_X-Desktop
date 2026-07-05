@@ -293,6 +293,10 @@ class CommandFrameParser {
     const hasFile = /\b(?:file|files|folder|folders|directory|directories|document|documents|pdf|docx?|txt|java|py|js|xlsx?|pptx?|csv|json|zip|rar|image|images|photo|photos|picture|pictures|screenshot|screenshots|video|videos|audio|music|downloads?|documents?|desktop|pictures)\b|[^\s]+\.[a-z0-9]{1,10}\b/i.test(normalizedText);
     const hasPhoneTransferTarget = targetTokens.some(token => PHONE_TRANSFER_TARGETS.has(token)) ||
       /\b(?:my\s+)?(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset)\b/.test(normalizedText);
+    const explicitAppDomain = (
+      targetTokens.some(token => APP_CUES.has(token)) ||
+      /\b(?:app|apps|application|applications|program|programs|software)\b|\bnot\s+(?:a\s+|an\s+|the\s+)?(?:file|folder|document|pdf|docx?)\b/i.test(normalizedText)
+    ) && !/\bnot\s+(?:a\s+|an\s+|the\s+)?(?:app|application|program|software)\b/i.test(normalizedText);
 
     if (action === 'open' && /\bnew\s+(?:chrome\s+)?tab\b/.test(normalizedText)) {
       return 'browser-tab';
@@ -316,6 +320,10 @@ class CommandFrameParser {
 
     if (hasPlatform && action === 'stop' && hasMediaTarget) {
       return 'media';
+    }
+
+    if (explicitAppDomain && ['open', 'close', 'switch'].includes(action)) {
+      return 'app';
     }
 
     if (hasFile) {

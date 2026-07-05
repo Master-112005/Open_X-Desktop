@@ -4,6 +4,7 @@ const PhoneConnectionManager = require('./PhoneConnectionManager');
 const FileTransferProtocol = require('./FileTransferProtocol');
 const QRPairingService = require('./QRPairingService');
 const SecurityManager = require('./SecurityManager');
+const CloudResponseSerializer = require('../cloud/CloudResponseSerializer');
 
 const DEFAULT_HOST = '0.0.0.0';
 const DEFAULT_PORT = 8080;
@@ -45,6 +46,7 @@ class PhoneServer {
       now: options.now || this.sessionManager.now,
       logger: this.logger
     });
+    this.responseSerializer = options.responseSerializer || new CloudResponseSerializer();
     this.connectionManager = options.connectionManager || new PhoneConnectionManager();
     this.clients = this.connectionManager.clients;
     this.activeTransfersByClient = new Map();
@@ -355,17 +357,19 @@ class PhoneServer {
         deviceName: device?.deviceName || client?.deviceName || null
       }
     });
-    const message = result?.response || result?.message || 'Command completed';
+    const safeResult = this.responseSerializer.sanitizeAssistantResult(result || {});
+    const message = safeResult.response || safeResult.message || 'Command completed';
     this.sendToClient(clientId, {
       type: 'response',
-      success: result?.success === true,
-      commandId: result?.commandId || null,
-      intent: result?.intent || null,
-      needsClarification: result?.needsClarification === true,
-      requiresConfirmation: result?.requiresConfirmation === true,
-      entities: result?.entities || {},
-      data: result?.data || null,
-      error: result?.error || null,
+      requestId: payload.requestId || null,
+      success: safeResult.success === true,
+      commandId: safeResult.commandId || null,
+      intent: safeResult.intent || null,
+      needsClarification: safeResult.needsClarification === true,
+      requiresConfirmation: safeResult.requiresConfirmation === true,
+      entities: safeResult.entities || {},
+      data: safeResult.data || null,
+      error: safeResult.error || null,
       message,
       timestamp: Number.isFinite(payload.timestamp) ? payload.timestamp : Date.now()
     });

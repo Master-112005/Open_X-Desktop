@@ -20,6 +20,24 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function decodeBase64UrlJson(value) {
+  try {
+    const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+function readAccessTokenDeviceId(auth) {
+  const token = String(auth?.accessToken || '').trim();
+  const parts = token.split('.');
+  if (parts.length !== 3) return '';
+  const claims = decodeBase64UrlJson(parts[1]);
+  return String(claims?.deviceId || '').trim();
+}
+
 function normalizeRelayUrl(value) {
   const raw = String(value || '').trim();
   if (!raw) throw new Error('Relay URL is required');
@@ -451,7 +469,7 @@ class CloudConnectionManager extends EventEmitter {
     if (payload?.type === 'device:registered') {
       this.device = payload.device || null;
       this.owner = payload.owner || null;
-      this.auth = payload.auth || this.auth;
+      this.applyAuthForCurrentDevice(payload.auth, 'device:registered');
       this.reliability.sessionRestoreCount += 1;
       this.reliability.state = 'healthy';
       this.emitStatus({ device: this.device, owner: this.owner });
@@ -460,7 +478,7 @@ class CloudConnectionManager extends EventEmitter {
       return;
     }
     if (payload?.type === 'auth:refreshed') {
-      this.auth = payload.auth || this.auth;
+      this.applyAuthForCurrentDevice(payload.auth, 'auth:refreshed');
       this.emitStatus({ auth: Boolean(this.auth) });
       return;
     }
@@ -514,7 +532,7 @@ class CloudConnectionManager extends EventEmitter {
     }
     if (payload?.type === 'cloud-pair:paired' || payload?.type === 'cloud-pair:rejected') {
       if (payload.type === 'cloud-pair:paired') {
-        this.auth = payload.auth || this.auth;
+        this.applyAuthForCurrentDevice(payload.auth, 'cloud-pair:paired');
         this.pairedDevices = Array.isArray(payload.devices) ? payload.devices : [];
         this.emitStatus({ pairedDevices: this.pairedDevices });
       }
@@ -650,6 +668,22 @@ class CloudConnectionManager extends EventEmitter {
         localFirst: true
       }
     });
+  }
+
+  applyAuthForCurrentDevice(auth, source = 'auth') {
+    if (!auth?.accessToken) return false;
+    const tokenDeviceId = readAccessTokenDeviceId(auth);
+    const currentDeviceId = String(this.device?.deviceId || this.settings.deviceId || '').trim();
+    if (tokenDeviceId && currentDeviceId && tokenDeviceId !== currentDeviceId) {
+      this.logger.warn('Ignored auth token for different cloud device', {
+        source,
+        tokenDeviceId,
+        currentDeviceId
+      });
+      return false;
+    }
+    this.auth = auth;
+    return true;
   }
 
   handleUnexpectedDisconnect(reason) {

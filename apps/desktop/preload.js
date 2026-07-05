@@ -16,6 +16,7 @@ function appendVoiceCard(list, entry, options = {}) {
   number.className = 'voice-card-number';
   number.textContent = String(Number(entry?.index) || list.children.length + 1);
   const body = document.createElement('span');
+  body.className = 'voice-card-body';
   const name = document.createElement('strong');
   name.textContent = String(entry?.name || entry?.title || voiceResultNameFromPath(entry?.path, 'Result'));
   body.appendChild(name);
@@ -27,16 +28,19 @@ function appendVoiceCard(list, entry, options = {}) {
   ].filter(Boolean).join(' - ');
   if (entry?.snippet) {
     const snippet = document.createElement('small');
+    snippet.className = 'voice-card-snippet';
     snippet.textContent = String(entry.snippet);
     body.appendChild(snippet);
   }
   if (metaText) {
     const meta = document.createElement('small');
+    meta.className = 'voice-card-meta';
     meta.textContent = metaText;
     body.appendChild(meta);
   }
   if (options.showPath && entry?.path && metaText !== entry.path) {
     const pathEl = document.createElement('small');
+    pathEl.className = 'voice-card-path';
     pathEl.textContent = String(entry.path);
     body.appendChild(pathEl);
   }
@@ -191,6 +195,12 @@ function renderVoiceAssistantResult(payload = {}) {
   const choices = Array.isArray(payload.choices) ? payload.choices : [];
   const cards = choices.length > 0 ? choices : entries;
   if (cards.length > 0) {
+    const summary = document.createElement('div');
+    summary.className = 'voice-content-summary';
+    summary.textContent = choices.length > 0
+      ? `${cards.length} option${cards.length === 1 ? '' : 's'}`
+      : `${cards.length} result${cards.length === 1 ? '' : 's'}`;
+    fragment.appendChild(summary);
     const list = document.createElement('ol');
     list.className = 'voice-card-list';
     for (const card of cards.slice(0, 6)) {
@@ -227,8 +237,17 @@ function updateVoiceOverlayDom(message) {
   const status = document.getElementById('status');
   const transcript = document.getElementById('transcript');
   const icon = document.getElementById('icon');
+  const responseEl = document.getElementById('assistant-response');
   const state = String(view.state || '').toLowerCase();
+  const keepExpandedResult = responseEl?.classList?.contains('visible');
+  const wasMedium = root.classList.contains('medium');
+  const wasLarge = root.classList.contains('large');
   root.className = state;
+  if (keepExpandedResult) {
+    root.classList.add('expanded');
+    root.classList.toggle('medium', wasMedium);
+    root.classList.toggle('large', wasLarge || !wasMedium);
+  }
   root.setAttribute('aria-label', view.accessibility?.label || view.ariaLabel || view.statusText || 'Voice status');
   root.setAttribute('aria-live', view.accessibility?.live || 'polite');
   if (title) title.textContent = view.title || 'Voice';

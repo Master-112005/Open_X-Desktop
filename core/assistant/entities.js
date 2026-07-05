@@ -150,7 +150,8 @@ const APP_ENTITY_BLOCKED_PREFIXES = new Set([
 const SCHEDULE_AMOUNT_PATTERN = String.raw`(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty(?:\s*five)?|sixty)`;
 const SCHEDULE_DURATION_PATTERN = String.raw`${SCHEDULE_AMOUNT_PATTERN}\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?)`;
 const SCHEDULE_CLOCK_PATTERN = String.raw`\d{1,2}(?:(?::|\s+)\d{2})?\s*(?:am|pm)?(?:\s+(?:today|tomorrow))?`;
-const SCHEDULE_DAY_PATTERN = String.raw`today|tomorrow(?:\s+(?:morning|afternoon|evening|night))?|tonight|next\s+week|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)`;
+const SCHEDULE_MONTH_DAY_PATTERN = String.raw`(?:the\s+)?\d{1,2}(?:st|nd|rd|th)?(?:\s+(?:of\s+)?(?:this|next)\s+month|\s+(?:this|next)\s+month)`;
+const SCHEDULE_DAY_PATTERN = String.raw`today|tomorrow(?:\s+(?:morning|afternoon|evening|night))?|tonight|next\s+week|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|${SCHEDULE_MONTH_DAY_PATTERN}`;
 const SCHEDULE_NATURAL_TIME_PATTERN = String.raw`noon|midnight|(?:morning|afternoon|evening|night)(?:\s+at\s+${SCHEDULE_CLOCK_PATTERN})?|(?:half|quarter)\s+(?:past|to)\s+\w+`;
 
 class EntityExtractor {
@@ -817,10 +818,19 @@ class EntityExtractor {
       .trim();
 
     const dateOnlyReminderMatch = source.match(
-      /^(?:remind\s+me|(?:create|add|set)\s+(?:a\s+)?(?:new\s+)?reminder)(?:\s+(?:for|on|at))?\s+(today|tomorrow(?:\s+(?:morning|afternoon|evening|night))?|tonight|next\s+week|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))$/i
+      new RegExp(`^(?:remind\\s+me|(?:create|add|set)\\s+(?:a\\s+)?(?:new\\s+)?reminder)(?:\\s+(?:for|on|at))?\\s+(${SCHEDULE_DAY_PATTERN})$`, 'i')
     );
     if (dateOnlyReminderMatch?.[1]) {
       return normalizeClock(dateOnlyReminderMatch[1].toLowerCase());
+    }
+
+    const reminderMonthDayMatch = source.match(
+      new RegExp(`^(?:remind|alert|notify)\\s+me\\s+(?:on\\s+|at\\s+|for\\s+)?(${SCHEDULE_MONTH_DAY_PATTERN})(?:\\s+(?:at\\s+)?(${SCHEDULE_CLOCK_PATTERN}))?\\s+(?:to|say|that|about)\\s+.+$`, 'i')
+    );
+    if (reminderMonthDayMatch?.[1]) {
+      const datePart = reminderMonthDayMatch[1].replace(/\s+/g, ' ').trim();
+      const timePart = reminderMonthDayMatch[2] ? ` at ${reminderMonthDayMatch[2]}` : '';
+      return normalizeClock(`${datePart}${timePart}`);
     }
 
     const directReminderTrailingDurationMatch = source.match(
@@ -914,8 +924,18 @@ class EntityExtractor {
   _extractReminderText(text, raw) {
     const source = String(raw || '');
 
-    if (/^(?:remind\s+me|(?:create|add|set)\s+(?:a\s+)?(?:new\s+)?reminder)(?:\s+(?:for|on|at))?\s+(?:today|tomorrow(?:\s+(?:morning|afternoon|evening|night))?|tonight|next\s+week|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))$/i.test(source.trim())) {
+    if (new RegExp(`^(?:remind\\s+me|(?:create|add|set)\\s+(?:a\\s+)?(?:new\\s+)?reminder)(?:\\s+(?:for|on|at))?\\s+(?:${SCHEDULE_DAY_PATTERN})$`, 'i').test(source.trim())) {
       return null;
+    }
+
+    const monthDayTextMatch = source.match(
+      new RegExp(`^(?:remind|alert|notify)\\s+me\\s+(?:on\\s+|at\\s+|for\\s+)?(?:${SCHEDULE_MONTH_DAY_PATTERN})(?:\\s+(?:at\\s+)?(?:${SCHEDULE_CLOCK_PATTERN}))?\\s+(?:to|say|that|about)\\s+(.+)$`, 'i')
+    );
+    if (monthDayTextMatch?.[1]) {
+      const cleaned = this._stripReminderScheduleSuffix(monthDayTextMatch[1]);
+      if (cleaned && !/^(?:me|myself|remind|reminder)$/i.test(cleaned)) {
+        return cleaned;
+      }
     }
 
     const directRemindMatch = source.match(/^(?:remind|alert|notify)\s+me\s+(?:tomorrow\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s+)?to\s+(.+)$/i);

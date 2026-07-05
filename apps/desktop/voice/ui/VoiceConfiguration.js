@@ -5,7 +5,7 @@ const { VoiceUIError } = require('./VoiceUIErrors');
 const DEFAULT_CONFIGURATION = Object.freeze({
   overlayEnabled: true,
   size: Object.freeze({ width: 256, height: 50 }),
-  mediumSize: Object.freeze({ width: 320, height: 148 }),
+  mediumSize: Object.freeze({ width: 328, height: 150 }),
   expandedSize: Object.freeze({ width: 360, height: 360 }),
   position: Object.freeze({ horizontal: 'center', vertical: 'top', yOffset: 12 }),
   animationDurationMs: 320,

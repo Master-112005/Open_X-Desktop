@@ -26,6 +26,17 @@ function waitForEvent(emitter, event, predicate = () => true, timeoutMs = 1500) 
   });
 }
 
+function createUnsignedAccessToken(deviceId) {
+  const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({
+    type: 'access',
+    ownerId: 'owner-test',
+    deviceId,
+    exp: Date.now() + 60000,
+    jti: `${deviceId}-token`
+  })}.signature`;
+}
+
 describe('CloudConnectionManager', () => {
   let server;
 
@@ -194,5 +205,35 @@ describe('CloudConnectionManager', () => {
     expect(manager.getStatus().notifications).to.have.length(1);
 
     await manager.disconnect('test-finished');
+  });
+
+  it('does not replace desktop auth with a paired phone token', () => {
+    const manager = new CloudConnectionManager({
+      logger: createSilentLogger(),
+      settings: {
+        deviceId: 'desktop-test',
+        ownerId: 'owner-test',
+        reconnectEnabled: false,
+        heartbeatEnabled: false
+      },
+      version: 'test'
+    });
+    const desktopAuth = { accessToken: createUnsignedAccessToken('desktop-test'), refreshToken: 'desktop-refresh' };
+    const phoneAuth = { accessToken: createUnsignedAccessToken('phone-test'), refreshToken: 'phone-refresh' };
+    manager.device = { deviceId: 'desktop-test', ownerId: 'owner-test' };
+    manager.auth = desktopAuth;
+
+    manager.handleMessage(JSON.stringify({
+      type: 'cloud-pair:paired',
+      ownerId: 'owner-test',
+      desktopDeviceId: 'desktop-test',
+      phoneDeviceId: 'phone-test',
+      auth: phoneAuth,
+      devices: [{ deviceId: 'phone-test', ownerId: 'owner-test', friendlyName: 'Phone' }]
+    }));
+
+    expect(manager.auth).to.equal(desktopAuth);
+    expect(manager.getStatus().authenticated).to.equal(true);
+    expect(manager.getStatus().pairedDevices).to.have.length(1);
   });
 });
