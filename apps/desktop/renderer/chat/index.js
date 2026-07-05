@@ -46,7 +46,6 @@ const cloudFriendlyStatusEl = document.getElementById('cloud-friendly-status');
 const cloudGenerateQrBtn = document.getElementById('cloud-generate-qr-btn');
 const cloudPairingStatusEl = document.getElementById('cloud-pairing-status');
 const cloudPairingQrEl = document.getElementById('cloud-pairing-qr');
-const cloudPairingTokenEl = document.getElementById('cloud-pairing-token');
 const cloudPairingExpiryEl = document.getElementById('cloud-pairing-expiry');
 const cloudPairingCountdownEl = document.getElementById('cloud-pairing-countdown');
 const cloudPairingRequestsEl = document.getElementById('cloud-pairing-requests');
@@ -1606,7 +1605,6 @@ async function generateCloudPairingQR() {
   stopCloudPairingCountdown();
   if (!cloudGenerateQrBtn) return;
   cloudGenerateQrBtn.disabled = true;
-  if (cloudPairingTokenEl) cloudPairingTokenEl.textContent = '--------';
   if (cloudPairingExpiryEl) cloudPairingExpiryEl.textContent = '';
   if (cloudPairingCountdownEl) cloudPairingCountdownEl.textContent = '';
   if (cloudPairingQrEl) {
@@ -1625,7 +1623,6 @@ async function generateCloudPairingQR() {
       cloudPairingQrEl.src = result.qrDataUrl;
       cloudPairingQrEl.hidden = false;
     }
-    if (cloudPairingTokenEl) cloudPairingTokenEl.textContent = result.payload.pairToken;
     if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'Waiting for phone scan...';
     if (cloudPairingExpiryEl) {
       cloudPairingExpiryEl.textContent = `Expires at ${new Date(result.payload.expiresAt).toLocaleTimeString()}.`;
@@ -1782,7 +1779,6 @@ function renderCloudPairingStatus(status) {
   }
   if (current?.expiresAt && current.expiresAt > Date.now()) {
     if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = pending.length > 0 ? 'Incoming pair request.' : 'Waiting for phone scan...';
-    if (cloudPairingTokenEl) cloudPairingTokenEl.textContent = current.pairToken || '--------';
     if (cloudPairingExpiryEl) cloudPairingExpiryEl.textContent = `Expires at ${new Date(current.expiresAt).toLocaleTimeString()}.`;
     if (cloudPairingQrEl && current.qrDataUrl) {
       cloudPairingQrEl.src = current.qrDataUrl;
