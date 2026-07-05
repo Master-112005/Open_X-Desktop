@@ -110,7 +110,7 @@ const CONFIG = {
   },
 
   cloud: {
-    relayUrl: process.env.OPENX_RELAY_URL || 'ws://localhost:8080/ws',
+    relayUrl: process.env.OPENX_RELAY_URL || 'ws://localhost:8081/ws',
     connectionTimeoutMs: 10000,
     heartbeatIntervalMs: 30000,
     pairTokenTtlMs: 5 * 60 * 1000,

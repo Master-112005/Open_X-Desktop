@@ -10,7 +10,7 @@ const STATES = Object.freeze({
   ERROR: 'Error'
 });
 
-const DEFAULT_RECONNECT_DELAYS = Object.freeze([1000, 2000, 5000, 10000, 20000]);
+const DEFAULT_RECONNECT_DELAYS = Object.freeze([1000, 2000, 5000, 10000, 20000, 30000]);
 const DEFAULT_TIMEOUT_MS = 10000;
 const DEFAULT_HEARTBEAT_MS = 30000;
 
@@ -43,6 +43,11 @@ function socketIsOpen(socket) {
   return Boolean(socket && socket.readyState === WebSocket.OPEN);
 }
 
+function withReconnectJitter(delayMs) {
+  const jitter = delayMs * 0.2 * (Math.random() * 2 - 1);
+  return Math.max(250, Math.round(delayMs + jitter));
+}
+
 class CloudConnectionManager extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -73,6 +78,15 @@ class CloudConnectionManager extends EventEmitter {
     this.pairedDevices = [];
     this.presence = [];
     this.notifications = [];
+    this.auth = null;
+    this.reliability = {
+      state: 'offline',
+      reconnectCount: 0,
+      droppedConnections: 0,
+      sessionRestoreCount: 0,
+      retryCount: 0,
+      lastRecoveryAt: null
+    };
     this.settings = this.normalizeSettings(options.settings || {});
   }
 
@@ -84,7 +98,7 @@ class CloudConnectionManager extends EventEmitter {
       ownerId: String(source.ownerId || '').trim(),
       deviceType: String(source.deviceType || 'desktop').trim() || 'desktop',
       friendlyName: String(source.friendlyName || 'OpenX Desktop').trim() || 'OpenX Desktop',
-      relayUrl: String(source.relayUrl || process.env.OPENX_RELAY_URL || '').trim() || 'ws://localhost:8080/ws',
+      relayUrl: String(source.relayUrl || process.env.OPENX_RELAY_URL || '').trim() || 'ws://localhost:8081/ws',
       autoConnect: source.autoConnect === true,
       reconnectEnabled: source.reconnectEnabled !== false,
       heartbeatEnabled: source.heartbeatEnabled !== false,
@@ -145,6 +159,7 @@ class CloudConnectionManager extends EventEmitter {
     this.owner = null;
     this.presence = [];
     this.notifications = [];
+    this.auth = null;
     this.connectedAt = null;
     this.rejectPendingRequests(new Error('Cloud connection disconnected.'));
     this.lastDisconnectedAt = nowIso();
@@ -176,7 +191,8 @@ class CloudConnectionManager extends EventEmitter {
   send(payload) {
     if (!this.isConnected()) return false;
     try {
-      this.socket.send(JSON.stringify(payload || {}));
+      const envelope = this.withAuth(payload || {});
+      this.socket.send(JSON.stringify(envelope));
       return true;
     } catch (error) {
       this.logger.warn('Send failed', { error: error.message });
@@ -185,10 +201,15 @@ class CloudConnectionManager extends EventEmitter {
   }
 
   sendRelayPacket(packet) {
-    return this.send({
+    const sent = this.send({
       type: 'relay:packet',
       packet
     });
+    if (!sent && packet?.metadata?.retryable === true) {
+      this.reliability.retryCount += 1;
+      this.emitStatus({ reliability: this.getReliabilityStatus('recovering') });
+    }
+    return sent;
   }
 
   requestPairToken(options = {}) {
@@ -391,6 +412,7 @@ class CloudConnectionManager extends EventEmitter {
         this.pairedDevices = [];
         this.presence = [];
         this.notifications = [];
+        this.auth = null;
         this.rejectPendingRequests(new Error('Cloud connection closed.'));
         socket.removeAllListeners();
 
@@ -402,6 +424,8 @@ class CloudConnectionManager extends EventEmitter {
         }
 
         this.logger.warn('Server Closed', { code, reason });
+        this.reliability.droppedConnections += 1;
+        this.reliability.lastRecoveryAt = nowIso();
         this.handleUnexpectedDisconnect(`closed-${code || 'unknown'}`);
         finish(this.getStatus());
       });
@@ -424,9 +448,22 @@ class CloudConnectionManager extends EventEmitter {
     if (payload?.type === 'device:registered') {
       this.device = payload.device || null;
       this.owner = payload.owner || null;
+      this.auth = payload.auth || this.auth;
+      this.reliability.sessionRestoreCount += 1;
+      this.reliability.state = 'healthy';
       this.emitStatus({ device: this.device, owner: this.owner });
       this.subscribePresence();
       this.requestNotificationList();
+      return;
+    }
+    if (payload?.type === 'auth:refreshed') {
+      this.auth = payload.auth || this.auth;
+      this.emitStatus({ auth: Boolean(this.auth) });
+      return;
+    }
+    if (payload?.type === 'auth:error') {
+      this.logger.warn('Cloud auth warning', { code: payload.code, message: payload.message });
+      if (payload.code === 'expired-token' && this.auth?.refreshToken) this.refreshAuth();
       return;
     }
     if (payload?.type === 'device:updated') {
@@ -474,6 +511,7 @@ class CloudConnectionManager extends EventEmitter {
     }
     if (payload?.type === 'cloud-pair:paired' || payload?.type === 'cloud-pair:rejected') {
       if (payload.type === 'cloud-pair:paired') {
+        this.auth = payload.auth || this.auth;
         this.pairedDevices = Array.isArray(payload.devices) ? payload.devices : [];
         this.emitStatus({ pairedDevices: this.pairedDevices });
       }
@@ -485,6 +523,7 @@ class CloudConnectionManager extends EventEmitter {
       return;
     }
     if (payload?.type === 'relay:ack') {
+      this.reliability.state = 'healthy';
       this.emit('relay-ack', payload);
       return;
     }
@@ -622,13 +661,17 @@ class CloudConnectionManager extends EventEmitter {
   scheduleReconnect(reason) {
     this.clearReconnectTimer();
     this.reconnectAttempts += 1;
-    const delay = DEFAULT_RECONNECT_DELAYS[Math.min(this.reconnectAttempts - 1, DEFAULT_RECONNECT_DELAYS.length - 1)];
+    const baseDelay = DEFAULT_RECONNECT_DELAYS[Math.min(this.reconnectAttempts - 1, DEFAULT_RECONNECT_DELAYS.length - 1)];
+    const delay = withReconnectJitter(baseDelay);
+    this.reliability.state = 'reconnecting';
+    this.reliability.reconnectCount += 1;
     this.setState(STATES.RECONNECTING, { reason, delayMs: delay, reconnectAttempts: this.reconnectAttempts });
     this.logger.info('Reconnect Started', { reason, delayMs: delay, reconnectAttempts: this.reconnectAttempts });
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.openSocket(STATES.RECONNECTING).then(status => {
         if (status.state === STATES.CONNECTED) {
+          this.reliability.state = 'healthy';
           this.logger.info('Reconnect Success', { relayUrl: this.relayUrl });
         } else {
           this.logger.warn('Reconnect Failed', { state: status.state, reconnectAttempts: this.reconnectAttempts });
@@ -749,10 +792,36 @@ class CloudConnectionManager extends EventEmitter {
       pairedDevices: this.pairedDevices.slice(),
       presence: this.presence.slice(),
       notifications: this.notifications.slice(),
+      reliability: this.getReliabilityStatus(),
+      authenticated: Boolean(this.auth?.accessToken),
       friendlyMessage: this.getFriendlyMessage(),
       error: this.state === STATES.ERROR ? this.lastError : '',
       settings: { ...this.settings },
       ...meta
+    };
+  }
+
+  withAuth(payload) {
+    const type = String(payload?.type || '');
+    if (!this.auth?.accessToken || type === 'device:register' || type.startsWith('auth:')) return payload;
+    return { ...payload, accessToken: this.auth.accessToken };
+  }
+
+  refreshAuth() {
+    if (!this.auth?.refreshToken) return false;
+    return this.send({
+      type: 'auth:refresh',
+      requestId: `auth-refresh-${Date.now()}`,
+      refreshToken: this.auth.refreshToken
+    });
+  }
+
+  getReliabilityStatus(state = this.reliability.state) {
+    return {
+      ...this.reliability,
+      state,
+      reconnectAttempts: this.reconnectAttempts,
+      retryQueueSize: 0
     };
   }
 

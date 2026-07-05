@@ -257,7 +257,7 @@ function createStableCloudId(prefix, seed) {
   return `${prefix}_${hash}`;
 }
 
-function normalizeCloudRelayUrl(value, fallback = 'ws://localhost:8080/ws') {
+function normalizeCloudRelayUrl(value, fallback = 'ws://localhost:8081/ws') {
   const raw = String(value || '').trim();
   if (!raw) return fallback;
   try {
@@ -345,7 +345,7 @@ class SettingsService {
         ownerId: createStableCloudId('owner', this.dataPaths.root),
         deviceType: 'desktop',
         friendlyName: String(this.baseConfig?.assistant?.displayName || this.baseConfig?.app?.name || 'OpenX Desktop').trim(),
-        relayUrl: normalizeCloudRelayUrl(this.baseConfig?.cloud?.relayUrl || process.env.OPENX_RELAY_URL || 'ws://localhost:8080/ws'),
+        relayUrl: normalizeCloudRelayUrl(this.baseConfig?.cloud?.relayUrl || process.env.OPENX_RELAY_URL || 'ws://localhost:8081/ws'),
         autoConnect: false,
         reconnectEnabled: true,
         heartbeatEnabled: true,
