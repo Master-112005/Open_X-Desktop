@@ -1124,6 +1124,58 @@ describe('Assistant Confirmation Flow', function() {
     assert.equal(executionOptions.phoneContext.deviceId, 'phone-1');
   });
 
+  it('should understand natural phone choice replies like this one', async function() {
+    const filePath = 'C:\\Users\\rakes\\Documents\\Resume.docx';
+    let selectedEntities = null;
+    const router = {
+      process: async () => ({
+        commandId: 'cmd-phone-natural-choice',
+        success: false,
+        needsClarification: true,
+        intent: 'phone.sendFile',
+        entities: { path: 'resume.docx', transferKind: 'file' },
+        data: {
+          clarificationType: 'phone.sendFile.file',
+          choices: [
+            {
+              index: 1,
+              title: `Resume.docx - ${filePath}`,
+              path: filePath,
+              entities: { selectedPath: filePath, transferKind: 'file' }
+            }
+          ]
+        },
+        response: 'I found 1 matching file for "resume.docx". Choose a number to send one.'
+      }),
+      confirmAndExecute: async (commandId, intentId, entities) => {
+        selectedEntities = entities;
+        return {
+          commandId,
+          success: true,
+          intent: intentId,
+          entities,
+          response: 'Sent Resume.docx.'
+        };
+      }
+    };
+
+    const assistant = new Assistant({ activeLearning: { enabled: false } }, {
+      router,
+      automation: {},
+      eventBus: { publish() {} }
+    });
+
+    await assistant.processCommand('send me resume.docx file', 'phone', {
+      phoneContext: { deviceId: 'phone-1', deviceName: 'My Mobile' }
+    });
+    const second = await assistant.processCommand('this one', 'phone', {
+      phoneContext: { deviceId: 'phone-1', deviceName: 'My Mobile' }
+    });
+
+    assert.equal(second.success, true);
+    assert.equal(selectedEntities.selectedPath, filePath);
+  });
+
   it('should allow the user to cancel a pending confirmation', async function() {
     const router = {
       process: async () => ({

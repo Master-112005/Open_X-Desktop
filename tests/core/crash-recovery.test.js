@@ -70,4 +70,21 @@ describe('Crash Recovery Policy', function() {
       remainingRestarts: 1
     });
   });
+
+  it('should persist compact crash metadata for startup diagnostics', function() {
+    const policy = new CrashRecoveryPolicy({ statePath, maxRestarts: 1, windowMs: 1000 });
+    const longReason = 'x'.repeat(500);
+
+    assert.equal(policy.requestRestart(1000, {
+      origin: 'startup',
+      component: 'main-process',
+      reason: longReason
+    }), true);
+
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    assert.equal(state.lastCrash.origin, 'startup');
+    assert.equal(state.lastCrash.component, 'main-process');
+    assert.equal(state.lastCrash.reason.length, 180);
+    assert.equal(state.lastCrash.timestamp, 1000);
+  });
 });

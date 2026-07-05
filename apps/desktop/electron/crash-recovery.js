@@ -1,5 +1,14 @@
 const { readJsonFile, writeJsonAtomic } = require('../../../core/assistant/Data');
 
+function compactCrashMetadata(metadata = {}) {
+  if (!metadata || typeof metadata !== 'object') return {};
+  return {
+    origin: String(metadata.origin || '').slice(0, 80),
+    reason: String(metadata.reason || '').replace(/\s+/g, ' ').trim().slice(0, 180),
+    component: String(metadata.component || '').slice(0, 80)
+  };
+}
+
 class CrashRecoveryPolicy {
   constructor(options = {}) {
     if (!options.statePath) throw new TypeError('Crash recovery statePath is required');
@@ -29,16 +38,25 @@ class CrashRecoveryPolicy {
     };
   }
 
-  requestRestart(now = Date.now()) {
+  requestRestart(now = Date.now(), metadata = {}) {
     const timestamps = this.readCrashTimestamps(now);
+    const crashMetadata = compactCrashMetadata(metadata);
 
     if (timestamps.length >= this.maxRestarts) {
-      writeJsonAtomic(this.statePath, { crashTimestamps: timestamps, blockedAt: now });
+      writeJsonAtomic(this.statePath, {
+        crashTimestamps: timestamps,
+        blockedAt: now,
+        lastCrash: { ...crashMetadata, timestamp: now }
+      });
       return false;
     }
 
     timestamps.push(now);
-    writeJsonAtomic(this.statePath, { crashTimestamps: timestamps, lastCrashAt: now });
+    writeJsonAtomic(this.statePath, {
+      crashTimestamps: timestamps,
+      lastCrashAt: now,
+      lastCrash: { ...crashMetadata, timestamp: now }
+    });
     return true;
   }
 

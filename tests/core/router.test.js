@@ -2478,6 +2478,12 @@ describe('Action Router', function() {
     const phoneDesktopOriginResult = await router.process('find resume file from desktop', 'phone', {
       phoneContext: { deviceId: 'phone001', deviceName: 'Galaxy S25' }
     });
+    const phoneNeedOriginResult = await router.process('i need resume file', 'phone', {
+      phoneContext: { deviceId: 'phone001', deviceName: 'Galaxy S25' }
+    });
+    const phoneWantOriginResult = await router.process('want latest screenshot', 'phone', {
+      phoneContext: { deviceId: 'phone001', deviceName: 'Galaxy S25' }
+    });
     const phoneSendCountBeforeChat = executed.filter(step => step.actionId === 'phone.sendFile').length;
     const chatMissingTarget = await router.process('send me latest screenshot', 'chat');
 
@@ -2506,9 +2512,15 @@ describe('Action Router', function() {
     assert.equal(phoneFindOriginResult.entities.path, 'resume.docx');
     assert.equal(phoneDesktopOriginResult.intent, 'phone.sendFile');
     assert.equal(phoneDesktopOriginResult.entities.path, 'resume in desktop');
+    assert.equal(phoneNeedOriginResult.intent, 'phone.sendFile');
+    assert.equal(phoneNeedOriginResult.entities.path, 'resume');
+    assert.equal(phoneWantOriginResult.intent, 'phone.sendFile');
+    assert.equal(phoneWantOriginResult.entities.transferKind, 'image');
     assert.notEqual(chatMissingTarget.intent, 'phone.sendFile');
     assert.equal(executed.filter(step => step.actionId === 'phone.sendFile').length, phoneSendCountBeforeChat);
     assert.deepEqual(executed.filter(step => step.actionId === 'phone.sendFile').map(step => step.actionId), [
+      'phone.sendFile',
+      'phone.sendFile',
       'phone.sendFile',
       'phone.sendFile',
       'phone.sendFile',

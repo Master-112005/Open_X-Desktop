@@ -2830,7 +2830,11 @@ function handleFatalError(reason, origin) {
 
   if (app?.isReady?.() && !cleanupFinished) {
     try {
-      if (crashRecoveryPolicy.requestRestart()) {
+      if (crashRecoveryPolicy.requestRestart(Date.now(), {
+        origin,
+        reason: error.message,
+        component: 'main-process'
+      })) {
         app.relaunch();
       } else {
         mainLogger.error('Automatic relaunch blocked by crash-loop policy');
