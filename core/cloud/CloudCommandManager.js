@@ -205,6 +205,12 @@ class CloudCommandManager extends EventEmitter {
 
   async executeRequest(request) {
     this.setLifecycle(request.requestId, 'executing');
+    this.emit('assistant-command', {
+      request,
+      command: request.command,
+      deviceName: request.deviceName || null,
+      timestamp: Date.now()
+    });
     this.log('info', 'Execution Started', {
       requestId: request.requestId,
       sourceDeviceId: request.sourceDeviceId
@@ -230,6 +236,13 @@ class CloudCommandManager extends EventEmitter {
         status: 'completed',
         responseType: result?.needsClarification ? 'clarification' : 'assistant-response'
       }));
+      this.emit('assistant-result', {
+        request,
+        result,
+        status: 'completed',
+        responseType: result?.needsClarification ? 'clarification' : 'assistant-response',
+        timestamp: Date.now()
+      });
       this.log('info', 'Execution Finished', {
         requestId: request.requestId,
         success: result?.success === true
@@ -244,6 +257,18 @@ class CloudCommandManager extends EventEmitter {
         timedOut ? 'Execution Timed Out' : 'Assistant execution failed.',
         { status: timedOut ? 'timed-out' : 'failed' }
       ));
+      this.emit('assistant-result', {
+        request,
+        result: {
+          success: false,
+          response: timedOut ? 'Execution timed out.' : 'Assistant execution failed.',
+          message: timedOut ? 'Execution timed out.' : 'Assistant execution failed.',
+          error: timedOut ? 'execution-timeout' : 'assistant-execution-failed'
+        },
+        status: timedOut ? 'timed-out' : 'failed',
+        responseType: 'error',
+        timestamp: Date.now()
+      });
       this.log('warn', timedOut ? 'Timeout' : 'Execution Failed', {
         requestId: request.requestId,
         error: error?.message || String(error)

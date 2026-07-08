@@ -69,6 +69,9 @@ describe('CloudCommandManager', () => {
       },
       logger: { info() {}, warn() {}, error() {} }
     });
+    const uiEvents = [];
+    manager.on('assistant-command', event => uiEvents.push({ type: 'command', event }));
+    manager.on('assistant-result', event => uiEvents.push({ type: 'result', event }));
 
     manager.handleRelayPacket(createPacket());
     await new Promise(resolve => setTimeout(resolve, 20));
@@ -81,6 +84,12 @@ describe('CloudCommandManager', () => {
     assert.equal(connection.sent[0].payload.status, 'completed');
     assert.equal(connection.sent[0].payload.responseType, 'clarification');
     assert.equal(connection.sent[0].payload.payload.data.choices[0].title, 'Downloads');
+    assert.equal(uiEvents.length, 2);
+    assert.equal(uiEvents[0].type, 'command');
+    assert.equal(uiEvents[0].event.command, 'open downloads');
+    assert.equal(uiEvents[1].type, 'result');
+    assert.equal(uiEvents[1].event.result.response, 'Choose a folder.');
+    assert.equal(uiEvents[1].event.responseType, 'clarification');
   });
 
   it('keeps cloud assistant responses small enough for the relay packet limit', async () => {
