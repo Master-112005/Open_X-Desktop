@@ -328,6 +328,8 @@ class VoiceOverlay extends EventEmitter {
     if (intent === 'phone.notification') {
       return String(result?.data?.notification?.appName || 'Phone notification').slice(0, 40);
     }
+    if (intent === 'phone.cloudCommand') return 'From mobile';
+    if (intent === 'phone.cloudResult') return 'Mobile reply';
     if (/^(?:timer|alarm|reminder)\./.test(intent)) return 'Schedule';
     if (/^media\./.test(intent)) return 'Media';
     if (result?.success === false) return 'Needs attention';

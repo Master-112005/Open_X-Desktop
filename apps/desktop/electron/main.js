@@ -1363,6 +1363,72 @@ function presentPhoneNotificationInDynamicIsland(notification = {}, metadata = {
   }
 }
 
+function presentCloudPhoneCommandInDynamicIsland(event = {}) {
+  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
+  const request = event.request || {};
+  const deviceName = String(event.deviceName || request.deviceName || 'Mobile').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const command = String(event.command || request.command || '').replace(/\s+/g, ' ').trim().slice(0, 280);
+  if (!command) return false;
+  try {
+    voiceOverlay.displayAssistantResult({
+      success: true,
+      intent: 'phone.cloudCommand',
+      response: command,
+      data: {
+        resultEntries: [{
+          index: 1,
+          name: command,
+          type: 'phone command',
+          location: deviceName,
+          snippet: 'Processing through OpenX Desktop.'
+        }]
+      },
+      ui: {
+        icon: 'PH',
+        previewStatus: `${deviceName} sent a command`,
+        preExpandDelayMs: 250,
+        autoHideMs: 2600
+      }
+    });
+    return true;
+  } catch (error) {
+    mainLogger.warn('Dynamic Island cloud command popup failed', { error: error.message });
+    return false;
+  }
+}
+
+function presentCloudPhoneResultInDynamicIsland(event = {}) {
+  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
+  const request = event.request || {};
+  const result = event.result && typeof event.result === 'object' ? event.result : {};
+  const deviceName = String(event.deviceName || request.deviceName || 'Mobile').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const response = String(result.response || result.message || (event.status === 'completed' ? 'Command completed.' : 'Command failed.'))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 420);
+  try {
+    voiceOverlay.displayAssistantResult({
+      ...result,
+      response,
+      message: response,
+      intent: result.intent || 'phone.cloudResult',
+      success: result.success !== false && event.status === 'completed',
+      data: result.data || null,
+      ui: {
+        ...(result.ui || {}),
+        icon: 'PH',
+        previewStatus: `Reply for ${deviceName}`,
+        preExpandDelayMs: 420,
+        autoHideMs: result.needsClarification ? 22000 : 14000
+      }
+    });
+    return true;
+  } catch (error) {
+    mainLogger.warn('Dynamic Island cloud result popup failed', { error: error.message });
+    return false;
+  }
+}
+
 function getTimerWidgetState(preferredId = null, options = {}) {
   const includeStopwatch = options.includeStopwatch === true || timerWidgetMode === 'stopwatch';
   const state = assistant?.automation?.scheduler?.getTimerWidgetState?.(preferredId, { includeStopwatch });
@@ -1590,6 +1656,12 @@ function initializeCloudCommands() {
     } else if (['completed', 'failed', 'timed-out', 'rejected'].includes(event?.state)) {
       manager.updatePresence?.('online', { reason: 'assistant-idle' });
     }
+  });
+  cloudCommandManager.on('assistant-command', event => {
+    presentCloudPhoneCommandInDynamicIsland(event);
+  });
+  cloudCommandManager.on('assistant-result', event => {
+    presentCloudPhoneResultInDynamicIsland(event);
   });
   cloudCommandManager.start();
   return cloudCommandManager;
