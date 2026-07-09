@@ -16,6 +16,8 @@ const {
   extractReplacement,
   parseLearningDirective
 } = require('./active-learning/LearningLanguage');
+const { PipelineManager } = require('./pipeline');
+const { createDefaultInputSourceManager } = require('./acquisition');
 
 const CONFIRM_PHRASES = [
   'approve',
@@ -150,9 +152,34 @@ class Assistant extends EventEmitter {
     this.commandTimeoutMs = Number.isFinite(config?.assistant?.commandTimeoutMs)
       ? Math.max(25, config.assistant.commandTimeoutMs)
       : DEFAULT_COMMAND_TIMEOUT_MS;
+    this.intelligencePipeline = dependencies.intelligencePipeline || new PipelineManager({
+      configuration: config?.assistantIntelligence?.pipeline || config?.assistant?.pipeline || {},
+      normalization: config?.assistantIntelligence?.normalization || config?.assistant?.normalization || {},
+      linguistic: config?.assistantIntelligence?.linguistic || config?.assistant?.linguistic || {},
+      semantic: config?.assistantIntelligence?.semantic || config?.assistant?.semantic || {},
+      logger: this.logger
+    });
+    this.inputSourceManager = dependencies.inputSourceManager || createDefaultInputSourceManager({
+      logger: this.logger
+    });
   }
 
   async processCommand(input, source = 'chat', options = {}) {
+    const rawUserInput = this.inputSourceManager.acquire(input, source, options);
+    const pipelineResult = await this.intelligencePipeline.process({ input, source, options, rawUserInput });
+    if (!pipelineResult.success) {
+      this.logger.warn('Assistant Intelligence pipeline failed; continuing with original input.', pipelineResult.error?.message || 'unknown');
+    }
+    const forwarded = pipelineResult?.output && typeof pipelineResult.output === 'object'
+      ? pipelineResult.output
+      : {};
+    const nextInput = typeof forwarded.input === 'string' ? forwarded.input : input;
+    const nextSource = typeof forwarded.source === 'string' ? forwarded.source : source;
+    const nextOptions = forwarded.options && typeof forwarded.options === 'object' ? forwarded.options : options;
+    return this._processCommandDirect(nextInput, nextSource, nextOptions);
+  }
+
+  async _processCommandDirect(input, source = 'chat', options = {}) {
     if (!input || typeof input !== 'string' || input.trim().length === 0) {
       return this._finalizeAssistantResult({
         success: false,
