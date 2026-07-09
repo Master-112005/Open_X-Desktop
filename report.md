@@ -14,7 +14,7 @@ OpenX is a deterministic, local-first Windows desktop assistant. The app accepts
 
 The current codebase includes a staged assistant intelligence pipeline for input acquisition, language normalization, linguistic and semantic analysis, entity extraction, memory/context resolution, reasoning, planning, decision/validation, verification, response shaping, and learning.
 
-These intelligence modules are staged sidecars around the legacy assistant. They store structured context and immutable results for future use while preserving current request behavior.
+`Assistant.processCommand()` now delegates to `AssistantEngine`, which owns the command-processing entry boundary. The pipeline still preserves current behavior through the existing router path while migration continues.
 
 ## Repository Scan
 
@@ -36,18 +36,18 @@ Current filtered counts:
 |---|---:|---:|
 | `apps` | 114 | 0 |
 | `build` | 5 | 0 |
-| `core` | 446 | 0 |
+| `core` | 447 | 0 |
 | `docs` | 9 | 0 |
 | `models` | 4 | 0 |
 | `plugins` | 12 | 0 |
 | `scripts` | 2 | 0 |
 | `tests` | 67 | 67 |
 
-Total filtered files: 669
+Total filtered files: 670
 
 Total filtered directories: 72
 
-JavaScript files: 628
+JavaScript files: 629
 
 Test files: 67
 
@@ -84,9 +84,11 @@ Primary runtime flow:
 
 ```text
 Input source
+  -> Assistant.processCommand()
+  -> AssistantEngine
   -> InputSourceManager
   -> RawUserInput
-  -> Assistant Intelligence Pipeline
+  -> Assistant intelligence pipeline
   -> LanguageNormalizationStage
   -> LinguisticUnderstandingStage
   -> SemanticUnderstandingStage
@@ -119,6 +121,29 @@ Important compatibility point:
 | Context awareness | `core/context-awareness/` | Active window, app registry, process signals, modes |
 | Plugins | `plugins/` | Plugin controller and restricted plugin packages |
 | Tests | `tests/` | Automation, assistant, phone, voice, UI, learning, security, context regression coverage |
+
+## Pipeline Ownership Migration
+
+Current status:
+
+- `Assistant.processCommand()` delegates directly to `AssistantEngine`.
+- `AssistantEngine` owns input acquisition, pipeline execution, fallback handling, and the bridge into the existing execution path.
+- Dependency audit scanned 629 JavaScript files and 1,633 local `require()` edges.
+- No direct circular dependency pairs were found in the scanned local dependency graph.
+- Legacy modules are still intentionally retained because production and tests still depend on them.
+
+Remaining legacy consumers:
+
+| Legacy module | Current direct consumers |
+|---|---|
+| `core/assistant/parser.js` | `core/assistant/router.js`, parser/context/learning tests |
+| `core/assistant/entities.js` | new entity extractors that reuse existing app/folder behavior |
+| `core/assistant/intents.js` | `core/assistant/router.js`, intent/NLU tests |
+| `core/assistant/responses.js` | `core/assistant/index.js`, `core/assistant/router.js`, voice response coordinator, response tests |
+| `core/assistant/language.js` | NLP, NLU, parser |
+| `core/assistant/nlu.js` | `core/assistant/router.js`, app/browser/NLU tests |
+
+No legacy files were deleted. They should be removed only after each direct consumer is migrated to immutable pipeline outputs and full regression coverage remains green.
 
 ## Assistant Intelligence Modules
 
@@ -686,6 +711,7 @@ OpenX/
 |   |   |   |-- VerificationResult.js
 |   |   |   +-- WindowVerifier.js
 |   |   |-- Active-learning.js
+|   |   |-- AssistantEngine.js
 |   |   |-- contest.js
 |   |   |-- context.js
 |   |   |-- Data.js
@@ -890,4 +916,5 @@ The repository is verified at the current working tree state:
 - assistant intelligence sidecars are present;
 - current assistant routing behavior remains backward compatible;
 - report and architecture test now match the current directory layout.
+
 
