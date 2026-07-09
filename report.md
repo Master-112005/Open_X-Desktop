@@ -1,596 +1,169 @@
-# OpenX Implementation Report
-
-Project: OpenX
-
-Package version: 5.5.1
-
-Platform: Windows desktop
-
-Runtime: Electron 28, Node.js, CommonJS
+﻿# OpenX Repository Report
 
 Report date: 2026-07-09
 
-## 1. Executive Summary
+Repository: `C:\Users\rakes\Documents\PROJECTS\Project-Intigerity\OpenX`
 
-OpenX is a local-first Windows desktop assistant. It accepts commands from chat, OpenX Mobile, the local voice subsystem, cloud relay, plugins, and future API/OCR/clipboard sources, standardizes them through the Assistant Intelligence v3 foundation, then routes plain text through the existing assistant behavior. The assistant remains deterministic: it acquires, normalizes, parses, validates, executes, verifies, and responds without changing automation behavior based on the input surface.
+Package: `openx@5.5.1`
 
-The current implementation includes:
+Runtime: Electron 28, Node.js, CommonJS
 
-- assistant NLP, NLU, parser, router, NLE, response, context, and learning layers;
-- automation controllers for apps, browser, files, folders, media, scheduler, planner, system, volume, brightness, windows, screenshots, and communications;
-- local voice capture, preprocessing, Sherpa-ONNX/Parakeet STT, transcript normalization, Dynamic Island voice UI, diagnostics, and TTS turn-taking;
-- OpenX Mobile pairing, session validation, device permissions, phone command routing, and bidirectional file transfer;
-- desktop Device Management Center for local paired devices and cloud-paired device visibility, with search, filtering, rename, trust, disconnect, remove, and permission editing;
-- optional desktop cloud relay connection, disabled by default, isolated from local assistant and local phone behavior;
-- cloud-mode presence and notification protocol support for paired relay devices;
-- phone-origin file/folder fetching with desktop search context, structured choices, and safe confirmation before weak matches;
-- calendar, timetable, reminders, recurring reminders, alarms, timers, stopwatch, snooze, and alert display;
-- managed data storage under `OpenX_Data`;
-- Electron IPC security, crash recovery, and renderer isolation;
-- plugin isolation for Chrome, YouTube, Discord, forms, and communications;
-- regression tests for core language, automation, UI, phone, security, voice, learning, and context behavior.
-- Assistant Intelligence v3 Phase 1 pipeline infrastructure, Phase 2 input acquisition, Phase 3 language normalization, Phase 4 linguistic understanding, and Phase 5 semantic understanding.
+## Summary
 
-## 2. Codebase Scope
+OpenX is a deterministic, local-first Windows desktop assistant. The app accepts commands from desktop chat, voice, phone, cloud relay, plugins, and future structured input sources, then routes them through the existing assistant boundary without changing the public `Assistant.processCommand(input, source, options)` contract.
 
-This report covers the OpenX desktop repository:
+The current codebase includes a staged assistant intelligence pipeline for input acquisition, language normalization, linguistic and semantic analysis, entity extraction, memory/context resolution, reasoning, planning, decision/validation, verification, response shaping, and learning.
+
+These intelligence modules are staged sidecars around the legacy assistant. They store structured context and immutable results for future use while preserving current request behavior.
+
+## Repository Scan
+
+Filtered scan excludes generated or local-heavy directories:
 
 ```text
-C:\Users\rakes\Documents\PROJECTS\Project-Intigerity\OpenX
-```
-
-Filtered project count:
-
-- Files in report tree: 432
-- Test files: 60
-- Core files: 261
-- Desktop app files: 114
-- Plugin files: 13
-- Root/config/documentation files: 10
-
-The tree excludes local-only or generated noise:
-
-```text
-node_modules/
 .git/
+node_modules/
+dist/
+.code-review-graph/
 .codex/
 .cursor/
-.agents/
-.code-review-graph/
-.playwright-mcp/
-.vscode/
-dist/
-release/
 graphify-out/
-OpenX_Data/
-openx_data/
-coverage/
-*.log
-*.tmp
 ```
 
-## 3. High-Level Architecture
+Current filtered counts:
+
+| Area | Files | Tests |
+|---|---:|---:|
+| `apps` | 114 | 0 |
+| `build` | 5 | 0 |
+| `core` | 446 | 0 |
+| `docs` | 9 | 0 |
+| `models` | 4 | 0 |
+| `plugins` | 12 | 0 |
+| `scripts` | 2 | 0 |
+| `tests` | 67 | 67 |
+
+Total filtered files: 669
+
+Total filtered directories: 72
+
+JavaScript files: 628
+
+Test files: 67
+
+## Verification
+
+Commands run:
+
+```powershell
+npm run lint
+npx mocha "tests/**/*.test.js" --timeout 20000
+```
+
+Results:
 
 ```text
-Chat / voice / phone / cloud / plugin / future API / OCR / clipboard
-  -> InputSourceManager.acquire()
-  -> source adapter
+ESLint: clean
+Mocha: 842 passing
+```
+
+During verification, the full suite initially exposed one stale architecture test that still expected newer assistant subdirectories to be absent. That expectation conflicted with the current repo layout, so `tests/core/architecture-structure.test.js` was updated to accept the current architecture.
+
+Lint also exposed small repo-level issues, now fixed:
+
+- `core/assistant/acquisition/InputMetadataBuilder.js`: use `globalThis.Intl`
+- `core/assistant/acquisition/LanguageDetector.js`: use `globalThis.Intl`
+- `core/assistant/router.js`: removed unused `EXPLICIT_FILE_DOMAIN_PATTERN`
+- `core/cloud/CloudCommandManager.js`: changed constant-condition `while (true)` to `for (;;)`
+
+The error log lines printed during tests are expected negative-path assertions, including unknown actions, protected path deletion, parser failure simulation, timeout simulation, and plugin namespace rejection.
+
+## Architecture
+
+Primary runtime flow:
+
+```text
+Input source
+  -> InputSourceManager
   -> RawUserInput
   -> Assistant Intelligence Pipeline
   -> LanguageNormalizationStage
-  -> NormalizedInput
   -> LinguisticUnderstandingStage
-  -> LinguisticGraph
   -> SemanticUnderstandingStage
-  -> SemanticRepresentation
-  -> current Assistant.processCommand plain-text boundary
-  -> NlpProcessor.prepare()
-  -> NaturalLanguageRouter.parse()
-  -> InputParser / CommandFrameParser
-  -> EntityExtractor.extract()
-  -> ActionRouter.process()
-  -> validation and permission checks
-  -> NaturalLanguageExecutor.execute()
-  -> AutomationEngine.execute()
-  -> action verification and confirmation
-  -> ResponseGenerator.generate()
-  -> context and active-learning updates
-  -> OpenX_Data persistence
+  -> EntityUnderstandingStage
+  -> MemoryContextStage
+  -> GoalIntentReasoningStage
+  -> TaskPlanningStage
+  -> DecisionValidationAutomationStage
+  -> VerificationResponseStage
+  -> AssistantPassthroughStage
+  -> LearningStage
+  -> legacy assistant router and automation boundary
 ```
 
-The assistant contract is:
+Important compatibility point:
 
-```text
-Assistant.processCommand(text, source)
-```
+`LearningStage` runs after pass-through and returns the original pass-through payload, so the current command input, source, options, router behavior, and response remain unchanged.
 
-The public assistant contract is unchanged. Internally, `InputSourceManager.acquire()` creates a `RawUserInput`, the intelligence pipeline produces a deterministic `NormalizedInput`, the linguistic layer builds an immutable grammar-only `LinguisticGraph`, the semantic layer builds an immutable meaning-only `SemanticRepresentation`, and only normalized plain text is forwarded into the existing NLP/parser/router path. The parser, NLU, router, automation, plugins, phone, cloud, and voice systems are not rewritten by these phases.
+## Main Areas
 
-## 4. Main Module Responsibilities
-
-| Module | Path | Responsibility |
+| Area | Path | Responsibility |
 |---|---|---|
-| Assistant entry | `core/assistant/index.js` | Conversation lifecycle, clarification, confirmation, response flow, context, and active learning |
-| Input acquisition | `core/assistant/acquisition/` | Standardizes chat, voice, phone, cloud, plugin, API, OCR, and clipboard input into `RawUserInput` without NLP or routing |
-| Language normalization | `core/assistant/normalization/` | Cleans and canonicalizes language into `NormalizedInput` through configurable normalizers without intent or entity reasoning |
-| Linguistic understanding | `core/assistant/linguistic/` | Builds a grammar-only `LinguisticGraph` with tokens, sentences, clauses, dependencies, POS tags, verbs, subjects, objects, modifiers, questions, negations, and sentence-local pronouns |
-| Semantic understanding | `core/assistant/semantic/` | Builds a meaning-only `SemanticRepresentation` with concepts, semantic roles, relationships, conversation type, similarity, confidence, and semantic graph data without deciding intent |
-| Intelligence pipeline | `core/assistant/pipeline/`, `core/assistant/contracts/`, `core/assistant/models/`, `core/assistant/events/`, `core/assistant/utils/` | Reusable staged runtime that carries acquisition, normalization, linguistic, and semantic output while preserving the existing assistant contract |
-| NLP | `core/assistant/nlp/` | Text cleanup, spelling repair, command preparation, scoring, web target normalization |
-| NLU | `core/assistant/nlu.js` | Semantic command interpretation, app/browser command language, context-aware parsing |
-| Parser | `core/assistant/parser.js` | Input parsing and word-level command frames |
-| Entities | `core/assistant/entities.js` | Apps, files, folders, paths, contacts, time, reminder, media, planner, and phone transfer entities |
-| Router | `core/assistant/router.js` | Multi-command planning, intent resolution, fallback classification, confirmation, and routing |
-| NLE | `core/assistant/nle.js` | Assistant-to-automation execution boundary |
-| Responses | `core/assistant/responses.js` | Human-readable responses, search result summaries, error humanization, personality output |
-| Context | `core/assistant/context.js`, `core/assistant/contest.js` | Session memory and context-engine bridge |
-| Active learning | `core/assistant/Active-learning.js`, `core/assistant/active-learning/` | Corrections, preferences, aliases, user facts, usage stats, workflow memory |
-| Data | `core/assistant/Data.js` | Data root, atomic JSON storage, migration, event bus, logging, redaction, retention |
-| Automation | `core/automation/` | Desktop action controllers and verification helpers |
-| Phone | `core/phone/` | Pairing, sessions, permissions, phone command routing, file transfer, security |
-| Cloud | `core/cloud/` | Optional relay WebSocket client, device registration, connection states, reconnect, heartbeat, cloud QR pairing, generic opaque relay packet hooks, remote assistant command queueing, cloud file transfer, presence, notifications, and local cloud logs |
-| Voice | `apps/desktop/voice/` | Audio, preprocessing, STT, transcript processing, session lifecycle, UI, diagnostics, TTS |
-| Desktop | `apps/desktop/` | Electron lifecycle, IPC, windows, tray, shortcuts, settings, security, crash recovery |
-| Plugins | `plugins/` | Restricted plugin packages and plugin action facades |
+| Desktop shell | `apps/desktop/` | Electron lifecycle, renderer windows, settings, preload APIs, permissions, voice UI |
+| Voice | `apps/desktop/voice/` | Audio capture, preprocessing, STT, normalization, diagnostics, TTS, Dynamic Island UI |
+| Assistant legacy core | `core/assistant/*.js` | Public command flow, NLP/NLU/parser/router/entities/responses/context/active learning |
+| Assistant intelligence pipeline | `core/assistant/{acquisition,normalization,linguistic,semantic,entities,memory,reasoning,planning,decision,validation,automation,verification,response,learning}/` | Sidecar staged intelligence layers, immutable results, diagnostics, registries |
+| Automation | `core/automation/` | App, browser, files, folders, media, scheduler, system, volume, brightness, windows |
+| Phone | `core/phone/` | Pairing, session security, permissions, command routing, file transfer |
+| Cloud | `core/cloud/` | Optional relay connection, cloud commands, cloud file transfer, presence, notifications |
+| Context awareness | `core/context-awareness/` | Active window, app registry, process signals, modes |
+| Plugins | `plugins/` | Plugin controller and restricted plugin packages |
+| Tests | `tests/` | Automation, assistant, phone, voice, UI, learning, security, context regression coverage |
 
-## 5. Critical Functions And Methods
+## Assistant Intelligence Modules
 
-### Assistant Core
-
-| Function or method | File | Purpose |
+| Module | Directory | Immutable output |
 |---|---|---|
-| `Assistant.processCommand(input, source, options)` | `core/assistant/index.js` | Public command entry used by chat, phone, and voice. Owns clarification, confirmation, routing, execution, response, and learning flow. |
-| `InputSourceManager.acquire(input, source, options)` | `core/assistant/acquisition/InputSourceManager.js` | Selects a source adapter and produces one immutable `RawUserInput` for every input surface. |
-| `InputAdapterRegistry.register(adapter, options)` | `core/assistant/acquisition/InputAdapterRegistry.js` | Registers source adapters with priority and health metadata for future input sources. |
-| `BaseInputAdapter.acquire(payload)` | `core/assistant/acquisition/BaseInputAdapter.js` | Adapter lifecycle boundary for source validation and raw input creation. |
-| `InputFactory.create(payload)` | `core/assistant/acquisition/InputFactory.js` | Builds `RawUserInput` with IDs, metadata, language hints, confidence, attachments, device data, and diagnostics. |
-| `LanguageDetector.detect(text, metadata)` | `core/assistant/acquisition/LanguageDetector.js` | Performs lightweight source-stage language/script detection without translation or NLP. |
-| `AttachmentResolver.resolve(attachments, source)` | `core/assistant/acquisition/AttachmentResolver.js` | Normalizes optional attachment metadata without opening, parsing, or executing attached files. |
-| `SourceConfidenceCalculator.calculate(payload)` | `core/assistant/acquisition/SourceConfidenceCalculator.js` | Computes acquisition reliability only; it is not intent confidence. |
-| `PipelineManager.process(payload)` | `core/assistant/pipeline/PipelineManager.js` | Runs the assistant intelligence stages and forwards the resulting plain text to the existing assistant path. |
-| `PipelineEngine.run(context)` | `core/assistant/pipeline/PipelineEngine.js` | Executes configured stages sequentially with timing, diagnostics, cancellation, and timeout handling. |
-| `AssistantPassthroughStage.execute(context)` | `core/assistant/pipeline/AssistantPassthroughStage.js` | Preserves the current assistant text/source/options boundary after pipeline stages complete. |
-| `NormalizationManager.normalize(rawUserInput, options)` | `core/assistant/normalization/NormalizationManager.js` | Produces one deterministic `NormalizedInput` from `RawUserInput`. |
-| `NormalizationPipeline.run(context)` | `core/assistant/normalization/NormalizationPipeline.js` | Runs enabled normalizers sequentially and records warnings, timings, and diagnostics. |
-| `NormalizerRegistry.register(normalizer, options)` | `core/assistant/normalization/NormalizerRegistry.js` | Registers ordered normalizers with priority, version, enabled state, and health metadata. |
-| `BaseNormalizer.normalize(context)` | `core/assistant/normalization/BaseNormalizer.js` | Common lifecycle contract for independent, configurable normalizers. |
-| `LanguageNormalizationStage.execute(context)` | `core/assistant/normalization/LanguageNormalizationStage.js` | Bridges pipeline `RawUserInput` to `NormalizedInput` and updates the downstream plain-text input. |
-| `LinguisticManager.analyze(normalizedInput, options)` | `core/assistant/linguistic/LinguisticManager.js` | Produces one immutable grammar-only `LinguisticGraph` from `NormalizedInput`. |
-| `LinguisticPipeline.run(context)` | `core/assistant/linguistic/LinguisticPipeline.js` | Runs enabled analyzers sequentially and records warnings, timings, and diagnostics. |
-| `AnalyzerRegistry.register(analyzer, options)` | `core/assistant/linguistic/AnalyzerRegistry.js` | Registers ordered linguistic analyzers with priority, version, enabled state, and health metadata. |
-| `BaseAnalyzer.analyze(context)` | `core/assistant/linguistic/BaseAnalyzer.js` | Common lifecycle contract for grammar-only analyzer modules. |
-| `Tokenizer.analyze(context)` | `core/assistant/linguistic/Tokenizer.js` | Splits normalized text into ordered tokens with type and character-position metadata. |
-| `SentenceSplitter.analyze(context)` | `core/assistant/linguistic/SentenceSplitter.js` | Preserves sentence boundaries across commands, questions, punctuation, and mixed input. |
-| `ClauseAnalyzer.analyze(context)` | `core/assistant/linguistic/ClauseAnalyzer.js` | Identifies main, subordinate, coordinate, relative, conditional, independent, and dependent clause structures. |
-| `DependencyParser.analyze(context)` | `core/assistant/linguistic/DependencyParser.js` | Builds grammar relationships such as subject, object, and modifier edges without semantic interpretation. |
-| `POSTagger.analyze(context)` | `core/assistant/linguistic/POSTagger.js` | Assigns grammatical categories and confidence values to tokens. |
-| `PronounResolver.analyze(context)` | `core/assistant/linguistic/PronounResolver.js` | Resolves pronouns only inside the same sentence and does not use conversation history. |
-| `LinguisticUnderstandingStage.execute(context)` | `core/assistant/linguistic/LinguisticUnderstandingStage.js` | Stores the `LinguisticGraph` in pipeline context while keeping downstream input as plain text. |
-| `SemanticManager.analyze(linguisticGraph, normalizedInput, options)` | `core/assistant/semantic/SemanticManager.js` | Produces one immutable meaning-only `SemanticRepresentation` from a `LinguisticGraph`. |
-| `SemanticPipeline.run(context)` | `core/assistant/semantic/SemanticPipeline.js` | Runs semantic analyzers sequentially and records warnings, timings, and diagnostics. |
-| `SemanticRegistry.register(analyzer, options)` | `core/assistant/semantic/SemanticRegistry.js` | Registers semantic analyzers with priority, version, enabled state, and health metadata. |
-| `SemanticDictionary.lookup(value)` | `core/assistant/semantic/SemanticDictionary.js` | Resolves configurable synonyms, paraphrases, aliases, and vocabulary terms to canonical concepts. |
-| `MeaningResolver.analyze(context)` | `core/assistant/semantic/MeaningResolver.js` | Converts linguistic tokens into canonical concepts such as `OPEN`, `APPLICATION`, `SEND`, or `EMAIL`. |
-| `SemanticRoleLabeler.analyze(context)` | `core/assistant/semantic/SemanticRoleLabeler.js` | Assigns meaning roles such as Agent, Theme, Location, Quantity, and Manner from grammar-only data. |
-| `RelationshipAnalyzer.analyze(context)` | `core/assistant/semantic/RelationshipAnalyzer.js` | Builds concept and grammar relationships without selecting an intent or action. |
-| `ConversationClassifier.analyze(context)` | `core/assistant/semantic/ConversationClassifier.js` | Classifies utterance type, such as command, question, greeting, feedback, or correction, without execution decisions. |
-| `SimilarityEngine.analyze(context)` | `core/assistant/semantic/SimilarityEngine.js` | Computes deterministic concept similarity and leaves room for future providers. |
-| `ConfidenceEngine.analyze(context)` | `core/assistant/semantic/ConfidenceEngine.js` | Produces explainable confidence scores for meaning, roles, relationships, similarity, and overall semantics. |
-| `SemanticGraphBuilder.analyze(context)` | `core/assistant/semantic/SemanticGraphBuilder.js` | Builds the immutable semantic graph with nodes, edges, graph size, version, and confidence metadata. |
-| `SemanticUnderstandingStage.execute(context)` | `core/assistant/semantic/SemanticUnderstandingStage.js` | Stores the `SemanticRepresentation` in pipeline context while keeping downstream input as plain text. |
-| `ActionRouter.process(inputText, source, options)` | `core/assistant/router.js` | Main route planner. Handles multi-command splitting, intent completion, contextual choices, fallback classification, and safe unsupported responses. |
-| `NlpProcessor.prepare(text)` | `core/assistant/nlp/nlp.js` | Produces normalized, corrected, tokenized, and semantically framed input for routing. |
-| `preprocessCommand(text)` | `core/assistant/nlp/preprocessor.js` | Applies phrase repair, lead-in stripping, repeated-token cleanup, token replacements, and command cleanup. |
-| `NaturalLanguageRouter.parse(rawText, preparedInput)` | `core/assistant/nlu.js` | Converts language into structured command interpretations. |
-| `InputParser.parse(text)` | `core/assistant/parser.js` | Builds parsed input structures from raw text. |
-| `CommandFrameParser.parse(rawText, preparedInput)` | `core/assistant/parser.js` | Produces word-level command frames for relationship-aware parsing. |
-| `EntityExtractor.extract(intent, text)` | `core/assistant/entities.js` | Extracts structured entities needed by automation and validation. |
-| `NaturalLanguageExecutor.execute(actionId, entities, context)` | `core/assistant/nle.js` | Executes a normalized action through the automation engine. |
-| `ResponseGenerator.generate(type, templateId, context)` | `core/assistant/responses.js` | Creates final user-facing text for confirmations, errors, summaries, and informational responses. |
-| `ActiveLearningStore` and `ActiveLearningManager` methods | `core/assistant/Active-learning.js`, `core/assistant/active-learning/ActiveLearningManager.js` | Store corrections, aliases, usage patterns, preferences, user facts, and workflows without bypassing safety checks. |
+| Entity understanding | `core/assistant/entities/` | `StructuredEntities` |
+| Memory and context | `core/assistant/memory/`, `core/assistant/context/`, `core/assistant/references/` | `ResolvedContext` |
+| Goal and intent reasoning | `core/assistant/reasoning/` | `ReasoningResult` |
+| Task planning | `core/assistant/planning/` | `ExecutionBlueprint` |
+| Decision, validation, automation | `core/assistant/decision/`, `core/assistant/validation/`, `core/assistant/automation/` | `AutomationResult` |
+| Verification and response | `core/assistant/verification/`, `core/assistant/response/` | `VerificationResult`, `AssistantResponse` |
+| Learning | `core/assistant/learning/` | `LearningResult` |
 
-### Data, Logging, And Persistence
+## Directory Tree
 
-| Function or method | File | Purpose |
-|---|---|---|
-| `resolveDataRoot(config)` | `core/assistant/Data.js` | Resolves the managed `OpenX_Data` root. |
-| `buildDataPaths(config)` | `core/assistant/Data.js` | Builds paths for settings, schedules, planner, logs, voice diagnostics, phone data, media data, and transfer storage. |
-| `ensureDataRoot(config)` | `core/assistant/Data.js` | Creates the managed data tree and migrates/cleans legacy locations. |
-| `writeJsonAtomic(filePath, value, options)` | `core/assistant/Data.js` | Writes JSON safely with temporary files and optional backups. |
-| `readJsonFile(filePath, fallbackValue, options)` | `core/assistant/Data.js` | Reads JSON with fallback and corrupt-file recovery. |
-| `migrateLegacyData(config)` | `core/assistant/Data.js` | Moves legacy `.jarvis` and accidental root files into `OpenX_Data`. |
-| `Logger._redact(value)` | `core/assistant/Data.js` | Redacts private values before writing logs. |
-| `Logger._writeEntry(type, entry)` | `core/assistant/Data.js` | Writes bounded log entries with rotation and retention. |
-
-### Cloud Relay Connection
-
-| Function or method | File | Purpose |
-|---|---|---|
-| `CloudConnectionManager.connect(settings)` | `core/cloud/CloudConnectionManager.js` | Opens the optional desktop WebSocket connection to the configured relay server. |
-| `CloudConnectionManager.disconnect(reason)` | `core/cloud/CloudConnectionManager.js` | Manually closes the relay socket, disables reconnect timers, and keeps local mode active. |
-| `CloudConnectionManager.reconnect(reason)` | `core/cloud/CloudConnectionManager.js` | Reopens the relay connection without exposing WebSocket details to the rest of the app. |
-| `CloudConnectionManager.getStatus(meta)` | `core/cloud/CloudConnectionManager.js` | Returns UI-safe state, relay URL, timestamps, duration, ping, attempts, version, and friendly status text. |
-| `CloudConnectionManager.send(payload)` | `core/cloud/CloudConnectionManager.js` | Sends relay protocol payloads only when connected. |
-| `CloudConnectionManager.sendRelayPacket(packet)` | `core/cloud/CloudConnectionManager.js` | Sends a Phase 6 opaque relay packet without invoking assistant command logic. |
-| `CloudCommandManager.start()` | `core/cloud/CloudCommandManager.js` | Subscribes to relay packets and enables Phase 7 desktop-side cloud assistant command handling. |
-| `CloudCommandManager.handleRelayPacket(message)` | `core/cloud/CloudCommandManager.js` | Validates `assistant-command` packets, rejects invalid requests, and queues valid requests. |
-| `CloudCommandManager.executeRequest(request)` | `core/cloud/CloudCommandManager.js` | Calls the existing phone command route into `Assistant.processCommand()` and sends a serialized relay response. |
-| `CloudRequestQueue.enqueue(item)` | `core/cloud/CloudRequestQueue.js` | Queues cloud command requests with bounded capacity and configurable busy/queue behavior. |
-| `CloudResponseSerializer.serialize(payload)` | `core/cloud/CloudResponseSerializer.js` | Preserves structured assistant responses inside a standard cloud response packet. |
-| `CloudFileTransferManager.sendFileToDevice(deviceId, sourcePath)` | `core/cloud/CloudFileTransferManager.js` | Starts a metadata-first, receiver-approved cloud file transfer and sends chunks through relay packets. |
-| `CloudFileTransferManager.acceptTransfer(transferId)` | `core/cloud/CloudFileTransferManager.js` | Accepts an incoming cloud file transfer before any chunks are written to desktop storage. |
-| `CloudFileTransferManager.handleChunk(packet, payload)` | `core/cloud/CloudFileTransferManager.js` | Validates chunk sequence and checksum, appends to a temp file, and sends progress acknowledgements. |
-| `CloudFileTransferManager.handleComplete(payload)` | `core/cloud/CloudFileTransferManager.js` | Verifies final size and SHA-256 before moving the temp file into the existing received-file storage. |
-| `CloudConnectionManager.registerDevice()` | `core/cloud/CloudConnectionManager.js` | Registers the stable desktop cloud device ID and placeholder owner with the relay. |
-| `CloudConnectionManager.requestPairToken(options)` | `core/cloud/CloudConnectionManager.js` | Requests a relay-owned secure cloud pair token and resolves the matching response safely. |
-| `CloudConnectionManager.approvePairingRequest(pairRequestId)` | `core/cloud/CloudConnectionManager.js` | Sends explicit desktop approval for a pending cloud pair request. |
-| `CloudConnectionManager.rejectPairingRequest(pairRequestId)` | `core/cloud/CloudConnectionManager.js` | Sends explicit desktop rejection for a pending cloud pair request. |
-| `CloudConnectionManager.updateDevice(deviceId, updates)` | `core/cloud/CloudConnectionManager.js` | Sends a correlated relay request for cloud device rename and metadata updates. |
-| `CloudConnectionManager.removeDevice(deviceId)` | `core/cloud/CloudConnectionManager.js` | Sends a correlated relay request to remove a cloud-paired device owned by the desktop owner. |
-| `CloudConnectionManager.updatePresence(state, metadata)` | `core/cloud/CloudConnectionManager.js` | Publishes desktop cloud presence such as online, busy, idle, syncing, or sleeping. |
-| `CloudConnectionManager.subscribePresence()` | `core/cloud/CloudConnectionManager.js` | Subscribes to owner-scoped paired-device presence updates. |
-| `CloudConnectionManager.createNotification(payload)` | `core/cloud/CloudConnectionManager.js` | Sends cloud notification records through the relay notification manager. |
-| `CloudConnectionManager.markNotificationRead(notificationId)` | `core/cloud/CloudConnectionManager.js` | Marks a cloud notification read. |
-| `CloudConnectionManager.dismissNotification(notificationId)` | `core/cloud/CloudConnectionManager.js` | Dismisses a cloud notification. |
-| `CloudConnectionManager.destroy(reason)` | `core/cloud/CloudConnectionManager.js` | Deterministically releases sockets, heartbeat timers, reconnect timers, and listeners during shutdown. |
-| `CloudPairingManager.generatePairingQR(options)` | `core/cloud/CloudPairingManager.js` | Creates a QR from relay URL, relay-generated token, version, and expiry only. |
-| `CloudPairingManager.approvePairing(pairRequestId)` | `core/cloud/CloudPairingManager.js` | Approves an incoming cloud pair request after desktop user confirmation. |
-| `CloudPairingManager.rejectPairing(pairRequestId)` | `core/cloud/CloudPairingManager.js` | Rejects and cleans an incoming cloud pair request. |
-| `CloudPairingManager.getStatus()` | `core/cloud/CloudPairingManager.js` | Returns active QR and pending request state for the settings UI. |
-| `CloudLogger.write(level, message, data)` | `core/cloud/CloudLogger.js` | Records local cloud lifecycle logs without analytics or sensitive data leakage. |
-| `initializeCloudConnection()` | `apps/desktop/electron/main.js` | Creates the desktop cloud manager and publishes state to the settings UI. |
-| `initializeCloudPairing()` | `apps/desktop/electron/main.js` | Creates the desktop cloud pairing manager and forwards incoming requests to the UI. |
-| `maybeAutoConnectCloud(reason)` | `apps/desktop/electron/main.js` | Connects on startup only when cloud mode and auto connect are both explicitly enabled. |
-| `cloud:*` IPC handlers | `apps/desktop/electron/main.js`, `apps/desktop/electron/security.js`, `apps/desktop/preload.js` | Validate and expose status/connect/disconnect through the existing secure renderer bridge. |
-
-### Automation
-
-| Function or method | File | Purpose |
-|---|---|---|
-| `AutomationEngine.execute(actionId, entities, context)` | `core/automation/index.js` | Central action registry and execution dispatcher. |
-| `AutomationEngine.destroy()` | `core/automation/index.js` | Releases controller resources. |
-| `AppController.open(appName, options)` | `core/automation/apps.js` | Opens or focuses applications. |
-| `AppController.close(appName, options)` | `core/automation/apps.js` | Closes applications or windows with verification. |
-| `FileController.open(filename, targetPath)` | `core/automation/files.js` | Opens resolved files and participates in file choice handling. |
-| `FolderController.open(folderName, options)` | `core/automation/folders.js` | Opens resolved folders and supports ambiguous-folder choices. |
-| `MediaController` playback methods | `core/automation/media.js` | Handles media play, search, pause, resume, track navigation, and platform mapping. |
-| `SchedulerController` methods | `core/automation/scheduler.js` | Creates timers, alarms, reminders, recurrence, snooze, stopwatch, and schedule alerts. |
-| `PlannerController.open(view)` | `core/automation/planner.js` | Opens the calendar/timetable planner window. |
-| `validateActionEntities()` | `core/automation/common/action-velidation.js` | Prevents incomplete actions from executing. |
-| `verifyActionResult()` | `core/automation/common/action-verification.js` | Checks postconditions and normalizes result evidence. |
-| `confirmActionResult()` | `core/automation/common/action-confirm.js` | Converts execution evidence into confirmation data. |
-
-### Phone And File Transfer
-
-| Function or method | File | Purpose |
-|---|---|---|
-| `PhoneServer.start()` | `core/phone/PhoneServer.js` | Starts the WebSocket phone server. |
-| `PhoneServer.stop()` | `core/phone/PhoneServer.js` | Stops clients, sessions, timers, and server resources. |
-| `PhoneServer.sendToDevice(deviceId, payload)` | `core/phone/PhoneServer.js` | Sends messages or file-transfer payloads to a paired phone. |
-| `PhoneServer._handleMessage(clientId, data)` | `core/phone/PhoneServer.js` | Validates and routes incoming phone messages. |
-| `PhoneServer._authenticateRequest(clientId, client, payload)` | `core/phone/PhoneServer.js` | Validates session tokens, device IDs, and transfer metadata. |
-| `PhoneServer._handleFileTransfer(clientId, payload)` | `core/phone/PhoneServer.js` | Handles complete file-transfer payloads. |
-| `PhoneServer._handleChunkedFileTransfer(clientId, payload)` | `core/phone/PhoneServer.js` | Handles chunked transfer start, chunk, and complete events. |
-| `PhoneServer._handleFileTransferReceipt(clientId, payload)` | `core/phone/PhoneServer.js` | Records mobile receive acknowledgements. |
-| `PhoneServer.getDeviceSession(deviceId)` | `core/phone/PhoneServer.js` | Returns UI-safe session state for a managed device without exposing tokens. |
-| `DeviceRegistry.registerDevice(device)` | `core/phone/DeviceRegistry.js` | Stores paired device identity, metadata, trust state, and default permissions. |
-| `DeviceRegistry.updateDeviceName(deviceId, deviceName)` | `core/phone/DeviceRegistry.js` | Renames a paired device from the desktop Device Management Center. |
-| `DeviceRegistry.updateTrust(deviceId, trusted)` | `core/phone/DeviceRegistry.js` | Toggles trusted/untrusted state and disables permission checks when untrusted. |
-| `DeviceRegistry.updatePermissions(deviceId, permissions)` | `core/phone/DeviceRegistry.js` | Applies immediate assistant, file transfer, desktop control, clipboard, and future permission changes. |
-| `SessionManager.getSession(deviceId)` | `core/phone/SessionManager.js` | Produces active/expired session summaries without leaking the session token. |
-| `PairingService.pairDevice(request)` | `core/phone/PairingService.js` | Registers local paired devices and carries optional device type/platform/version metadata. |
-| `FileTransferManager.sendFileToDevice(deviceId, sourcePath)` | `core/phone/FileTransferManager.js` | Sends desktop files/folders to a phone, zipping folders when needed. |
-| `FileTransferManager.startIncomingTransfer(payload)` | `core/phone/FileTransferManager.js` | Starts a chunked phone-to-desktop transfer and creates a guarded temp file. |
-| `FileTransferManager.receiveFileChunk(payload)` | `core/phone/FileTransferManager.js` | Validates chunk order/size and appends chunk data. |
-| `FileTransferManager.completeIncomingTransfer(payload)` | `core/phone/FileTransferManager.js` | Verifies hash/size and moves the finished file to `Downloads\OpenX Received`. |
-| `FileTransferProtocol.validateIncoming(payload)` | `core/phone/FileTransferProtocol.js` | Validates complete transfer payloads. |
-| `FileTransferProtocol.decodeBase64(value, expectedSize)` | `core/phone/FileTransferProtocol.js` | Decodes and size-checks base64 payloads. |
-| `TransferIntegrity.verify(data, expectedHash)` | `core/phone/TransferIntegrity.js` | Verifies transfer hashes. |
-| `TransferHistory` methods | `core/phone/TransferHistory.js` | Stores recent transfer status and history. |
-| `SecurityManager` and `SessionManager` methods | `core/phone/SecurityManager.js`, `core/phone/SessionManager.js` | Enforce secure phone request and session behavior. |
-
-### Voice
-
-| Function or method | File | Purpose |
-|---|---|---|
-| `VoiceSessionManager.startSession(options)` | `apps/desktop/voice/session/VoiceSessionManager.js` | Starts a persistent voice session. |
-| `VoiceSessionManager.beginListening()` | `apps/desktop/voice/session/VoiceSessionManager.js` | Moves into listening state. |
-| `VoiceSessionManager.processAudioFrame(audioFrame)` | `apps/desktop/voice/session/VoiceSessionManager.js` | Delivers raw audio into preprocessing. |
-| `VoiceSessionManager.recognizeProcessedFrame(processedFrame)` | `apps/desktop/voice/session/VoiceSessionManager.js` | Sends accepted speech frames to STT. |
-| `VoiceSessionManager.processTranscript(transcriptResult)` | `apps/desktop/voice/session/VoiceSessionManager.js` | Normalizes and routes final transcripts. |
-| `VoiceSessionManager.resumeListeningCycle(reason)` | `apps/desktop/voice/session/VoiceSessionManager.js` | Resets the recognition stream and resumes the same session after a turn. |
-| `VoiceSessionManager.cancelSession(reason)` | `apps/desktop/voice/session/VoiceSessionManager.js` | Cancels an active voice session safely. |
-| `VoiceSessionManager._createRecognitionCycle(reason)` | `apps/desktop/voice/session/VoiceSessionManager.js` | Separates recognition cycle lifecycle from session lifecycle. |
-| `VoiceSessionManager._flushAudioCaptureBuffer(reason)` | `apps/desktop/voice/session/VoiceSessionManager.js` | Prevents stale audio from crossing recognition-cycle boundaries. |
-| `VoiceSessionManager._shouldPublishPartialTranscript(text, payload)` | `apps/desktop/voice/session/VoiceSessionManager.js` | Suppresses duplicate/flickering partial transcript events. |
-| `AudioCapture.start(options)` | `apps/desktop/voice/audio/AudioCapture.js` | Starts microphone PCM capture. |
-| `AudioCapture.stop()` | `apps/desktop/voice/audio/AudioCapture.js` | Stops microphone capture. |
-| `AudioProcessor.processFrame(audioFrame)` | `apps/desktop/voice/preprocessing/AudioProcessor.js` | Runs audio frames through preprocessing pipeline. |
-| `STTEngine.partial(processedFrame)` | `apps/desktop/voice/stt/STTEngine.js` | Emits partial recognition hypotheses. |
-| `STTEngine.final()` | `apps/desktop/voice/stt/STTEngine.js` | Produces a final utterance transcript. |
-| `STTEngine.reset()` | `apps/desktop/voice/stt/STTEngine.js` | Resets recognition stream without rebuilding the whole voice session. |
-| `TranscriptProcessor` methods | `apps/desktop/voice/normalization/TranscriptProcessor.js` | Cleans, validates, and normalizes transcripts. |
-| `AssistantDispatcher.dispatch(commandText)` | `apps/desktop/voice/integration/AssistantDispatcher.js` | Sends normalized voice text to `Assistant.processCommand`. |
-| `VoiceExecutionCoordinator.finishExecution(result)` | `apps/desktop/voice/integration/VoiceExecutionCoordinator.js` | Coordinates assistant result display, TTS, and resume-listening behavior. |
-| `VoiceExecutionCoordinator.stopSpeaking(reason)` | `apps/desktop/voice/integration/VoiceExecutionCoordinator.js` | Stops current TTS output when user taps once during assistant speech. |
-| `TextToSpeech.speak(text)` | `apps/desktop/voice/tts.js` | Speaks assistant responses through local Windows SAPI. |
-| `TextToSpeech.stop()` | `apps/desktop/voice/tts.js` | Stops current speech. |
-| `VoiceWindowController.show(view)` | `apps/desktop/voice/ui/VoiceWindowController.js` | Shows Dynamic Island voice UI. |
-| `VoiceWindowController.updateAssistantResult(payload)` | `apps/desktop/voice/ui/VoiceWindowController.js` | Displays assistant replies, file/folder choices, reminders, alarms, and alert actions. |
-| `VoiceWindowController._setSizeMode(mode, options)` | `apps/desktop/voice/ui/VoiceWindowController.js` | Smoothly changes Dynamic Island size. |
-| `VoiceWindowController._moveToBounds(bounds, options)` | `apps/desktop/voice/ui/VoiceWindowController.js` | Animates window bounds for expansion/collapse. |
-
-### Desktop, Security, And Crash Recovery
-
-| Function or method | File | Purpose |
-|---|---|---|
-| Electron startup/lifecycle handlers | `apps/desktop/electron/main.js` | Own app lifecycle, tray, shortcuts, windows, assistant startup, phone server, voice runtime, and IPC registration. |
-| `buildManagedDeviceList()` | `apps/desktop/electron/main.js` | Merges local registry, active phone sessions, and cloud-paired visibility into one Device Management Center list. |
-| `phone:device:rename` IPC handler | `apps/desktop/electron/main.js`, `apps/desktop/electron/security.js`, `apps/desktop/preload.js` | Validates and applies desktop-owned device renames. |
-| `phone:device:trust:update` IPC handler | `apps/desktop/electron/main.js`, `apps/desktop/electron/security.js`, `apps/desktop/preload.js` | Validates trust changes, disconnects untrusted devices, and revokes sessions. |
-| `processCommand` preload bridge | `apps/desktop/preload.js` | Exposes a narrow validated renderer API for chat commands. |
-| Voice overlay preload helpers | `apps/desktop/preload.js` | Render Dynamic Island assistant results and schedule controls. |
-| IPC validation helpers | `apps/desktop/electron/security.js` | Validate renderer origins and payload schemas. |
-| Crash recovery manager | `apps/desktop/electron/crash-recovery.js` | Handles renderer crash detection and bounded recovery. |
-| `PermissionValidator` | `apps/desktop/permissions.js` | Applies permission levels, throttling, and sensitive-action checks. |
-| `SettingsService` | `apps/desktop/settings.js` | Loads, normalizes, saves, and resets user settings. |
-
-## 6. Voice Architecture
-
-The voice subsystem remains local-only. It uses Sherpa-ONNX with local Parakeet model files under `models/parakeet/`.
-
-Runtime path:
-
-```text
-Alt+Space or voice button
-  -> VoiceSessionManager
-  -> AudioCapture
-  -> AudioProcessor
-  -> RNNoiseProcessor / VoiceActivityDetector / SpeechSourceClassifier
-  -> STTEngine
-  -> SherpaRuntime / ParakeetEngine
-  -> TranscriptAssembler
-  -> TranscriptProcessor
-  -> AssistantDispatcher
-  -> Assistant.processCommand()
-  -> VoiceExecutionCoordinator
-  -> VoiceWindowController / TextToSpeech
-  -> resume listening cycle
-```
-
-Important behavior:
-
-- voice sessions can remain active across multiple utterances;
-- recognition cycles are separate from the session lifecycle;
-- stale audio is flushed between cycles;
-- partial transcript noise is suppressed;
-- TTS pauses recognition to avoid self-capture;
-- user tap behavior can stop speech or cancel the current voice task;
-- Dynamic Island UI displays listening, processing, execution, assistant results, file choices, reminder/alarm/timer alerts, and stop/snooze actions.
-
-## 7. Phone And File Transfer Architecture
-
-OpenX Mobile communicates with the desktop through the phone server in `core/phone/PhoneServer.js`.
-
-### Device Management Center
-
-The desktop Settings page is the authority for local device management. `phone:devices:list` returns a merged management view from `buildManagedDeviceList()`:
-
-```text
-DeviceRegistry.listDevices()
-  + PhoneServer.getStatus().connectedDevices
-  + PhoneServer.getDeviceSession(deviceId)
-  + CloudConnectionManager.getStatus().pairedDevices
-  -> Settings -> Phone -> Connected Devices
-```
-
-The page displays friendly name, device ID, type, platform, software version, connection status, trust status, permission summary, connection duration, last seen, paired date, and session state. Search, status/type/trust filters, sorting, and manual refresh are renderer-only. Local device actions are validated through Electron IPC:
-
-- Rename updates `DeviceRegistry.updateDeviceName()`.
-- Disconnect closes the active socket/session path while keeping the pair.
-- Remove deletes the pair and revokes session/trust/permissions so QR pairing is required again.
-- Trust/untrust updates `DeviceRegistry.updateTrust()` and disconnects/revokes active sessions when untrusted.
-- Permission changes immediately affect the existing phone permission guard.
-
-Cloud-only paired devices support relay-backed rename and remove. Trust and permission editing remain local-only until relay trust/permission endpoints are implemented. Local Mode behavior remains unchanged.
-
-Desktop-to-phone flow:
-
-```text
-Assistant command
-  -> phone.sendFile automation action
-  -> FileTransferManager.sendFileToDevice()
-  -> PhoneServer.sendToDevice()
-  -> mobile incoming-file payload
-  -> mobile receipt
-  -> TransferHistory update
-```
-
-Phone-to-desktop chunked flow:
-
-```text
-OpenX Mobile selected file
-  -> file-transfer-start
-  -> FileTransferManager.startIncomingTransfer()
-  -> file-transfer-chunk events
-  -> FileTransferManager.receiveFileChunk()
-  -> file-transfer-complete
-  -> FileTransferManager.completeIncomingTransfer()
-  -> Downloads\OpenX Received
-```
-
-File transfer safeguards:
-
-- device trust and session validation;
-- per-device permission checks;
-- file name sanitization;
-- file size limits;
-- transfer ID validation;
-- ordered chunk validation;
-- chunk size validation;
-- SHA-256 verification;
-- temporary file isolation;
-- timeout cleanup for incomplete transfers;
-- transfer history and receipts;
-- stale transfer cleanup on disconnect.
-
-## 8. Data Handling
-
-Runtime data root:
-
-```text
-%USERPROFILE%\OpenX_Data\
-```
-
-Managed data categories:
-
-- settings;
-- learning and active-learning stores;
-- schedules, timers, alarms, reminders, recurring reminders;
-- planner/calendar entries;
-- logs and crash recovery state;
-- media runtime state;
-- screenshots;
-- voice diagnostics and health data;
-- phone pairing/device/session state;
-- file transfer history;
-- received phone files;
-- temporary phone-transfer archives.
-
-Data handling principles:
-
-- use `OpenX_Data` instead of project root files;
-- write JSON atomically;
-- back up important JSON before overwrite;
-- recover from corrupt JSON with fallback data;
-- redact private values in logs;
-- migrate legacy `.jarvis` files when supported;
-- clean accidental project-root schedules/planner files into managed storage.
-
-## 9. Security And Safety Model
-
-OpenX uses several safety layers:
-
-- Electron renderer isolation through preload APIs;
-- trusted renderer checks and IPC payload validation;
-- confirmation gates for sensitive commands;
-- required-entity validation before execution;
-- postcondition verification after execution;
-- plugin manifest validation and action namespace restrictions;
-- phone pairing codes, identity verification, session tokens, permissions, and device trust;
-- file transfer hash and size verification;
-- private log redaction;
-- local-only voice processing with no cloud speech API.
-
-## 10. Plugins
-
-Plugin entry point:
-
-```text
-plugins/plugin-controller.js
-```
-
-Current plugin packages:
-
-- `plugins/chrome/`
-- `plugins/youtube/`
-- `plugins/discord/`
-- `plugins/forms/`
-- `plugins/communications/`
-- `plugins/sample_plugin/`
-
-Plugin restrictions:
-
-- manifests are required;
-- action IDs must stay under plugin namespaces;
-- permission levels must be declared;
-- automation usage must be declared through `usesAutomation`;
-- plugin paths are constrained to configured plugin directories.
-
-## 11. Testing
-
-Available scripts:
-
-```powershell
-npm test
-npm run test:core
-npm run test:automation
-npm run test:context
-npm run test:learning
-npm run test:ui
-npm run lint
-npm run validate
-```
-
-Important test areas:
-
-- command corpus classification;
-- NLP/NLU/parser/router behavior;
-- assistant clarification and confirmation;
-- reminder/alarm/timer/stopwatch scheduling;
-- file/folder search and choice handling;
-- phone pairing, permissions, security, and transfer;
-- voice session, STT, diagnostics, UI, and TTS behavior;
-- Electron shortcut, IPC, renderer security, and crash recovery;
-- automation controllers and common verification helpers.
-
-## 12. Packaging
-
-Build scripts:
-
-```powershell
-npm run build
-npm run package
-```
-
-Packaging uses Electron Builder. The NSIS installer includes:
-
-- `apps/**/*`
-- `core/**/*`
-- `plugins/**/*`
-- `config.js`
-- `package.json`
-- local Parakeet model files;
-- Chrome native messaging host binary.
-
-Excluded from package files:
-
-- tests;
-- Markdown documentation;
-- generated metadata;
-- OS junk files;
-- development-only output.
-
-## 13. Full Filtered Directory Tree
+Generated from the current workspace with generated/heavy folders excluded. This tree includes both folders and files.
 
 ```text
 OpenX/
 |-- apps/
-|   `-- desktop/
+|   +-- desktop/
 |       |-- electron/
 |       |   |-- crash-recovery.js
 |       |   |-- main.js
-|       |   `-- security.js
+|       |   +-- security.js
 |       |-- renderer/
 |       |   |-- chat/
 |       |   |   |-- index.css
 |       |   |   |-- index.html
-|       |   |   `-- index.js
+|       |   |   +-- index.js
 |       |   |-- planner/
 |       |   |   |-- index.css
 |       |   |   |-- index.html
-|       |   |   `-- index.js
+|       |   |   +-- index.js
 |       |   |-- settings/
 |       |   |   |-- index.css
 |       |   |   |-- index.html
-|       |   |   `-- index.js
+|       |   |   +-- index.js
 |       |   |-- timer-widget/
 |       |   |   |-- index.css
 |       |   |   |-- index.html
-|       |   |   `-- index.js
-|       |   `-- voice-capture/
+|       |   |   +-- index.js
+|       |   +-- voice-capture/
 |       |       |-- index.html
-|       |       `-- index.js
+|       |       +-- index.js
 |       |-- voice/
 |       |   |-- audio/
 |       |   |   |-- AudioBuffer.js
@@ -601,9 +174,9 @@ OpenX/
 |       |   |   |-- AudioEvents.js
 |       |   |   |-- AudioFrame.js
 |       |   |   |-- AudioPermissions.js
-|       |   |   `-- index.js
+|       |   |   +-- index.js
 |       |   |-- config/
-|       |   |   `-- VoiceSettings.js
+|       |   |   +-- VoiceSettings.js
 |       |   |-- diagnostics/
 |       |   |   |-- DiagnosticsConfiguration.js
 |       |   |   |-- DiagnosticsErrors.js
@@ -621,7 +194,7 @@ OpenX/
 |       |   |   |-- ResourceMonitor.js
 |       |   |   |-- SessionStatistics.js
 |       |   |   |-- VoiceLogger.js
-|       |   |   `-- VoiceMetrics.js
+|       |   |   +-- VoiceMetrics.js
 |       |   |-- integration/
 |       |   |   |-- AssistantDispatcher.js
 |       |   |   |-- AssistantInputAdapter.js
@@ -631,7 +204,7 @@ OpenX/
 |       |   |   |-- VoiceIntegrationConfiguration.js
 |       |   |   |-- VoiceIntegrationErrors.js
 |       |   |   |-- VoiceIntegrationEvents.js
-|       |   |   `-- VoiceResponseHandler.js
+|       |   |   +-- VoiceResponseHandler.js
 |       |   |-- normalization/
 |       |   |   |-- AcronymNormalizer.js
 |       |   |   |-- ApplicationNormalizer.js
@@ -646,7 +219,7 @@ OpenX/
 |       |   |   |-- TextCleaner.js
 |       |   |   |-- TextValidator.js
 |       |   |   |-- TranscriptNormalizer.js
-|       |   |   `-- TranscriptProcessor.js
+|       |   |   +-- TranscriptProcessor.js
 |       |   |-- preprocessing/
 |       |   |   |-- AudioFrameProcessor.js
 |       |   |   |-- AudioPipeline.js
@@ -658,12 +231,12 @@ OpenX/
 |       |   |   |-- ProcessingConfiguration.js
 |       |   |   |-- RNNoiseProcessor.js
 |       |   |   |-- SpeechSourceClassifier.js
-|       |   |   `-- VoiceActivityDetector.js
+|       |   |   +-- VoiceActivityDetector.js
 |       |   |-- session/
 |       |   |   |-- SessionEvents.js
 |       |   |   |-- VoiceSession.js
 |       |   |   |-- VoiceSessionManager.js
-|       |   |   `-- VoiceStateMachine.js
+|       |   |   +-- VoiceStateMachine.js
 |       |   |-- stt/
 |       |   |   |-- DecoderState.js
 |       |   |   |-- index.js
@@ -677,7 +250,7 @@ OpenX/
 |       |   |   |-- STTEvents.js
 |       |   |   |-- TranscriptAssembler.js
 |       |   |   |-- TranscriptResult.js
-|       |   |   `-- TranscriptSegment.js
+|       |   |   +-- TranscriptSegment.js
 |       |   |-- ui/
 |       |   |   |-- index.js
 |       |   |   |-- TranscriptPublisher.js
@@ -691,21 +264,40 @@ OpenX/
 |       |   |   |-- VoiceTheme.js
 |       |   |   |-- VoiceUIErrors.js
 |       |   |   |-- VoiceUIEvents.js
-|       |   |   `-- VoiceWindowController.js
+|       |   |   +-- VoiceWindowController.js
 |       |   |-- index.js
-|       |   `-- tts.js
+|       |   +-- tts.js
 |       |-- permissions.js
 |       |-- phone-verification.js
 |       |-- preload.js
-|       `-- settings.js
+|       +-- settings.js
 |-- build/
 |   |-- icon.ico
 |   |-- icon.png
 |   |-- ICON_README.md
 |   |-- installer.nsh
-|   `-- openx-chrome-host.exe
+|   +-- openx-chrome-host.exe
 |-- core/
 |   |-- assistant/
+|   |   |-- acquisition/
+|   |   |   |-- AcquisitionErrors.js
+|   |   |   |-- APIAdapter.js
+|   |   |   |-- AttachmentResolver.js
+|   |   |   |-- BaseInputAdapter.js
+|   |   |   |-- ChatAdapter.js
+|   |   |   |-- ClipboardAdapter.js
+|   |   |   |-- CloudAdapter.js
+|   |   |   |-- index.js
+|   |   |   |-- InputAdapterRegistry.js
+|   |   |   |-- InputFactory.js
+|   |   |   |-- InputMetadataBuilder.js
+|   |   |   |-- InputSourceManager.js
+|   |   |   |-- LanguageDetector.js
+|   |   |   |-- OCRAdapter.js
+|   |   |   |-- PhoneAdapter.js
+|   |   |   |-- PluginAdapter.js
+|   |   |   |-- SourceConfidenceCalculator.js
+|   |   |   +-- VoiceAdapter.js
 |   |   |-- active-learning/
 |   |   |   |-- ActiveLearningManager.js
 |   |   |   |-- AliasStore.js
@@ -715,12 +307,384 @@ OpenX/
 |   |   |   |-- LearningLanguage.js
 |   |   |   |-- PreferenceStore.js
 |   |   |   |-- UsageStatsStore.js
-|   |   |   `-- WorkflowStore.js
+|   |   |   +-- WorkflowStore.js
+|   |   |-- automation/
+|   |   |   |-- AutomationContext.js
+|   |   |   |-- AutomationDiagnostics.js
+|   |   |   |-- AutomationDispatcher.js
+|   |   |   |-- AutomationErrors.js
+|   |   |   |-- AutomationExecutionGraph.js
+|   |   |   |-- AutomationLogger.js
+|   |   |   |-- AutomationResult.js
+|   |   |   |-- DecisionValidationAutomationManager.js
+|   |   |   |-- DecisionValidationAutomationStage.js
+|   |   |   +-- index.js
+|   |   |-- context/
+|   |   |   |-- ApplicationContext.js
+|   |   |   |-- BrowserContext.js
+|   |   |   |-- CalendarContext.js
+|   |   |   |-- ClipboardContext.js
+|   |   |   |-- DesktopContext.js
+|   |   |   |-- index.js
+|   |   |   |-- MediaContext.js
+|   |   |   |-- ScreenContext.js
+|   |   |   |-- SelectionContext.js
+|   |   |   |-- SystemContext.js
+|   |   |   |-- TimeContext.js
+|   |   |   |-- UserContext.js
+|   |   |   +-- WindowContext.js
+|   |   |-- contracts/
+|   |   |   |-- ErrorContract.js
+|   |   |   |-- index.js
+|   |   |   |-- LoggerContract.js
+|   |   |   |-- PipelineConfigurationContract.js
+|   |   |   |-- PipelineContextContract.js
+|   |   |   |-- PipelineEventsContract.js
+|   |   |   |-- PipelineResultContract.js
+|   |   |   |-- PipelineStageContract.js
+|   |   |   +-- StageResultContract.js
+|   |   |-- decision/
+|   |   |   |-- BaseDecision.js
+|   |   |   |-- ClarificationDecision.js
+|   |   |   |-- ConfirmationDecision.js
+|   |   |   |-- ConflictDecision.js
+|   |   |   |-- DecisionConfiguration.js
+|   |   |   |-- DecisionContext.js
+|   |   |   |-- DecisionDiagnostics.js
+|   |   |   |-- DecisionEngine.js
+|   |   |   |-- DecisionErrors.js
+|   |   |   |-- DecisionLogger.js
+|   |   |   |-- DecisionManager.js
+|   |   |   |-- DecisionPipeline.js
+|   |   |   |-- DecisionRegistry.js
+|   |   |   |-- DecisionResult.js
+|   |   |   |-- ExecutionDecision.js
+|   |   |   |-- index.js
+|   |   |   +-- PolicyDecision.js
+|   |   |-- entities/
+|   |   |   |-- AlarmExtractor.js
+|   |   |   |-- ApplicationExtractor.js
+|   |   |   |-- BaseEntityExtractor.js
+|   |   |   |-- BrightnessExtractor.js
+|   |   |   |-- BrowserExtractor.js
+|   |   |   |-- ContactExtractor.js
+|   |   |   |-- DateExtractor.js
+|   |   |   |-- DeviceExtractor.js
+|   |   |   |-- DurationExtractor.js
+|   |   |   |-- EntityConfiguration.js
+|   |   |   |-- EntityContext.js
+|   |   |   |-- EntityDiagnostics.js
+|   |   |   |-- EntityErrors.js
+|   |   |   |-- EntityGraphBuilder.js
+|   |   |   |-- EntityLogger.js
+|   |   |   |-- EntityManager.js
+|   |   |   |-- EntityNormalizer.js
+|   |   |   |-- EntityPipeline.js
+|   |   |   |-- EntityRegistry.js
+|   |   |   |-- EntityRelationshipBuilder.js
+|   |   |   |-- EntityResolver.js
+|   |   |   |-- EntityUnderstandingStage.js
+|   |   |   |-- EntityValidator.js
+|   |   |   |-- FileExtractor.js
+|   |   |   |-- FolderExtractor.js
+|   |   |   |-- index.js
+|   |   |   |-- LocationExtractor.js
+|   |   |   |-- MediaExtractor.js
+|   |   |   |-- NetworkExtractor.js
+|   |   |   |-- PathExtractor.js
+|   |   |   |-- PersonExtractor.js
+|   |   |   |-- ReminderExtractor.js
+|   |   |   |-- StructuredEntities.js
+|   |   |   |-- TimeExtractor.js
+|   |   |   |-- TimerExtractor.js
+|   |   |   |-- VolumeExtractor.js
+|   |   |   |-- WebsiteExtractor.js
+|   |   |   +-- WindowExtractor.js
+|   |   |-- events/
+|   |   |   |-- index.js
+|   |   |   |-- PipelineEventDispatcher.js
+|   |   |   +-- PipelineEvents.js
+|   |   |-- learning/
+|   |   |   |-- AliasLearning.js
+|   |   |   |-- BaseLearningModule.js
+|   |   |   |-- ConversationLearning.js
+|   |   |   |-- CorrectionLearning.js
+|   |   |   |-- FeedbackLearning.js
+|   |   |   |-- HabitLearning.js
+|   |   |   |-- index.js
+|   |   |   |-- LearningAnalytics.js
+|   |   |   |-- LearningConfiguration.js
+|   |   |   |-- LearningContext.js
+|   |   |   |-- LearningDiagnostics.js
+|   |   |   |-- LearningErrors.js
+|   |   |   |-- LearningLogger.js
+|   |   |   |-- LearningManager.js
+|   |   |   |-- LearningPipeline.js
+|   |   |   |-- LearningPolicy.js
+|   |   |   |-- LearningRegistry.js
+|   |   |   |-- LearningResult.js
+|   |   |   |-- LearningStage.js
+|   |   |   |-- LearningStorage.js
+|   |   |   |-- LearningValidator.js
+|   |   |   |-- PatternLearning.js
+|   |   |   |-- PreferenceLearning.js
+|   |   |   |-- UsageLearning.js
+|   |   |   +-- WorkflowLearning.js
+|   |   |-- linguistic/
+|   |   |   |-- AnalyzerRegistry.js
+|   |   |   |-- BaseAnalyzer.js
+|   |   |   |-- ClauseAnalyzer.js
+|   |   |   |-- DependencyParser.js
+|   |   |   |-- index.js
+|   |   |   |-- LinguisticConfiguration.js
+|   |   |   |-- LinguisticContext.js
+|   |   |   |-- LinguisticDiagnostics.js
+|   |   |   |-- LinguisticErrors.js
+|   |   |   |-- LinguisticGraph.js
+|   |   |   |-- LinguisticLogger.js
+|   |   |   |-- LinguisticManager.js
+|   |   |   |-- LinguisticPipeline.js
+|   |   |   |-- LinguisticUnderstandingStage.js
+|   |   |   |-- ModifierDetector.js
+|   |   |   |-- NegationDetector.js
+|   |   |   |-- ObjectDetector.js
+|   |   |   |-- POSTagger.js
+|   |   |   |-- PronounResolver.js
+|   |   |   |-- QuestionDetector.js
+|   |   |   |-- SentenceSplitter.js
+|   |   |   |-- SubjectDetector.js
+|   |   |   |-- Tokenizer.js
+|   |   |   +-- VerbDetector.js
+|   |   |-- memory/
+|   |   |   |-- BaseMemoryProvider.js
+|   |   |   |-- ConversationMemory.js
+|   |   |   |-- DialogueHistory.js
+|   |   |   |-- index.js
+|   |   |   |-- LongTermMemory.js
+|   |   |   |-- MemoryConfiguration.js
+|   |   |   |-- MemoryContext.js
+|   |   |   |-- MemoryContextStage.js
+|   |   |   |-- MemoryDiagnostics.js
+|   |   |   |-- MemoryErrors.js
+|   |   |   |-- MemoryLogger.js
+|   |   |   |-- MemoryManager.js
+|   |   |   |-- MemoryPipeline.js
+|   |   |   |-- MemoryRegistry.js
+|   |   |   |-- ResolvedContext.js
+|   |   |   |-- SessionMemory.js
+|   |   |   |-- TopicTracker.js
+|   |   |   +-- WorkingMemory.js
+|   |   |-- models/
+|   |   |   |-- AssistantRequest.js
+|   |   |   |-- AssistantResponse.js
+|   |   |   |-- DiagnosticRecord.js
+|   |   |   |-- ExecutionMetadata.js
+|   |   |   |-- index.js
+|   |   |   |-- PipelineMetadata.js
+|   |   |   |-- ProcessedInput.js
+|   |   |   |-- RawUserInput.js
+|   |   |   |-- StageMetadata.js
+|   |   |   +-- TimingInformation.js
 |   |   |-- nlp/
 |   |   |   |-- nlp.js
 |   |   |   |-- preprocessor.js
 |   |   |   |-- scorer.js
-|   |   |   `-- web-targets.js
+|   |   |   +-- web-targets.js
+|   |   |-- normalization/
+|   |   |   |-- AbbreviationExpander.js
+|   |   |   |-- BaseNormalizer.js
+|   |   |   |-- ContractionResolver.js
+|   |   |   |-- DateNormalizer.js
+|   |   |   |-- EmojiInterpreter.js
+|   |   |   |-- index.js
+|   |   |   |-- InputCleaner.js
+|   |   |   |-- LanguageNormalizationStage.js
+|   |   |   |-- LanguageSwitcher.js
+|   |   |   |-- NormalizationConfiguration.js
+|   |   |   |-- NormalizationContext.js
+|   |   |   |-- NormalizationDiagnostics.js
+|   |   |   |-- NormalizationErrors.js
+|   |   |   |-- NormalizationLogger.js
+|   |   |   |-- NormalizationManager.js
+|   |   |   |-- NormalizationPipeline.js
+|   |   |   |-- NormalizedInput.js
+|   |   |   |-- NormalizerRegistry.js
+|   |   |   |-- NumberNormalizer.js
+|   |   |   |-- PunctuationNormalizer.js
+|   |   |   |-- RepeatedWordCleaner.js
+|   |   |   |-- SlangNormalizer.js
+|   |   |   |-- SpellRepair.js
+|   |   |   |-- TimeNormalizer.js
+|   |   |   |-- UnicodeNormalizer.js
+|   |   |   |-- UnitNormalizer.js
+|   |   |   +-- WhitespaceNormalizer.js
+|   |   |-- pipeline/
+|   |   |   |-- AssistantPassthroughStage.js
+|   |   |   |-- index.js
+|   |   |   |-- PipelineBuilder.js
+|   |   |   |-- PipelineConfiguration.js
+|   |   |   |-- PipelineContext.js
+|   |   |   |-- PipelineDiagnostics.js
+|   |   |   |-- PipelineEngine.js
+|   |   |   |-- PipelineError.js
+|   |   |   |-- PipelineEvents.js
+|   |   |   |-- PipelineLogger.js
+|   |   |   |-- PipelineManager.js
+|   |   |   |-- PipelineRegistry.js
+|   |   |   |-- PipelineResult.js
+|   |   |   |-- PipelineStage.js
+|   |   |   +-- StageResult.js
+|   |   |-- planning/
+|   |   |   |-- BasePlanner.js
+|   |   |   |-- DependencyPlanner.js
+|   |   |   |-- ExecutionBlueprint.js
+|   |   |   |-- ExecutionGraphBuilder.js
+|   |   |   |-- ExecutionPlanner.js
+|   |   |   |-- index.js
+|   |   |   |-- ParallelPlanner.js
+|   |   |   |-- PlannerOptimizer.js
+|   |   |   |-- PlanningConfiguration.js
+|   |   |   |-- PlanningContext.js
+|   |   |   |-- PlanningDiagnostics.js
+|   |   |   |-- PlanningErrors.js
+|   |   |   |-- PlanningLogger.js
+|   |   |   |-- PlanningManager.js
+|   |   |   |-- PlanningPipeline.js
+|   |   |   |-- PlanningRegistry.js
+|   |   |   |-- RecoveryPlanner.js
+|   |   |   |-- TaskGraphBuilder.js
+|   |   |   |-- TaskPlanner.js
+|   |   |   |-- TaskPlanningStage.js
+|   |   |   +-- WorkflowPlanner.js
+|   |   |-- reasoning/
+|   |   |   |-- ActionReasoner.js
+|   |   |   |-- BaseReasoner.js
+|   |   |   |-- ClarificationEngine.js
+|   |   |   |-- ConfidenceManager.js
+|   |   |   |-- ConflictResolver.js
+|   |   |   |-- ContextReasoner.js
+|   |   |   |-- GoalIntentReasoningStage.js
+|   |   |   |-- GoalReasoner.js
+|   |   |   |-- index.js
+|   |   |   |-- InferenceEngine.js
+|   |   |   |-- IntentReasoner.js
+|   |   |   |-- ReasoningConfiguration.js
+|   |   |   |-- ReasoningContext.js
+|   |   |   |-- ReasoningDiagnostics.js
+|   |   |   |-- ReasoningErrors.js
+|   |   |   |-- ReasoningGraphBuilder.js
+|   |   |   |-- ReasoningLogger.js
+|   |   |   |-- ReasoningManager.js
+|   |   |   |-- ReasoningPipeline.js
+|   |   |   |-- ReasoningRegistry.js
+|   |   |   |-- ReasoningResult.js
+|   |   |   +-- TaskReasoner.js
+|   |   |-- references/
+|   |   |   |-- AliasResolver.js
+|   |   |   |-- ContextResolver.js
+|   |   |   |-- ConversationResolver.js
+|   |   |   |-- index.js
+|   |   |   |-- PronounResolver.js
+|   |   |   |-- ReferenceGraphBuilder.js
+|   |   |   +-- ReferenceResolver.js
+|   |   |-- response/
+|   |   |   |-- AssistantResponse.js
+|   |   |   |-- BaseResponseGenerator.js
+|   |   |   |-- ChatFormatter.js
+|   |   |   |-- ClarificationResponse.js
+|   |   |   |-- ConfirmationResponse.js
+|   |   |   |-- ErrorResponse.js
+|   |   |   |-- index.js
+|   |   |   |-- NaturalLanguageFormatter.js
+|   |   |   |-- NotificationFormatter.js
+|   |   |   |-- ResponseConfiguration.js
+|   |   |   |-- ResponseContext.js
+|   |   |   |-- ResponseDiagnostics.js
+|   |   |   |-- ResponseErrors.js
+|   |   |   |-- ResponseLogger.js
+|   |   |   |-- ResponseManager.js
+|   |   |   |-- ResponsePipeline.js
+|   |   |   |-- ResponseRegistry.js
+|   |   |   |-- SuggestionResponse.js
+|   |   |   |-- SummaryResponse.js
+|   |   |   +-- VoiceFormatter.js
+|   |   |-- semantic/
+|   |   |   |-- BaseSemanticAnalyzer.js
+|   |   |   |-- ConfidenceEngine.js
+|   |   |   |-- ConversationClassifier.js
+|   |   |   |-- index.js
+|   |   |   |-- MeaningResolver.js
+|   |   |   |-- RelationshipAnalyzer.js
+|   |   |   |-- SemanticConfiguration.js
+|   |   |   |-- SemanticContext.js
+|   |   |   |-- SemanticDiagnostics.js
+|   |   |   |-- SemanticDictionary.js
+|   |   |   |-- SemanticErrors.js
+|   |   |   |-- SemanticGraphBuilder.js
+|   |   |   |-- SemanticLogger.js
+|   |   |   |-- SemanticManager.js
+|   |   |   |-- SemanticNormalizer.js
+|   |   |   |-- SemanticPipeline.js
+|   |   |   |-- SemanticRegistry.js
+|   |   |   |-- SemanticRepresentation.js
+|   |   |   |-- SemanticRoleLabeler.js
+|   |   |   |-- SemanticUnderstandingStage.js
+|   |   |   +-- SimilarityEngine.js
+|   |   |-- utils/
+|   |   |   |-- AsyncHelpers.js
+|   |   |   |-- ConfigurationLoader.js
+|   |   |   |-- DeepClone.js
+|   |   |   |-- ErrorHelpers.js
+|   |   |   |-- IdGenerator.js
+|   |   |   |-- index.js
+|   |   |   |-- LoggerHelpers.js
+|   |   |   |-- ObjectFreeze.js
+|   |   |   |-- PerformanceTracker.js
+|   |   |   |-- ServiceContainer.js
+|   |   |   |-- Stopwatch.js
+|   |   |   |-- Timer.js
+|   |   |   +-- ValidationHelpers.js
+|   |   |-- validation/
+|   |   |   |-- AutomationValidator.js
+|   |   |   |-- BaseValidator.js
+|   |   |   |-- ConfirmationValidator.js
+|   |   |   |-- ConstraintValidator.js
+|   |   |   |-- ContextValidator.js
+|   |   |   |-- EntityValidator.js
+|   |   |   |-- index.js
+|   |   |   |-- PermissionValidator.js
+|   |   |   |-- SafetyValidator.js
+|   |   |   |-- ValidationConfiguration.js
+|   |   |   |-- ValidationContext.js
+|   |   |   |-- ValidationDiagnostics.js
+|   |   |   |-- ValidationErrors.js
+|   |   |   |-- ValidationLogger.js
+|   |   |   |-- ValidationManager.js
+|   |   |   |-- ValidationPipeline.js
+|   |   |   |-- ValidationRegistry.js
+|   |   |   +-- ValidationResult.js
+|   |   |-- verification/
+|   |   |   |-- ApplicationVerifier.js
+|   |   |   |-- BaseVerifier.js
+|   |   |   |-- BrowserVerifier.js
+|   |   |   |-- CloudVerifier.js
+|   |   |   |-- ExecutionVerifier.js
+|   |   |   |-- index.js
+|   |   |   |-- ReminderVerifier.js
+|   |   |   |-- TransferVerifier.js
+|   |   |   |-- VerificationConfiguration.js
+|   |   |   |-- VerificationContext.js
+|   |   |   |-- VerificationDiagnostics.js
+|   |   |   |-- VerificationErrors.js
+|   |   |   |-- VerificationGraphBuilder.js
+|   |   |   |-- VerificationLogger.js
+|   |   |   |-- VerificationManager.js
+|   |   |   |-- VerificationPipeline.js
+|   |   |   |-- VerificationRegistry.js
+|   |   |   |-- VerificationResponseManager.js
+|   |   |   |-- VerificationResponseStage.js
+|   |   |   |-- VerificationResult.js
+|   |   |   +-- WindowVerifier.js
 |   |   |-- Active-learning.js
 |   |   |-- contest.js
 |   |   |-- context.js
@@ -734,7 +698,7 @@ OpenX/
 |   |   |-- parser.js
 |   |   |-- personality.js
 |   |   |-- responses.js
-|   |   `-- router.js
+|   |   +-- router.js
 |   |-- automation/
 |   |   |-- common/
 |   |   |   |-- action-confirm.js
@@ -742,7 +706,7 @@ OpenX/
 |   |   |   |-- action-verification.js
 |   |   |   |-- launcher.js
 |   |   |   |-- path-utils.js
-|   |   |   `-- windows-session.js
+|   |   |   +-- windows-session.js
 |   |   |-- apps.js
 |   |   |-- brightness.js
 |   |   |-- browser.js
@@ -756,15 +720,24 @@ OpenX/
 |   |   |-- screenshot-recording.js
 |   |   |-- system.js
 |   |   |-- volume.js
-|   |   `-- windows.js
+|   |   +-- windows.js
+|   |-- cloud/
+|   |   |-- CloudCommandManager.js
+|   |   |-- CloudConnectionManager.js
+|   |   |-- CloudFileTransferManager.js
+|   |   |-- CloudLogger.js
+|   |   |-- CloudPairingManager.js
+|   |   |-- CloudRequestQueue.js
+|   |   |-- CloudResponseSerializer.js
+|   |   +-- index.js
 |   |-- context-awareness/
 |   |   |-- active-window.js
 |   |   |-- app-registry.js
 |   |   |-- context-engine.js
 |   |   |-- mode-engine.js
 |   |   |-- process-monitor.js
-|   |   `-- signals.js
-|   `-- phone/
+|   |   +-- signals.js
+|   +-- phone/
 |       |-- DeviceRegistry.js
 |       |-- FileTransferManager.js
 |       |-- FileTransferProtocol.js
@@ -779,50 +752,50 @@ OpenX/
 |       |-- SecurityManager.js
 |       |-- SessionManager.js
 |       |-- TransferHistory.js
-|       `-- TransferIntegrity.js
+|       +-- TransferIntegrity.js
 |-- docs/
 |   |-- architecture/
-|   |   `-- overview.md
+|   |   +-- overview.md
 |   |-- modules/
 |   |   |-- assistant-communication.md
 |   |   |-- communications.md
 |   |   |-- core-engine.md
 |   |   |-- nlp-pipeline.md
-|   |   `-- settings.md
+|   |   +-- settings.md
 |   |-- plugins/
-|   |   `-- development.md
+|   |   +-- development.md
 |   |-- setup/
-|   |   `-- installation.md
-|   `-- workflows/
-|       `-- command-execution.md
+|   |   +-- installation.md
+|   +-- workflows/
+|       +-- command-execution.md
 |-- models/
-|   `-- parakeet/
+|   +-- parakeet/
 |       |-- decoder.int8.onnx
 |       |-- encoder.int8.onnx
 |       |-- joiner.int8.onnx
-|       `-- tokens.txt
+|       +-- tokens.txt
 |-- plugins/
 |   |-- chrome/
 |   |   |-- index.js
-|   |   `-- plugin.json
+|   |   +-- plugin.json
 |   |-- communications/
-|   |   `-- whatsapp-desktop.js
+|   |   +-- whatsapp-desktop.js
 |   |-- discord/
 |   |   |-- index.js
-|   |   `-- plugin.json
+|   |   +-- plugin.json
 |   |-- forms/
 |   |   |-- index.js
-|   |   `-- understanding.js
+|   |   +-- understanding.js
 |   |-- sample_plugin/
 |   |   |-- index.js
-|   |   `-- plugin.json
+|   |   +-- plugin.json
 |   |-- youtube/
 |   |   |-- index.js
-|   |   `-- plugin.json
-|   `-- plugin-controller.js
+|   |   +-- plugin.json
+|   +-- plugin-controller.js
 |-- scripts/
 |   |-- enable-phone-pairing-firewall.ps1
-|   `-- start-electron.js
+|   +-- start-electron.js
 |-- tests/
 |   |-- automation/
 |   |   |-- apps.test.js
@@ -832,28 +805,39 @@ OpenX/
 |   |   |-- file-management.test.js
 |   |   |-- media.test.js
 |   |   |-- volume-brightness.test.js
-|   |   `-- windows-session.test.js
+|   |   +-- windows-session.test.js
 |   |-- context-awareness/
 |   |   |-- context-awareness.test.js
-|   |   `-- mode-engine.test.js
+|   |   +-- mode-engine.test.js
 |   |-- core/
 |   |   |-- active-learning-v2.test.js
 |   |   |-- app-language.test.js
 |   |   |-- architecture-structure.test.js
 |   |   |-- assistant.test.js
+|   |   |-- assistant-intelligence-pipeline.test.js
 |   |   |-- browser-language.test.js
+|   |   |-- cloud-command-manager.test.js
+|   |   |-- cloud-connection.test.js
+|   |   |-- cloud-file-transfer-manager.test.js
 |   |   |-- command-corpus.test.js
 |   |   |-- crash-recovery.test.js
 |   |   |-- data-root.test.js
+|   |   |-- decision-automation.test.js
 |   |   |-- electron-security.test.js
 |   |   |-- electron-shortcut.test.js
 |   |   |-- entities.test.js
+|   |   |-- entity-understanding.test.js
 |   |   |-- human-context.test.js
+|   |   |-- input-acquisition.test.js
 |   |   |-- intents.test.js
+|   |   |-- language-normalization.test.js
 |   |   |-- learning.test.js
+|   |   |-- learning-engine.test.js
 |   |   |-- learning-repair.test.js
+|   |   |-- linguistic-understanding.test.js
 |   |   |-- logger.test.js
 |   |   |-- media-youtube-corpus.test.js
+|   |   |-- memory-context.test.js
 |   |   |-- nlp.test.js
 |   |   |-- nlu.test.js
 |   |   |-- parser.test.js
@@ -866,21 +850,25 @@ OpenX/
 |   |   |-- phone-qr-pairing.test.js
 |   |   |-- phone-security.test.js
 |   |   |-- planner.test.js
+|   |   |-- planning.test.js
+|   |   |-- reasoning.test.js
 |   |   |-- renderer-security.test.js
 |   |   |-- responses.test.js
 |   |   |-- router.test.js
 |   |   |-- scheduler-alert.test.js
 |   |   |-- security-critical.test.js
+|   |   |-- semantic-understanding.test.js
 |   |   |-- settings.test.js
 |   |   |-- tts.test.js
-|   |   `-- voice-subsystem.test.js
+|   |   |-- verification-response.test.js
+|   |   +-- voice-subsystem.test.js
 |   |-- media-handling/
-|   |   `-- media-handling.test.js
-|   `-- ui/
+|   |   +-- media-handling.test.js
+|   +-- ui/
 |       |-- chat-renderer.test.js
 |       |-- planner-renderer.test.js
 |       |-- schedule-alert-renderer.test.js
-|       `-- timer-widget-renderer.test.js
+|       +-- timer-widget-renderer.test.js
 |-- .gitignore
 |-- AGENTS.md
 |-- commands.md
@@ -890,5 +878,16 @@ OpenX/
 |-- package-lock.json
 |-- README.md
 |-- report.md
-`-- RULES.md
++-- RULES.md
 ```
+
+## Current Status
+
+The repository is verified at the current working tree state:
+
+- lint passes;
+- all tests pass;
+- assistant intelligence sidecars are present;
+- current assistant routing behavior remains backward compatible;
+- report and architecture test now match the current directory layout.
+

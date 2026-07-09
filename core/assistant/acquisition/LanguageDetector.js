@@ -6,7 +6,7 @@ class LanguageDetector {
   detect(text = '', metadata = {}) {
     try {
       const value = String(text || '');
-      const locale = String(metadata.locale || Intl.DateTimeFormat().resolvedOptions().locale || 'en-US');
+      const locale = String(metadata.locale || globalThis.Intl.DateTimeFormat().resolvedOptions().locale || 'en-US');
       let script = 'latin';
       let language = locale.split('-')[0] || 'en';
       let confidence = value.trim() ? 0.72 : 0.4;

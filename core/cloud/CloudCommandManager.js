@@ -193,7 +193,7 @@ class CloudCommandManager extends EventEmitter {
     if (this.processing) return;
     this.processing = true;
     try {
-      while (true) {
+      for (;;) {
         const request = this.queue.next();
         if (!request) break;
         await this.executeRequest(request);

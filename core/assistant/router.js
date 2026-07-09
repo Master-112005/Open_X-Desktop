@@ -23,7 +23,6 @@ const PHONE_TRANSFER_TRAILING_TARGET_PATTERN = /\s+(?:to|with|onto|on|into|over\
 const PHONE_TRANSFER_TARGET_WORD_PATTERN = /\b(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset)\b/i;
 const PHONE_TRANSFER_FILE_EVIDENCE_PATTERN = /\b(?:file|files|folder|folders|directory|document|documents|pdf|pdfs|docx?|xlsx?|pptx?|csv|json|txt|log|zip|rar|7z|apk|image|images|photo|photos|picture|pictures|pic|pics|screenshot|screenshots|video|videos|audio|music|downloads?|documents?|desktop|resume|report|presentation|spreadsheet|sheet|archive)\b|[^\s]+\.[a-z0-9]{1,10}\b/i;
 const EXPLICIT_APP_DOMAIN_PATTERN = /\b(?:app|apps|application|applications|program|programs|software)\b|\bnot\s+(?:a\s+|an\s+|the\s+)?(?:file|folder|document|pdf|docx?)\b/i;
-const EXPLICIT_FILE_DOMAIN_PATTERN = /\b(?:file|files|folder|folders|directory|directories|document|documents)\b|\.[a-z0-9]{1,10}\b/i;
 const EXPLICIT_NOT_APP_PATTERN = /\bnot\s+(?:a\s+|an\s+|the\s+)?(?:app|application|program|software)\b/i;
 
 const WEBSITE_URL_MAP = {
