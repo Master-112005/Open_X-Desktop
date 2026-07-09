@@ -1,6 +1,6 @@
 const assert = require('assert');
 
-describe('Assistant Intelligence Pipeline Phase 1', function() {
+describe('Assistant Intelligence Pipeline', function() {
   it('exposes the reusable pipeline infrastructure', async function() {
     const {
       PipelineBuilder,
@@ -33,8 +33,9 @@ describe('Assistant Intelligence Pipeline Phase 1', function() {
     assert.equal(result.timing.stages.length, 1);
   });
 
-  it('keeps Assistant.processCommand behavior routed through the current assistant path', async function() {
+  it('routes Assistant.processCommand through AssistantEngine while preserving behavior', async function() {
     const Assistant = require('../../core/assistant');
+    const AssistantEngine = require('../../core/assistant/AssistantEngine');
     const routed = [];
     const router = {
       process: async (input, source, options) => {
@@ -58,6 +59,7 @@ describe('Assistant Intelligence Pipeline Phase 1', function() {
       permissionGuard: { source: 'test' }
     });
 
+    assert.ok(assistant.engine instanceof AssistantEngine);
     assert.equal(result.success, true);
     assert.equal(result.intent, 'app.open');
     assert.equal(routed.length, 1);

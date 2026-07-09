@@ -16,6 +16,7 @@ const {
   extractReplacement,
   parseLearningDirective
 } = require('./active-learning/LearningLanguage');
+const AssistantEngine = require('./AssistantEngine');
 const { PipelineManager } = require('./pipeline');
 const { createDefaultInputSourceManager } = require('./acquisition');
 
@@ -162,21 +163,16 @@ class Assistant extends EventEmitter {
     this.inputSourceManager = dependencies.inputSourceManager || createDefaultInputSourceManager({
       logger: this.logger
     });
+    this.engine = dependencies.engine || new AssistantEngine({
+      inputSourceManager: this.inputSourceManager,
+      pipeline: this.intelligencePipeline,
+      logger: this.logger,
+      executeLegacy: (nextInput, nextSource, nextOptions) => this._processCommandDirect(nextInput, nextSource, nextOptions)
+    });
   }
 
   async processCommand(input, source = 'chat', options = {}) {
-    const rawUserInput = this.inputSourceManager.acquire(input, source, options);
-    const pipelineResult = await this.intelligencePipeline.process({ input, source, options, rawUserInput });
-    if (!pipelineResult.success) {
-      this.logger.warn('Assistant Intelligence pipeline failed; continuing with original input.', pipelineResult.error?.message || 'unknown');
-    }
-    const forwarded = pipelineResult?.output && typeof pipelineResult.output === 'object'
-      ? pipelineResult.output
-      : {};
-    const nextInput = typeof forwarded.input === 'string' ? forwarded.input : input;
-    const nextSource = typeof forwarded.source === 'string' ? forwarded.source : source;
-    const nextOptions = forwarded.options && typeof forwarded.options === 'object' ? forwarded.options : options;
-    return this._processCommandDirect(nextInput, nextSource, nextOptions);
+    return this.engine.processCommand(input, source, options);
   }
 
   async _processCommandDirect(input, source = 'chat', options = {}) {
@@ -468,6 +464,12 @@ class Assistant extends EventEmitter {
       await this.automation?.destroy?.();
     } catch (error) {
       this.logger.warn('Failed to destroy automation engine', error.message);
+    }
+
+    try {
+      this.engine?.destroy?.();
+    } catch (error) {
+      this.logger.warn('Failed to destroy assistant engine during shutdown', error.message);
     }
 
     try {
