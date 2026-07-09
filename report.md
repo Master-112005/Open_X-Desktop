@@ -2,17 +2,17 @@
 
 Project: OpenX
 
-Package version: 4.1.0
+Package version: 5.5.1
 
 Platform: Windows desktop
 
 Runtime: Electron 28, Node.js, CommonJS
 
-Report date: 2026-07-04
+Report date: 2026-07-09
 
 ## 1. Executive Summary
 
-OpenX is a local-first Windows desktop assistant. It accepts commands from chat, OpenX Mobile, and the local voice subsystem, then routes all plain text through one assistant pipeline. The assistant is intentionally deterministic: it parses, validates, executes, verifies, and responds without changing the behavior of existing automation actions based on the input surface.
+OpenX is a local-first Windows desktop assistant. It accepts commands from chat, OpenX Mobile, the local voice subsystem, cloud relay, plugins, and future API/OCR/clipboard sources, standardizes them through the Assistant Intelligence v3 foundation, then routes plain text through the existing assistant behavior. The assistant remains deterministic: it acquires, normalizes, parses, validates, executes, verifies, and responds without changing automation behavior based on the input surface.
 
 The current implementation includes:
 
@@ -29,20 +29,21 @@ The current implementation includes:
 - Electron IPC security, crash recovery, and renderer isolation;
 - plugin isolation for Chrome, YouTube, Discord, forms, and communications;
 - regression tests for core language, automation, UI, phone, security, voice, learning, and context behavior.
+- Assistant Intelligence v3 Phase 1 pipeline infrastructure, Phase 2 input acquisition, Phase 3 language normalization, Phase 4 linguistic understanding, and Phase 5 semantic understanding.
 
 ## 2. Codebase Scope
 
 This report covers the OpenX desktop repository:
 
 ```text
-C:\Users\rakes\Documents\PROJECTS\open\OpenX
+C:\Users\rakes\Documents\PROJECTS\Project-Intigerity\OpenX
 ```
 
 Filtered project count:
 
-- Files in report tree: 280
-- Test files: 53
-- Core files: 109
+- Files in report tree: 432
+- Test files: 60
+- Core files: 261
 - Desktop app files: 114
 - Plugin files: 13
 - Root/config/documentation files: 10
@@ -71,7 +72,18 @@ coverage/
 ## 3. High-Level Architecture
 
 ```text
-Chat / phone / voice text
+Chat / voice / phone / cloud / plugin / future API / OCR / clipboard
+  -> InputSourceManager.acquire()
+  -> source adapter
+  -> RawUserInput
+  -> Assistant Intelligence Pipeline
+  -> LanguageNormalizationStage
+  -> NormalizedInput
+  -> LinguisticUnderstandingStage
+  -> LinguisticGraph
+  -> SemanticUnderstandingStage
+  -> SemanticRepresentation
+  -> current Assistant.processCommand plain-text boundary
   -> NlpProcessor.prepare()
   -> NaturalLanguageRouter.parse()
   -> InputParser / CommandFrameParser
@@ -92,13 +104,18 @@ The assistant contract is:
 Assistant.processCommand(text, source)
 ```
 
-The assistant must not need to know whether the text came from chat, phone, voice, or future APIs. Voice and phone integrations adapt their input into this same contract.
+The public assistant contract is unchanged. Internally, `InputSourceManager.acquire()` creates a `RawUserInput`, the intelligence pipeline produces a deterministic `NormalizedInput`, the linguistic layer builds an immutable grammar-only `LinguisticGraph`, the semantic layer builds an immutable meaning-only `SemanticRepresentation`, and only normalized plain text is forwarded into the existing NLP/parser/router path. The parser, NLU, router, automation, plugins, phone, cloud, and voice systems are not rewritten by these phases.
 
 ## 4. Main Module Responsibilities
 
 | Module | Path | Responsibility |
 |---|---|---|
 | Assistant entry | `core/assistant/index.js` | Conversation lifecycle, clarification, confirmation, response flow, context, and active learning |
+| Input acquisition | `core/assistant/acquisition/` | Standardizes chat, voice, phone, cloud, plugin, API, OCR, and clipboard input into `RawUserInput` without NLP or routing |
+| Language normalization | `core/assistant/normalization/` | Cleans and canonicalizes language into `NormalizedInput` through configurable normalizers without intent or entity reasoning |
+| Linguistic understanding | `core/assistant/linguistic/` | Builds a grammar-only `LinguisticGraph` with tokens, sentences, clauses, dependencies, POS tags, verbs, subjects, objects, modifiers, questions, negations, and sentence-local pronouns |
+| Semantic understanding | `core/assistant/semantic/` | Builds a meaning-only `SemanticRepresentation` with concepts, semantic roles, relationships, conversation type, similarity, confidence, and semantic graph data without deciding intent |
+| Intelligence pipeline | `core/assistant/pipeline/`, `core/assistant/contracts/`, `core/assistant/models/`, `core/assistant/events/`, `core/assistant/utils/` | Reusable staged runtime that carries acquisition, normalization, linguistic, and semantic output while preserving the existing assistant contract |
 | NLP | `core/assistant/nlp/` | Text cleanup, spelling repair, command preparation, scoring, web target normalization |
 | NLU | `core/assistant/nlu.js` | Semantic command interpretation, app/browser command language, context-aware parsing |
 | Parser | `core/assistant/parser.js` | Input parsing and word-level command frames |
@@ -123,6 +140,44 @@ The assistant must not need to know whether the text came from chat, phone, voic
 | Function or method | File | Purpose |
 |---|---|---|
 | `Assistant.processCommand(input, source, options)` | `core/assistant/index.js` | Public command entry used by chat, phone, and voice. Owns clarification, confirmation, routing, execution, response, and learning flow. |
+| `InputSourceManager.acquire(input, source, options)` | `core/assistant/acquisition/InputSourceManager.js` | Selects a source adapter and produces one immutable `RawUserInput` for every input surface. |
+| `InputAdapterRegistry.register(adapter, options)` | `core/assistant/acquisition/InputAdapterRegistry.js` | Registers source adapters with priority and health metadata for future input sources. |
+| `BaseInputAdapter.acquire(payload)` | `core/assistant/acquisition/BaseInputAdapter.js` | Adapter lifecycle boundary for source validation and raw input creation. |
+| `InputFactory.create(payload)` | `core/assistant/acquisition/InputFactory.js` | Builds `RawUserInput` with IDs, metadata, language hints, confidence, attachments, device data, and diagnostics. |
+| `LanguageDetector.detect(text, metadata)` | `core/assistant/acquisition/LanguageDetector.js` | Performs lightweight source-stage language/script detection without translation or NLP. |
+| `AttachmentResolver.resolve(attachments, source)` | `core/assistant/acquisition/AttachmentResolver.js` | Normalizes optional attachment metadata without opening, parsing, or executing attached files. |
+| `SourceConfidenceCalculator.calculate(payload)` | `core/assistant/acquisition/SourceConfidenceCalculator.js` | Computes acquisition reliability only; it is not intent confidence. |
+| `PipelineManager.process(payload)` | `core/assistant/pipeline/PipelineManager.js` | Runs the assistant intelligence stages and forwards the resulting plain text to the existing assistant path. |
+| `PipelineEngine.run(context)` | `core/assistant/pipeline/PipelineEngine.js` | Executes configured stages sequentially with timing, diagnostics, cancellation, and timeout handling. |
+| `AssistantPassthroughStage.execute(context)` | `core/assistant/pipeline/AssistantPassthroughStage.js` | Preserves the current assistant text/source/options boundary after pipeline stages complete. |
+| `NormalizationManager.normalize(rawUserInput, options)` | `core/assistant/normalization/NormalizationManager.js` | Produces one deterministic `NormalizedInput` from `RawUserInput`. |
+| `NormalizationPipeline.run(context)` | `core/assistant/normalization/NormalizationPipeline.js` | Runs enabled normalizers sequentially and records warnings, timings, and diagnostics. |
+| `NormalizerRegistry.register(normalizer, options)` | `core/assistant/normalization/NormalizerRegistry.js` | Registers ordered normalizers with priority, version, enabled state, and health metadata. |
+| `BaseNormalizer.normalize(context)` | `core/assistant/normalization/BaseNormalizer.js` | Common lifecycle contract for independent, configurable normalizers. |
+| `LanguageNormalizationStage.execute(context)` | `core/assistant/normalization/LanguageNormalizationStage.js` | Bridges pipeline `RawUserInput` to `NormalizedInput` and updates the downstream plain-text input. |
+| `LinguisticManager.analyze(normalizedInput, options)` | `core/assistant/linguistic/LinguisticManager.js` | Produces one immutable grammar-only `LinguisticGraph` from `NormalizedInput`. |
+| `LinguisticPipeline.run(context)` | `core/assistant/linguistic/LinguisticPipeline.js` | Runs enabled analyzers sequentially and records warnings, timings, and diagnostics. |
+| `AnalyzerRegistry.register(analyzer, options)` | `core/assistant/linguistic/AnalyzerRegistry.js` | Registers ordered linguistic analyzers with priority, version, enabled state, and health metadata. |
+| `BaseAnalyzer.analyze(context)` | `core/assistant/linguistic/BaseAnalyzer.js` | Common lifecycle contract for grammar-only analyzer modules. |
+| `Tokenizer.analyze(context)` | `core/assistant/linguistic/Tokenizer.js` | Splits normalized text into ordered tokens with type and character-position metadata. |
+| `SentenceSplitter.analyze(context)` | `core/assistant/linguistic/SentenceSplitter.js` | Preserves sentence boundaries across commands, questions, punctuation, and mixed input. |
+| `ClauseAnalyzer.analyze(context)` | `core/assistant/linguistic/ClauseAnalyzer.js` | Identifies main, subordinate, coordinate, relative, conditional, independent, and dependent clause structures. |
+| `DependencyParser.analyze(context)` | `core/assistant/linguistic/DependencyParser.js` | Builds grammar relationships such as subject, object, and modifier edges without semantic interpretation. |
+| `POSTagger.analyze(context)` | `core/assistant/linguistic/POSTagger.js` | Assigns grammatical categories and confidence values to tokens. |
+| `PronounResolver.analyze(context)` | `core/assistant/linguistic/PronounResolver.js` | Resolves pronouns only inside the same sentence and does not use conversation history. |
+| `LinguisticUnderstandingStage.execute(context)` | `core/assistant/linguistic/LinguisticUnderstandingStage.js` | Stores the `LinguisticGraph` in pipeline context while keeping downstream input as plain text. |
+| `SemanticManager.analyze(linguisticGraph, normalizedInput, options)` | `core/assistant/semantic/SemanticManager.js` | Produces one immutable meaning-only `SemanticRepresentation` from a `LinguisticGraph`. |
+| `SemanticPipeline.run(context)` | `core/assistant/semantic/SemanticPipeline.js` | Runs semantic analyzers sequentially and records warnings, timings, and diagnostics. |
+| `SemanticRegistry.register(analyzer, options)` | `core/assistant/semantic/SemanticRegistry.js` | Registers semantic analyzers with priority, version, enabled state, and health metadata. |
+| `SemanticDictionary.lookup(value)` | `core/assistant/semantic/SemanticDictionary.js` | Resolves configurable synonyms, paraphrases, aliases, and vocabulary terms to canonical concepts. |
+| `MeaningResolver.analyze(context)` | `core/assistant/semantic/MeaningResolver.js` | Converts linguistic tokens into canonical concepts such as `OPEN`, `APPLICATION`, `SEND`, or `EMAIL`. |
+| `SemanticRoleLabeler.analyze(context)` | `core/assistant/semantic/SemanticRoleLabeler.js` | Assigns meaning roles such as Agent, Theme, Location, Quantity, and Manner from grammar-only data. |
+| `RelationshipAnalyzer.analyze(context)` | `core/assistant/semantic/RelationshipAnalyzer.js` | Builds concept and grammar relationships without selecting an intent or action. |
+| `ConversationClassifier.analyze(context)` | `core/assistant/semantic/ConversationClassifier.js` | Classifies utterance type, such as command, question, greeting, feedback, or correction, without execution decisions. |
+| `SimilarityEngine.analyze(context)` | `core/assistant/semantic/SimilarityEngine.js` | Computes deterministic concept similarity and leaves room for future providers. |
+| `ConfidenceEngine.analyze(context)` | `core/assistant/semantic/ConfidenceEngine.js` | Produces explainable confidence scores for meaning, roles, relationships, similarity, and overall semantics. |
+| `SemanticGraphBuilder.analyze(context)` | `core/assistant/semantic/SemanticGraphBuilder.js` | Builds the immutable semantic graph with nodes, edges, graph size, version, and confidence metadata. |
+| `SemanticUnderstandingStage.execute(context)` | `core/assistant/semantic/SemanticUnderstandingStage.js` | Stores the `SemanticRepresentation` in pipeline context while keeping downstream input as plain text. |
 | `ActionRouter.process(inputText, source, options)` | `core/assistant/router.js` | Main route planner. Handles multi-command splitting, intent completion, contextual choices, fallback classification, and safe unsupported responses. |
 | `NlpProcessor.prepare(text)` | `core/assistant/nlp/nlp.js` | Produces normalized, corrected, tokenized, and semantically framed input for routing. |
 | `preprocessCommand(text)` | `core/assistant/nlp/preprocessor.js` | Applies phrase repair, lead-in stripping, repeated-token cleanup, token replacements, and command cleanup. |
