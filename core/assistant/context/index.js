@@ -12,5 +12,6 @@ module.exports = {
   TimeContext: require('./TimeContext'),
   UserContext: require('./UserContext'),
   SelectionContext: require('./SelectionContext'),
-  WindowContext: require('./WindowContext')
+  WindowContext: require('./WindowContext'),
+  ContextManager: require('./ContextManager')
 };

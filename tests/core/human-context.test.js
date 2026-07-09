@@ -6,13 +6,13 @@ const os = require('os');
 const path = require('path');
 
 const Assistant = require('../../core/assistant');
-const ActiveLearningStore = require('../../core/assistant/Active-learning');
-const ContextManager = require('../../core/assistant/context');
-const InputParser = require('../../core/assistant/parser');
-const NlpProcessor = require('../../core/assistant/nlp/nlp');
-const NaturalLanguageRouter = require('../../core/assistant/nlu');
-const NaturalLanguageExecution = require('../../core/assistant/nle');
-const IntentRegistry = require('../../core/assistant/intents').IntentRegistry;
+const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
+const ContextManager = require('../../core/assistant/context/ContextManager');
+const InputParser = require('../../core/assistant/linguistic/InputParser');
+const NlpProcessor = require('../../core/assistant/linguistic/NlpProcessor');
+const NaturalLanguageRouter = require('../../core/assistant/semantic/NaturalLanguageRouter');
+const NaturalLanguageExecution = require('../../core/assistant/automation/NaturalLanguageExecution');
+const IntentRegistry = require('../../core/assistant/reasoning/IntentRegistry').IntentRegistry;
 
 describe('Human-style context and profile memory', function() {
   it('resolves short elliptical follow-ups from the last successful action', function() {

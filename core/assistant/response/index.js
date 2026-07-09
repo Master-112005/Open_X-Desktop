@@ -18,6 +18,8 @@ module.exports = {
   ChatFormatter: require('./ChatFormatter'),
   NotificationFormatter: require('./NotificationFormatter'),
   NaturalLanguageFormatter: require('./NaturalLanguageFormatter'),
+  Personality: require('./Personality'),
+  ResponseGenerator: require('./ResponseGenerator'),
   AssistantResponse: require('./AssistantResponse'),
   ResponseConfiguration: require('./ResponseConfiguration'),
   ResponseDiagnostics: require('./ResponseDiagnostics'),

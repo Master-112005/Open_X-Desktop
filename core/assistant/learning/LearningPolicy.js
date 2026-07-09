@@ -1,6 +1,6 @@
 'use strict';
 
-const LearningGuard = require('../active-learning/LearningGuard');
+const LearningGuard = require('./LearningGuard');
 
 const CATEGORY_FILES = Object.freeze({
   preference: 'preferences',

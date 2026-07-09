@@ -1,4 +1,4 @@
-const Logger = require('./Data').Logger;
+const Logger = require('../Data').Logger;
 
 const MAX_HISTORY = 100;
 const MAX_CONTEXT_AGE_MS = 2 * 60 * 60 * 1000;

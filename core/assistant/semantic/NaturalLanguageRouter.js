@@ -1,8 +1,8 @@
-const { Normalizer } = require('./Data');
-const EntityExtractor = require('./entities');
-const { FILLER_WORDS } = require('./nlp/preprocessor');
-const { parseLearningDirective } = require('./active-learning/LearningLanguage');
-const { analyzeDiscourse, buildWordRelations } = require('./language');
+const { Normalizer } = require('../Data');
+const EntityExtractor = require('../entities/EntityExtractor');
+const { FILLER_WORDS } = require('../normalization/CommandPreprocessor');
+const { parseLearningDirective } = require('../learning/LearningLanguage');
+const { analyzeDiscourse, buildWordRelations } = require('../linguistic/LanguageAnalysis');
 
 const CONNECTOR_PATTERN = /\s*(?:;|,|\b(?:and then|then|after that|afterwards|and|also|plus|additionally|furthermore)\b)\s*/i;
 
@@ -569,7 +569,7 @@ class NaturalLanguageRouter {
 module.exports = NaturalLanguageRouter;
 
 const AppCommandLanguage = (() => {
-const Normalizer = require('./Data').Normalizer;
+const Normalizer = require('../Data').Normalizer;
 
 const ACTIONS = new Map([
   ['open', 'open'],
@@ -690,7 +690,7 @@ return AppCommandLanguage;
 
 })();
 const BrowserCommandLanguage = (() => {
-const Normalizer = require('./Data').Normalizer;
+const Normalizer = require('../Data').Normalizer;
 
 class BrowserCommandLanguage {
   parse(rawText, correctedText = rawText) {

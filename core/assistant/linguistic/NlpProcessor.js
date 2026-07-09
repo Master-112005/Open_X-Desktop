@@ -1,20 +1,20 @@
 const Normalizer = require('../Data').Normalizer;
-const EntityExtractor = require('../entities');
+const EntityExtractor = require('../entities/EntityExtractor');
 const {
   DOMAIN_VOCABULARY,
   FILLER_WORDS,
   TOKEN_CORRECTIONS
-} = require('./preprocessor');
+} = require('../normalization/CommandPreprocessor');
 const {
   buildBigrams,
   preprocessCommand
-} = require('./preprocessor');
+} = require('../normalization/CommandPreprocessor');
 const {
   scorePreparedPattern
-} = require('./scorer');
-const { normalizeWebTarget } = require('./web-targets');
-const { parseLearningDirective } = require('../active-learning/LearningLanguage');
-const { analyzeDiscourse } = require('../language');
+} = require('../reasoning/IntentPatternScorer');
+const { normalizeWebTarget } = require('../semantic/WebTargets');
+const { parseLearningDirective } = require('../learning/LearningLanguage');
+const { analyzeDiscourse } = require('./LanguageAnalysis');
 
 const PREPARE_CACHE_LIMIT = 4096;
 const PATTERN_CACHE_LIMIT = 2048;

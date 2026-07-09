@@ -1,5 +1,5 @@
-const Logger = require('./Data').Logger;
-const Normalizer = require('./Data').Normalizer;
+const Logger = require('../Data').Logger;
+const Normalizer = require('../Data').Normalizer;
 
 const INTENT_DEFINITIONS = [
   {

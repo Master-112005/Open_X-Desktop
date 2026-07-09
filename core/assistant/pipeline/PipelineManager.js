@@ -1,7 +1,6 @@
 'use strict';
 
 const PipelineBuilder = require('./PipelineBuilder');
-const AssistantPassthroughStage = require('./AssistantPassthroughStage');
 const { LanguageNormalizationStage } = require('../normalization');
 const { LinguisticUnderstandingStage } = require('../linguistic');
 const { SemanticUnderstandingStage } = require('../semantic');
@@ -9,7 +8,7 @@ const { EntityUnderstandingStage } = require('../entities/index.js');
 const { MemoryContextStage } = require('../memory/index.js');
 const { GoalIntentReasoningStage } = require('../reasoning/index.js');
 const { TaskPlanningStage } = require('../planning/index.js');
-const { DecisionValidationAutomationStage } = require('../automation/index.js');
+const { AssistantExecutionStage, DecisionValidationAutomationStage } = require('../automation/index.js');
 const { VerificationResponseStage } = require('../verification/index.js');
 const { LearningStage } = require('../learning/index.js');
 
@@ -56,7 +55,10 @@ class PipelineManager {
         configuration: options.verificationResponse || options.configuration?.verificationResponse || {},
         logger: options.logger || null
       }), { id: 'assistant.verification.response', order: -0.25 });
-      this.builder.registerStage(new AssistantPassthroughStage(), { id: 'assistant.input.passThrough', order: 0 });
+      this.builder.registerStage(new AssistantExecutionStage({
+        executor: options.commandExecutor || options.executor || null,
+        logger: options.logger || null
+      }), { id: 'assistant.execution', order: 0.1 });
       this.builder.registerStage(new LearningStage({
         configuration: options.learning || options.configuration?.learning || {},
         logger: options.logger || null

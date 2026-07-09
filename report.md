@@ -1,4 +1,4 @@
-﻿# OpenX Repository Report
+# OpenX Repository Report
 
 Report date: 2026-07-09
 
@@ -10,11 +10,9 @@ Runtime: Electron 28, Node.js, CommonJS
 
 ## Summary
 
-OpenX is a deterministic, local-first Windows desktop assistant. The app accepts commands from desktop chat, voice, phone, cloud relay, plugins, and future structured input sources, then routes them through the existing assistant boundary without changing the public `Assistant.processCommand(input, source, options)` contract.
+OpenX is a local-first Windows desktop assistant. The assistant entry points now route through `AssistantEngine` and the staged Assistant Intelligence Pipeline. The old top-level assistant parser/NLU/router/entity/response/context files have been retired from their legacy locations and their surviving behavior has been moved under the phase-owned pipeline directories.
 
-The current codebase includes a staged assistant intelligence pipeline for input acquisition, language normalization, linguistic and semantic analysis, entity extraction, memory/context resolution, reasoning, planning, decision/validation, verification, response shaping, and learning.
-
-`Assistant.processCommand()` now delegates to `AssistantEngine`, which owns the command-processing entry boundary. The pipeline still preserves current behavior through the existing router path while migration continues.
+The runtime no longer uses `AssistantPassthroughStage` or an `AssistantEngine.executeLegacy` callback. Pipeline execution now returns the assistant result directly after the execution stage.
 
 ## Repository Scan
 
@@ -36,59 +34,26 @@ Current filtered counts:
 |---|---:|---:|
 | `apps` | 114 | 0 |
 | `build` | 5 | 0 |
-| `core` | 447 | 0 |
-| `docs` | 9 | 0 |
+| `core` | 446 | 0 |
+| `docs` | 11 | 0 |
 | `models` | 4 | 0 |
 | `plugins` | 12 | 0 |
 | `scripts` | 2 | 0 |
 | `tests` | 67 | 67 |
 
-Total filtered files: 670
+Total filtered files: 671
 
-Total filtered directories: 72
+Total filtered directories: 70
 
-JavaScript files: 629
+JavaScript files: 628
 
 Test files: 67
 
-## Verification
-
-Commands run:
-
-```powershell
-npm run lint
-npx mocha "tests/**/*.test.js" --timeout 20000
-```
-
-Results:
+## Current Runtime Flow
 
 ```text
-ESLint: clean
-Mocha: 842 passing
-```
-
-During verification, the full suite initially exposed one stale architecture test that still expected newer assistant subdirectories to be absent. That expectation conflicted with the current repo layout, so `tests/core/architecture-structure.test.js` was updated to accept the current architecture.
-
-Lint also exposed small repo-level issues, now fixed:
-
-- `core/assistant/acquisition/InputMetadataBuilder.js`: use `globalThis.Intl`
-- `core/assistant/acquisition/LanguageDetector.js`: use `globalThis.Intl`
-- `core/assistant/router.js`: removed unused `EXPLICIT_FILE_DOMAIN_PATTERN`
-- `core/cloud/CloudCommandManager.js`: changed constant-condition `while (true)` to `for (;;)`
-
-The error log lines printed during tests are expected negative-path assertions, including unknown actions, protected path deletion, parser failure simulation, timeout simulation, and plugin namespace rejection.
-
-## Architecture
-
-Primary runtime flow:
-
-```text
-Input source
-  -> Assistant.processCommand()
-  -> AssistantEngine
+RawUserInput
   -> InputSourceManager
-  -> RawUserInput
-  -> Assistant intelligence pipeline
   -> LanguageNormalizationStage
   -> LinguisticUnderstandingStage
   -> SemanticUnderstandingStage
@@ -98,64 +63,77 @@ Input source
   -> TaskPlanningStage
   -> DecisionValidationAutomationStage
   -> VerificationResponseStage
-  -> AssistantPassthroughStage
+  -> AssistantExecutionStage
   -> LearningStage
-  -> legacy assistant router and automation boundary
 ```
 
-Important compatibility point:
+## Migrated Assistant Modules
 
-`LearningStage` runs after pass-through and returns the original pass-through payload, so the current command input, source, options, router behavior, and response remain unchanged.
-
-## Main Areas
-
-| Area | Path | Responsibility |
-|---|---|---|
-| Desktop shell | `apps/desktop/` | Electron lifecycle, renderer windows, settings, preload APIs, permissions, voice UI |
-| Voice | `apps/desktop/voice/` | Audio capture, preprocessing, STT, normalization, diagnostics, TTS, Dynamic Island UI |
-| Assistant legacy core | `core/assistant/*.js` | Public command flow, NLP/NLU/parser/router/entities/responses/context/active learning |
-| Assistant intelligence pipeline | `core/assistant/{acquisition,normalization,linguistic,semantic,entities,memory,reasoning,planning,decision,validation,automation,verification,response,learning}/` | Sidecar staged intelligence layers, immutable results, diagnostics, registries |
-| Automation | `core/automation/` | App, browser, files, folders, media, scheduler, system, volume, brightness, windows |
-| Phone | `core/phone/` | Pairing, session security, permissions, command routing, file transfer |
-| Cloud | `core/cloud/` | Optional relay connection, cloud commands, cloud file transfer, presence, notifications |
-| Context awareness | `core/context-awareness/` | Active window, app registry, process signals, modes |
-| Plugins | `plugins/` | Plugin controller and restricted plugin packages |
-| Tests | `tests/` | Automation, assistant, phone, voice, UI, learning, security, context regression coverage |
-
-## Pipeline Ownership Migration
-
-Current status:
-
-- `Assistant.processCommand()` delegates directly to `AssistantEngine`.
-- `AssistantEngine` owns input acquisition, pipeline execution, fallback handling, and the bridge into the existing execution path.
-- Dependency audit scanned 629 JavaScript files and 1,633 local `require()` edges.
-- No direct circular dependency pairs were found in the scanned local dependency graph.
-- Legacy modules are still intentionally retained because production and tests still depend on them.
-
-Remaining legacy consumers:
-
-| Legacy module | Current direct consumers |
+| Responsibility | Current owner |
 |---|---|
-| `core/assistant/parser.js` | `core/assistant/router.js`, parser/context/learning tests |
-| `core/assistant/entities.js` | new entity extractors that reuse existing app/folder behavior |
-| `core/assistant/intents.js` | `core/assistant/router.js`, intent/NLU tests |
-| `core/assistant/responses.js` | `core/assistant/index.js`, `core/assistant/router.js`, voice response coordinator, response tests |
-| `core/assistant/language.js` | NLP, NLU, parser |
-| `core/assistant/nlu.js` | `core/assistant/router.js`, app/browser/NLU tests |
+| Command parsing and command frames | `core/assistant/linguistic/InputParser.js` |
+| Discourse and word relations | `core/assistant/linguistic/LanguageAnalysis.js` |
+| NLP preparation | `core/assistant/linguistic/NlpProcessor.js` |
+| Language cleanup helpers | `core/assistant/normalization/CommandPreprocessor.js` |
+| Natural language routing semantics | `core/assistant/semantic/NaturalLanguageRouter.js` |
+| Web target resolution | `core/assistant/semantic/WebTargets.js` |
+| Entity extraction | `core/assistant/entities/EntityExtractor.js` |
+| Intent registry and pattern scoring | `core/assistant/reasoning/IntentRegistry.js`, `core/assistant/reasoning/IntentPatternScorer.js` |
+| Action routing and execution delegate | `core/assistant/automation/ActionRouter.js`, `core/assistant/automation/AssistantExecutionStage.js` |
+| Natural language execution helper | `core/assistant/automation/NaturalLanguageExecution.js` |
+| Conversation context | `core/assistant/context/ContextManager.js` |
+| Response generation and personality | `core/assistant/response/ResponseGenerator.js`, `core/assistant/response/Personality.js` |
+| Active learning stores | `core/assistant/learning/` |
 
-No legacy files were deleted. They should be removed only after each direct consumer is migrated to immutable pipeline outputs and full regression coverage remains green.
+## Removed Legacy Locations
 
-## Assistant Intelligence Modules
+```text
+core/assistant/Active-learning.js
+core/assistant/active-learning/
+core/assistant/context.js
+core/assistant/entities.js
+core/assistant/intents.js
+core/assistant/language.js
+core/assistant/nle.js
+core/assistant/nlp/
+core/assistant/nlu.js
+core/assistant/parser.js
+core/assistant/personality.js
+core/assistant/responses.js
+core/assistant/router.js
+core/assistant/contest.js
+core/assistant/pipeline/AssistantPassthroughStage.js
+```
 
-| Module | Directory | Immutable output |
-|---|---|---|
-| Entity understanding | `core/assistant/entities/` | `StructuredEntities` |
-| Memory and context | `core/assistant/memory/`, `core/assistant/context/`, `core/assistant/references/` | `ResolvedContext` |
-| Goal and intent reasoning | `core/assistant/reasoning/` | `ReasoningResult` |
-| Task planning | `core/assistant/planning/` | `ExecutionBlueprint` |
-| Decision, validation, automation | `core/assistant/decision/`, `core/assistant/validation/`, `core/assistant/automation/` | `AutomationResult` |
-| Verification and response | `core/assistant/verification/`, `core/assistant/response/` | `VerificationResult`, `AssistantResponse` |
-| Learning | `core/assistant/learning/` | `LearningResult` |
+## Verification
+
+Commands run in this pass:
+
+```powershell
+npm run lint
+npx mocha "tests/core/architecture-structure.test.js" "tests/core/parser.test.js" "tests/core/intents.test.js" --timeout 20000
+npx mocha "tests/core/nlu.test.js" "tests/core/nlp.test.js" --timeout 20000
+npx mocha "tests/core/router.test.js" --timeout 20000
+npx mocha "tests/core/{architecture-structure,assistant-intelligence-pipeline,assistant,parser,intents,nlu,nlp,router}.test.js" --timeout 20000
+npx mocha "tests/**/*.test.js" --timeout 20000
+```
+
+Results:
+
+```text
+ESLint: clean
+Architecture/parser/intents: 18 passing
+NLU/NLP: 15 passing
+Action router: 154 passing
+Focused migration regression: 248 passing
+Full suite: 842 passing
+```
+
+The logged timeout/parser/NLP error lines are expected negative-path assertions in the test suite.
+
+## Remaining Technical Debt
+
+The old decision behavior has been moved out of legacy top-level files, but `core/assistant/automation/ActionRouter.js` still contains a large amount of command-resolution behavior. The next production migration step is to continue splitting that behavior into semantic, reasoning, planning, decision, validation, and automation stage implementations while keeping the focused regression suites green after each split.
 
 ## Directory Tree
 
@@ -297,9 +275,9 @@ OpenX/
 |       |-- preload.js
 |       +-- settings.js
 |-- build/
+|   |-- ICON_README.md
 |   |-- icon.ico
 |   |-- icon.png
-|   |-- ICON_README.md
 |   |-- installer.nsh
 |   +-- openx-chrome-host.exe
 |-- core/
@@ -323,17 +301,9 @@ OpenX/
 |   |   |   |-- PluginAdapter.js
 |   |   |   |-- SourceConfidenceCalculator.js
 |   |   |   +-- VoiceAdapter.js
-|   |   |-- active-learning/
-|   |   |   |-- ActiveLearningManager.js
-|   |   |   |-- AliasStore.js
-|   |   |   |-- BaseStore.js
-|   |   |   |-- CorrectionStore.js
-|   |   |   |-- LearningGuard.js
-|   |   |   |-- LearningLanguage.js
-|   |   |   |-- PreferenceStore.js
-|   |   |   |-- UsageStatsStore.js
-|   |   |   +-- WorkflowStore.js
 |   |   |-- automation/
+|   |   |   |-- ActionRouter.js
+|   |   |   |-- AssistantExecutionStage.js
 |   |   |   |-- AutomationContext.js
 |   |   |   |-- AutomationDiagnostics.js
 |   |   |   |-- AutomationDispatcher.js
@@ -343,12 +313,14 @@ OpenX/
 |   |   |   |-- AutomationResult.js
 |   |   |   |-- DecisionValidationAutomationManager.js
 |   |   |   |-- DecisionValidationAutomationStage.js
-|   |   |   +-- index.js
+|   |   |   |-- index.js
+|   |   |   +-- NaturalLanguageExecution.js
 |   |   |-- context/
 |   |   |   |-- ApplicationContext.js
 |   |   |   |-- BrowserContext.js
 |   |   |   |-- CalendarContext.js
 |   |   |   |-- ClipboardContext.js
+|   |   |   |-- ContextManager.js
 |   |   |   |-- DesktopContext.js
 |   |   |   |-- index.js
 |   |   |   |-- MediaContext.js
@@ -400,6 +372,7 @@ OpenX/
 |   |   |   |-- EntityContext.js
 |   |   |   |-- EntityDiagnostics.js
 |   |   |   |-- EntityErrors.js
+|   |   |   |-- EntityExtractor.js
 |   |   |   |-- EntityGraphBuilder.js
 |   |   |   |-- EntityLogger.js
 |   |   |   |-- EntityManager.js
@@ -430,10 +403,15 @@ OpenX/
 |   |   |   |-- PipelineEventDispatcher.js
 |   |   |   +-- PipelineEvents.js
 |   |   |-- learning/
+|   |   |   |-- ActiveLearningManager.js
+|   |   |   |-- ActiveLearningStore.js
 |   |   |   |-- AliasLearning.js
+|   |   |   |-- AliasStore.js
 |   |   |   |-- BaseLearningModule.js
+|   |   |   |-- BaseStore.js
 |   |   |   |-- ConversationLearning.js
 |   |   |   |-- CorrectionLearning.js
+|   |   |   |-- CorrectionStore.js
 |   |   |   |-- FeedbackLearning.js
 |   |   |   |-- HabitLearning.js
 |   |   |   |-- index.js
@@ -442,6 +420,8 @@ OpenX/
 |   |   |   |-- LearningContext.js
 |   |   |   |-- LearningDiagnostics.js
 |   |   |   |-- LearningErrors.js
+|   |   |   |-- LearningGuard.js
+|   |   |   |-- LearningLanguage.js
 |   |   |   |-- LearningLogger.js
 |   |   |   |-- LearningManager.js
 |   |   |   |-- LearningPipeline.js
@@ -453,14 +433,19 @@ OpenX/
 |   |   |   |-- LearningValidator.js
 |   |   |   |-- PatternLearning.js
 |   |   |   |-- PreferenceLearning.js
+|   |   |   |-- PreferenceStore.js
 |   |   |   |-- UsageLearning.js
-|   |   |   +-- WorkflowLearning.js
+|   |   |   |-- UsageStatsStore.js
+|   |   |   |-- WorkflowLearning.js
+|   |   |   +-- WorkflowStore.js
 |   |   |-- linguistic/
 |   |   |   |-- AnalyzerRegistry.js
 |   |   |   |-- BaseAnalyzer.js
 |   |   |   |-- ClauseAnalyzer.js
 |   |   |   |-- DependencyParser.js
 |   |   |   |-- index.js
+|   |   |   |-- InputParser.js
+|   |   |   |-- LanguageAnalysis.js
 |   |   |   |-- LinguisticConfiguration.js
 |   |   |   |-- LinguisticContext.js
 |   |   |   |-- LinguisticDiagnostics.js
@@ -472,6 +457,7 @@ OpenX/
 |   |   |   |-- LinguisticUnderstandingStage.js
 |   |   |   |-- ModifierDetector.js
 |   |   |   |-- NegationDetector.js
+|   |   |   |-- NlpProcessor.js
 |   |   |   |-- ObjectDetector.js
 |   |   |   |-- POSTagger.js
 |   |   |   |-- PronounResolver.js
@@ -510,14 +496,10 @@ OpenX/
 |   |   |   |-- RawUserInput.js
 |   |   |   |-- StageMetadata.js
 |   |   |   +-- TimingInformation.js
-|   |   |-- nlp/
-|   |   |   |-- nlp.js
-|   |   |   |-- preprocessor.js
-|   |   |   |-- scorer.js
-|   |   |   +-- web-targets.js
 |   |   |-- normalization/
 |   |   |   |-- AbbreviationExpander.js
 |   |   |   |-- BaseNormalizer.js
+|   |   |   |-- CommandPreprocessor.js
 |   |   |   |-- ContractionResolver.js
 |   |   |   |-- DateNormalizer.js
 |   |   |   |-- EmojiInterpreter.js
@@ -544,7 +526,6 @@ OpenX/
 |   |   |   |-- UnitNormalizer.js
 |   |   |   +-- WhitespaceNormalizer.js
 |   |   |-- pipeline/
-|   |   |   |-- AssistantPassthroughStage.js
 |   |   |   |-- index.js
 |   |   |   |-- PipelineBuilder.js
 |   |   |   |-- PipelineConfiguration.js
@@ -592,7 +573,9 @@ OpenX/
 |   |   |   |-- GoalReasoner.js
 |   |   |   |-- index.js
 |   |   |   |-- InferenceEngine.js
+|   |   |   |-- IntentPatternScorer.js
 |   |   |   |-- IntentReasoner.js
+|   |   |   |-- IntentRegistry.js
 |   |   |   |-- ReasoningConfiguration.js
 |   |   |   |-- ReasoningContext.js
 |   |   |   |-- ReasoningDiagnostics.js
@@ -622,10 +605,12 @@ OpenX/
 |   |   |   |-- index.js
 |   |   |   |-- NaturalLanguageFormatter.js
 |   |   |   |-- NotificationFormatter.js
+|   |   |   |-- Personality.js
 |   |   |   |-- ResponseConfiguration.js
 |   |   |   |-- ResponseContext.js
 |   |   |   |-- ResponseDiagnostics.js
 |   |   |   |-- ResponseErrors.js
+|   |   |   |-- ResponseGenerator.js
 |   |   |   |-- ResponseLogger.js
 |   |   |   |-- ResponseManager.js
 |   |   |   |-- ResponsePipeline.js
@@ -639,6 +624,7 @@ OpenX/
 |   |   |   |-- ConversationClassifier.js
 |   |   |   |-- index.js
 |   |   |   |-- MeaningResolver.js
+|   |   |   |-- NaturalLanguageRouter.js
 |   |   |   |-- RelationshipAnalyzer.js
 |   |   |   |-- SemanticConfiguration.js
 |   |   |   |-- SemanticContext.js
@@ -654,7 +640,8 @@ OpenX/
 |   |   |   |-- SemanticRepresentation.js
 |   |   |   |-- SemanticRoleLabeler.js
 |   |   |   |-- SemanticUnderstandingStage.js
-|   |   |   +-- SimilarityEngine.js
+|   |   |   |-- SimilarityEngine.js
+|   |   |   +-- WebTargets.js
 |   |   |-- utils/
 |   |   |   |-- AsyncHelpers.js
 |   |   |   |-- ConfigurationLoader.js
@@ -710,21 +697,9 @@ OpenX/
 |   |   |   |-- VerificationResponseStage.js
 |   |   |   |-- VerificationResult.js
 |   |   |   +-- WindowVerifier.js
-|   |   |-- Active-learning.js
 |   |   |-- AssistantEngine.js
-|   |   |-- contest.js
-|   |   |-- context.js
 |   |   |-- Data.js
-|   |   |-- entities.js
-|   |   |-- index.js
-|   |   |-- intents.js
-|   |   |-- language.js
-|   |   |-- nle.js
-|   |   |-- nlu.js
-|   |   |-- parser.js
-|   |   |-- personality.js
-|   |   |-- responses.js
-|   |   +-- router.js
+|   |   +-- index.js
 |   |-- automation/
 |   |   |-- common/
 |   |   |   |-- action-confirm.js
@@ -781,7 +756,9 @@ OpenX/
 |       +-- TransferIntegrity.js
 |-- docs/
 |   |-- architecture/
-|   |   +-- overview.md
+|   |   |-- overview.md
+|   |   |-- production-finalization.md
+|   |   +-- repository-audit.md
 |   |-- modules/
 |   |   |-- assistant-communication.md
 |   |   |-- communications.md
@@ -839,8 +816,8 @@ OpenX/
 |   |   |-- active-learning-v2.test.js
 |   |   |-- app-language.test.js
 |   |   |-- architecture-structure.test.js
-|   |   |-- assistant.test.js
 |   |   |-- assistant-intelligence-pipeline.test.js
+|   |   |-- assistant.test.js
 |   |   |-- browser-language.test.js
 |   |   |-- cloud-command-manager.test.js
 |   |   |-- cloud-connection.test.js
@@ -857,9 +834,9 @@ OpenX/
 |   |   |-- input-acquisition.test.js
 |   |   |-- intents.test.js
 |   |   |-- language-normalization.test.js
-|   |   |-- learning.test.js
 |   |   |-- learning-engine.test.js
 |   |   |-- learning-repair.test.js
+|   |   |-- learning.test.js
 |   |   |-- linguistic-understanding.test.js
 |   |   |-- logger.test.js
 |   |   |-- media-youtube-corpus.test.js
@@ -868,13 +845,13 @@ OpenX/
 |   |   |-- nlu.test.js
 |   |   |-- parser.test.js
 |   |   |-- permissions.test.js
-|   |   |-- phone.test.js
 |   |   |-- phone-device-permissions.test.js
 |   |   |-- phone-file-transfer.test.js
 |   |   |-- phone-identity-verification.test.js
 |   |   |-- phone-pairing.test.js
 |   |   |-- phone-qr-pairing.test.js
 |   |   |-- phone-security.test.js
+|   |   |-- phone.test.js
 |   |   |-- planner.test.js
 |   |   |-- planning.test.js
 |   |   |-- reasoning.test.js
@@ -900,21 +877,9 @@ OpenX/
 |-- commands.md
 |-- config.js
 |-- eslint.config.mjs
-|-- package.json
 |-- package-lock.json
+|-- package.json
 |-- README.md
 |-- report.md
 +-- RULES.md
 ```
-
-## Current Status
-
-The repository is verified at the current working tree state:
-
-- lint passes;
-- all tests pass;
-- assistant intelligence sidecars are present;
-- current assistant routing behavior remains backward compatible;
-- report and architecture test now match the current directory layout.
-
-

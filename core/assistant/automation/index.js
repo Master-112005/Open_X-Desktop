@@ -7,6 +7,9 @@ module.exports = {
   AutomationContext: require('./AutomationContext'),
   AutomationExecutionGraph: require('./AutomationExecutionGraph'),
   AutomationResult: require('./AutomationResult'),
+  ActionRouter: require('./ActionRouter'),
+  AssistantExecutionStage: require('./AssistantExecutionStage'),
+  NaturalLanguageExecution: require('./NaturalLanguageExecution'),
   AutomationDiagnostics: require('./AutomationDiagnostics'),
   AutomationLogger: require('./AutomationLogger'),
   ...require('./AutomationErrors')

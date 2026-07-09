@@ -10,6 +10,8 @@ module.exports = {
   ReasoningRegistry: require('./ReasoningRegistry'),
   BaseReasoner: require('./BaseReasoner'),
   InferenceEngine: require('./InferenceEngine'),
+  IntentPatternScorer: require('./IntentPatternScorer'),
+  IntentRegistry: require('./IntentRegistry'),
   GoalReasoner: require('./GoalReasoner'),
   IntentReasoner: require('./IntentReasoner'),
   ActionReasoner: require('./ActionReasoner'),

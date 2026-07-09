@@ -7,7 +7,7 @@ describe('Active Learning Store', function() {
   let ActiveLearningStore;
 
   before(function() {
-    ActiveLearningStore = require('../../core/assistant/Active-learning');
+    ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
   });
 
   function createStore() {

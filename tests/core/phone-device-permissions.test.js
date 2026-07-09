@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { WebSocket } = require('ws');
-const ActionRouter = require('../../core/assistant/router');
+const ActionRouter = require('../../core/assistant/automation/ActionRouter');
 const baseConfig = require('../../config');
 
 const {

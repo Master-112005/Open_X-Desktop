@@ -1,7 +1,7 @@
 'use strict';
 
 const BaseEntityExtractor = require('./BaseEntityExtractor');
-const { FOLDER_ALIASES } = require('../entities.js');
+const { FOLDER_ALIASES } = require('./EntityExtractor');
 
 class FolderExtractor extends BaseEntityExtractor {
   extract(context) {

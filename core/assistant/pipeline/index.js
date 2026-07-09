@@ -1,7 +1,6 @@
 'use strict';
 
 module.exports = {
-  AssistantPassthroughStage: require('./AssistantPassthroughStage'),
   PipelineBuilder: require('./PipelineBuilder'),
   PipelineConfiguration: require('./PipelineConfiguration'),
   PipelineContext: require('./PipelineContext'),
