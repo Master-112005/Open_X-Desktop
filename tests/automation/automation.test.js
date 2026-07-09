@@ -1069,12 +1069,18 @@ describe('Automation Engine', function() {
     const nextSunday = scheduler._parseTimeExpression('next sunday');
     const thisMonthDay = scheduler._parseTimeExpression('12 of this month');
     const nextMonthDay = scheduler._parseTimeExpression('12 next month');
+    const nextMonthDayLeading = scheduler._parseTimeExpression('next month 7');
+    const slashDate = scheduler._parseTimeExpression('01/12/26 at five pm');
+    const monthName = scheduler._parseTimeExpression('december 1 of this year');
 
     assert.ok(tomorrow instanceof Date);
     assert.ok(tomorrowDefault instanceof Date);
     assert.ok(nextSunday instanceof Date);
     assert.ok(thisMonthDay instanceof Date);
     assert.ok(nextMonthDay instanceof Date);
+    assert.ok(nextMonthDayLeading instanceof Date);
+    assert.ok(slashDate instanceof Date);
+    assert.ok(monthName instanceof Date);
     assert.ok(tomorrow.getTime() > Date.now());
     assert.ok(tomorrowDefault.getTime() > Date.now());
     assert.equal(tomorrowDefault.getHours(), 9);
@@ -1084,6 +1090,9 @@ describe('Automation Engine', function() {
     assert.equal(thisMonthDay.getHours(), 9);
     assert.equal(nextMonthDay.getDate(), 12);
     assert.equal(nextMonthDay.getHours(), 9);
+    assert.equal(nextMonthDayLeading.getDate(), 7);
+    assert.equal(slashDate.getHours(), 17);
+    assert.equal(monthName.getMonth(), 11);
   });
 
   it('should preserve and reschedule recurring alarms', function() {

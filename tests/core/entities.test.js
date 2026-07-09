@@ -232,6 +232,30 @@ describe('Entity Extractor', function() {
     assert.equal(nextMonth.reminderText, 'wish charan happy birthday');
   });
 
+  it('should extract flexible reminder dates without swallowing the message', function() {
+    const extractor = new EntityExtractor({});
+    const intent = {
+      entities: [
+        { name: 'timeExpression', type: 'string', required: false },
+        { name: 'reminderText', type: 'string', required: true }
+      ]
+    };
+
+    const nextMonth = extractor.extract(intent, 'remind me next month 7 say wishes to mohit');
+    const slashDate = extractor.extract(intent, 'remind me on 01/12/26 at five pm to call mummy');
+    const monthName = extractor.extract(intent, 'remind me december 1 of this year say wishes to charan');
+    const durationOnly = extractor.extract(intent, 'remind me in 5 min');
+
+    assert.equal(nextMonth.timeExpression, 'next month 7');
+    assert.equal(nextMonth.reminderText, 'wishes to mohit');
+    assert.equal(slashDate.timeExpression, '01/12/26 at five pm');
+    assert.equal(slashDate.reminderText, 'call mummy');
+    assert.equal(monthName.timeExpression, 'december 1 of this year');
+    assert.equal(monthName.reminderText, 'wishes to charan');
+    assert.equal(durationOnly.timeExpression, '5 min');
+    assert.equal(durationOnly.reminderText, null);
+  });
+
   it('should extract message details for whatsapp drafts', function() {
     const extractor = new EntityExtractor({});
     const intent = {

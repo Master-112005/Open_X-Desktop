@@ -100,4 +100,13 @@ describe('Assistant Entity Understanding Layer', function() {
     assert.ok(entities.folders.some(entity => entity.value.toLowerCase() === 'java practice'));
     assert.ok(entities.folders.some(entity => entity.canonical === 'Desktop Folder'));
   });
+
+  it('extracts flexible reminder date and time entities without intent data', async function() {
+    const entities = await buildStructuredEntities('remind me next month 7 at five pm say wishes to mohit');
+
+    assert.ok(entities.dates.some(entity => entity.value.toLowerCase() === 'next month 7'));
+    assert.ok(entities.times.some(entity => entity.value.toLowerCase() === 'five pm'));
+    assert.ok(entities.reminders.some(entity => entity.value.toLowerCase() === 'wishes to mohit'));
+    assert.equal(entities.intent, undefined);
+  });
 });

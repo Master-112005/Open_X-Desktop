@@ -4478,13 +4478,18 @@ const newTabMatch = input.match(
     entities.recurrence = entities.recurrence || correctedEntities.recurrence || this._extractScheduleRecurrence(`${raw} ${input}`);
     entities.timeExpression = this._stripScheduleRecurrenceFromTimeExpression(entities.timeExpression);
     if (!entities.reminderText) {
+      const scheduleOnlyFallbackPattern = new RegExp(
+        `^(?:${durationWords}\\s*${durationUnits}|today|tomorrow(?:\\s+(?:morning|afternoon|evening|night))?|tonight|next\\s+week|(?:this|next)\\s+month\\s+\\d{1,2}|\\d{1,2}(?:st|nd|rd|th)?(?:\\s+(?:of\\s+)?(?:this|next)\\s+month|\\s+(?:this|next)\\s+month)|\\d{1,2}[\\/.-]\\d{1,2}(?:[\\/.-]\\d{2,4})?)$`,
+        'i'
+      );
       const fallbackText = input
         .replace(/^(?:(?:daily|every\s+(?:day|morning|evening|night|weekday|week))\s+)?(?:(?:remind|notify|alert)(?:\s+me)?|set\s+(?:a\s+)?(?:recurring\s+)?reminder|create\s+(?:a\s+)?(?:recurring\s+)?reminder|add\s+(?:a\s+)?(?:recurring\s+)?reminder|schedule\s+(?:a\s+)?(?:recurring\s+)?reminder)\s+(?:to\s+)?/i, '')
         .replace(/^(?:recurring\s+)?reminder\s*/i, '')
+        .replace(new RegExp(`^(?:at|for|in|after)\\s+${durationWords}\\s*${durationUnits}\\s*`, 'i'), '')
         .replace(/^(?:at|for|in)\s+\d{1,2}(?:(?::|\s+)\d{2})?\s*(?:am|pm)?(?:\s+(?:today|tomorrow))?\s*/i, '')
         .replace(/^(?:every\s+(?:day|morning|evening|night|weekday|week)|daily)\s*/i, '')
         .trim();
-      if (fallbackText && !/^(?:me|myself|today|tomorrow|am|pm)$/i.test(fallbackText)) {
+      if (fallbackText && !scheduleOnlyFallbackPattern.test(fallbackText) && !/^(?:me|myself|today|tomorrow|am|pm)$/i.test(fallbackText)) {
         entities.reminderText = fallbackText;
       }
     }
