@@ -1,7 +1,7 @@
 'use strict';
 
 const BaseEntityExtractor = require('./BaseEntityExtractor');
-const { APP_ALIASES } = require('../entities.js');
+const { APP_ALIASES } = require('./EntityExtractor');
 
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

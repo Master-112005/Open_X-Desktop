@@ -8,6 +8,7 @@ module.exports = {
   createDefaultEntityManager,
   EntityContext: require('./EntityContext'),
   EntityRegistry: require('./EntityRegistry'),
+  EntityExtractor: require('./EntityExtractor'),
   BaseEntityExtractor: require('./BaseEntityExtractor'),
   EntityNormalizer: require('./EntityNormalizer'),
   EntityResolver: require('./EntityResolver'),

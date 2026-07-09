@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
-const { Normalizer } = require('./Data');
-const { buildDataPaths, readJsonFile, writeJsonAtomic } = require('./Data');
-const LearningGuard = require('./active-learning/LearningGuard');
+const { Normalizer } = require('../Data');
+const { buildDataPaths, readJsonFile, writeJsonAtomic } = require('../Data');
+const LearningGuard = require('./LearningGuard');
 
 const MAX_EVENTS = 200;
 const MAX_REWRITES = 100;

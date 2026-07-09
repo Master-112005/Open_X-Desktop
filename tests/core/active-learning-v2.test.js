@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const ActiveLearningManager = require('../../core/assistant/active-learning/ActiveLearningManager');
+const ActiveLearningManager = require('../../core/assistant/learning/ActiveLearningManager');
 
 describe('Active Learning v2', function() {
   function createManager() {

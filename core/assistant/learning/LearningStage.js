@@ -18,13 +18,13 @@ class LearningStage extends PipelineStage {
   }
 
   async execute(context) {
-    const passThroughOutput = context.get('assistant.request') || context.stageOutputs.get('assistant.input.passThrough') || {
+    const finalOutput = context.get('assistant.result') || context.get('assistant.responsePayload') || {
       input: context.normalizedInput || context.rawInput,
       source: context.source,
       options: { ...(context.options || {}) }
     };
     if (!context.assistantResponse) {
-      return StageResult.ok(this.id, passThroughOutput);
+      return StageResult.ok(this.id, finalOutput);
     }
     const learningResult = await this.manager.learn(context.assistantResponse, {
       metadata: {
@@ -35,7 +35,7 @@ class LearningStage extends PipelineStage {
     });
     context.learningResult = learningResult;
     context.set('assistant.learningResult', learningResult);
-    return StageResult.ok(this.id, passThroughOutput);
+    return StageResult.ok(this.id, finalOutput);
   }
 
   async destroy() {

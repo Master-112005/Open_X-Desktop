@@ -7,6 +7,7 @@ module.exports = {
   ConfidenceEngine: require('./ConfidenceEngine'),
   ConversationClassifier: require('./ConversationClassifier'),
   MeaningResolver: require('./MeaningResolver'),
+  NaturalLanguageRouter: require('./NaturalLanguageRouter'),
   RelationshipAnalyzer: require('./RelationshipAnalyzer'),
   SemanticConfiguration: require('./SemanticConfiguration'),
   SemanticContext: require('./SemanticContext'),
@@ -22,6 +23,7 @@ module.exports = {
   SemanticRoleLabeler: require('./SemanticRoleLabeler'),
   SemanticUnderstandingStage: require('./SemanticUnderstandingStage'),
   SimilarityEngine: require('./SimilarityEngine'),
+  WebTargets: require('./WebTargets'),
   createDefaultSemanticManager,
   ...require('./SemanticErrors')
 };

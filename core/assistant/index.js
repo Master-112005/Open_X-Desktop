@@ -5,17 +5,17 @@ const {
   Logger,
   Normalizer
 } = require('./Data');
-const ActionRouter = require('./router');
+const ActionRouter = require('./automation/ActionRouter');
 const AutomationEngine = require('../automation/index');
-const ContextManager = require('./context');
-const ActiveLearningStore = require('./Active-learning');
-const Personality = require('./personality');
-const ResponseGenerator = require('./responses');
+const ContextManager = require('./context/ContextManager');
+const ActiveLearningStore = require('./learning/ActiveLearningStore');
+const Personality = require('./response/Personality');
+const ResponseGenerator = require('./response/ResponseGenerator');
 const PluginManager = require('../../plugins/plugin-controller');
 const {
   extractReplacement,
   parseLearningDirective
-} = require('./active-learning/LearningLanguage');
+} = require('./learning/LearningLanguage');
 const AssistantEngine = require('./AssistantEngine');
 const { PipelineManager } = require('./pipeline');
 const { createDefaultInputSourceManager } = require('./acquisition');
@@ -158,6 +158,7 @@ class Assistant extends EventEmitter {
       normalization: config?.assistantIntelligence?.normalization || config?.assistant?.normalization || {},
       linguistic: config?.assistantIntelligence?.linguistic || config?.assistant?.linguistic || {},
       semantic: config?.assistantIntelligence?.semantic || config?.assistant?.semantic || {},
+      commandExecutor: (nextInput, nextSource, nextOptions) => this._processCommandDirect(nextInput, nextSource, nextOptions),
       logger: this.logger
     });
     this.inputSourceManager = dependencies.inputSourceManager || createDefaultInputSourceManager({
@@ -166,8 +167,7 @@ class Assistant extends EventEmitter {
     this.engine = dependencies.engine || new AssistantEngine({
       inputSourceManager: this.inputSourceManager,
       pipeline: this.intelligencePipeline,
-      logger: this.logger,
-      executeLegacy: (nextInput, nextSource, nextOptions) => this._processCommandDirect(nextInput, nextSource, nextOptions)
+      logger: this.logger
     });
   }
 

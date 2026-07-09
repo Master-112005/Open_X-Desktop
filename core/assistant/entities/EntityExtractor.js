@@ -1,7 +1,7 @@
-const Logger = require('./Data').Logger;
-const Normalizer = require('./Data').Normalizer;
-const Validator = require('./Data').Validator;
-const { cleanEntityName } = require('../automation/common/path-utils');
+const Logger = require('../Data').Logger;
+const Normalizer = require('../Data').Normalizer;
+const Validator = require('../Data').Validator;
+const { cleanEntityName } = require('../../automation/common/path-utils');
 
 const APP_ALIASES = {
   'vscode': 'vscode',

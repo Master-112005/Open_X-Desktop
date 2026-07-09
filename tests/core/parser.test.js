@@ -4,7 +4,7 @@ describe('Input Parser', function() {
   let InputParser;
 
   before(function() {
-    InputParser = require('../../core/assistant/parser');
+    InputParser = require('../../core/assistant/linguistic/InputParser');
   });
 
   it('should parse a simple command', function() {
@@ -95,7 +95,7 @@ describe('Input Parser', function() {
   });
 
   it('should classify phone transfer command frames with natural aliases', function() {
-    const { CommandFrameParser } = require('../../core/assistant/parser');
+    const { CommandFrameParser } = require('../../core/assistant/linguistic/InputParser');
     const frame = new CommandFrameParser().parse('copy latest screenshot onto my mobile');
 
     assert.equal(frame.action, 'send');
@@ -109,7 +109,7 @@ describe('Input Parser', function() {
   });
 
   it('should let explicit app-domain wording override file words', function() {
-    const { CommandFrameParser } = require('../../core/assistant/parser');
+    const { CommandFrameParser } = require('../../core/assistant/linguistic/InputParser');
     const frame = new CommandFrameParser().parse('open resume app not file');
 
     assert.equal(frame.action, 'open');

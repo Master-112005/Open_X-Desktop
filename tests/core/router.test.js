@@ -5,7 +5,7 @@ describe('Action Router', function() {
   let ActionRouter, AutomationEngine;
 
   before(function() {
-    ActionRouter = require('../../core/assistant/router');
+    ActionRouter = require('../../core/assistant/automation/ActionRouter');
     AutomationEngine = require('../../core/automation/index');
   });
 
@@ -2669,7 +2669,7 @@ describe('Action Router', function() {
   });
 
   it('should apply learned personal photo library preference during routing', async function() {
-    const ActiveLearningStore = require('../../core/assistant/Active-learning');
+    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };

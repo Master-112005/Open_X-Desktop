@@ -2,7 +2,7 @@
 
 OpenX is a deterministic, local-first Windows desktop assistant built with Electron and Node.js. It routes natural-language commands for desktop automation, browser control, files and folders, media, scheduling, planner entries, phone integration, and local voice interaction.
 
-Current package version: `4.1.0`
+Current package version: `5.5.1`
 
 ## Current Status
 
@@ -88,7 +88,7 @@ Desktop cloud mode is available from `Settings -> Phone -> Cloud Connection`:
 - `CloudFileTransferManager` supports cloud file transfer with metadata-first approval, chunked upload/download, progress events, cancellation, timeout cleanup, and SHA-256 verification.
 - Cloud presence tracks paired device availability and marks the desktop busy during cloud assistant/file-transfer work.
 - Cloud notifications receive relay events such as pairing, device online/offline, and file-transfer status.
-- No cloud voice streaming, screen sharing, cloud backup, or offline sync is implemented through the relay in this phase.
+- No cloud voice streaming, screen sharing, cloud backup, or offline sync is currently implemented through the relay.
 
 Cloud command flow:
 
@@ -209,5 +209,11 @@ The packaged app includes `apps/`, `core/`, `plugins/`, `config.js`, `package.js
 - `report.md`: detailed implementation report, critical method reference, and full filtered project tree.
 - `commands.md`: command-language regression corpus.
 - `docs/architecture/overview.md`: architecture overview.
+- `docs/architecture/production-finalization.md`: permanent target assistant architecture.
+- `docs/architecture/repository-audit.md`: repository inventory, ownership, dependency, and migration-readiness audit.
+- `docs/architecture/legacy-migration-strategy.md`: controlled legacy-to-pipeline migration order and verification gates.
+- `docs/architecture/legacy-module-inventory.md`: legacy migration matrix and human-readable responsibility mapping.
+- `docs/architecture/legacy-module-inventory.json`: exhaustive per-file inventory artifact.
+- `docs/architecture/dependency-graph.json`: generated local dependency graph artifact.
 - `docs/workflows/command-execution.md`: command execution workflow.
 - `docs/plugins/development.md`: plugin development rules.

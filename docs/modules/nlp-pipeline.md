@@ -2,20 +2,20 @@
 
 ## Purpose
 
-The NLP pipeline turns inconsistent natural language input into a stable command form for routing and execution.
+The NLP pipeline turns inconsistent natural language input into normalized, linguistic, and semantic structures for the assistant pipeline.
 
 ## Modules
 
-- `core/assistant/parser.js`
-  Handles wake-word detection, raw command preservation, and polite lead-in stripping.
-- `core/assistant/nlp/constants.js`
-  Stores filler words, phrase replacements, and domain vocabulary.
-- `core/assistant/nlp/preprocessor.js`
+- `core/assistant/linguistic/InputParser.js`
+  Preserves raw command text and builds command clauses and word relations.
+- `core/assistant/normalization/CommandPreprocessor.js`
   Normalizes commands, strips polite prefixes, applies phrase rewrites, and collapses repeated tokens.
-- `core/assistant/nlp/scorer.js`
+- `core/assistant/reasoning/IntentPatternScorer.js`
   Scores command patterns using overlap, order, bigrams, and string similarity.
-- `core/assistant/nlp/nlp.js`
+- `core/assistant/linguistic/NlpProcessor.js`
   Coordinates vocabulary building, spelling correction, and scoring.
+- `core/assistant/semantic/NaturalLanguageRouter.js`
+  Converts natural language evidence into semantic route candidates.
 
 ## Design Notes
 
