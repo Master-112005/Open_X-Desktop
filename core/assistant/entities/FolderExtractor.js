@@ -12,6 +12,7 @@ class FolderExtractor extends BaseEntityExtractor {
       }
     }
     this.addRegexMatches(context, 'folder', /\b(?:folder|directory)\s+(?:called|named)?\s*([^,.;]+?)(?=\s+(?:in|on|at|to|from)\b|$)/gi, { confidence: 0.62 });
+    this.addRegexMatches(context, 'folder', /\b(?:open|show|create|make|delete|move|copy)\s+(?:my\s+|the\s+|a\s+|an\s+)?([^,.;]+?)\s+(?:folder|directory)\b/gi, { confidence: 0.68 });
     return context;
   }
 }

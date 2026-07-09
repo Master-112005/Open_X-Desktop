@@ -13,11 +13,17 @@ const KNOWN_FOLDERS = Object.freeze({
   home: () => os.homedir()
 });
 
+function normalizeList(values) {
+  return new Set((Array.isArray(values) ? values : []).map(value => String(value || '').toLowerCase().trim()).filter(Boolean));
+}
+
 class EntityResolver {
   constructor(options = {}) {
     this.id = options.id || 'entity.resolver';
     this.priority = Number.isFinite(options.priority) ? options.priority : 1010;
     this.providers = { ...(options.providers || {}) };
+    this.installedApplications = normalizeList(this.providers.installedApplications || this.providers.applications);
+    this.knownBrowsers = normalizeList(this.providers.browsers || ['Google Chrome', 'Microsoft Edge', 'Mozilla Firefox']);
   }
 
   process(context) {
@@ -29,7 +35,30 @@ class EntityResolver {
     }
 
     for (const app of context.entities.applications) {
-      app.resolved = app.resolved || { kind: 'application-name', name: app.canonical || app.value };
+      const name = app.canonical || app.value;
+      const key = String(name).toLowerCase();
+      app.resolved = app.resolved || {
+        kind: this.installedApplications.size === 0 || this.installedApplications.has(key)
+          ? 'installed-application'
+          : 'application-name',
+        name
+      };
+    }
+
+    for (const browser of context.entities.browsers) {
+      const name = browser.canonical || browser.value;
+      browser.resolved = browser.resolved || {
+        kind: this.knownBrowsers.has(String(name).toLowerCase()) ? 'known-browser' : 'browser-reference',
+        name
+      };
+    }
+
+    for (const website of context.entities.websites) {
+      const value = website.canonical || website.value;
+      website.resolved = website.resolved || {
+        kind: /^https?:\/\//i.test(value) || /\.[a-z]{2,}/i.test(value) ? 'url' : 'known-website',
+        value
+      };
     }
 
     for (const contact of context.entities.contacts) {

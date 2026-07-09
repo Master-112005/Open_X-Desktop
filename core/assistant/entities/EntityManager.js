@@ -69,7 +69,12 @@ class EntityManager {
   registerNormalizer(id, normalizer) { this.registry.registerNormalizer(id, normalizer); return this; }
   registerResolver(id, resolver) { this.registry.registerResolver(id, resolver); return this; }
   registerValidator(id, validator) { this.registry.registerValidator(id, validator); return this; }
-  registerEntityType(id, definition) { this.registry.registerEntityType(id, definition); return this; }
+  registerEntityType(id, definition) {
+    const key = String(id || '').trim();
+    this.registry.registerEntityType(key, definition);
+    if (key) this.configuration.entityTypes[key] = { ...(definition || {}) };
+    return this;
+  }
 
   async understand(semanticRepresentation, options = {}) {
     if (!this.pipeline) {

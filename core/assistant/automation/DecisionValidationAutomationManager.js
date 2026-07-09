@@ -20,7 +20,10 @@ class DecisionValidationAutomationManager {
   }
 
   async run(executionBlueprint, options = {}) {
-    const metadata = options.metadata || {};
+    const metadata = {
+      ...(options.metadata || {}),
+      automationRoutes: this.dispatcher.configuration.routes
+    };
     const automationEngine = options.automationEngine || this.automationEngine || null;
     const decision = await this.decisionManager.decide(executionBlueprint, { metadata });
     const validation = await this.validationManager.validate(executionBlueprint, decision, {

@@ -78,6 +78,48 @@ describe('Assistant Decision, Validation, and Automation Layer', function() {
     assert.equal(result.completedActions.length, 1);
   });
 
+  it('validates and dispatches task-level automation route overrides consistently', async function() {
+    const { createDefaultDecisionValidationAutomationManager } = require('../../core/assistant/automation/index.js');
+    const calls = [];
+    const fakeEngine = {
+      getActions: () => ['app.switch'],
+      execute: async (action, entities) => {
+        calls.push({ action, entities });
+        return { success: true };
+      }
+    };
+    const manager = createDefaultDecisionValidationAutomationManager({
+      automationEngine: fakeEngine,
+      configuration: { automation: { execute: true } }
+    });
+    const result = await manager.run(blueprint({
+      tasks: [{
+        id: 'switch.application',
+        label: 'switch application',
+        action: 'OPEN_APPLICATION',
+        metadata: {
+          automationAction: 'app.switch',
+          entities: { appName: 'chrome' }
+        }
+      }],
+      ordering: [{ taskId: 'switch.application', index: 0, mode: 'sequential' }]
+    }), { metadata: { source: 'chat' } });
+
+    assert.equal(result.validation.valid, true);
+    assert.equal(result.executionStatus, 'COMPLETED');
+    assert.equal(calls[0].action, 'app.switch');
+  });
+
+  it('keeps validation route coverage aligned with dispatcher routes', function() {
+    const { AutomationDispatcher } = require('../../core/assistant/automation/index.js');
+    const { AutomationValidator } = require('../../core/assistant/validation/index.js');
+
+    assert.deepEqual(AutomationValidator.ACTION_ROUTES, AutomationDispatcher.ACTION_ROUTES);
+    for (const action of ['OPEN_APPLICATION', 'CLOSE_APPLICATION', 'SEARCH_WEB', 'PLAY_MEDIA', 'PAUSE_MEDIA', 'SET_VOLUME', 'OPEN_FOLDER', 'DELETE_FILE', 'MOVE_FILE', 'CREATE_REMINDER']) {
+      assert.ok(AutomationDispatcher.ACTION_ROUTES[action], `missing route for ${action}`);
+    }
+  });
+
   it('keeps decision and validation component order configurable', function() {
     const { createDefaultDecisionManager } = require('../../core/assistant/decision/index.js');
     const { createDefaultValidationManager } = require('../../core/assistant/validation/index.js');

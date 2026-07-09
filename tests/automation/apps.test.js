@@ -725,6 +725,32 @@ describe('App Controller', function() {
     assert.equal(launched.name, 'Instagram');
   });
 
+  it('should try Start menu before web fallback launchers', function() {
+    const controller = new AppController({});
+    let launched = null;
+    let specialUsed = false;
+
+    controller.findVisibleApp = () => null;
+    controller._resolveStartApp = name => {
+      assert.equal(name, 'youtube');
+      return { name: 'YouTube', appId: 'YouTube.App' };
+    };
+    controller._launchStartApp = startApp => {
+      launched = startApp;
+    };
+    controller._launchSpecialApp = () => {
+      specialUsed = true;
+      return { success: true };
+    };
+
+    const result = controller.open('youtube');
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.launchMethod, 'start-menu');
+    assert.equal(launched.appId, 'YouTube.App');
+    assert.equal(specialUsed, false);
+  });
+
   it('should never force terminate shared Windows host processes', function() {
     const controller = new AppController({});
     const terminated = controller._forceTerminateProcesses([{

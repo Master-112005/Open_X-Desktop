@@ -9,12 +9,21 @@ const ACTION_ROUTES = Object.freeze({
   SEARCH_WEB: 'browser.search',
   PLAY_MEDIA: 'media.play',
   PAUSE_MEDIA: 'media.pause',
+  RESUME_MEDIA: 'media.resume',
+  STOP_MEDIA: 'media.stop',
   SET_VOLUME: 'volume.set',
+  MUTE_AUDIO: 'volume.mute',
   OPEN_FOLDER: 'folder.open',
+  OPEN_FILE: 'file.open',
+  CREATE_FILE: 'file.create',
   DELETE_FILE: 'file.delete',
   MOVE_FILE: 'file.move',
   CREATE_REMINDER: 'reminder.set'
 });
+
+function resolveAutomationRoute(task = {}, routes = ACTION_ROUTES) {
+  return task.metadata?.automationAction || routes[task.action] || null;
+}
 
 class AutomationDispatcher {
   constructor(options = {}) {
@@ -58,7 +67,7 @@ class AutomationDispatcher {
     for (const order of executionBlueprint?.ordering || []) {
       const task = (executionBlueprint.tasks || []).find(candidate => candidate.id === order.taskId);
       if (!task?.action) continue;
-      const route = task.metadata?.automationAction || this.configuration.routes[task.action];
+      const route = resolveAutomationRoute(task, this.configuration.routes);
       if (!route) {
         const failed = { taskId: task.id, action: task.action, success: false, error: 'No automation route' };
         context.failedActions.push(failed);
@@ -93,5 +102,6 @@ class AutomationDispatcher {
 }
 
 AutomationDispatcher.ACTION_ROUTES = ACTION_ROUTES;
+AutomationDispatcher.resolveAutomationRoute = resolveAutomationRoute;
 
 module.exports = AutomationDispatcher;

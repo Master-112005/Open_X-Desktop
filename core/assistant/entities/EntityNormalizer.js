@@ -31,6 +31,18 @@ const CANONICAL = Object.freeze({
     pictures: 'Pictures',
     videos: 'Videos',
     music: 'Music'
+  },
+  device: {
+    mobile: 'Phone',
+    cellphone: 'Phone',
+    smartphone: 'Phone',
+    iphone: 'iPhone',
+    android: 'Android Phone',
+    pc: 'Computer'
+  },
+  network: {
+    wifi: 'Wi-Fi',
+    'wi-fi': 'Wi-Fi'
   }
 });
 
@@ -43,8 +55,9 @@ class EntityNormalizer {
 
   process(context) {
     for (const entity of context.allEntities()) {
-      const key = String(entity.value || '').toLowerCase();
-      entity.canonical = this.maps[entity.type]?.[key] || entity.canonical || entity.value;
+      const key = String(entity.value || '').toLowerCase().trim();
+      const rawKey = String(entity.rawValue || '').toLowerCase().trim();
+      entity.canonical = this.maps[entity.type]?.[key] || this.maps[entity.type]?.[rawKey] || entity.canonical || entity.value;
     }
     return context;
   }

@@ -51,13 +51,22 @@ class BaseEntityExtractor {
     const source = options.normalized === true ? this.normalized(context) : this.text(context);
     let match;
     const pattern = regex.global ? regex : new RegExp(regex.source, `${regex.flags || ''}g`);
+    pattern.lastIndex = 0;
     while ((match = pattern.exec(source))) {
       const value = match[options.group || 1] || match[0];
+      const confidence = options.confidence ?? 0.7;
+      const threshold = Number(this.options.confidenceThreshold ?? context?.configuration?.confidenceThreshold ?? 0);
+      const zeroLength = match[0] === '';
+      if (confidence < threshold) {
+        if (zeroLength) pattern.lastIndex += 1;
+        continue;
+      }
       context.addEntity(type, value, {
         source: this.id,
-        confidence: options.confidence ?? 0.7,
+        confidence,
         metadata: options.metadata || {}
       });
+      if (zeroLength) pattern.lastIndex += 1;
     }
     return context;
   }

@@ -8,6 +8,7 @@ class EntityDiagnostics {
     this.unknownEntities = [];
     this.duplicateEntities = [];
     this.confidenceDistribution = [];
+    this.validation = { valid: true, entityCount: 0, issueCount: 0 };
     this.warnings = [];
     this.errors = [];
     this.pipelineOrder = [];
@@ -44,6 +45,7 @@ class EntityDiagnostics {
   }
 
   toJSON() {
+    this.memoryUsage = this._memoryUsage();
     return {
       extractionTimes: { ...this.extractionTimes },
       entitiesDiscovered: { ...this.entitiesDiscovered },
@@ -51,6 +53,7 @@ class EntityDiagnostics {
       unknownEntities: this.unknownEntities.slice(),
       duplicateEntities: this.duplicateEntities.slice(),
       confidenceDistribution: this.confidenceDistribution.slice(),
+      validation: { ...this.validation },
       warnings: this.warnings.slice(),
       errors: this.errors.slice(),
       pipelineOrder: this.pipelineOrder.slice(),

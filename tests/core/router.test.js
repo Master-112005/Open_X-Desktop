@@ -1345,7 +1345,7 @@ describe('Action Router', function() {
     assert.equal(result.entities.query, 'chatgpt');
   });
 
-  it('should route known web app opens to the first browser result', async function() {
+  it('should route plain known web app opens through local app resolution first', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -1360,12 +1360,14 @@ describe('Action Router', function() {
 
     const result = await router.process('open chatgpt', 'chat');
 
-    assert.equal(result.intent, 'browser.openFirstResult');
-    assert.equal(result.entities.query, 'chatgpt');
-    assert.deepEqual(executed.map(step => step.actionId), ['browser.openFirstResult']);
+    assert.equal(result.intent, 'app.open');
+    assert.equal(result.entities.appName, 'chatgpt');
+    assert.equal(result.entities.webFallbackUrl, 'https://chatgpt.com/');
+    assert.equal(result.entities.webFallbackBrowser, 'chrome');
+    assert.deepEqual(executed.map(step => step.actionId), ['app.open']);
   });
 
-  it('should route trusted Google web product opens without treating them as desktop apps', async function() {
+  it('should route trusted Google web product opens as apps with Chrome fallback', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -1380,12 +1382,13 @@ describe('Action Router', function() {
     const colab = await router.process('open collab', 'chat');
     const googleColab = await router.process('open google collab', 'chat');
 
-    assert.equal(photos.intent, 'browser.openFirstResult');
-    assert.equal(photos.entities.query, 'google photos');
-    assert.equal(colab.intent, 'browser.openFirstResult');
-    assert.equal(colab.entities.query, 'google colab');
-    assert.equal(googleColab.intent, 'browser.openFirstResult');
-    assert.equal(googleColab.entities.query, 'google colab');
+    assert.equal(photos.intent, 'app.open');
+    assert.equal(photos.entities.appName, 'google photos');
+    assert.equal(photos.entities.webFallbackUrl, 'https://photos.google.com/');
+    assert.equal(colab.intent, 'app.open');
+    assert.equal(colab.entities.appName, 'google colab');
+    assert.equal(googleColab.intent, 'app.open');
+    assert.equal(googleColab.entities.appName, 'google colab');
   });
 
   it('should route natural web-app open phrasing through trusted web targets', async function() {
