@@ -11,6 +11,5 @@ module.exports = {
   AssistantExecutionStage: require('./AssistantExecutionStage'),
   NaturalLanguageExecution: require('./NaturalLanguageExecution'),
   AutomationDiagnostics: require('./AutomationDiagnostics'),
-  AutomationLogger: require('./AutomationLogger'),
   ...require('./AutomationErrors')
 };

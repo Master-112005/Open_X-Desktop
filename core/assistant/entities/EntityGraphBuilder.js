@@ -16,9 +16,16 @@ class EntityGraphBuilder {
           id: entity.id,
           type: entity.type,
           value: entity.canonical || entity.value,
-          confidence: entity.confidence
+          rawValue: entity.rawValue,
+          confidence: entity.confidence,
+          resolved: entity.resolved || null,
+          validation: entity.validation || null,
+          metadata: { ...(entity.metadata || {}) }
         })),
-        relationships: context.relationships.slice()
+        relationships: context.relationships.map((relationship, index) => ({
+          id: `relationship:${index + 1}`,
+          ...relationship
+        }))
       });
       return context;
     } catch (error) {

@@ -1,28 +1,17 @@
 'use strict';
 
 const BaseValidator = require('./BaseValidator');
-
-const ACTION_ROUTES = Object.freeze({
-  OPEN_APPLICATION: 'app.open',
-  CLOSE_APPLICATION: 'app.close',
-  SEARCH_WEB: 'browser.search',
-  PLAY_MEDIA: 'media.play',
-  PAUSE_MEDIA: 'media.pause',
-  SET_VOLUME: 'volume.set',
-  OPEN_FOLDER: 'folder.open',
-  DELETE_FILE: 'file.delete',
-  MOVE_FILE: 'file.move',
-  CREATE_REMINDER: 'reminder.set'
-});
+const AutomationDispatcher = require('../automation/AutomationDispatcher');
 
 class AutomationValidator extends BaseValidator {
   validate(context) {
     const actions = typeof context.automationEngine?.getActions === 'function'
       ? new Set(context.automationEngine.getActions())
       : null;
+    const routes = context.metadata?.automationRoutes || AutomationDispatcher.ACTION_ROUTES;
     for (const task of context.executionBlueprint?.tasks || []) {
       if (!task.action) continue;
-      const route = ACTION_ROUTES[task.action] || task.metadata?.automationAction || null;
+      const route = AutomationDispatcher.resolveAutomationRoute(task, routes);
       const routeKnown = Boolean(route);
       const controllerAvailable = !actions || (route && actions.has(route));
       context.check(this.id, routeKnown && controllerAvailable, routeKnown && controllerAvailable
@@ -33,6 +22,6 @@ class AutomationValidator extends BaseValidator {
   }
 }
 
-AutomationValidator.ACTION_ROUTES = ACTION_ROUTES;
+AutomationValidator.ACTION_ROUTES = AutomationDispatcher.ACTION_ROUTES;
 
 module.exports = AutomationValidator;

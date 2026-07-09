@@ -9,7 +9,7 @@ const NaturalLanguageExecution = require('./NaturalLanguageExecution');
 const ActionValidation = require('../../automation/common/action-velidation');
 const ActionConfirmation = require('../../automation/common/action-confirm');
 const NlpProcessor = require('../linguistic/NlpProcessor');
-const { normalizeWebTarget } = require('../semantic/WebTargets');
+const { normalizeWebTarget, resolveTrustedWebTarget } = require('../semantic/WebTargets');
 const { MediaCommandRouter } = require('../../automation/media');
 const { CommandFrameParser } = require('../linguistic/InputParser');
 const NaturalLanguageRouter = require('../semantic/NaturalLanguageRouter');
@@ -3372,18 +3372,35 @@ class ActionRouter {
       return { intent: browserIntent, confidence: 1 };
     }
 
+    const explicitWebCue = this._hasExplicitWebCue(lower);
     const websiteMatch = lower.match(/^(?:open|launch|start|go\s+to)\s+(?:the\s+)?(?:website\s+of\s+)?(.+)$/i);
     if (websiteMatch && websiteMatch[1]) {
       const targetWebsite = websiteMatch[1].trim().toLowerCase();
       const websiteUrl = WEBSITE_URL_MAP[targetWebsite];
-      if (websiteUrl) {
+      if (websiteUrl && explicitWebCue) {
         return { intent: browserIntent, confidence: 1, entities: { url: websiteUrl } };
       }
     }
 
     const targetAfterOpen = lower.replace(/^(?:open|launch|start|run|show|navigate to|go to)\s+/i, '').trim();
-    if (targetAfterOpen && WEBSITE_URL_MAP[targetAfterOpen]) {
+    if (targetAfterOpen && WEBSITE_URL_MAP[targetAfterOpen] && explicitWebCue) {
       return { intent: browserIntent, confidence: 1, entities: { url: WEBSITE_URL_MAP[targetAfterOpen] } };
+    }
+    if (targetAfterOpen && WEBSITE_URL_MAP[targetAfterOpen] && !explicitWebCue) {
+      const appIntent = this.intentRegistry.get('app.open');
+      return appIntent
+        ? {
+            intent: appIntent,
+            confidence: 1,
+            entities: {
+              appName: targetAfterOpen,
+              webFallbackUrl: WEBSITE_URL_MAP[targetAfterOpen],
+              webFallbackBrowser: 'chrome',
+              routeSource: 'app-local-first-url-map',
+              requestedOperation: 'open-or-focus'
+            }
+          }
+        : null;
     }
 
     const fileIntent = this.intentRegistry.get('file.open');
@@ -3479,14 +3496,38 @@ class ActionRouter {
       return null;
     }
 
-    const intent = this.intentRegistry.get('browser.openFirstResult');
+    const explicitWebCue = this._hasExplicitWebCue(input);
+    if (explicitWebCue) {
+      const intent = this.intentRegistry.get('browser.openFirstResult');
+      return intent
+        ? { intent, confidence: 1, entities: { query } }
+        : null;
+    }
+
+    const target = resolveTrustedWebTarget(query);
+    const intent = this.intentRegistry.get('app.open');
     return intent
-      ? { intent, confidence: 1, entities: { query } }
+      ? {
+          intent,
+          confidence: 1,
+          entities: {
+            appName: query,
+            webFallbackUrl: target?.url || '',
+            webFallbackBrowser: 'chrome',
+            routeSource: 'app-local-first-web-fallback',
+            requestedOperation: 'open-or-focus'
+          }
+        }
       : null;
   }
 
   _normalizeKnownWebTarget(value) {
     return normalizeWebTarget(value);
+  }
+
+  _hasExplicitWebCue(input) {
+    return /\b(?:website|web\s+app|site|in\s+(?:chrome|browser|edge|firefox)|on\s+(?:chrome|browser|edge|firefox)|go\s+to|pull\s+up)\b/i
+      .test(String(input || ''));
   }
 
   _looksLikeLocalPhotosTarget(target, rawText) {

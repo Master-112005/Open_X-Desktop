@@ -14,7 +14,10 @@ const TRUSTED_WEB_TARGETS = {
   'google colab': { title: 'Google Colab', url: 'https://colab.research.google.com/' },
   notion: { title: 'Notion', url: 'https://www.notion.so/' },
   canva: { title: 'Canva', url: 'https://www.canva.com/' },
-  figma: { title: 'Figma', url: 'https://www.figma.com/' }
+  figma: { title: 'Figma', url: 'https://www.figma.com/' },
+  instagram: { title: 'Instagram', url: 'https://www.instagram.com/' },
+  facebook: { title: 'Facebook', url: 'https://www.facebook.com/' },
+  youtube: { title: 'YouTube', url: 'https://www.youtube.com/' }
 };
 
 const WEB_TARGET_ALIASES = {
@@ -49,7 +52,15 @@ const WEB_TARGET_ALIASES = {
   'google colaboratory': 'google colab',
   notion: 'notion',
   canva: 'canva',
-  figma: 'figma'
+  figma: 'figma',
+  instagram: 'instagram',
+  instgram: 'instagram',
+  ig: 'instagram',
+  facebook: 'facebook',
+  fb: 'facebook',
+  youtube: 'youtube',
+  'you tube': 'youtube',
+  yt: 'youtube'
 };
 
 function normalizeWebTarget(value, options = {}) {

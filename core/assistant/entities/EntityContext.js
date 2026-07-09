@@ -33,10 +33,16 @@ function pickText(value) {
   return String(value.rawText || value.text || value.originalText || value.normalizedText || '');
 }
 
+function customEntityStore(target) {
+  if (!target.futureExtensions.customEntities) target.futureExtensions.customEntities = {};
+  return target.futureExtensions.customEntities;
+}
+
 class EntityContext {
-  constructor({ semanticRepresentation = null, configuration = null, metadata = {}, timing = {} } = {}) {
+  constructor({ semanticRepresentation = null, configuration = null, registry = null, metadata = {}, timing = {} } = {}) {
     this.semanticRepresentation = semanticRepresentation || null;
     this.configuration = configuration || null;
+    this.registry = registry || null;
     this.originalInput = pickText(semanticRepresentation?.originalInput) || pickText(semanticRepresentation?.normalizedInput?.originalInput) || pickText(semanticRepresentation?.normalizedInput);
     this.normalizedInput = pickText(semanticRepresentation?.normalizedInput) || this.originalInput;
     this.text = this.originalInput || this.normalizedInput;
@@ -45,17 +51,31 @@ class EntityContext {
     this.relationships = [];
     this.entityGraph = { nodes: [], relationships: [] };
     this.diagnostics = new EntityDiagnostics();
-    this.metadata = { ...(metadata || {}) };
+    this.metadata = {
+      ...(semanticRepresentation?.metadata || {}),
+      ...(metadata || {}),
+      rawInput: this.originalInput,
+      normalizedInput: this.normalizedInput,
+      semanticVersion: semanticRepresentation?.version || null
+    };
     this.timing = { startedAt: Date.now(), finishedAt: null, durationMs: 0, ...(timing || {}) };
     this.futureExtensions = {};
+    if (this.registry?.entityTypes?.size) {
+      this.futureExtensions.entityTypes = Object.fromEntries(this.registry.entityTypes.entries());
+    }
   }
 
   addEntity(type, value, data = {}) {
-    const collection = TYPE_TO_COLLECTION[type];
-    if (!collection || value === null || value === undefined || String(value).trim() === '') return null;
+    const normalizedType = String(type || '').trim();
+    const configured = this.configuration?.entityTypes?.[normalizedType] || this.registry?.entityTypes?.get?.(normalizedType) || {};
+    const collection = TYPE_TO_COLLECTION[normalizedType] || configured.collection;
+    if (value === null || value === undefined || String(value).trim() === '') return null;
+    const target = StructuredEntities.COLLECTIONS.includes(collection)
+      ? this.entities[collection]
+      : (customEntityStore(this)[normalizedType] ||= []);
     const entity = {
-      id: `${type}:${this.entities[collection].length + 1}`,
-      type,
+      id: `${normalizedType}:${target.length + 1}`,
+      type: normalizedType,
       value: String(value).trim(),
       rawValue: String(data.rawValue || value).trim(),
       canonical: data.canonical ? String(data.canonical) : null,
@@ -65,14 +85,15 @@ class EntityContext {
       validation: data.validation || null,
       metadata: { ...(data.metadata || {}) }
     };
-    this.entities[collection].push(entity);
-    this.diagnostics.discovered(type);
+    target.push(entity);
+    this.diagnostics.discovered(normalizedType);
     this.diagnostics.confidenceDistribution.push(entity.confidence);
     return entity;
   }
 
   allEntities() {
-    return StructuredEntities.COLLECTIONS.flatMap(collection => this.entities[collection]);
+    const custom = Object.values(this.futureExtensions.customEntities || {}).flat();
+    return StructuredEntities.COLLECTIONS.flatMap(collection => this.entities[collection]).concat(custom);
   }
 
   addRelationship(relationship = {}) {

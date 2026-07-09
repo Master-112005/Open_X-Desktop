@@ -66,4 +66,38 @@ describe('Assistant Entity Understanding Layer', function() {
     assert.equal(routed[0].input, 'launch chrome');
     assert.equal(routed[0].source, 'chat');
   });
+
+  it('supports custom entity types and processors without engine changes', async function() {
+    const { createDefaultEntityManager, BaseEntityExtractor } = require('../../core/assistant/entities/index.js');
+
+    class ProjectExtractor extends BaseEntityExtractor {
+      extract(context) {
+        context.addEntity('project', 'openx', { source: this.id, confidence: 0.9 });
+        return context;
+      }
+    }
+
+    const manager = createDefaultEntityManager({ defaultExtractors: false });
+    manager
+      .registerEntityType('project', { collection: 'projects' })
+      .registerExtractor(new ProjectExtractor({ id: 'entity.projectExtractor', priority: 1 }))
+      .registerNormalizer('entity.projectNormalizer', {
+        normalize(entity) {
+          if (entity.type === 'project') entity.canonical = 'OpenX';
+        }
+      });
+
+    const entities = await manager.understand({ originalInput: 'open openx project' });
+
+    assert.equal(entities.futureExtensions.customEntities.project[0].canonical, 'OpenX');
+    assert.ok(Object.isFrozen(entities.entityGraph));
+    assert.ok(entities.entityGraph.nodes.some(node => node.type === 'project'));
+  });
+
+  it('extracts suffix folder references as folders', async function() {
+    const entities = await buildStructuredEntities('open java practice folder on desktop');
+
+    assert.ok(entities.folders.some(entity => entity.value.toLowerCase() === 'java practice'));
+    assert.ok(entities.folders.some(entity => entity.canonical === 'Desktop Folder'));
+  });
 });

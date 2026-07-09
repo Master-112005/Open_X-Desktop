@@ -17,6 +17,7 @@ const PlannerController = require('./planner');
 const ScreenshotController = require('./screenshot-recording');
 const FormAutomation = require('../../plugins/forms');
 const ActionVerifier = require('./common/action-verification');
+const { resolveTrustedWebTarget } = require('../assistant/semantic/WebTargets');
 const {
   cleanEntityName,
   requireSafeUserPath,
@@ -95,6 +96,11 @@ class AutomationEngine {
         }
         if (folderResult?.needsClarification) {
           return folderResult;
+        }
+
+        const webFallback = await this._openWebAppFallback(entities, appResult);
+        if (webFallback) {
+          return webFallback;
         }
 
         return appResult;
@@ -261,6 +267,37 @@ class AutomationEngine {
         error: err.message
       });
     }
+  }
+
+  async _openWebAppFallback(entities = {}, localResult = {}) {
+    const appName = String(entities.appName || '').trim();
+    const trusted = resolveTrustedWebTarget(appName);
+    const url = String(entities.webFallbackUrl || trusted?.url || '').trim();
+    if (!url) {
+      return null;
+    }
+
+    if (!(await this.browser.checkInternetConnection())) {
+      return this.browser.offlineResponse();
+    }
+
+    const opened = this.browser.open(url, {
+      browserName: entities.webFallbackBrowser || 'chrome',
+      newTab: entities.newTab === true
+    });
+    return opened?.success
+      ? {
+          success: true,
+          data: {
+            ...opened.data,
+            app: appName,
+            appId: appName.toLowerCase(),
+            url,
+            launchMethod: 'chrome-web-app-fallback',
+            localLaunchError: localResult?.error || null
+          }
+        }
+      : opened;
   }
 
   async _sendFileToPhone(entities = {}, context = {}) {

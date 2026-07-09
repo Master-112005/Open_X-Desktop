@@ -10,6 +10,24 @@ const EntityRelationshipBuilder = require('./EntityRelationshipBuilder');
 const EntityGraphBuilder = require('./EntityGraphBuilder');
 const { ExtractorExecutionError } = require('./EntityErrors');
 
+async function runProcessor(processor, context) {
+  if (typeof processor === 'function') return processor(context);
+  if (processor && typeof processor.process === 'function') return processor.process(context);
+  if (processor && typeof processor.normalize === 'function') {
+    for (const entity of context.allEntities()) processor.normalize(entity, context);
+    return context;
+  }
+  if (processor && typeof processor.resolve === 'function') {
+    for (const entity of context.allEntities()) processor.resolve(entity, context);
+    return context;
+  }
+  if (processor && typeof processor.validate === 'function') {
+    for (const entity of context.allEntities()) processor.validate(entity, context);
+    return context;
+  }
+  return context;
+}
+
 class EntityPipeline {
   constructor(options = {}) {
     this.registry = options.registry || new EntityRegistry();
@@ -18,12 +36,28 @@ class EntityPipeline {
       : new EntityConfiguration(options.configuration || {});
     this.logger = options.logger || null;
     this.steps = options.steps || [
-      new EntityNormalizer(options.normalizer || {}),
-      new EntityResolver(options.resolver || {}),
-      new EntityValidator(options.validator || {}),
+      new EntityNormalizer({ ...(options.normalizer || {}), maps: this.configuration.dictionaries }),
+      new EntityResolver({ ...(options.resolver || {}), providers: this.configuration.providers }),
+      new EntityValidator({ ...(options.validator || {}), providers: this.configuration.providers }),
       new EntityRelationshipBuilder(options.relationshipBuilder || {}),
       new EntityGraphBuilder(options.graphBuilder || {})
     ];
+  }
+
+  async _runRegistered(kind, context) {
+    const processors = [...(this.registry[kind]?.entries?.() || [])];
+    for (const [id, processor] of processors) {
+      const started = Date.now();
+      context.diagnostics.pipelineOrder.push(id);
+      try {
+        await runProcessor(processor, context);
+      } catch (error) {
+        context.diagnostics.error(error, { stepId: id });
+        if (this.configuration.strict) throw error;
+      } finally {
+        context.diagnostics.time(id, Date.now() - started);
+      }
+    }
   }
 
   async run(semanticRepresentation, options = {}) {
@@ -32,6 +66,7 @@ class EntityPipeline {
       : new EntityContext({
           semanticRepresentation,
           configuration: this.configuration,
+          registry: this.registry,
           metadata: options.metadata || {}
         });
     if (this.configuration.enabled === false) return context.toStructuredEntities();
@@ -58,6 +93,9 @@ class EntityPipeline {
       const started = Date.now();
       try {
         await step.process(context);
+        if (step instanceof EntityNormalizer) await this._runRegistered('normalizers', context);
+        if (step instanceof EntityResolver) await this._runRegistered('resolvers', context);
+        if (step instanceof EntityValidator) await this._runRegistered('validators', context);
       } catch (error) {
         context.diagnostics.error(error, { stepId: step.id });
         if (this.configuration.strict) throw error;
