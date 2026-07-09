@@ -15,8 +15,11 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(html, /id="alarm-overlay"/);
     assert.doesNotMatch(script, /alarmOverlay|alarm-dismiss-btn|alarm-snooze-btn/);
     assert.match(html, /id="activity-view-btn"[\s\S]*id="activity-calendar-btn"[\s\S]*id="assistant-mute-btn"/);
+    assert.match(html, /Next 24 hours/);
     assert.doesNotMatch(html, /Upcoming alarms, timers, reminders, and recent assistant notices\./);
     assert.match(script, /openPlanner\?\.\('calendar'\)/);
+    assert.match(script, /ACTIVITY_SCHEDULE_WINDOW_MS\s*=\s*24 \* 60 \* 60 \* 1000/);
+    assert.match(script, /function isActivityScheduleVisible\(item, now = Date\.now\(\)\)/);
     assert.match(script, /classList\.add\('opening'\)/);
     assert.match(script, /aria-busy/);
     assert.match(css, /\.activity-calendar-btn/);

@@ -149,8 +149,11 @@ const APP_ENTITY_BLOCKED_PREFIXES = new Set([
 
 const SCHEDULE_AMOUNT_PATTERN = String.raw`(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty(?:\s*five)?|sixty)`;
 const SCHEDULE_DURATION_PATTERN = String.raw`${SCHEDULE_AMOUNT_PATTERN}\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?)`;
-const SCHEDULE_CLOCK_PATTERN = String.raw`\d{1,2}(?:(?::|\s+)\d{2})?\s*(?:am|pm)?(?:\s+(?:today|tomorrow))?`;
-const SCHEDULE_MONTH_DAY_PATTERN = String.raw`(?:the\s+)?\d{1,2}(?:st|nd|rd|th)?(?:\s+(?:of\s+)?(?:this|next)\s+month|\s+(?:this|next)\s+month)`;
+const SCHEDULE_SPOKEN_HOUR_PATTERN = String.raw`(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)`;
+const SCHEDULE_CLOCK_PATTERN = String.raw`(?:\d{1,2}(?:(?::|\s+)\d{2})?|${SCHEDULE_SPOKEN_HOUR_PATTERN})\s*(?:am|pm)?(?:\s+(?:today|tomorrow))?`;
+const SCHEDULE_MONTH_NAME_PATTERN = String.raw`(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)`;
+const SCHEDULE_NUMERIC_DATE_PATTERN = String.raw`\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?`;
+const SCHEDULE_MONTH_DAY_PATTERN = String.raw`(?:the\s+)?(?:\d{1,2}(?:st|nd|rd|th)?(?:\s+(?:of\s+)?(?:this|next)\s+month|\s+(?:this|next)\s+month)|(?:this|next)\s+month\s+\d{1,2}(?:st|nd|rd|th)?|${SCHEDULE_MONTH_NAME_PATTERN}\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+(?:\d{2,4}|(?:of\s+)?(?:this|next)\s+year))?|\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?${SCHEDULE_MONTH_NAME_PATTERN}(?:,?\s+(?:\d{2,4}|(?:of\s+)?(?:this|next)\s+year))?|${SCHEDULE_NUMERIC_DATE_PATTERN})`;
 const SCHEDULE_DAY_PATTERN = String.raw`today|tomorrow(?:\s+(?:morning|afternoon|evening|night))?|tonight|next\s+week|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|${SCHEDULE_MONTH_DAY_PATTERN}`;
 const SCHEDULE_NATURAL_TIME_PATTERN = String.raw`noon|midnight|(?:morning|afternoon|evening|night)(?:\s+at\s+${SCHEDULE_CLOCK_PATTERN})?|(?:half|quarter)\s+(?:past|to)\s+\w+`;
 
@@ -924,7 +927,7 @@ class EntityExtractor {
   _extractReminderText(text, raw) {
     const source = String(raw || '');
 
-    if (new RegExp(`^(?:remind\\s+me|(?:create|add|set)\\s+(?:a\\s+)?(?:new\\s+)?reminder)(?:\\s+(?:for|on|at))?\\s+(?:${SCHEDULE_DAY_PATTERN})$`, 'i').test(source.trim())) {
+    if (new RegExp(`^(?:remind\\s+me|(?:create|add|set)\\s+(?:a\\s+)?(?:new\\s+)?reminder)(?:\\s+(?:for|on|at|in|after))?\\s+(?:${SCHEDULE_DAY_PATTERN}|${SCHEDULE_DURATION_PATTERN}|${SCHEDULE_CLOCK_PATTERN}|${SCHEDULE_NATURAL_TIME_PATTERN})$`, 'i').test(source.trim())) {
       return null;
     }
 
@@ -973,6 +976,9 @@ class EntityExtractor {
     const forMatch = source.match(/\bset\s+(?:a\s+)?reminder\s+(?:for|at|in)\s+.+?\s+(.+)$/i);
     if (forMatch && forMatch[1]) {
       const cleaned = forMatch[1].trim();
+      if (new RegExp(`^(?:${SCHEDULE_DURATION_PATTERN}|${SCHEDULE_CLOCK_PATTERN}|${SCHEDULE_NATURAL_TIME_PATTERN})$`, 'i').test(cleaned)) {
+        return null;
+      }
       if (/^[\d:\s]+(?:am|pm)?(?:\s+(?:today|tomorrow))?$/i.test(cleaned)) {
         return null;
       }

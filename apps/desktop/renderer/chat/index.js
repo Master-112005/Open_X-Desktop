@@ -78,6 +78,7 @@ const MODE_APP_LIMIT = 5;
 const SCHEDULE_STORAGE_KEY = 'openx-ui-schedules-v1';
 const NOTIFICATION_STORAGE_KEY = 'openx-ui-notifications-v1';
 const MAX_NOTIFICATION_HISTORY = 30;
+const ACTIVITY_SCHEDULE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_RENDERED_MESSAGES = 100;
 const ASSISTANT_MUTED_STORAGE_KEY = 'openx-assistant-voice-muted-v1';
 
@@ -571,17 +572,24 @@ function snoozeSchedule(id, minutes = 5) {
   showToast(`${item.kind} snoozed`, `It will return in ${minutes} minutes.`, 'info');
 }
 
+function isActivityScheduleVisible(item, now = Date.now()) {
+  if (!item || !['scheduled', 'due'].includes(item.status)) return false;
+  if (item.status === 'due') return true;
+  const dueAt = new Date(item.dueAt).getTime();
+  return Number.isFinite(dueAt) && dueAt >= now && dueAt <= now + ACTIVITY_SCHEDULE_WINDOW_MS;
+}
+
 function renderSchedules() {
   scheduleListEl.replaceChildren();
+  const now = Date.now();
   const visible = scheduleItems
-    .filter(item => item.status !== 'dismissed')
+    .filter(item => isActivityScheduleVisible(item, now))
     .sort((left, right) => new Date(left.dueAt) - new Date(right.dueAt));
-  const pending = visible.filter(item => ['scheduled', 'due'].includes(item.status));
-  scheduleCountEl.textContent = String(pending.length);
+  scheduleCountEl.textContent = String(visible.length);
   if (visible.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.textContent = 'No alarms or reminders yet. Try “remind me tomorrow at 9 AM to review my tasks.”';
+    empty.textContent = 'No upcoming alarms, timers, or reminders in the next 24 hours.';
     scheduleListEl.appendChild(empty);
     return;
   }
@@ -671,7 +679,8 @@ function renderNotifications() {
 }
 
 function renderActivityBadge() {
-  const pending = scheduleItems.filter(item => ['scheduled', 'due'].includes(item.status)).length;
+  const now = Date.now();
+  const pending = scheduleItems.filter(item => isActivityScheduleVisible(item, now)).length;
   activityBadge.textContent = String(pending);
   activityBadge.hidden = pending === 0;
 }

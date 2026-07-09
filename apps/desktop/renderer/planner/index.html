@@ -25,11 +25,21 @@
         <div class="section-head">
           <div>
             <p class="eyebrow">Calendar</p>
-            <h1 id="month-title">Month</h1>
+            <div class="month-picker-wrap">
+              <h1 class="month-title" id="month-title">
+                <button class="month-title-button" id="month-picker-button" type="button" aria-haspopup="dialog" aria-expanded="false">Month</button>
+                <button class="month-title-button" id="year-picker-button" type="button" aria-haspopup="dialog" aria-expanded="false">Year</button>
+              </h1>
+              <div class="date-picker-popover month-picker-popover" id="month-picker-popover" role="dialog" aria-label="Choose month" hidden>
+                <div class="picker-scroll-list" id="month-picker-list" role="listbox" aria-label="Months"></div>
+              </div>
+              <div class="date-picker-popover year-picker-popover" id="year-picker-popover" role="dialog" aria-label="Choose year" hidden>
+                <div class="picker-scroll-list year-picker-list" id="year-picker-list" role="listbox" aria-label="Years"></div>
+              </div>
+            </div>
           </div>
           <div class="month-controls" aria-label="Month navigation">
             <button class="icon-button" id="prev-month" type="button" aria-label="Previous month">&lt;</button>
-            <button class="icon-button" id="today-button" type="button">Today</button>
             <button class="icon-button" id="next-month" type="button" aria-label="Next month">&gt;</button>
           </div>
         </div>

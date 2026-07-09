@@ -2,7 +2,12 @@ const shellEl = document.querySelector('.planner-shell');
 const calendarTabEl = document.getElementById('calendar-tab');
 const timetableTabEl = document.getElementById('timetable-tab');
 const closeWindowEl = document.getElementById('close-window');
-const monthTitleEl = document.getElementById('month-title');
+const monthPickerButtonEl = document.getElementById('month-picker-button');
+const yearPickerButtonEl = document.getElementById('year-picker-button');
+const monthPickerPopoverEl = document.getElementById('month-picker-popover');
+const yearPickerPopoverEl = document.getElementById('year-picker-popover');
+const monthPickerListEl = document.getElementById('month-picker-list');
+const yearPickerListEl = document.getElementById('year-picker-list');
 const currentPeriodEl = document.getElementById('current-period');
 const monthGridEl = document.getElementById('month-grid');
 const agendaListEl = document.getElementById('agenda-list');
@@ -18,7 +23,6 @@ const entryTimeEl = document.getElementById('entry-time');
 const entryNotesEl = document.getElementById('entry-notes');
 const prevMonthEl = document.getElementById('prev-month');
 const nextMonthEl = document.getElementById('next-month');
-const todayButtonEl = document.getElementById('today-button');
 const timetableDateEl = document.getElementById('timetable-date');
 const timeGridEl = document.getElementById('time-grid');
 
@@ -58,6 +62,10 @@ function formatTime(value) {
   });
 }
 
+function monthLabel(monthIndex) {
+  return new Date(2026, monthIndex, 1).toLocaleDateString(undefined, { month: 'long' });
+}
+
 function getSelectedDateKey() {
   return selectedDateKey || entryDateEl.value || timetableDateEl?.value || localDateKey(new Date());
 }
@@ -78,6 +86,77 @@ function sortEntries(list) {
 function entriesForDate(dateKey, type = null) {
   return sortEntries(entries.filter(entry =>
     entry.date === dateKey && (!type || entry.type === type)));
+}
+
+function isScheduleEntry(entry) {
+  return ['reminder', 'alarm'].includes(String(entry?.sourceKind || '').toLowerCase());
+}
+
+function syncDatePickerControls() {
+  const year = visibleMonth.getFullYear();
+  const month = visibleMonth.getMonth();
+  if (monthPickerButtonEl) monthPickerButtonEl.textContent = monthLabel(month);
+  if (yearPickerButtonEl) yearPickerButtonEl.textContent = String(year);
+  if (monthPickerPopoverEl?.hidden === false) renderMonthPicker();
+  if (yearPickerPopoverEl?.hidden === false) renderYearPicker();
+}
+
+function setPickerOpen(kind) {
+  const monthOpen = kind === 'month';
+  const yearOpen = kind === 'year';
+  if (monthPickerPopoverEl) monthPickerPopoverEl.hidden = !monthOpen;
+  if (yearPickerPopoverEl) yearPickerPopoverEl.hidden = !yearOpen;
+  monthPickerButtonEl?.setAttribute('aria-expanded', String(monthOpen));
+  yearPickerButtonEl?.setAttribute('aria-expanded', String(yearOpen));
+  if (monthOpen) renderMonthPicker();
+  if (yearOpen) renderYearPicker();
+}
+
+function setVisibleMonthPart(month, year) {
+  const nextMonth = Number.isFinite(month) ? month : visibleMonth.getMonth();
+  const nextYear = Number.isFinite(year) ? year : visibleMonth.getFullYear();
+  visibleMonth = new Date(nextYear, nextMonth, 1);
+  syncDatePickerControls();
+  scheduleRender();
+}
+
+function createPickerOption(label, selected, onSelect) {
+  const option = document.createElement('button');
+  option.type = 'button';
+  option.className = `picker-option${selected ? ' selected' : ''}`;
+  option.setAttribute('role', 'option');
+  option.setAttribute('aria-selected', String(selected));
+  option.textContent = label;
+  option.addEventListener('click', onSelect);
+  return option;
+}
+
+function renderMonthPicker() {
+  if (!monthPickerListEl) return;
+  const selectedMonth = visibleMonth.getMonth();
+  const selectedYear = visibleMonth.getFullYear();
+  const options = Array.from({ length: 12 }, (_, month) =>
+    createPickerOption(monthLabel(month), month === selectedMonth, () => {
+      setVisibleMonthPart(month, selectedYear);
+      setPickerOpen('');
+    }));
+  monthPickerListEl.replaceChildren(...options);
+  options[selectedMonth]?.scrollIntoView({ block: 'nearest' });
+}
+
+function renderYearPicker() {
+  if (!yearPickerListEl) return;
+  const selectedYear = visibleMonth.getFullYear();
+  const selectedMonth = visibleMonth.getMonth();
+  const years = Array.from({ length: 41 }, (_, index) => selectedYear - 20 + index);
+  const options = years.map(year =>
+    createPickerOption(String(year), year === selectedYear, () => {
+      setVisibleMonthPart(selectedMonth, year);
+      setPickerOpen('');
+    }));
+  yearPickerListEl.replaceChildren(...options);
+  const selectedOption = options[years.indexOf(selectedYear)];
+  selectedOption?.scrollIntoView({ block: 'center' });
 }
 
 function setView(view) {
@@ -165,7 +244,7 @@ async function loadTheme() {
 
 function renderMonth() {
   const monthName = visibleMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-  monthTitleEl.textContent = monthName;
+  syncDatePickerControls();
   currentPeriodEl.textContent = shellEl.classList.contains('date-selected') ? formatDateLabel(getSelectedDateKey()) : monthName;
 
   const first = new Date(visibleMonth);
@@ -180,8 +259,8 @@ function renderMonth() {
     date.setDate(start.getDate() + index);
     const key = localDateKey(date);
     const allDayEntries = entriesForDate(key);
-    const reminderCount = allDayEntries.filter(entry =>
-      ['reminder', 'alarm'].includes(String(entry.sourceKind || '').toLowerCase())).length;
+    const reminderCount = allDayEntries.filter(isScheduleEntry).length;
+    const calendarEntries = allDayEntries.filter(entry => !isScheduleEntry(entry));
     const cell = document.createElement('button');
     cell.type = 'button';
     cell.className = 'day-cell';
@@ -199,14 +278,14 @@ function renderMonth() {
       count.className = 'day-reminder-count';
       count.textContent = String(reminderCount);
       numberWrap.appendChild(count);
-    } else if (allDayEntries.length) {
+    } else if (calendarEntries.length) {
       const dot = document.createElement('span');
       dot.className = 'day-dot';
       numberWrap.appendChild(dot);
     }
     const itemWrap = document.createElement('span');
     itemWrap.className = 'day-items';
-    allDayEntries.slice(0, 3).forEach(entry => {
+    calendarEntries.slice(0, 3).forEach(entry => {
       const item = document.createElement('span');
       item.className = `day-item${entry.sourceKind ? ` schedule-${entry.sourceKind}` : ''}`;
       item.textContent = `${entry.startTime ? `${formatTime(entry.startTime)} ` : ''}${entry.title}`;
@@ -366,19 +445,24 @@ quickAddToggleEl.addEventListener('click', () => setQuickAddOpen(sidePanelEl.hid
 quickAddCloseEl.addEventListener('click', () => setQuickAddOpen(false));
 calendarTabEl?.addEventListener('click', () => setView('calendar'));
 timetableTabEl?.addEventListener('click', () => setView('timetable'));
+monthPickerButtonEl?.addEventListener('click', event => {
+  event.stopPropagation();
+  setPickerOpen(monthPickerPopoverEl?.hidden === false ? '' : 'month');
+});
+yearPickerButtonEl?.addEventListener('click', event => {
+  event.stopPropagation();
+  setPickerOpen(yearPickerPopoverEl?.hidden === false ? '' : 'year');
+});
+monthPickerPopoverEl?.addEventListener('click', event => event.stopPropagation());
+yearPickerPopoverEl?.addEventListener('click', event => event.stopPropagation());
 prevMonthEl.addEventListener('click', () => {
   visibleMonth.setMonth(visibleMonth.getMonth() - 1);
+  syncDatePickerControls();
   scheduleRender();
 });
 nextMonthEl.addEventListener('click', () => {
   visibleMonth.setMonth(visibleMonth.getMonth() + 1);
-  scheduleRender();
-});
-todayButtonEl.addEventListener('click', () => {
-  const today = new Date();
-  visibleMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  setSelectedDateKey(localDateKey(today));
-  shellEl.classList.add('date-selected');
+  syncDatePickerControls();
   scheduleRender();
 });
 timetableDateEl?.addEventListener('change', () => {
@@ -387,6 +471,10 @@ timetableDateEl?.addEventListener('change', () => {
   scheduleRender();
 });
 closeWindowEl.addEventListener('click', () => window.openx?.closePlanner?.());
+document.addEventListener('click', () => setPickerOpen(''));
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') setPickerOpen('');
+});
 
 window.openx?.onPlannerView?.(view => setView(view));
 window.openx?.onPlannerEntriesChanged?.(payload => {

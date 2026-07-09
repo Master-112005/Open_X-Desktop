@@ -2851,6 +2851,35 @@ describe('Action Router', function() {
     assert.equal(afterHourCompact.entities.reminderText, 'call daddy');
   });
 
+  it('should route flexible reminder dates and ask when reminder text is missing', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities, dueAt: new Date().toISOString(), kind: 'Reminder' } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const nextMonth = await router.process('remind me next month 7 say wishes to mohit', 'chat');
+    const slashDate = await router.process('remind me on 01/12/26 at five pm to call mummy', 'chat');
+    const missingText = await router.process('remind me in 5 min', 'chat');
+
+    assert.equal(nextMonth.intent, 'reminder.set');
+    assert.equal(nextMonth.entities.timeExpression, 'next month 7');
+    assert.equal(nextMonth.entities.reminderText, 'wishes to mohit');
+    assert.equal(slashDate.intent, 'reminder.set');
+    assert.equal(slashDate.entities.timeExpression, '01/12/26 at five pm');
+    assert.equal(slashDate.entities.reminderText, 'call mummy');
+    assert.equal(missingText.intent, 'reminder.set');
+    assert.equal(missingText.needsClarification, true);
+    assert.equal(missingText.entities.reminderText, null);
+    assert.equal(executed.length, 2);
+  });
+
   it('should not accept bare remind me as a valid reminder', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
