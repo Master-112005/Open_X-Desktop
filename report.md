@@ -1,6 +1,6 @@
-# OpenX Repository Report
+# OpenX Engineering Report
 
-Report date: 2026-07-09
+Report date: 2026-07-10
 
 Repository: `C:\Users\rakes\Documents\PROJECTS\Project-Intigerity\OpenX`
 
@@ -10,9 +10,9 @@ Runtime: Electron 28, Node.js, CommonJS
 
 ## Summary
 
-OpenX is a local-first Windows desktop assistant. The assistant entry points now route through `AssistantEngine` and the staged Assistant Intelligence Pipeline. The old top-level assistant parser/NLU/router/entity/response/context files have been retired from their legacy locations and their surviving behavior has been moved under the phase-owned pipeline directories.
+OpenX is a deterministic, local-first Windows desktop assistant. The same assistant command path serves chat, voice, phone, and cloud-delivered text. The runtime is organized around input acquisition, language normalization, linguistic understanding, semantic understanding, entity understanding, memory/context, reasoning, planning, validation, automation, verification, response generation, and learning.
 
-The runtime no longer uses `AssistantPassthroughStage` or an `AssistantEngine.executeLegacy` callback. Pipeline execution now returns the assistant result directly after the execution stage.
+The assistant currently supports desktop automation, browser control, local file/folder work, media control, scheduler tools, planner entries, phone pairing and file transfer, optional cloud relay transport, local voice sessions, plugin-backed integrations, and renderer-based settings/activity surfaces.
 
 ## Repository Scan
 
@@ -34,110 +34,338 @@ Current filtered counts:
 |---|---:|---:|
 | `apps` | 114 | 0 |
 | `build` | 5 | 0 |
-| `core` | 446 | 0 |
+| `core` | 445 | 0 |
 | `docs` | 11 | 0 |
 | `models` | 4 | 0 |
 | `plugins` | 12 | 0 |
 | `scripts` | 2 | 0 |
-| `tests` | 67 | 67 |
+| `tests` | 69 | 69 |
 
-Total filtered files: 671
+Totals:
 
-Total filtered directories: 70
+| Metric | Count |
+|---|---:|
+| Filtered files | 672 |
+| Filtered directories | 72 |
+| JavaScript files | 629 |
+| Test files | 69 |
+| Registered intents | 115 |
+| Validated IPC channels | 41 |
 
-JavaScript files: 628
-
-Test files: 67
-
-## Current Runtime Flow
+## Runtime Command Flow
 
 ```text
-RawUserInput
-  -> InputSourceManager
-  -> LanguageNormalizationStage
-  -> LinguisticUnderstandingStage
-  -> SemanticUnderstandingStage
-  -> EntityUnderstandingStage
-  -> MemoryContextStage
-  -> GoalIntentReasoningStage
-  -> TaskPlanningStage
-  -> DecisionValidationAutomationStage
-  -> VerificationResponseStage
-  -> AssistantExecutionStage
-  -> LearningStage
+Input text
+  -> InputSourceManager.acquire()
+  -> PipelineManager.process()
+  -> LanguageNormalizationStage.execute()
+  -> LinguisticUnderstandingStage.execute()
+  -> SemanticUnderstandingStage.execute()
+  -> EntityUnderstandingStage.execute()
+  -> MemoryContextStage.execute()
+  -> GoalIntentReasoningStage.execute()
+  -> TaskPlanningStage.execute()
+  -> DecisionValidationAutomationStage.execute()
+  -> VerificationResponseStage.execute()
+  -> AssistantExecutionStage.execute()
+  -> LearningStage.execute()
+  -> Assistant response object
 ```
 
-## Migrated Assistant Modules
+The public assistant contract is:
 
-| Responsibility | Current owner |
+```js
+Assistant.processCommand(input, source, options)
+```
+
+Supported command sources include `chat`, `voice`, `phone`, and cloud packets routed through phone-compatible command context.
+
+## Critical Entry Points
+
+| File | Method / function | Responsibility |
+|---|---|---|
+| `core/assistant/index.js` | `Assistant.processCommand(input, source, options)` | Public command API used by chat, voice, phone, cloud, tests, and plugin flows. |
+| `core/assistant/index.js` | `Assistant._processCommandDirect(input, source, options)` | Handles pending confirmations, clarifications, schedule completion, learning input, context answers, routing, timeout guard, and final response shaping. |
+| `core/assistant/AssistantEngine.js` | `AssistantEngine.processCommand(input, source, options)` | Acquires raw input and sends it through the configured assistant pipeline. |
+| `core/assistant/pipeline/PipelineManager.js` | `process({ input, source, options, rawUserInput })` | Coordinates configured pipeline execution and result output. |
+| `core/assistant/pipeline/PipelineEngine.js` | `process(context)` | Executes stage objects in deterministic order and records diagnostics. |
+| `core/assistant/automation/ActionRouter.js` | `process(inputText, source, options)` | Main command router for executable intents, clarification, multi-command routing, contextual rewrites, and entity extraction. |
+| `core/assistant/automation/ActionRouter.js` | `_execute(commandId, intentResult, entities, rawCommandText, source, languageUnderstanding, executionOptions)` | Executes routed intent through NLE/automation and attaches validation, verification, response, and learning evidence. |
+| `core/assistant/semantic/NaturalLanguageRouter.js` | `parse(rawText, preparedInput)` | Builds semantic frames, token roles, relations, domains, intents, and extracted entities. |
+| `core/assistant/semantic/NaturalLanguageRouter.js` | `resolveIntent(text)` | Converts natural sentence structure into an intent/entity result for router use. |
+| `core/assistant/linguistic/NlpProcessor.js` | `prepare(text)` | Normalizes, repairs, tokenizes, builds intent text, detects query forms, and creates linguistic frame data. |
+| `core/assistant/entities/EntityPipeline.js` | `run(semanticRepresentation, options)` | Runs registered extractors, normalization, resolution, validation, relationship building, graph building, diagnostics, and immutable structured output. |
+| `core/assistant/entities/EntityContext.js` | `addEntity(type, entity)` / `toStructuredEntities()` | Stores extracted entities and produces the downstream entity object. |
+| `core/assistant/entities/StructuredEntities.js` | constructor | Freezes structured entity collections, graph, relationships, diagnostics, metadata, timing, confidence, and extension slots. |
+| `core/automation/index.js` | `AutomationEngine.execute(actionId, entities, context)` | Dispatches validated action IDs to app/browser/file/folder/media/scheduler/planner/system/phone/plugin controllers. |
+| `core/assistant/automation/NaturalLanguageExecution.js` | `execute(actionId, entities, context)` | NLE boundary between assistant routing and automation execution. |
+| `core/automation/scheduler.js` | `setReminder()`, `setAlarm()`, `setTimer()` | Creates scheduler entries, persistence, due events, snooze, cancel, list, clear, and stopwatch operations. |
+| `core/automation/apps.js` | `AppController.open(appName, options)` | Resolves local app launches, existing windows, Start menu entries, known app mappings, and allowed web-app fallback context. |
+| `core/automation/browser.js` | browser action methods | Opens URLs/searches/tabs, resolves browser names, and checks network requirements for internet actions. |
+| `core/automation/files.js` | file action methods | Handles create/open/delete/rename/copy/move/search/list/smart-find with local path safety. |
+| `core/automation/folders.js` | folder action methods | Handles create/open/delete/move/search and folder ambiguity choices. |
+| `apps/desktop/electron/main.js` | `setupIPC()` | Registers trusted renderer IPC handlers for commands, settings, phone, cloud, planner, scheduler alerts, timer widget, TTS, and windows. |
+| `apps/desktop/electron/security.js` | `IPC_VALIDATORS` | Validates every renderer IPC payload before the main process handler receives it. |
+| `apps/desktop/preload.js` | `openxApi` | Exposes the safe renderer API through `contextBridge`. |
+| `apps/desktop/settings.js` | `SettingsService` methods | Loads, validates, saves, resets, and builds runtime settings. |
+| `core/phone/PhoneCommandRouter.js` | `routeCommand(assistant, command, context)` | Routes phone-origin commands into `Assistant.processCommand()`. |
+| `core/phone/PhoneServer.js` | server lifecycle and message handlers | Hosts local phone WebSocket pairing, sessions, command messages, and file transfer coordination. |
+| `core/cloud/CloudConnectionManager.js` | connection lifecycle methods | Manages relay socket state, reconnect, heartbeat, device registration, packets, presence, and notifications. |
+| `core/cloud/CloudCommandManager.js` | command queue and packet handlers | Receives cloud command packets and routes them through the assistant command path. |
+| `core/cloud/CloudFileTransferManager.js` | transfer methods | Handles metadata approval, chunked transfer, acknowledgements, progress, cancellation, timeout cleanup, and checksum verification. |
+
+## Assistant Intelligence Modules
+
+| Directory | Purpose |
 |---|---|
-| Command parsing and command frames | `core/assistant/linguistic/InputParser.js` |
-| Discourse and word relations | `core/assistant/linguistic/LanguageAnalysis.js` |
-| NLP preparation | `core/assistant/linguistic/NlpProcessor.js` |
-| Language cleanup helpers | `core/assistant/normalization/CommandPreprocessor.js` |
-| Natural language routing semantics | `core/assistant/semantic/NaturalLanguageRouter.js` |
-| Web target resolution | `core/assistant/semantic/WebTargets.js` |
-| Entity extraction | `core/assistant/entities/EntityExtractor.js` |
-| Intent registry and pattern scoring | `core/assistant/reasoning/IntentRegistry.js`, `core/assistant/reasoning/IntentPatternScorer.js` |
-| Action routing and execution delegate | `core/assistant/automation/ActionRouter.js`, `core/assistant/automation/AssistantExecutionStage.js` |
-| Natural language execution helper | `core/assistant/automation/NaturalLanguageExecution.js` |
-| Conversation context | `core/assistant/context/ContextManager.js` |
-| Response generation and personality | `core/assistant/response/ResponseGenerator.js`, `core/assistant/response/Personality.js` |
-| Active learning stores | `core/assistant/learning/` |
+| `core/assistant/acquisition/` | Source adapters for chat, voice, phone, API, plugin, clipboard, OCR, cloud, attachment metadata, and confidence. |
+| `core/assistant/normalization/` | Text cleanup, spell repair, date/time/number/unit normalization, abbreviations, contractions, punctuation, whitespace, slang, Unicode handling. |
+| `core/assistant/linguistic/` | Tokenization, sentence/clause analysis, subject/object/verb/modifier/negation/question/pronoun logic, NLP preparation. |
+| `core/assistant/semantic/` | Meaning representation, role labeling, relationship analysis, web target resolution, semantic routing. |
+| `core/assistant/entities/` | Pluggable extractors, registry, normalization, resolution, validation, relationship graph, structured entities. |
+| `core/assistant/memory/` | Working, session, dialogue, topic, conversation, and long-term memory context. |
+| `core/assistant/reasoning/` | Intent registry, pattern scoring, confidence, clarification, conflict, goal/intent/task reasoning. |
+| `core/assistant/planning/` | Task graph, execution graph, dependency, parallel, recovery, and workflow planners. |
+| `core/assistant/decision/` | Execution, confirmation, clarification, conflict, policy decisions, diagnostics, registry. |
+| `core/assistant/validation/` | Permission, safety, entity, context, automation, confirmation, constraint validation. |
+| `core/assistant/automation/` | Router, dispatcher, automation context/result/diagnostics, NLE bridge, execution stage. |
+| `core/assistant/verification/` | Application, browser, cloud, reminder, transfer, window, execution verification and response integration. |
+| `core/assistant/response/` | Response generator, personality, formatters, clarification/confirmation/error/suggestion/summary responses. |
+| `core/assistant/learning/` | Feedback, correction, alias, preference, usage, habit, conversation, workflow learning with guarded storage. |
 
-## Removed Legacy Locations
+## Entity Understanding
+
+Entity understanding converts semantic representation into immutable structured entities. It does not execute actions.
+
+Critical files:
+
+| File | Role |
+|---|---|
+| `EntityPipeline.js` | Runs extractors, processors, diagnostics, and final structured output. |
+| `EntityRegistry.js` | Registers extractors, normalizers, resolvers, validators, providers, and custom entity types. |
+| `BaseEntityExtractor.js` | Extractor lifecycle: `initialize()`, `supports()`, `extract()`, `validate()`, `cleanup()`, `destroy()`. |
+| `EntityNormalizer.js` | Canonical entity mapping such as apps, browsers, folders, websites, dates, and times. |
+| `EntityResolver.js` | Resolves known apps, folders, contacts, devices, and paths by identity only. |
+| `EntityValidator.js` | Records quality status, missing values, duplicates, invalid paths/dates, and unknown entities. |
+| `EntityRelationshipBuilder.js` | Stores entity-to-entity relationships such as reminder -> date -> time. |
+| `EntityGraphBuilder.js` | Produces immutable entity graph nodes and relationships. |
+| `StructuredEntities.js` | Freezes final entity output for downstream use. |
+
+Current entity families:
 
 ```text
-core/assistant/Active-learning.js
-core/assistant/active-learning/
-core/assistant/context.js
-core/assistant/entities.js
-core/assistant/intents.js
-core/assistant/language.js
-core/assistant/nle.js
-core/assistant/nlp/
-core/assistant/nlu.js
-core/assistant/parser.js
-core/assistant/personality.js
-core/assistant/responses.js
-core/assistant/router.js
-core/assistant/contest.js
-core/assistant/pipeline/AssistantPassthroughStage.js
+applications, browsers, websites, files, folders, paths, media, contacts,
+people, devices, locations, dates, times, durations, reminders, alarms,
+timers, windows, networks, volumeLevels, brightnessLevels
 ```
+
+## Intent And Automation Surface
+
+The intent registry currently exposes 115 intent IDs. Major groups:
+
+```text
+app.*, browser.*, file.*, folder.*, media.*, volume.*, brightness.*,
+timer.*, alarm.*, reminder.*, stopwatch.*, calendar.*, timetable.*,
+system.*, window.*, phone.*, message/email/call, form.fill,
+assistant.*, mode.start, greeting, thanks, help
+```
+
+The automation engine maps executable actions to controller methods in `core/automation/index.js`. Main controller ownership:
+
+| Controller | Responsibilities |
+|---|---|
+| `AppController` | App open/close/switch/new tab, visible-window matching, Start menu fallback. |
+| `BrowserController` | Browser open/search/site search/tab open/tab close/tab listing. |
+| `FileController` | File create/open/delete/rename/copy/move/search/list/smart find. |
+| `FolderController` | Folder create/open/delete/move/search and clarification choices. |
+| `MediaController` | Playback, search, pause/resume/stop, platform actions, media volume. |
+| `SchedulerController` | Reminders, alarms, timers, stopwatch, snooze, list, clear, due events. |
+| `PlannerController` | Calendar/timetable open and entry creation. |
+| `SystemController` | Status, time/date, calculations, CPU/memory/battery/disk/process insight, Bluetooth. |
+| `WindowsController` | Window minimize/maximize/close, screen lock, sleep, restart, shutdown. |
+| `CommunicationsController` | Message, email, and call composition/start flows. |
+
+## Renderer And IPC Surface
+
+The renderer API is exposed through `apps/desktop/preload.js` and validated in `apps/desktop/electron/security.js`.
+
+Validated IPC channels:
+
+```text
+app:quit
+assistant:status
+cloud:connect
+cloud:disconnect
+cloud:pairing:approve
+cloud:pairing:reject
+cloud:pairing:status
+cloud:pairingQR:create
+cloud:status
+command:confirm
+command:process
+config:get
+phone:device:disconnect
+phone:device:permissions:update
+phone:device:remove
+phone:device:rename
+phone:device:trust:update
+phone:devices:list
+phone:pairingQR:create
+phone:server:status
+planner:addEntry
+planner:deleteEntry
+planner:getEntries
+schedule:alertAction
+security:verifyAccess
+settings:get
+settings:reset
+settings:save
+timerWidget:close
+timerWidget:getState
+timerWidget:resetStopwatch
+timerWidget:resumeStopwatch
+timerWidget:stopStopwatch
+tts:speak
+tts:stop
+voice:start
+voiceOverlay:collapse
+window:closePlanner
+window:openChat
+window:openPlanner
+window:openSettings
+```
+
+Renderer performance notes:
+
+- `apps/desktop/renderer/chat/index.js` caps rendered chat messages and coalesces scroll work.
+- `apps/desktop/renderer/chat/index.css` applies paint containment to workspace/message/input areas.
+- The composer avoids expensive blur repainting while the user types.
+- Settings cloud status polling runs only while the settings panel is open.
+
+## Storage And Persistence
+
+Managed data root:
+
+```text
+%USERPROFILE%\OpenX_Data\
+```
+
+Important paths are built in `core/assistant/Data.js`:
+
+| Path | Data |
+|---|---|
+| `settings.json` | Desktop and assistant settings. |
+| `schedules.json` | Reminders, alarms, timers, stopwatch state. |
+| `planner.json` | Calendar and timetable entries. |
+| `learning/` | Alias, preference, correction, usage, workflow, and learning stores. |
+| `logs/` | Local runtime logs. |
+| `voice/diagnostics/` | Voice diagnostics and metrics. |
+| `cloud/connection.log` | Cloud relay connection log. |
+| `phone/` | Pairing, devices, permissions, transfer history. |
+| `received/` | Phone/cloud received files. |
+| `runtime/phone-transfer/` | Temporary transfer files. |
+| `screenshots/` | Screenshot capture output. |
+
+JSON persistence uses bounded reads and atomic writes through `readJsonFile()` and `writeJsonAtomic()`.
+
+## Phone And Cloud
+
+Phone local mode:
+
+```text
+OpenX Mobile
+  -> local WebSocket
+  -> PhoneServer
+  -> PhoneCommandRouter
+  -> Assistant.processCommand(text, 'phone', phoneContext)
+  -> response packet
+```
+
+Cloud command mode:
+
+```text
+OpenX Mobile
+  -> relay command packet
+  -> CloudConnectionManager
+  -> CloudCommandManager
+  -> PhoneCommandRouter
+  -> Assistant.processCommand(text, 'phone', phoneContext)
+  -> relay response packet
+```
+
+Cloud file transfer:
+
+```text
+metadata packet
+  -> receiver approval
+  -> chunk packets
+  -> per-chunk acknowledgement
+  -> checksum verification
+  -> completion acknowledgement
+```
+
+## Voice
+
+Voice entry path:
+
+```text
+AudioCapture
+  -> AudioPipeline / RNNoise / VAD
+  -> STTEngine / SherpaRuntime / Parakeet model
+  -> TranscriptProcessor
+  -> VoiceAssistantBridge
+  -> AssistantDispatcher
+  -> Assistant.processCommand()
+  -> TTS / overlay response
+```
+
+Critical voice modules:
+
+| Directory | Role |
+|---|---|
+| `apps/desktop/voice/audio/` | Capture, device selection, audio frame contracts. |
+| `apps/desktop/voice/preprocessing/` | RNNoise, VAD, frame processing, source classification. |
+| `apps/desktop/voice/stt/` | Model loading, Sherpa runtime, decoder state, transcript assembly. |
+| `apps/desktop/voice/normalization/` | Transcript cleanup, command normalization, dictionary/acronym/app normalization. |
+| `apps/desktop/voice/session/` | Continuous session lifecycle and state machine. |
+| `apps/desktop/voice/integration/` | Dispatch from transcript to assistant. |
+| `apps/desktop/voice/ui/` | Overlay, status rendering, accessibility, animations. |
+| `apps/desktop/voice/diagnostics/` | Metrics, health, latency, privacy filtering, event timeline. |
 
 ## Verification
 
-Commands run in this pass:
+Latest focused checks run for this report:
 
 ```powershell
-npm run lint
-npx mocha "tests/core/architecture-structure.test.js" "tests/core/parser.test.js" "tests/core/intents.test.js" --timeout 20000
-npx mocha "tests/core/nlu.test.js" "tests/core/nlp.test.js" --timeout 20000
-npx mocha "tests/core/router.test.js" --timeout 20000
-npx mocha "tests/core/{architecture-structure,assistant-intelligence-pipeline,assistant,parser,intents,nlu,nlp,router}.test.js" --timeout 20000
-npx mocha "tests/**/*.test.js" --timeout 20000
+npx mocha tests\ui\chat-renderer.test.js tests\core\electron-security.test.js tests\core\entities.test.js tests\core\nlu.test.js --timeout 60000 --exit
+npx mocha tests\automation\automation.test.js tests\core\assistant.test.js --timeout 90000 --exit
+node --check apps\desktop\electron\main.js
+node --check apps\desktop\preload.js
+node --check apps\desktop\electron\security.js
+node --check apps\desktop\renderer\chat\index.js
+node --check core\automation\index.js
+node --check core\automation\apps.js
+node --check core\automation\folders.js
+node --check core\assistant\automation\ActionRouter.js
+node --check core\assistant\semantic\NaturalLanguageRouter.js
+node --check core\assistant\entities\EntityExtractor.js
+node --check core\assistant\index.js
+node --check core\assistant\linguistic\NlpProcessor.js
+git diff --check
 ```
 
 Results:
 
 ```text
-ESLint: clean
-Architecture/parser/intents: 18 passing
-NLU/NLP: 15 passing
-Action router: 154 passing
-Focused migration regression: 248 passing
-Full suite: 842 passing
+UI / IPC / entities / NLU: 67 passing
+Automation / assistant: 109 passing
+Syntax checks: passing
+Diff whitespace check: passing, with normal CRLF warnings on Windows
 ```
 
-The logged timeout/parser/NLP error lines are expected negative-path assertions in the test suite.
+## Current Directory Tree
 
-## Remaining Technical Debt
-
-The old decision behavior has been moved out of legacy top-level files, but `core/assistant/automation/ActionRouter.js` still contains a large amount of command-resolution behavior. The next production migration step is to continue splitting that behavior into semantic, reasoning, planning, decision, validation, and automation stage implementations while keeping the focused regression suites green after each split.
-
-## Directory Tree
-
-Generated from the current workspace with generated/heavy folders excluded. This tree includes both folders and files.
+Filtered current structure with files shown under each folder:
 
 ```text
 OpenX/
@@ -309,7 +537,6 @@ OpenX/
 |   |   |   |-- AutomationDispatcher.js
 |   |   |   |-- AutomationErrors.js
 |   |   |   |-- AutomationExecutionGraph.js
-|   |   |   |-- AutomationLogger.js
 |   |   |   |-- AutomationResult.js
 |   |   |   |-- DecisionValidationAutomationManager.js
 |   |   |   |-- DecisionValidationAutomationStage.js
@@ -844,6 +1071,7 @@ OpenX/
 |   |   |-- nlp.test.js
 |   |   |-- nlu.test.js
 |   |   |-- parser.test.js
+|   |   |-- performance-memory.test.js
 |   |   |-- permissions.test.js
 |   |   |-- phone-device-permissions.test.js
 |   |   |-- phone-file-transfer.test.js
@@ -855,6 +1083,7 @@ OpenX/
 |   |   |-- planner.test.js
 |   |   |-- planning.test.js
 |   |   |-- reasoning.test.js
+|   |   |-- reminder-extraction.test.js
 |   |   |-- renderer-security.test.js
 |   |   |-- responses.test.js
 |   |   |-- router.test.js

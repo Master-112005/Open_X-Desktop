@@ -17,7 +17,6 @@ const PlannerController = require('./planner');
 const ScreenshotController = require('./screenshot-recording');
 const FormAutomation = require('../../plugins/forms');
 const ActionVerifier = require('./common/action-verification');
-const SecurityLockManager = require('../security/SecurityLockManager');
 const { resolveTrustedWebTarget } = require('../assistant/semantic/WebTargets');
 const {
   cleanEntityName,
@@ -29,13 +28,12 @@ class AutomationEngine {
   constructor(config) {
     this.logger = new Logger(config?.logging || { level: 'info' });
     this.config = config;
-    this.securityLocks = config?.securityLocks || new SecurityLockManager(config);
 
     this.volume = new VolumeController(config);
     this.brightness = new BrightnessController(config);
     this.files = new FileController(config);
     this.folders = new FolderController(config);
-    this.apps = new AppController({ ...config, securityLocks: this.securityLocks });
+    this.apps = new AppController(config);
     this.browser = new BrowserController(config);
     this.media = new MediaController(config);
     this.communications = new CommunicationsController(config);
@@ -128,7 +126,6 @@ class AutomationEngine {
       'folder.move': (entities) => this.folders.move(entities.source, entities.destination),
       'folder.open': (entities) => this.folders.open(entities.folderName, entities),
       'folder.search': (entities) => this.folders.search(entities.query),
-      'security.lock': (entities) => this._createSecurityLock(entities),
       'phone.sendFile': (entities, context) => this._sendFileToPhone(entities, context),
       'browser.open': (entities) => this.browser.open(entities.url, entities),
       'browser.search': (entities) => this.browser.search(entities.query, entities),
@@ -304,23 +301,6 @@ class AutomationEngine {
           }
         }
       : opened;
-  }
-
-  _createSecurityLock(entities = {}) {
-    if (entities.type && entities.type !== 'app') {
-      return { success: false, error: 'Only app locks are supported' };
-    }
-    const existing = this.securityLocks.findLock({
-      type: 'app',
-      target: entities.target || entities.displayName || entities.path
-    });
-    if (existing) {
-      return {
-        success: false,
-        error: `${existing.displayName || existing.target} is already locked. Change passwords from Settings > System > Security.`
-      };
-    }
-    return this.securityLocks.upsertLock(entities);
   }
 
   async _sendFileToPhone(entities = {}, context = {}) {

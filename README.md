@@ -1,155 +1,97 @@
 # OpenX
 
-OpenX is a deterministic, local-first Windows desktop assistant built with Electron and Node.js. It routes natural-language commands for desktop automation, browser control, files and folders, media, scheduling, planner entries, phone integration, and local voice interaction.
+OpenX is a deterministic, local-first Windows desktop assistant built with Electron 28, Node.js, and CommonJS. It understands chat, voice, phone, and cloud-delivered text commands, then routes them through the same assistant pipeline for validation, automation, verification, response generation, context, and learning.
 
 Current package version: `5.5.1`
 
-## Current Status
+## What OpenX Does
 
-- Production assistant pipeline for chat, phone, and voice-derived text.
-- Local command processing through NLP, NLU, parser, router, NLE, automation, verification, response generation, context, and active learning.
-- Local voice subsystem with Sherpa-ONNX/Parakeet STT, RNNoise/VAD preprocessing, transcript normalization, continuous voice sessions, Dynamic Island voice UI, and TTS turn-taking.
-- Phone pairing, permission checks, session validation, command routing, and file transfer support for OpenX Mobile.
-- Desktop Device Management Center for paired phones and future cloud devices, including search, filters, rename, trust, disconnect, remove, and permission editing.
-- Optional desktop cloud relay connection and relay QR pairing, disabled by default so local mode works offline.
-- Stable desktop cloud device registration for relay-side multi-device management.
-- Cloud-mode presence and notification protocol support for paired devices, isolated from Local Mode.
-- Calendar, timetable, reminders, timers, alarms, snooze, stopwatch, and Dynamic Island alert display.
-- Managed runtime storage under `%USERPROFILE%\OpenX_Data`.
-- Plugin support for isolated Chrome, YouTube, Discord, forms, and communications integrations.
-- Test coverage for core assistant behavior, automation, context awareness, phone security/file transfer, voice subsystem, and renderer UI.
+- Opens and controls local apps, browser tabs, folders, files, media, windows, volume, brightness, and system utilities.
+- Handles reminders, alarms, timers, stopwatch, calendar entries, and timetable entries.
+- Understands flexible reminder language, including scheduled `remember`, `note`, and `save` phrases when a date, time, or duration is present.
+- Searches local files and folders with typo tolerance and clarification prompts for ambiguous matches.
+- Supports OpenX Mobile pairing, trusted-device permissions, phone command routing, and local/cloud file transfer.
+- Supports optional desktop cloud relay mode for command packets, pairing requests, presence, notifications, and file-transfer packets.
+- Runs local voice sessions with audio preprocessing, STT, transcript normalization, Dynamic Island voice UI, and TTS.
+- Stores runtime data locally under `%USERPROFILE%\OpenX_Data`.
+- Keeps plugins isolated behind the assistant command and automation boundaries.
 
-## Command Pipeline
+## Command Flow
 
 ```text
-Chat / phone / voice text
-  -> NLP normalization and repair
-  -> NLU and context interpretation
-  -> parser and entity extraction
-  -> intent resolution
-  -> validation and permission checks
-  -> NLE execution boundary
-  -> automation or plugin action
-  -> postcondition verification
-  -> response generation
-  -> context and active-learning updates
-  -> OpenX_Data persistence
+chat / voice / phone / cloud text
+  -> input acquisition
+  -> language normalization
+  -> linguistic understanding
+  -> semantic understanding
+  -> entity understanding
+  -> memory and context
+  -> intent and goal reasoning
+  -> task planning
+  -> decision, validation, and automation dispatch
+  -> verification and response generation
+  -> learning update
 ```
 
-The assistant remains input-source agnostic. Chat, voice, and phone commands all enter the same `Assistant.processCommand(text, source)` contract.
+All command sources enter through the same public assistant contract:
 
-## Main Modules
+```js
+Assistant.processCommand(text, source, options)
+```
+
+## Main Areas
 
 | Area | Path | Responsibility |
 |---|---|---|
-| Assistant core | `core/assistant/` | NLP, NLU, parser, router, NLE, responses, context, learning, data handling |
+| Desktop app | `apps/desktop/` | Electron lifecycle, IPC, renderer UI, settings, crash recovery, identity verification |
+| Assistant core | `core/assistant/` | Input, normalization, language understanding, entities, memory, reasoning, planning, decisions, validation, automation bridge, verification, response, learning |
 | Automation | `core/automation/` | Apps, browser, files, folders, media, planner, scheduler, system, volume, brightness, windows |
-| Phone integration | `core/phone/` | Pairing, sessions, permissions, WebSocket server, command routing, file transfer |
-| Cloud connection | `core/cloud/` | Optional relay WebSocket client, state, reconnect, heartbeat, cloud QR pairing, presence, notifications, local cloud logs |
-| Desktop app | `apps/desktop/` | Electron lifecycle, IPC, renderer UI, settings, security, crash recovery |
-| Voice | `apps/desktop/voice/` | Audio capture, preprocessing, STT, normalization, session lifecycle, voice UI, diagnostics, TTS |
-| Plugins | `plugins/` | Restricted external integration packages |
-| Tests | `tests/` | Core, automation, context, phone, voice, and UI regression coverage |
+| Phone | `core/phone/` | Pairing, sessions, permissions, command routing, WebSocket server, file transfer |
+| Cloud | `core/cloud/` | Relay connection, pairing, command packets, file transfer, presence, notifications |
+| Voice | `apps/desktop/voice/` | Capture, preprocessing, STT, normalization, voice sessions, diagnostics, voice UI, TTS |
+| Plugins | `plugins/` | Chrome, YouTube, Discord, forms, communications, sample plugin |
+| Tests | `tests/` | Core, automation, context, phone, cloud, voice, renderer, planner, widgets |
 
-## Data Storage
+## Runtime Data
 
-OpenX stores runtime data under:
+OpenX stores managed local data under:
 
 ```text
 %USERPROFILE%\OpenX_Data\
 ```
 
-This managed root includes settings, schedules, planner data, learning state, logs, voice diagnostics, phone pairing/device state, file transfer history, received phone files, media runtime data, screenshots, and temporary transfer files. Legacy `.jarvis` data is migrated where supported.
+Important files and folders include:
 
-Cloud connection logs are stored locally under:
+- `settings.json`
+- `schedules.json`
+- `planner.json`
+- `learning/`
+- `logs/`
+- `voice/diagnostics/`
+- `phone/`
+- `cloud/connection.log`
+- `screenshots/`
+- `runtime/phone-transfer/`
+- `received/`
 
-```text
-%USERPROFILE%\OpenX_Data\cloud\connection.log
-```
+## Optional Cloud Relay
 
-## Optional Cloud Relay Connection And Pairing
+OpenX works offline for local automation, local voice, local schedules, and local phone pairing. Cloud relay mode is optional and is controlled from `Settings -> Phone -> Cloud`.
 
-OpenX remains local-first. The relay server is not required for startup, voice, automation, local phone pairing, local file transfer, or existing QR pairing.
+Cloud mode supports:
 
-Desktop cloud mode is available from `Settings -> Phone -> Cloud Connection`:
+- Desktop relay connect/disconnect.
+- Relay QR pairing.
+- Desktop approval or rejection of incoming pair requests.
+- Cloud command packets routed into the same assistant command path.
+- Metadata-first cloud file transfer with chunk acknowledgements and SHA-256 verification.
+- Presence and notification packets for paired devices.
 
-- `Connect to Server` opens a WebSocket client to the configured relay URL.
-- `Disconnect` closes the relay socket, cancels reconnect timers, and keeps all local features running.
-- `Generate Cloud QR` is enabled only after the desktop is connected to the relay.
-- Cloud QR tokens are generated by the relay, not by the desktop.
-- Incoming cloud pair requests show the phone name placeholder and require explicit desktop `Accept` or `Reject`.
-- The desktop registers a stable `desktop_*` device ID and placeholder `owner_*` ID with the relay.
-- The relay treats the desktop device, owner, and WebSocket connection as separate concepts.
-- Paired cloud devices can exchange validated opaque `relay:packet` messages through the relay transport layer.
-- `CloudConnectionManager.sendRelayPacket(packet)` and `relay-packet` / `relay-ack` / `relay-error` events expose the generic transport hook.
-- `CloudCommandManager` receives cloud `assistant-command` packets, validates them, queues them, and routes them through the existing phone command path into `Assistant.processCommand()`.
-- Auto connect is off by default.
-- Reconnect uses bounded exponential backoff after unexpected disconnects.
-- `CloudFileTransferManager` supports cloud file transfer with metadata-first approval, chunked upload/download, progress events, cancellation, timeout cleanup, and SHA-256 verification.
-- Cloud presence tracks paired device availability and marks the desktop busy during cloud assistant/file-transfer work.
-- Cloud notifications receive relay events such as pairing, device online/offline, and file-transfer status.
-- No cloud voice streaming, screen sharing, cloud backup, or offline sync is currently implemented through the relay.
-
-Cloud command flow:
+Default relay URL:
 
 ```text
-OpenX Mobile
-  -> relay:packet assistant-command
-  -> OpenX Relay Server
-  -> Desktop CloudCommandManager
-  -> PhoneCommandRouter
-  -> Assistant.processCommand(text, 'phone', phoneContext)
-  -> relay:packet assistant response
-  -> OpenX Mobile
+wss://openx-server.onrender.com/ws
 ```
-
-The relay server never parses or executes the command payload.
-
-Cloud file transfer flow:
-
-```text
-Sender
-  -> metadata packet
-  -> receiver Accept / Reject
-  -> chunk packets
-  -> per-chunk acknowledgements
-  -> final checksum verification
-  -> complete acknowledgement
-```
-
-The relay server only forwards file-transfer packets. It never stores, renames, compresses, decrypts, or reads user files.
-
-Cloud QR payloads contain only:
-
-```json
-{
-  "version": 1,
-  "relayUrl": "wss://openx-server.onrender.com/ws",
-  "pairToken": "relay-generated-token",
-  "expiresAt": 1767225600000
-}
-```
-
-The local LAN QR payload and local phone workflow remain unchanged.
-
-Developer defaults:
-
-```text
-OPENX_RELAY_URL=wss://openx-server.onrender.com/ws
-```
-
-## Device Management Center
-
-Open `Settings -> Phone -> Connected Devices` to manage paired devices from the desktop authority surface.
-
-The page shows each device name, ID, type, platform, app version, connection state, trust state, session state, permission summary, paired date, last seen time, and connection duration. It supports search, status/type/trust filters, sorting, manual refresh, local device rename, permission editing, trust/untrust, disconnect, and remove.
-
-Device actions follow the existing local model:
-
-- Disconnect terminates the active local session and marks the device offline while keeping the pair.
-- Remove deletes the pair, session, trust, and permissions so QR pairing is required again.
-- Permission changes apply immediately through the existing phone permission guard.
-- Cloud-only devices support relay-backed rename and remove; trust and permission editing stay local-only until relay trust/permission endpoints are added.
 
 ## Requirements
 
@@ -196,24 +138,18 @@ Directory build:
 npm run build
 ```
 
-NSIS installer package:
+NSIS installer:
 
 ```powershell
 npm run package
 ```
 
-The packaged app includes `apps/`, `core/`, `plugins/`, `config.js`, `package.json`, the Parakeet model files, and the Chrome native host binary.
-
 ## Documentation
 
-- `report.md`: detailed implementation report, critical method reference, and full filtered project tree.
+- `report.md`: detailed repository report with critical methods, runtime surfaces, validation notes, and directory tree.
 - `commands.md`: command-language regression corpus.
 - `docs/architecture/overview.md`: architecture overview.
-- `docs/architecture/production-finalization.md`: permanent target assistant architecture.
-- `docs/architecture/repository-audit.md`: repository inventory, ownership, dependency, and migration-readiness audit.
-- `docs/architecture/legacy-migration-strategy.md`: controlled legacy-to-pipeline migration order and verification gates.
-- `docs/architecture/legacy-module-inventory.md`: legacy migration matrix and human-readable responsibility mapping.
-- `docs/architecture/legacy-module-inventory.json`: exhaustive per-file inventory artifact.
-- `docs/architecture/dependency-graph.json`: generated local dependency graph artifact.
+- `docs/architecture/production-finalization.md`: target assistant architecture.
+- `docs/architecture/repository-audit.md`: repository ownership and dependency audit.
 - `docs/workflows/command-execution.md`: command execution workflow.
 - `docs/plugins/development.md`: plugin development rules.

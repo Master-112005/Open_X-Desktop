@@ -69,8 +69,6 @@ describe('Electron Security Boundary', function() {
     );
     assert.throws(() => IPC_VALIDATORS['settings:get']({}), /does not accept/);
     assert.throws(() => IPC_VALIDATORS['security:verifyAccess']({}), /does not accept/);
-    assert.deepEqual(IPC_VALIDATORS['securityUnlock:submit']({ password: '  1234  ' }), { password: '1234' });
-    assert.throws(() => IPC_VALIDATORS['securityUnlock:submit']({ password: '' }), /must not be empty/);
   });
 
   it('should validate phone device permission mutations', function() {
@@ -150,34 +148,13 @@ describe('Electron Security Boundary', function() {
     );
   });
 
-  it('should validate security lock payloads without returning hashes', function() {
-    assert.deepEqual(
-      IPC_VALIDATORS['security:upsertLock']({
-        type: 'app',
-        target: ' Chrome ',
-        displayName: ' Chrome ',
-        password: '1234'
-      }),
-      { type: 'app', target: 'Chrome', displayName: 'Chrome', password: '1234', path: '' }
-    );
-    assert.deepEqual(
-      IPC_VALIDATORS['security:deleteLock']({ id: 'lock_1' }),
-      { id: 'lock_1' }
-    );
-    assert.throws(
-      () => IPC_VALIDATORS['security:upsertLock']({ type: 'file', target: 'x', password: '1234' }),
-      /type is not supported/
-    );
-  });
-
   it('should provide a validator for every registered IPC channel', function() {
     const expectedChannels = [
       'command:process', 'command:confirm', 'assistant:status', 'tts:speak', 'tts:stop', 'voice:start',
       'voiceOverlay:collapse',
       'window:openChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
       'config:get', 'settings:get',
-      'security:verifyAccess', 'security:listLocks', 'security:upsertLock', 'security:deleteLock',
-      'securityUnlock:submit', 'securityUnlock:cancel',
+      'security:verifyAccess',
       'cloud:status', 'cloud:connect', 'cloud:disconnect',
       'cloud:pairingQR:create', 'cloud:pairing:status', 'cloud:pairing:approve', 'cloud:pairing:reject',
       'phone:pairingQR:create', 'phone:server:status', 'phone:devices:list',
