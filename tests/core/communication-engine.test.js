@@ -416,7 +416,7 @@ describe('Communication Engine', function() {
       on() {},
       url: () => 'https://web.whatsapp.com/',
       goto: async () => {},
-      bringToFront: async () => {},
+      bringToFront: async () => { throw new Error('visible setup should not steal focus'); },
       waitForSelector: async () => {},
       waitForTimeout: async () => {},
       locator: selector => {
@@ -456,12 +456,14 @@ describe('Communication Engine', function() {
     assert.equal(launchOptions.headless, false);
     assert.equal(launchOptions.args.includes('--start-minimized'), false);
     assert.equal(launchOptions.args.some(arg => String(arg).startsWith('--window-position=')), false);
+    assert.equal(session.browserVisibility.focused, false);
     assert.equal(session.lastState, 'CONNECTED');
     assert.equal(session.page, null);
   });
 
   it('keeps WhatsApp automation headed even when the assistant runs it in the background', async function() {
     let launchOptions = null;
+    const cdpCalls = [];
     const tempProfile = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-wa-profile-'));
     fs.writeFileSync(path.join(tempProfile, 'Local State'), '{}');
     const context = new EventEmitter();
@@ -485,6 +487,19 @@ describe('Communication Engine', function() {
     context.close = async () => context.emit('close');
     context.setDefaultTimeout = () => {};
     context.setDefaultNavigationTimeout = () => {};
+    context.newCDPSession = async () => ({
+      send: async (method, params = {}) => {
+        cdpCalls.push({ method, params });
+        if (method === 'Browser.getWindowForTarget') {
+          return { windowId: 7, bounds: { left: 10, top: 10, width: 1200, height: 850, windowState: 'normal' } };
+        }
+        if (method === 'Browser.getWindowBounds') {
+          return { bounds: { left: -32000, top: -32000, width: 1280, height: 900, windowState: 'normal' } };
+        }
+        return {};
+      },
+      detach: async () => {}
+    });
 
     try {
       const session = new WhatsAppSessionManager({
@@ -501,11 +516,72 @@ describe('Communication Engine', function() {
 
       await session.ensureReady({ background: true, timeoutMs: 1000 });
 
-    assert.equal(launchOptions.headless, false);
+      assert.equal(launchOptions.headless, false);
+      assert.ok(launchOptions.args.includes('--window-position=-32000,-32000'));
+      assert.ok(launchOptions.args.includes('--window-size=1280,900'));
+      assert.ok(launchOptions.args.includes('--disable-backgrounding-occluded-windows'));
+      assert.ok(cdpCalls.some(call => call.method === 'Browser.setWindowBounds' && call.params.bounds.left === -32000));
+      assert.equal(session.browserVisibility.mode, 'background-offscreen');
+      assert.equal(session.browserVisibility.focused, false);
+      assert.equal(session.browserVisibility.hidden, true);
       assert.equal(session.lastState, 'CONNECTED');
     } finally {
       fs.rmSync(tempProfile, { recursive: true, force: true });
     }
+  });
+
+  it('defaults WhatsApp session launches to background off-screen mode when not explicitly visible', async function() {
+    let launchOptions = null;
+    const cdpCalls = [];
+    const context = new EventEmitter();
+    const page = {
+      on() {},
+      url: () => 'https://web.whatsapp.com/',
+      goto: async () => {},
+      waitForTimeout: async () => {},
+      locator: selector => {
+        const visible = /#side|#pane-side|chat-list|#main|conversation-panel|role="application"|Search/i.test(selector);
+        return {
+          first: () => ({
+            count: async () => visible ? 1 : 0,
+            isVisible: async () => visible
+          })
+        };
+      }
+    };
+    context.pages = () => [page];
+    context.newPage = async () => page;
+    context.close = async () => context.emit('close');
+    context.setDefaultTimeout = () => {};
+    context.setDefaultNavigationTimeout = () => {};
+    context.newCDPSession = async () => ({
+      send: async (method, params = {}) => {
+        cdpCalls.push({ method, params });
+        if (method === 'Browser.getWindowForTarget') return { windowId: 8, bounds: { windowState: 'normal' } };
+        if (method === 'Browser.getWindowBounds') return { bounds: { left: -32000, top: -32000, windowState: 'normal' } };
+        return {};
+      },
+      detach: async () => {}
+    });
+    const session = new WhatsAppSessionManager({
+      profileDir: __dirname,
+      playwright: {
+        chromium: {
+          launchPersistentContext: async (_profileDir, options) => {
+            launchOptions = options;
+            return context;
+          }
+        }
+      }
+    });
+
+    await session.ensureReady({ timeoutMs: 1000 });
+
+    assert.equal(launchOptions.headless, false);
+    assert.ok(launchOptions.args.includes('--window-position=-32000,-32000'));
+    assert.ok(cdpCalls.some(call => call.method === 'Browser.setWindowBounds'));
+    assert.equal(session.browserVisibility.mode, 'background-offscreen');
+    assert.equal(session.browserVisibility.focused, false);
   });
 
   it('reports QR login as its own session state', async function() {
