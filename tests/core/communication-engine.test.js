@@ -159,6 +159,42 @@ describe('Communication Engine', function() {
     assert.equal(events[0].message, undefined);
   });
 
+  it('restores a pending draft after idle shutdown before sending it', async function() {
+    const page = {};
+    let restored = 0;
+    let sent = 0;
+    const provider = new WhatsAppProvider({
+      session: {
+        on() {},
+        isBrowserRunning: () => false,
+        ensureReady: async () => page,
+        touch() {}
+      }
+    });
+    provider.preparedDrafts.set('draft-1', {
+      id: 'draft-1',
+      recipient: 'Mohit',
+      message: 'Hi',
+      contact: { id: 'chat:0:mohit', name: 'Mohit' }
+    });
+    provider._restoreDraft = async (draft, restoredPage) => {
+      restored += 1;
+      assert.equal(draft.id, 'draft-1');
+      assert.equal(restoredPage, page);
+    };
+    provider._resolveRequired = async () => ({
+      found: true,
+      locator: { click: async () => { sent += 1; } }
+    });
+
+    const result = await provider.send('draft-1');
+
+    assert.equal(result.success, true);
+    assert.equal(restored, 1);
+    assert.equal(sent, 1);
+    assert.equal(provider.getDraft('draft-1'), null);
+  });
+
   it('does not autostart WhatsApp before a persistent session exists', async function() {
     let connected = false;
     const provider = new EventEmitter();
@@ -176,6 +212,84 @@ describe('Communication Engine', function() {
     await engine.start();
 
     assert.equal(connected, false);
+  });
+
+  it('does not launch a saved WhatsApp browser session during engine startup', async function() {
+    let connected = false;
+    const provider = new EventEmitter();
+    provider.id = 'whatsapp';
+    provider.hasPersistentSession = () => true;
+    provider.connect = async () => { connected = true; };
+    provider.health = async () => ({ provider: 'whatsapp', connected: false, state: 'disconnected', browserRunning: false });
+    provider.disconnect = async () => {};
+
+    const engine = new CommunicationEngine({
+      config: { communication: { defaultProvider: 'whatsapp' } },
+      registerDefaultProviders: false
+    });
+    engine.registerProvider(provider);
+    await engine.start();
+
+    assert.equal(connected, false);
+  });
+
+  it('closes idle WhatsApp resources and recreates them for the next request', async function() {
+    const timers = [];
+    const cleared = new Set();
+    const firstContext = new EventEmitter();
+    const firstPage = new EventEmitter();
+    firstContext.pages = () => [firstPage];
+    firstContext.newPage = async () => firstPage;
+    firstContext.close = async () => { firstContext.closed = true; firstContext.emit('close'); };
+    firstContext.setDefaultTimeout = () => {};
+    firstContext.setDefaultNavigationTimeout = () => {};
+    firstPage.goto = async () => {};
+    const nextContext = new EventEmitter();
+    const nextPage = new EventEmitter();
+    nextContext.pages = () => [nextPage];
+    nextContext.newPage = async () => nextPage;
+    nextContext.close = async () => nextContext.emit('close');
+    nextContext.setDefaultTimeout = () => {};
+    nextContext.setDefaultNavigationTimeout = () => {};
+    nextPage.goto = async () => {};
+
+    let launches = 0;
+    const session = new WhatsAppSessionManager({
+      idleTimeoutMs: 1234,
+      setTimeout: (callback, delay) => {
+        const timer = { callback, delay, unref() {} };
+        timers.push(timer);
+        return timer;
+      },
+      clearTimeout: timer => cleared.add(timer),
+      playwright: {
+        chromium: {
+          launchPersistentContext: async () => {
+            launches += 1;
+            return launches === 1 ? firstContext : nextContext;
+          }
+        }
+      }
+    });
+    session.detectState = async () => ({ state: 'CONNECTED' });
+
+    await session.connect();
+    session.touch();
+    assert.equal(timers.length, 2);
+    assert.equal(timers[1].delay, 1234);
+    assert.equal(cleared.has(timers[0]), true);
+
+    timers[1].callback();
+    await session.idleClosing;
+    assert.equal(firstContext.closed, true);
+    assert.equal(session.isBrowserRunning(), false);
+    assert.equal(firstContext.listenerCount('close'), 0);
+    assert.equal(firstPage.listenerCount('crash'), 0);
+    assert.equal(firstPage.listenerCount('console'), 0);
+
+    const page = await session.getPage();
+    assert.equal(page, nextPage);
+    assert.equal(launches, 2);
   });
 
   it('launches visible setup without minimized or off-screen flags', async function() {

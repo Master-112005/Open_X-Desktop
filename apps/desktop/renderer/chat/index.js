@@ -112,8 +112,8 @@ let messageScrollAnimationFrame = null;
 let renderedMessageCount = messagesEl ? messagesEl.querySelectorAll('.message').length : 0;
 let phonePairingCountdownHandle = null;
 let cloudPairingCountdownHandle = null;
-let cloudStatusPollHandle = null;
-let communicationStatusPollHandle = null;
+let settingsStatusPollHandle = null;
+let settingsStatusPollInFlight = false;
 let latestCloudStatus = null;
 const scheduleTimers = new Map();
 
@@ -1490,37 +1490,44 @@ function openSettingsPanel() {
   setActiveSettingsSection(activeSettingsSection || 'system');
   settingsOverlay.classList.add('open');
   setSettingsStatus('Settings are stored locally on this machine.', 'info');
-  loadPhoneServerStatus();
   loadPhoneDevices();
-  loadCloudStatus();
-  loadCloudPairingStatus();
-  loadCommunicationStatus();
-  if (!cloudStatusPollHandle) {
-    cloudStatusPollHandle = setInterval(() => {
-      loadPhoneServerStatus();
-      loadCloudStatus();
-      loadCloudPairingStatus();
-    }, 5000);
+  refreshSettingsStatus();
+  if (!settingsStatusPollHandle) {
+    settingsStatusPollHandle = setInterval(refreshSettingsStatus, 5000);
   }
-  if (!communicationStatusPollHandle) {
-    communicationStatusPollHandle = setInterval(loadCommunicationStatus, 5000);
+}
+
+async function refreshSettingsStatus() {
+  // Avoid accumulating IPC work when a relay or communication provider is slow.
+  if (settingsStatusPollInFlight) return;
+  settingsStatusPollInFlight = true;
+  try {
+    await Promise.all([
+      loadPhoneServerStatus(),
+      loadCloudStatus(),
+      loadCloudPairingStatus(),
+      loadCommunicationStatus()
+    ]);
+  } finally {
+    settingsStatusPollInFlight = false;
+  }
+}
+
+function stopSettingsStatusPolling() {
+  if (settingsStatusPollHandle) {
+    clearInterval(settingsStatusPollHandle);
+    settingsStatusPollHandle = null;
   }
 }
 
 function closeSettingsPanel() {
   if (document.body.classList.contains('settings-only')) {
+    stopSettingsStatusPolling();
     window.close();
     return;
   }
   settingsOverlay.classList.remove('open');
-  if (cloudStatusPollHandle) {
-    clearInterval(cloudStatusPollHandle);
-    cloudStatusPollHandle = null;
-  }
-  if (communicationStatusPollHandle) {
-    clearInterval(communicationStatusPollHandle);
-    communicationStatusPollHandle = null;
-  }
+  stopSettingsStatusPolling();
   stopCloudPairingCountdown();
   inputBox.focus();
 }

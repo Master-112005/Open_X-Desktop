@@ -16,6 +16,7 @@ const {
 const DEFAULT_LAUNCH_TIMEOUT_MS = 30000;
 const DEFAULT_NAVIGATION_TIMEOUT_MS = 20000;
 const DEFAULT_READY_TIMEOUT_MS = 30000;
+const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const DETECTION_CANDIDATE_TIMEOUT_MS = 250;
 const INSPECTION_TIMEOUT_MS = 1000;
 
@@ -54,6 +55,17 @@ class WhatsAppSessionManager extends EventEmitter {
     this.context = options.context || null;
     this.page = options.page || null;
     this.connecting = null;
+    this.setTimer = options.setTimeout || setTimeout;
+    this.clearTimer = options.clearTimeout || clearTimeout;
+    this.idleTimeoutMs = Math.max(
+      1000,
+      Number(options.idleTimeoutMs) || Number(this.config?.communication?.whatsapp?.idleTimeoutMs) || DEFAULT_IDLE_TIMEOUT_MS
+    );
+    this.idleTimer = null;
+    this.idleClosing = null;
+    this._contextCloseHandler = null;
+    this._pageCrashHandler = null;
+    this._pageConsoleHandler = null;
     this.lastState = this.page ? SESSION_STATES.INITIALIZING : SESSION_STATES.DISCONNECTED;
     this.lastLayout = null;
     this.consoleLogs = [];
@@ -82,12 +94,14 @@ class WhatsAppSessionManager extends EventEmitter {
           await this._closeContext({ preserveState: true });
         }
       }
+      this.touch();
       return this.page;
     }
     if (this.connecting) {
       return this.connecting;
     }
 
+    let connected = false;
     this.connecting = this._launch(options)
       .then(async page => {
         if (options.waitForLogin === true) {
@@ -96,10 +110,12 @@ class WhatsAppSessionManager extends EventEmitter {
             await this._closeContext({ preserveState: true });
           }
         }
+        connected = true;
         return page;
       })
       .finally(() => {
         this.connecting = null;
+        if (connected) this.touch();
       });
     return this.connecting;
   }
@@ -142,29 +158,25 @@ class WhatsAppSessionManager extends EventEmitter {
     });
     this.context.setDefaultTimeout(this.config?.communication?.operationTimeoutMs || 8000);
     this.context.setDefaultNavigationTimeout(DEFAULT_NAVIGATION_TIMEOUT_MS);
-    this.context.on?.('close', () => {
-      this.context = null;
-      this.page = null;
-      if (!this.preserveStateOnClose) {
-        this._setState(SESSION_STATES.DISCONNECTED);
-      }
-      this.preserveStateOnClose = false;
-      this.emit(COMMUNICATION_EVENTS.DISCONNECTED, { provider: 'whatsapp' });
-    });
+    const launchedContext = this.context;
+    this._contextCloseHandler = () => this._handleContextClosed(launchedContext);
+    this.context.on?.('close', this._contextCloseHandler);
 
     this.page = this.context.pages?.()[0] || await this._runStage(
       'create-page',
       () => this.context.newPage(),
       this._stageTimeout(options, 'pageTimeoutMs', 5000)
     );
-    this.page.on?.('crash', () => {
+    this._pageCrashHandler = () => {
       this._setState(SESSION_STATES.ERROR);
       this.emit(COMMUNICATION_EVENTS.ERROR, {
         provider: 'whatsapp',
         code: 'PAGE_CRASHED'
       });
-    });
-    this.page.on?.('console', message => this._recordConsole(message));
+    };
+    this._pageConsoleHandler = message => this._recordConsole(message);
+    this.page.on?.('crash', this._pageCrashHandler);
+    this.page.on?.('console', this._pageConsoleHandler);
     await this._runStage(
       'load-whatsapp',
       () => this.page.goto(WhatsAppSelectors.url, { waitUntil: 'domcontentloaded' }),
@@ -193,22 +205,78 @@ class WhatsAppSessionManager extends EventEmitter {
   }
 
   async _closeContext(options = {}) {
+    this._clearIdleTimer();
     const context = this.context;
+    const page = this.page;
     const state = this.lastState;
+    this._detachResourceListeners(context, page);
     this.context = null;
     this.page = null;
     this._setState(options.preserveState ? state : SESSION_STATES.DISCONNECTED);
     if (context) {
-      this.preserveStateOnClose = options.preserveState === true;
       await context.close();
+      this.emit(COMMUNICATION_EVENTS.DISCONNECTED, { provider: 'whatsapp' });
     }
+  }
+
+  _handleContextClosed(context) {
+    if (context && this.context && context !== this.context) return;
+    this._clearIdleTimer();
+    this._detachResourceListeners(context, this.page);
+    this.context = null;
+    this.page = null;
+    if (!this.preserveStateOnClose) {
+      this._setState(SESSION_STATES.DISCONNECTED);
+    }
+    this.preserveStateOnClose = false;
+    this.emit(COMMUNICATION_EVENTS.DISCONNECTED, { provider: 'whatsapp' });
+  }
+
+  _detachResourceListeners(context = this.context, page = this.page) {
+    const remove = (target, event, listener) => {
+      if (!target || !listener) return;
+      if (typeof target.off === 'function') target.off(event, listener);
+      else target.removeListener?.(event, listener);
+    };
+    remove(context, 'close', this._contextCloseHandler);
+    remove(page, 'crash', this._pageCrashHandler);
+    remove(page, 'console', this._pageConsoleHandler);
+    this._contextCloseHandler = null;
+    this._pageCrashHandler = null;
+    this._pageConsoleHandler = null;
+  }
+
+  touch() {
+    if (!this.context || !this.page || this.connecting) return false;
+    this._clearIdleTimer();
+    this.idleTimer = this.setTimer(() => {
+      this.idleTimer = null;
+      this.idleClosing = this._closeContext()
+        .catch(error => this.logger.warn?.('[WhatsAppSession] idle shutdown failed', { error: error.message }))
+        .finally(() => {
+          this.idleClosing = null;
+        });
+    }, this.idleTimeoutMs);
+    this.idleTimer.unref?.();
+    return true;
+  }
+
+  _clearIdleTimer() {
+    if (!this.idleTimer) return;
+    this.clearTimer(this.idleTimer);
+    this.idleTimer = null;
   }
 
   async getPage(options = {}) {
     if (!this.page) {
       await this.connect(options);
     }
+    this.touch();
     return this.page;
+  }
+
+  isBrowserRunning() {
+    return Boolean(this.context && this.page);
   }
 
   async ensureReady(options = {}) {
@@ -256,6 +324,7 @@ class WhatsAppSessionManager extends EventEmitter {
       lastSnapshot = snapshot;
       if (snapshot.state === SESSION_STATES.CONNECTED) {
         this._debug('ensure-ready-connected', this._diagnostics(null, snapshot));
+        this.touch();
         return this.page;
       }
       if (snapshot.state === SESSION_STATES.QR_REQUIRED) {

@@ -31,6 +31,52 @@ describe('Action Router', function() {
     assert.ok(result.entities.appName);
   });
 
+  it('should preserve and route multi-word rename commands', async function() {
+    const executed = [];
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const router = new ActionRouter(config, {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    });
+
+    const result = await router.process('Rename Project Notes to Meeting Notes.', 'chat');
+
+    assert.equal(result.success, true);
+    assert.equal(result.intent, 'file.rename');
+    assert.equal(executed[0].actionId, 'file.rename');
+    assert.equal(executed[0].entities.oldName, 'Project Notes');
+    assert.equal(executed[0].entities.newName, 'Meeting Notes');
+  });
+
+  it('should require confirmation for scheduled power actions', async function() {
+    const config = {
+      auth: { preAuthenticated: true },
+      permissions: {
+        userLevel: 'critical',
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false },
+          medium: { requiresConfirmation: true, requiresAuth: false },
+          high: { requiresConfirmation: true, requiresAuth: false },
+          critical: { requiresConfirmation: true, requiresAuth: false }
+        }
+      }
+    };
+    const router = new ActionRouter(config, {
+      execute() {
+        throw new Error('Power action must not execute before confirmation.');
+      }
+    });
+
+    const result = await router.process('Save my work and schedule a restart tonight.', 'chat');
+
+    assert.equal(result.intent, 'system.restart');
+    assert.equal(result.requiresConfirmation, true);
+  });
+
   it('should route natural condition commands to executable controllers', async function() {
     const config = {
       permissions: {

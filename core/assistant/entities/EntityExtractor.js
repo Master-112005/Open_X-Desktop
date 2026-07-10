@@ -770,13 +770,15 @@ class EntityExtractor {
   }
 
   _extractOldName(text, raw) {
-    const match = raw.match(/rename\s+([^\s]+)/i);
-    return match ? match[1].trim() : null;
+    const match = raw.match(/rename\s+(.+?)(?=\s+to\s+|$)/i);
+    return match ? match[1].replace(/[!?]+$/g, '').trim() : null;
   }
 
   _extractNewName(text, raw) {
-    const match = raw.match(/rename\s+[^\s]+\s+to\s+(.+)/i);
-    return match ? match[1].trim() : null;
+    const match = raw.match(/rename\s+.+?\s+to\s+(.+)/i);
+    // A terminal sentence period is command punctuation, not part of the new
+    // filename; extensions such as ".txt" remain intact.
+    return match ? match[1].replace(/[!?]+$|\.(?=\s*$)/g, '').trim() : null;
   }
 
   _extractWindowName(text) {
