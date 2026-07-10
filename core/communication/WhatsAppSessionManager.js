@@ -19,6 +19,12 @@ const DEFAULT_READY_TIMEOUT_MS = 30000;
 const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const DETECTION_CANDIDATE_TIMEOUT_MS = 250;
 const INSPECTION_TIMEOUT_MS = 1000;
+const BACKGROUND_WINDOW_BOUNDS = Object.freeze({
+  left: -32000,
+  top: -32000,
+  width: 1280,
+  height: 900
+});
 
 function timestampForFilename(date = new Date()) {
   return date.toISOString().replace(/[:.]/g, '-');
@@ -72,6 +78,7 @@ class WhatsAppSessionManager extends EventEmitter {
     this.preserveStateOnClose = false;
     this.profileDir = options.profileDir || this._resolveProfileDir();
     this.diagnosticsDir = options.diagnosticsDir || this._resolveDiagnosticsDir();
+    this.browserVisibility = this._browserVisibility('not-launched');
     this._lifecycle('Session created', {
       state: this.lastState,
       profileDir: this.profileDir,
@@ -141,10 +148,13 @@ class WhatsAppSessionManager extends EventEmitter {
   }
 
   async _launch(options = {}) {
+    const visible = options.visible === true;
+    const background = !visible;
     this._lifecycle('Browser launch requested', {
       profileDir: this.profileDir,
-      visible: options.visible === true,
-      background: options.background === true
+      visible,
+      background,
+      requestedBackground: options.background === true
     });
     fs.mkdirSync(this.profileDir, { recursive: true });
     this._setState(this.context ? SESSION_STATES.RECONNECTING : SESSION_STATES.INITIALIZING);
@@ -157,15 +167,30 @@ class WhatsAppSessionManager extends EventEmitter {
       );
     }
 
-    const visible = options.visible === true;
-    const background = options.background === true && !visible;
     const headless = this.config?.communication?.whatsapp?.headless === true;
+    const visibilityMode = headless
+      ? 'headless'
+      : visible ? 'visible' : 'background-offscreen';
     const args = [
       '--disable-notifications',
       '--no-default-browser-check',
       '--disable-features=Translate,InterestFeedContentSuggestions,MediaRouter',
       '--disable-background-networking'
     ];
+    if (background && !headless) {
+      args.push(
+        `--window-position=${BACKGROUND_WINDOW_BOUNDS.left},${BACKGROUND_WINDOW_BOUNDS.top}`,
+        `--window-size=${BACKGROUND_WINDOW_BOUNDS.width},${BACKGROUND_WINDOW_BOUNDS.height}`,
+        '--disable-backgrounding-occluded-windows'
+      );
+    }
+    this.browserVisibility = this._browserVisibility(visibilityMode, {
+      focused: false,
+      minimized: false,
+      hidden: visibilityMode !== 'visible',
+      launchArgs: args.filter(arg => arg.startsWith('--window-') || arg.includes('backgrounding-occluded'))
+    });
+    this._lifecycle('Browser visibility mode selected', this.browserVisibility);
 
     this.context = await this._runStage('launch-browser', () => chromium.launchPersistentContext(this.profileDir, {
       headless,
@@ -175,7 +200,8 @@ class WhatsAppSessionManager extends EventEmitter {
       acceptDownloads: false
     }), this._stageTimeout(options, 'launchTimeoutMs', DEFAULT_LAUNCH_TIMEOUT_MS));
     this._lifecycle('Persistent context created', {
-      profileDir: this.profileDir
+      profileDir: this.profileDir,
+      visibilityMode
     });
     this._debug('browser-launched', {
       profileDir: this.profileDir,
@@ -198,6 +224,13 @@ class WhatsAppSessionManager extends EventEmitter {
     this._lifecycle('Page acquired', {
       existingPage: Boolean(this.context.pages?.()[0])
     });
+    if (background && !headless) {
+      await this._runStage(
+        'apply-background-window-mode',
+        () => this._applyBackgroundWindowMode(this.page, 'page-acquired'),
+        this._stageTimeout(options, 'windowModeTimeoutMs', 5000)
+      );
+    }
     this._pageCrashHandler = () => {
       this._setState(SESSION_STATES.ERROR);
       this.emit(COMMUNICATION_EVENTS.ERROR, {
@@ -227,6 +260,13 @@ class WhatsAppSessionManager extends EventEmitter {
     }
     if (visible) {
       await this._runStage('show-browser-window', () => this._showPageWindow(this.page), 5000);
+    }
+    if (background && !headless) {
+      await this._runStage(
+        'confirm-background-window-mode',
+        () => this._applyBackgroundWindowMode(this.page, 'post-load'),
+        this._stageTimeout(options, 'windowModeTimeoutMs', 5000)
+      );
     }
     return this.page;
   }
@@ -719,7 +759,8 @@ class WhatsAppSessionManager extends EventEmitter {
       browser: {
         context: Boolean(this.context),
         page: Boolean(this.page),
-        connecting: Boolean(this.connecting)
+        connecting: Boolean(this.connecting),
+        visibility: this.browserVisibility
       },
       error: error ? { name: error.name, message: error.message, code: error.code || null } : null
     };
@@ -805,10 +846,71 @@ class WhatsAppSessionManager extends EventEmitter {
     ].some(target => fs.existsSync(target));
   }
 
-  async _showPageWindow(page) {
+  _browserVisibility(mode, details = {}) {
+    return {
+      mode,
+      focused: false,
+      minimized: false,
+      hidden: false,
+      windowsApiCalls: [],
+      ...details
+    };
+  }
+
+  async _applyBackgroundWindowMode(page, reason = 'background') {
+    const targetBounds = { ...BACKGROUND_WINDOW_BOUNDS };
+    const result = {
+      reason,
+      mode: 'background-offscreen',
+      focused: false,
+      minimized: false,
+      hidden: true,
+      requestedBounds: targetBounds,
+      windowsApiCalls: ['CDP:Browser.getWindowForTarget', 'CDP:Browser.setWindowBounds'],
+      beforeBounds: null,
+      afterBounds: null
+    };
+    let client = null;
     try {
-      const client = await this.context.newCDPSession(page);
+      client = await this.context?.newCDPSession?.(page);
+      if (!client) throw new Error('CDP session unavailable');
+      const windowInfo = await client.send('Browser.getWindowForTarget');
+      result.windowId = windowInfo.windowId;
+      result.beforeBounds = windowInfo.bounds || null;
+      await client.send('Browser.setWindowBounds', {
+        windowId: windowInfo.windowId,
+        bounds: targetBounds
+      });
+      result.afterBounds = await client.send('Browser.getWindowBounds', {
+        windowId: windowInfo.windowId
+      }).then(value => value?.bounds || null).catch(error => ({ error: error.message }));
+      result.minimized = result.afterBounds?.windowState === 'minimized';
+      this.browserVisibility = this._browserVisibility('background-offscreen', result);
+      this._lifecycle('Background browser window mode applied', this.browserVisibility);
+      return this.browserVisibility;
+    } catch (error) {
+      result.error = error.message;
+      this.browserVisibility = this._browserVisibility('background-offscreen-unconfirmed', result);
+      this.logger.warn?.('[WhatsAppSession] background browser window mode failed', result);
+      return this.browserVisibility;
+    } finally {
+      await client?.detach?.().catch(() => {});
+    }
+  }
+
+  async _showPageWindow(page) {
+    const result = {
+      mode: 'visible',
+      focused: false,
+      minimized: false,
+      hidden: false,
+      windowsApiCalls: ['CDP:Browser.getWindowForTarget', 'CDP:Browser.setWindowBounds']
+    };
+    let client = null;
+    try {
+      client = await this.context.newCDPSession(page);
       const { windowId } = await client.send('Browser.getWindowForTarget');
+      result.windowId = windowId;
       await client.send('Browser.setWindowBounds', {
         windowId,
         bounds: {
@@ -819,12 +921,17 @@ class WhatsAppSessionManager extends EventEmitter {
           height: 850
         }
       });
-      await page.bringToFront?.();
-      await client.detach?.();
+      result.afterBounds = await client.send('Browser.getWindowBounds', {
+        windowId
+      }).then(value => value?.bounds || null).catch(error => ({ error: error.message }));
+      this.browserVisibility = this._browserVisibility('visible', result);
+      this._lifecycle('Visible browser window requested without focus steal', this.browserVisibility);
     } catch (error) {
       if (this.debug) {
         this.logger.warn('WhatsApp browser window restore failed', { error: error.message });
       }
+    } finally {
+      await client?.detach?.().catch(() => {});
     }
   }
 }
