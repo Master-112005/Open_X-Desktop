@@ -130,42 +130,6 @@ function validateSettings(payload) {
   return validateStructuredPayload(payload, 'settings', 256 * 1024);
 }
 
-function validateSecurityLock(payload) {
-  requirePlainObject(payload);
-  const type = requireString(payload.type || 'app', 'type', { maxLength: 20 });
-  if (type !== 'app') throw new TypeError('only app locks are supported');
-  const target = requireString(payload.target, 'target', { maxLength: 1000 });
-  const displayName = payload.displayName === undefined
-    ? target
-    : requireString(payload.displayName, 'displayName', { maxLength: 200 });
-  const password = requireString(payload.password, 'password', { maxLength: 200 });
-  return {
-    type,
-    target,
-    displayName,
-    password,
-    path: payload.path === undefined ? '' : requireString(payload.path, 'path', { maxLength: 1000, allowEmpty: true })
-  };
-}
-
-function validateSecurityLockDelete(payload) {
-  requirePlainObject(payload);
-  const normalized = {};
-  if (payload.id !== undefined) normalized.id = requireString(payload.id, 'id', { maxLength: 128 });
-  if (payload.type !== undefined) {
-    normalized.type = requireString(payload.type, 'type', { maxLength: 20 });
-    if (normalized.type !== 'app') throw new TypeError('only app locks are supported');
-  }
-  if (payload.target !== undefined) normalized.target = requireString(payload.target, 'target', { maxLength: 1000 });
-  if (!normalized.id && !normalized.target) throw new TypeError('id or target is required');
-  return normalized;
-}
-
-function validateSecurityUnlock(payload) {
-  requirePlainObject(payload);
-  return { password: requireString(payload.password, 'password', { maxLength: 200 }) };
-}
-
 function normalizeCloudUrl(value) {
   const relayUrl = requireString(value, 'relayUrl', { maxLength: 2048 });
   const parsed = new URL(relayUrl);
@@ -316,11 +280,6 @@ const IPC_VALIDATORS = Object.freeze({
   'config:get': validateEmpty,
   'settings:get': validateEmpty,
   'security:verifyAccess': validateEmpty,
-  'security:listLocks': validateEmpty,
-  'security:upsertLock': validateSecurityLock,
-  'security:deleteLock': validateSecurityLockDelete,
-  'securityUnlock:submit': validateSecurityUnlock,
-  'securityUnlock:cancel': validateEmpty,
   'cloud:status': validateEmpty,
   'cloud:connect': validateCloudConnect,
   'cloud:disconnect': validateEmpty,

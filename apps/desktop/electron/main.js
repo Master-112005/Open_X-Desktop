@@ -27,8 +27,6 @@ const { AssistantEventBus, EVENTS, Logger } = require('../../../core/assistant/D
 const { ensureDataRoot, migrateLegacyData } = require('../../../core/assistant/Data');
 const { CloudCommandManager, CloudConnectionManager, CloudFileTransferManager, CloudLogger, CloudPairingManager } = require('../../../core/cloud');
 const CrashRecoveryPolicy = require('./crash-recovery');
-const AppLockEnforcer = require('../../../core/security/AppLockEnforcer');
-const SecurityLockManager = require('../../../core/security/SecurityLockManager');
 const {
   DeviceRegistry,
   FileTransferManager,
@@ -51,7 +49,6 @@ const {
 
 const RENDERER_ROOT = path.resolve(__dirname, '..', 'renderer');
 const VOICE_CAPTURE_FILE = path.join(RENDERER_ROOT, 'voice-capture', 'index.html');
-const SECURITY_UNLOCK_FILE = path.join(RENDERER_ROOT, 'security-unlock', 'index.html');
 const PRELOAD_PATH = path.join(__dirname, '..', 'preload.js');
 const MAX_RENDERER_RESTARTS = 3;
 const RENDERER_RESTART_WINDOW_MS = 60 * 1000;
@@ -194,10 +191,6 @@ let voiceCaptureFrameStats = {
 };
 let textToSpeech = null;
 let settingsService = null;
-let securityLockManager = null;
-let securityAppLockEnforcer = null;
-let securityUnlockWindow = null;
-let pendingSecurityUnlock = null;
 let runtimeConfig = null;
 let eventBus = null;
 let registeredChatShortcuts = [];
@@ -239,11 +232,6 @@ const IPC_CHANNELS = [
   'config:get',
   'settings:get',
   'security:verifyAccess',
-  'security:listLocks',
-  'security:upsertLock',
-  'security:deleteLock',
-  'securityUnlock:submit',
-  'securityUnlock:cancel',
   'cloud:status',
   'cloud:connect',
   'cloud:disconnect',
@@ -546,73 +534,6 @@ function createChatWindow() {
   }
 }
 
-function createSecurityUnlockWindow(lock) {
-  if (securityUnlockWindow && !securityUnlockWindow.isDestroyed()) {
-    securityUnlockWindow.show();
-    securityUnlockWindow.focus();
-    securityUnlockWindow.webContents.send('securityUnlock:context', {
-      displayName: lock.displayName || lock.target || 'Locked app'
-    });
-    return;
-  }
-
-  securityUnlockWindow = new BrowserWindow({
-    width: 360,
-    height: 230,
-    minWidth: 320,
-    minHeight: 210,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    hasShadow: true,
-    webPreferences: createSecureWebPreferences(PRELOAD_PATH)
-  });
-
-  secureWindow(securityUnlockWindow, {
-    windowType: 'security-unlock',
-    expectedFile: SECURITY_UNLOCK_FILE,
-    createWindow: () => {}
-  });
-  securityUnlockWindow.webContents.once('did-finish-load', () => {
-    securityUnlockWindow?.webContents?.send('securityUnlock:context', {
-      displayName: lock.displayName || lock.target || 'Locked app'
-    });
-  });
-  securityUnlockWindow.loadFile(SECURITY_UNLOCK_FILE).catch(error => {
-    mainLogger.error('Failed to load security unlock renderer', { error: error.message });
-    finishSecurityUnlock(false);
-  });
-  securityUnlockWindow.on('closed', () => {
-    securityUnlockWindow = null;
-    if (pendingSecurityUnlock) finishSecurityUnlock(false);
-  });
-}
-
-function finishSecurityUnlock(success) {
-  const pending = pendingSecurityUnlock;
-  pendingSecurityUnlock = null;
-  if (securityUnlockWindow && !securityUnlockWindow.isDestroyed()) {
-    securityUnlockWindow.close();
-  }
-  pending?.resolve?.(Boolean(success));
-}
-
-function promptForSecurityUnlock(lock) {
-  if (!lock) return Promise.resolve(false);
-  if (pendingSecurityUnlock) {
-    if (securityUnlockWindow && !securityUnlockWindow.isDestroyed()) securityUnlockWindow.focus();
-    return Promise.resolve(false);
-  }
-  return new Promise(resolve => {
-    pendingSecurityUnlock = { lock, resolve };
-    createSecurityUnlockWindow(lock);
-  });
-}
-
 function sendVoiceCaptureCommand(channel, payload = {}) {
   if (!voiceCaptureWindow || voiceCaptureWindow.isDestroyed() || !voiceCaptureReady) return false;
   voiceCaptureWindow.webContents.send(channel, payload);
@@ -845,10 +766,7 @@ function scheduleVoiceResourceWarmup(reason = 'post-startup') {
 }
 
 function buildSettingsSnapshot() {
-  return {
-    ...settingsService.getSnapshot(),
-    securityLocks: securityLockManager?.listLocks?.() || []
-  };
+  return settingsService.getSnapshot();
 }
 
 function clearVoiceResumeRecoveryTimer() {
@@ -2079,47 +1997,6 @@ function setupIPC() {
     return manager.getStatus();
   });
 
-  registerIpcHandler('security:listLocks', async () => {
-    return securityLockManager?.listLocks?.() || [];
-  });
-
-  registerIpcHandler('security:upsertLock', async (_event, payload) => {
-    const result = securityLockManager.upsertLock(payload);
-    if (!result.success) return result;
-    if (chatWindow?.webContents) {
-      chatWindow.webContents.send('settings:changed', buildSettingsSnapshot());
-    }
-    return result;
-  });
-
-  registerIpcHandler('security:deleteLock', async (_event, payload) => {
-    const result = securityLockManager.removeLock(payload);
-    if (!result.success) return result;
-    if (chatWindow?.webContents) {
-      chatWindow.webContents.send('settings:changed', buildSettingsSnapshot());
-    }
-    return result;
-  });
-
-  registerIpcHandler('securityUnlock:submit', async (_event, payload) => {
-    const lock = pendingSecurityUnlock?.lock;
-    if (!lock) return { success: false, error: 'No locked app is waiting for a password.' };
-    const result = securityLockManager.unlock({
-      id: lock.id,
-      type: 'app',
-      target: lock.target,
-      password: payload.password
-    });
-    if (!result.success) return { success: false, error: 'Incorrect password' };
-    finishSecurityUnlock(true);
-    return { success: true };
-  });
-
-  registerIpcHandler('securityUnlock:cancel', async () => {
-    finishSecurityUnlock(false);
-    return { success: true };
-  });
-
   registerIpcHandler('cloud:connect', async (_event, payload) => {
     const nextSettings = settingsService.saveSettings({
       cloud: {
@@ -2460,8 +2337,6 @@ async function cleanupRuntime() {
     recoveryTimeouts.clear();
     for (const timeout of unresponsiveTimeouts.values()) clearTimeout(timeout);
     unresponsiveTimeouts.clear();
-    securityAppLockEnforcer?.stop?.();
-    securityAppLockEnforcer = null;
     unregisterChatShortcut();
     globalShortcut.unregisterAll();
     childProcessRegistry.killAll();
@@ -2521,7 +2396,6 @@ async function cleanupRuntime() {
     await destroyAssistantInstance();
     eventBus?.removeAllListeners?.();
     if (chatWindow && !chatWindow.isDestroyed()) chatWindow.destroy();
-    if (securityUnlockWindow && !securityUnlockWindow.isDestroyed()) securityUnlockWindow.destroy();
     if (timerWidgetWindow && !timerWidgetWindow.isDestroyed()) timerWidgetWindow.destroy();
     if (plannerWindow && !plannerWindow.isDestroyed()) plannerWindow.destroy();
     destroyVoiceCaptureWindow();
@@ -2948,26 +2822,12 @@ async function initializePhoneServer() {
   });
 }
 
-function startSecurityAppLockEnforcer() {
-  if (securityAppLockEnforcer || !securityLockManager || !assistant?.automation?.apps) return;
-  securityAppLockEnforcer = new AppLockEnforcer({
-    securityLocks: securityLockManager,
-    apps: assistant.automation.apps,
-    logger: mainLogger,
-    onLockedAppDetected: lock => promptForSecurityUnlock(lock)
-  });
-  securityAppLockEnforcer.start();
-}
-
 async function reloadRuntimeServices() {
   runtimeConfig = settingsService.buildRuntimeConfig();
 
-  securityAppLockEnforcer?.stop?.();
-  securityAppLockEnforcer = null;
   destroyTextToSpeech();
   await destroyAssistantInstance();
   await initializeAssistant();
-  startSecurityAppLockEnforcer();
 
   if (tray) {
     tray.setToolTip(`${runtimeConfig?.assistant?.displayName || 'OpenX'} Assistant`);
@@ -3097,7 +2957,6 @@ app.whenReady().then(async () => {
   disableSpellChecker();
   configureSessionSecurity();
   settingsService = new SettingsService(BASE_CONFIG);
-  securityLockManager = new SecurityLockManager({ ...BASE_CONFIG, logger: mainLogger });
   runtimeConfig = settingsService.buildRuntimeConfig();
   eventBus = new AssistantEventBus();
   eventBus.subscribe(EVENTS.SCHEDULE_DUE, envelope => {
@@ -3116,7 +2975,6 @@ app.whenReady().then(async () => {
   createTray();
   await initializeAssistant();
   await initializePhoneServer();
-  startSecurityAppLockEnforcer();
   initializeCloudConnection();
   initializeCloudPairing();
   initializeCloudCommands();

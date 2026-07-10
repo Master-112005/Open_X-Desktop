@@ -335,7 +335,6 @@ class ActionRouter {
       ['_resolveExplicitReminderIntent', () => this._resolveExplicitReminderIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitAlarmIntent', () => this._resolveExplicitAlarmIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitTimerIntent', () => this._resolveExplicitTimerIntent(rawCommandText, preparedInput)],
-      ['_resolveSecurityLockIntent', () => this._resolveSecurityLockIntent(rawCommandText, preparedInput)],
       ['_resolveSystemPowerIntent', () => this._resolveSystemPowerIntent(rawCommandText, preparedInput)],
       ['_resolveSystemSettingsIntent', () => this._resolveSystemSettingsIntent(rawCommandText, preparedInput)],
       ['_resolveSystemInsightIntent', () => this._resolveSystemInsightIntent(rawCommandText, preparedInput)],
@@ -4311,59 +4310,6 @@ const newTabMatch = input.match(
     }
 
     return null;
-  }
-
-  _resolveSecurityLockIntent(rawText, preparedInput) {
-    const source = String(preparedInput?.correctedText || rawText || '').trim();
-    const input = Normalizer.normalizeText(source);
-    if (!/\b(?:lock|unlock|password|security)\b/.test(input)) {
-      return null;
-    }
-
-    if (!/^\s*lock\b/i.test(source)) {
-      return null;
-    }
-
-    const intent = this.intentRegistry.get('security.lock');
-    if (!intent) {
-      return null;
-    }
-
-    const passwordMatch = source.match(/\b(?:with|using|set|password|passcode|pin)\s+(?:password|passcode|pin)?\s*[:=]?\s*([^\s].+)$/i);
-    const password = passwordMatch?.[1]
-      ? passwordMatch[1].replace(/\s+(?:for|on)\s+(?:the\s+)?(?:app|application)\s*$/i, '').trim()
-      : '';
-    const withoutPassword = passwordMatch
-      ? source.slice(0, passwordMatch.index).trim()
-      : source;
-    const targetMatch = withoutPassword.match(/^\s*lock\s+(?:the\s+)?(.+?)(?:\s+(app|application|folder|directory|file))?\s*$/i) ||
-      withoutPassword.match(/^\s*lock\s+(?:the\s+)?(app|application|folder|directory|file)\s+(.+?)\s*$/i);
-    if (!targetMatch) {
-      return null;
-    }
-
-    const typeFirst = /^(?:app|application|folder|directory|file)$/i.test(targetMatch[1] || '');
-    const type = this._normalizeSecurityLockType(typeFirst ? targetMatch[1] : targetMatch[2]);
-    const target = (typeFirst ? targetMatch[2] : targetMatch[1] || '').trim();
-    if (!target) {
-      return null;
-    }
-
-    return {
-      intent,
-      confidence: password ? 1 : 0.92,
-      entities: {
-        type,
-        target,
-        displayName: target,
-        ...(password ? { password } : {})
-      }
-    };
-  }
-
-  _normalizeSecurityLockType(value) {
-    if (/folder|directory|file/i.test(String(value || ''))) return 'unsupported';
-    return 'app';
   }
 
   _resolveBrowserFollowupIntent(rawText, preparedInput) {

@@ -567,27 +567,6 @@ const RESPONSE_BUILDERS = {
         kind: 'folder'
       });
     },
-    'security.lock': context => {
-      const lock = valueFromContext(context, 'lock', context.result?.data?.lock || {});
-      const name = lock.displayName || valueFromContext(context, 'target', 'target');
-      return `${name} is now protected by an OpenX app lock.`;
-    },
-    'security.unlock': context => {
-      const lock = valueFromContext(context, 'lock', context.result?.data?.lock || {});
-      const name = lock.displayName || valueFromContext(context, 'target', 'target');
-      return `${name} password verified.`;
-    },
-    'security.deleteLock': context => {
-      const lock = valueFromContext(context, 'lock', context.result?.data?.lock || {});
-      const name = lock.displayName || valueFromContext(context, 'target', 'target');
-      return `Removed the OpenX lock for ${name}.`;
-    },
-    'security.listLocks': context => {
-      const locks = valueFromContext(context, 'locks', context.result?.data?.locks || []);
-      if (!Array.isArray(locks) || locks.length === 0) return 'No app locks are configured.';
-      const names = locks.slice(0, 6).map(lock => lock.displayName || lock.target).join(', ');
-      return `Configured app locks: ${names}.`;
-    },
     'browser.open': context => {
       const url = valueFromContext(context, 'url');
       const newTab = Boolean(valueFromContext(context, 'newTab', false));

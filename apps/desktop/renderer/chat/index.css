@@ -3550,55 +3550,6 @@ body.settings-only #settings-panel { height: calc(100vh - 36px); width: calc(100
 .system-options.open { display: flex; }
 .system-options::-webkit-scrollbar { display: none; }
 
-.security-lock-list {
-  display: grid;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.security-lock-row {
-  align-items: center;
-  background: rgba(255,255,255,.075);
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: 12px;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-  min-height: 48px;
-  padding: 9px 10px;
-}
-
-.security-lock-copy {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.security-lock-copy strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.security-lock-copy span {
-  color: var(--muted-color);
-  font-size: 12px;
-}
-
-.security-lock-actions,
-.security-lock-editor {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 8px;
-}
-
-.security-lock-editor {
-  flex: 1 1 auto;
-}
-
-.security-lock-editor .field {
-  min-width: 0;
-}
 .system-option {
   align-items: center;
   background: rgba(255,255,255,.045);
@@ -3904,8 +3855,17 @@ html[data-glass-contrast] #send-btn {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
-#workspace,#messages,.settings-content,#schedule-list,#notification-list { contain: layout paint style; }
+#workspace,#messages,.settings-content,#schedule-list,#notification-list,#input-area,.composer-field { contain: layout paint style; }
 #messages { scroll-behavior: smooth; }
+.composer-field,
+.composer-field:focus-within {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transition: background-color 0.12s ease, border-color 0.12s ease !important;
+}
+#input-box {
+  transform: translateZ(0);
+}
 .message {
   backface-visibility: hidden;
   contain: layout paint;

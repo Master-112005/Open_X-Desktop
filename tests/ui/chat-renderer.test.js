@@ -94,23 +94,9 @@ describe('Chat Renderer UI', function() {
     assert.match(glassCss, /#settings-overlay\.open/);
   });
 
-  it('should expose adaptive glass, security locks, and horizontal mode controls', function() {
+  it('should expose adaptive glass and horizontal mode controls', function() {
     assert.match(html, /id="glass-tint"/);
-    assert.match(html, /id="settings-section-security"/);
-    assert.match(html, /id="security-lock-list"/);
-    assert.doesNotMatch(html, /id="security-lock-target"/);
-    assert.doesNotMatch(html, /id="security-lock-password"/);
-    assert.doesNotMatch(html, /id="security-lock-save-btn"/);
-    assert.doesNotMatch(html, /id="security-lock-type"/);
-    assert.match(script, /upsertSecurityLock/);
-    assert.match(script, /deleteSecurityLock/);
-    assert.match(script, /function renderSecurityLocks/);
-    assert.match(script, /function renderSecurityLockEditor/);
-    assert.match(script, /verifySecurityAccess/);
-    assert.match(script, /securitySettingsUnlocked/);
-    assert.match(css, /\.security-lock-row/);
-    assert.match(css, /\.security-lock-editor/);
-    assert.doesNotMatch(script, /security-lock-card/);
+    assert.doesNotMatch(script, /securitySettingsUnlocked/);
     assert.match(script, /function applyGlassTint/);
     assert.match(script, /mode-tabs/);
     assert.match(script, /mode-app-tabs/);
@@ -143,21 +129,21 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /\.phone-panel\.active/);
   });
 
-  it('should group identity, theme, and security under System while keeping Phone separate', function() {
+  it('should group identity and theme under System while keeping Phone separate', function() {
     assert.match(html, /data-section-target="system"/);
     assert.match(html, /id="system-options"/);
     assert.match(html, /data-system-block-target="identity"/);
     assert.match(html, /data-system-block-target="theme"/);
-    assert.match(html, /data-system-block-target="security"/);
+    assert.doesNotMatch(html, /data-system-block-target="security"/);
     assert.doesNotMatch(html, /data-section-target="identity"/);
     assert.doesNotMatch(html, /data-section-target="theme"/);
     assert.doesNotMatch(html, /data-section-target="access"/);
     assert.match(html, /id="settings-section-identity"[^>]*data-settings-section="system"|data-settings-section="system"[^>]*id="settings-section-identity"/);
     assert.match(html, /id="settings-section-theme"[^>]*data-settings-section="system"|data-settings-section="system"[^>]*id="settings-section-theme"/);
-    assert.match(html, /id="settings-section-security"[^>]*data-settings-section="system"|data-settings-section="system"[^>]*id="settings-section-security"/);
+    assert.doesNotMatch(html, /id="settings-section-security"/);
     assert.match(html, /data-system-block="identity"/);
     assert.match(html, /data-system-block="theme"/);
-    assert.match(html, /data-system-block="security"/);
+    assert.doesNotMatch(html, /data-system-block="security"/);
     assert.match(html, /id="settings-section-phone"[^>]*data-settings-section="phone"|data-settings-section="phone"[^>]*id="settings-section-phone"/);
     assert.doesNotMatch(html, /id="assistant-title"|Assistant Title/);
     assert.doesNotMatch(html, /id="assistant-activation-shortcut"|Chat Shortcut|Alt\+Space to show/);

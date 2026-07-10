@@ -55,7 +55,6 @@ function buildDataPaths(config = {}) {
     cloudDir,
     cloudLogPath: path.join(cloudDir, 'connection.log'),
     securityDir,
-    securityLocksPath: path.join(securityDir, 'locks.json'),
     phoneDir,
     phoneReceivedDir,
     phoneTempDir: path.join(runtimeDir, 'phone-transfer'),

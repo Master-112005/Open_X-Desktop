@@ -77,7 +77,6 @@ function pathLocationLabel(folderPath) {
 class FolderController {
   constructor(config) {
     this.logger = new Logger(config?.logging || { level: 'info' });
-    this.securityLocks = config?.securityLocks || null;
   }
 
   search(query, options = {}) {
@@ -272,8 +271,6 @@ class FolderController {
       const selectedPath = options.selectedPath || options.targetPath;
       if (selectedPath && path.isAbsolute(selectedPath) && fs.existsSync(selectedPath) && fs.statSync(selectedPath).isDirectory()) {
         const safeSelectedPath = requireSafeUserPath(selectedPath, { allowRoot: true });
-        const locked = this._checkFolderLock(safeSelectedPath, folderName, options);
-        if (locked) return locked;
         this._openFolderPath(safeSelectedPath, options);
         return { success: true, data: { path: safeSelectedPath, folderName: path.basename(safeSelectedPath), openWith: options.openWith || null } };
       }
@@ -323,8 +320,6 @@ class FolderController {
         }
 
         const matchedPath = requireSafeUserPath(matches[0], { allowRoot: true });
-        const locked = this._checkFolderLock(matchedPath, folderName, options);
-        if (locked) return locked;
         this._openFolderPath(matchedPath, options);
         return { success: true, data: { path: matchedPath, folderName: path.basename(matchedPath), openWith: options.openWith || null } };
       }
@@ -335,8 +330,6 @@ class FolderController {
       }
       requireSafeUserPath(fullPath, { allowRoot: true });
 
-      const locked = this._checkFolderLock(fullPath, folderName, options);
-      if (locked) return locked;
       this._openFolderPath(fullPath, options);
       return { success: true, data: { path: fullPath, folderName: path.basename(fullPath), openWith: options.openWith || null } };
     } catch (err) {
@@ -353,10 +346,6 @@ class FolderController {
     }
 
     launchTarget(folderPath);
-  }
-
-  _checkFolderLock(folderPath, requestedName, options = {}) {
-    return null;
   }
 
   _findFolderMatches(folderName) {
