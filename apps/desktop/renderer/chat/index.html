@@ -132,8 +132,8 @@
                 <div class="hero-stat-value" id="settings-hero-learning">Enabled</div>
               </div>
               <div class="hero-stat">
-                <div class="hero-stat-label">Access</div>
-                <div class="hero-stat-value" id="settings-hero-permission">Medium</div>
+                <div class="hero-stat-label">Security</div>
+                <div class="hero-stat-value" id="settings-hero-security">0 Locks</div>
               </div>
             </div>
           </section>
@@ -141,7 +141,7 @@
           <div class="settings-nav">
             <button class="settings-nav-chip" data-section-target="system" type="button">
               <span class="nav-label">System</span>
-              <span class="nav-hint">Identity, theme, and access controls.</span>
+              <span class="nav-hint">Identity, theme, and security locks.</span>
             </button>
             <button class="settings-nav-chip" data-section-target="profile" type="button">
               <span class="nav-label">Profile</span>
@@ -168,9 +168,9 @@
               <span class="nav-label">Theme</span>
               <span class="nav-hint">Glass tint and colors.</span>
             </button>
-            <button class="system-option" data-system-block-target="access" type="button" role="tab" aria-selected="false">
-              <span class="nav-label">Access</span>
-              <span class="nav-hint">Automation permission level.</span>
+            <button class="system-option" data-system-block-target="security" type="button" role="tab" aria-selected="false">
+              <span class="nav-label">Security</span>
+              <span class="nav-hint">App and folder locks.</span>
             </button>
           </div>
 
@@ -280,15 +280,9 @@
             <div class="theme-grid" id="theme-grid"></div>
           </section>
 
-          <section class="settings-section" data-settings-section="system" data-system-block="access" id="settings-section-access">
-            <div class="section-heading">Permission Scale</div>
-            <div class="section-note">Lower levels block more risky actions. Critical is full access and skips confirmation for allowed actions.</div>
-            <div class="permission-scale" role="radiogroup" aria-label="Automation permission">
-              <button class="permission-option" type="button" role="radio" data-permission="low"><strong>Safe</strong><span>Basic actions</span></button>
-              <button class="permission-option" type="button" role="radio" data-permission="medium"><strong>Balanced</strong><span>Confirm risk</span></button>
-              <button class="permission-option" type="button" role="radio" data-permission="high"><strong>Advanced</strong><span>More control</span></button>
-              <button class="permission-option" type="button" role="radio" data-permission="critical"><strong>Full</strong><span>No prompts</span></button>
-            </div>
+          <section class="settings-section" data-settings-section="system" data-system-block="security" id="settings-section-security">
+            <div class="section-heading">Security Lock</div>
+            <div class="security-lock-list" id="security-lock-list"></div>
             <select class="visually-hidden" id="system-permission-level" aria-hidden="true" tabindex="-1">
               <option value="low">Safe</option><option value="medium">Balanced</option><option value="high">Advanced</option><option value="critical">Full</option>
             </select>

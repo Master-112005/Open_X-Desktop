@@ -60,6 +60,12 @@ const KNOWN_APPS = {
     preferredProcessNames: ['chrome', 'msedge', 'firefox'],
     preferredTitleTokens: ['youtube']
   },
+  'instagram': {
+    closeStrategy: 'window',
+    windowQuery: 'instagram',
+    preferredTitleTokens: ['instagram'],
+    preferredProcessNames: ['Instagram', 'ApplicationFrameHost', 'chrome', 'msedge', 'firefox']
+  },
   'antigravity': { processName: 'Antigravity IDE' }
 };
 
@@ -90,8 +96,11 @@ const APP_ALIASES = new Map([
   ['vscode', 'code'],
   ['calculator', 'calc'],
   ['paint', 'mspaint'],
+  ['instagram', 'instagram'],
   ['instagram app', 'instagram'],
-  ['instgram', 'instagram']
+  ['instgram', 'instagram'],
+  ['instagran', 'instagram'],
+  ['insta', 'instagram']
 ]);
 
 const PROTECTED_HOST_PROCESSES = new Set([
@@ -107,6 +116,7 @@ class AppController {
     this.config = config || {};
     this.logger = new Logger(config?.logging || { level: 'info' });
     this.windowSession = new WindowsSessionController(config);
+    this.securityLocks = config?.securityLocks || null;
     this._startAppsCache = null;
     this._startAppsCacheExpiresAt = 0;
   }
@@ -119,6 +129,30 @@ class AppController {
     const displayName = Normalizer.normalizeText(appName);
     const name = this._normalizeAppName(appName);
     const app = KNOWN_APPS[name];
+    const lock = this.securityLocks?.findLock?.({ type: 'app', target: name });
+    if (lock && !options.securityUnlocked && !options.password) {
+      return {
+        success: false,
+        needsClarification: true,
+        error: `${lock.displayName || displayName} is locked. Enter the app password to open it.`,
+        data: {
+          clarificationType: 'security.unlock',
+          lockType: 'app',
+          target: name,
+          displayName: lock.displayName || displayName
+        }
+      };
+    }
+    if (lock && options.password) {
+      const verified = this.securityLocks.unlock({ type: 'app', target: name, password: options.password });
+      if (!verified.success) {
+        return {
+          success: false,
+          error: 'Incorrect app password',
+          data: { lockType: 'app', target: name, displayName: lock.displayName || displayName }
+        };
+      }
+    }
     const forceNewWindow = Boolean(options.forceNewWindow);
     const requestedOperation = forceNewWindow
       ? 'open-new-window'

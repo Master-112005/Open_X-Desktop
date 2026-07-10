@@ -1,5 +1,12 @@
 'use strict';
 
+const MAX_DIAGNOSTIC_ITEMS = 100;
+
+function pushBounded(list, item) {
+  list.push(item);
+  if (list.length > MAX_DIAGNOSTIC_ITEMS) list.splice(0, list.length - MAX_DIAGNOSTIC_ITEMS);
+}
+
 class LearningDiagnostics {
   constructor() {
     this.learningTime = {};
@@ -18,9 +25,9 @@ class LearningDiagnostics {
   pattern() { this.patternsDetected += 1; }
   correction() { this.correctionsLearned += 1; }
   preference() { this.preferenceUpdates += 1; }
-  warn(message, data = {}) { this.warnings.push({ message: String(message || ''), data, timestamp: Date.now() }); }
+  warn(message, data = {}) { pushBounded(this.warnings, { message: String(message || ''), data, timestamp: Date.now() }); }
   error(error, data = {}) {
-    this.errors.push({
+    pushBounded(this.errors, {
       name: error?.name || 'Error',
       message: String(error?.message || error || ''),
       stack: error?.stack || '',

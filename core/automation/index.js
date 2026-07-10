@@ -17,6 +17,7 @@ const PlannerController = require('./planner');
 const ScreenshotController = require('./screenshot-recording');
 const FormAutomation = require('../../plugins/forms');
 const ActionVerifier = require('./common/action-verification');
+const SecurityLockManager = require('../security/SecurityLockManager');
 const { resolveTrustedWebTarget } = require('../assistant/semantic/WebTargets');
 const {
   cleanEntityName,
@@ -28,12 +29,13 @@ class AutomationEngine {
   constructor(config) {
     this.logger = new Logger(config?.logging || { level: 'info' });
     this.config = config;
+    this.securityLocks = config?.securityLocks || new SecurityLockManager(config);
 
     this.volume = new VolumeController(config);
     this.brightness = new BrightnessController(config);
     this.files = new FileController(config);
-    this.folders = new FolderController(config);
-    this.apps = new AppController(config);
+    this.folders = new FolderController({ ...config, securityLocks: this.securityLocks });
+    this.apps = new AppController({ ...config, securityLocks: this.securityLocks });
     this.browser = new BrowserController(config);
     this.media = new MediaController(config);
     this.communications = new CommunicationsController(config);
@@ -82,6 +84,14 @@ class AutomationEngine {
         if (appResult?.success) {
           return appResult;
         }
+        if (appResult?.needsClarification) {
+          return appResult;
+        }
+
+        const webFallback = await this._openWebAppFallback(entities, appResult);
+        if (webFallback) {
+          return webFallback;
+        }
 
         const folderResult = this.folders.open(entities.appName, entities);
         if (folderResult?.success) {
@@ -96,11 +106,6 @@ class AutomationEngine {
         }
         if (folderResult?.needsClarification) {
           return folderResult;
-        }
-
-        const webFallback = await this._openWebAppFallback(entities, appResult);
-        if (webFallback) {
-          return webFallback;
         }
 
         return appResult;
@@ -123,6 +128,7 @@ class AutomationEngine {
       'folder.move': (entities) => this.folders.move(entities.source, entities.destination),
       'folder.open': (entities) => this.folders.open(entities.folderName, entities),
       'folder.search': (entities) => this.folders.search(entities.query),
+      'security.lock': (entities) => this._createSecurityLock(entities),
       'phone.sendFile': (entities, context) => this._sendFileToPhone(entities, context),
       'browser.open': (entities) => this.browser.open(entities.url, entities),
       'browser.search': (entities) => this.browser.search(entities.query, entities),
@@ -298,6 +304,20 @@ class AutomationEngine {
           }
         }
       : opened;
+  }
+
+  _createSecurityLock(entities = {}) {
+    const existing = this.securityLocks.findLock({
+      type: entities.type || 'app',
+      target: entities.target || entities.displayName || entities.path
+    });
+    if (existing) {
+      return {
+        success: false,
+        error: `${existing.displayName || existing.target} is already locked. Change passwords from Settings > System > Security.`
+      };
+    }
+    return this.securityLocks.upsertLock(entities);
   }
 
   async _sendFileToPhone(entities = {}, context = {}) {

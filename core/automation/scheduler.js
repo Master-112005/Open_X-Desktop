@@ -227,9 +227,15 @@ class SchedulerController {
       .replace(/\s+/g, ' ');
     if (!value) return null;
 
-    const durationMatch = value.match(/(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)/i);
+    const durationMatch = value.match(/(\d+|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty(?:\s*five)?|sixty)\s*(seconds?|secs?|minutes?|mins?|minits?|hours?|hrs?)/i);
     if (durationMatch) {
-      const amount = parseInt(durationMatch[1], 10);
+      const durationWords = {
+        one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+        ten: 10, fifteen: 15, twenty: 20, thirty: 30, fortyfive: 45, sixty: 60
+      };
+      const amountText = durationMatch[1].toLowerCase().replace(/\s+/g, '');
+      const amount = /^\d+$/.test(amountText) ? parseInt(amountText, 10) : durationWords[amountText];
+      if (!amount) return null;
       const unit = durationMatch[2].toLowerCase();
       let minutes = amount;
       if (unit.startsWith('hour') || unit.startsWith('hr')) {
@@ -546,6 +552,7 @@ class SchedulerController {
       (_, hour) => `${numbers[hour] === 1 ? 12 : numbers[hour] - 1}:45`);
     value = value.replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b(?=\s*(?:am|pm|today|tomorrow|$))/g,
       (_, hour) => String(numbers[hour]));
+    value = value.replace(/\b(\d{1,2})\s+(\d{2})\s*(am|pm)\b/g, '$1:$2 $3');
     return value.replace(/\bo['’]?clock\b/g, '').replace(/\s+/g, ' ').trim();
   }
 
