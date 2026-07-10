@@ -256,6 +256,21 @@ describe('Entity Extractor', function() {
     assert.equal(durationOnly.reminderText, null);
   });
 
+  it('should extract scheduled remember phrases with common speech typos', function() {
+    const extractor = new EntityExtractor({});
+    const intent = {
+      entities: [
+        { name: 'timeExpression', type: 'string', required: false },
+        { name: 'reminderText', type: 'string', required: true }
+      ]
+    };
+
+    const entities = extractor.extract(intent, 'remember i have lcass on mondy morning 9');
+
+    assert.equal(entities.timeExpression, 'monday 9');
+    assert.equal(entities.reminderText, 'class');
+  });
+
   it('should extract message details for whatsapp drafts', function() {
     const extractor = new EntityExtractor({});
     const intent = {

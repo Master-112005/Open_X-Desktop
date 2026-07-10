@@ -2040,6 +2040,44 @@ describe('Assistant Confirmation Flow', function() {
     assert.deepEqual(routedInputs, []);
   });
 
+  it('should route scheduled remember phrases as reminders instead of memory', async function() {
+    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
+    const EntityExtractor = require('../../core/assistant/entities/EntityExtractor');
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-learning-'));
+    const learning = new ActiveLearningStore({
+      app: { dataDir: tempDir },
+      activeLearning: { enabled: true, askForFeedback: false }
+    });
+    const entityExtractor = new EntityExtractor({});
+    const router = {
+      entityExtractor,
+      process: async input => {
+        const parts = entityExtractor.extractReminderParts(input);
+        return {
+          commandId: 'cmd-reminder',
+          success: true,
+          intent: 'reminder.set',
+          entities: parts,
+          response: 'Reminder added.'
+        };
+      }
+    };
+    const assistant = new Assistant({}, {
+      router,
+      learning,
+      automation: {},
+      eventBus: { publish() {} }
+    });
+
+    const result = await assistant.processCommand('remember i have lcass on mondy morning 9');
+
+    assert.equal(result.learned, undefined);
+    assert.equal(result.intent, 'reminder.set');
+    assert.equal(result.entities.timeExpression, 'monday 9');
+    assert.equal(result.entities.reminderText, 'class');
+    assert.equal(learning.answerQuestion('what do I have on monday'), null);
+  });
+
   it('should reject password memory while still learning safe personal context before routing', async function() {
     const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-learning-'));

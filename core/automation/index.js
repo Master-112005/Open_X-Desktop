@@ -34,7 +34,7 @@ class AutomationEngine {
     this.volume = new VolumeController(config);
     this.brightness = new BrightnessController(config);
     this.files = new FileController(config);
-    this.folders = new FolderController({ ...config, securityLocks: this.securityLocks });
+    this.folders = new FolderController(config);
     this.apps = new AppController({ ...config, securityLocks: this.securityLocks });
     this.browser = new BrowserController(config);
     this.media = new MediaController(config);
@@ -307,8 +307,11 @@ class AutomationEngine {
   }
 
   _createSecurityLock(entities = {}) {
+    if (entities.type && entities.type !== 'app') {
+      return { success: false, error: 'Only app locks are supported' };
+    }
     const existing = this.securityLocks.findLock({
-      type: entities.type || 'app',
+      type: 'app',
       target: entities.target || entities.displayName || entities.path
     });
     if (existing) {

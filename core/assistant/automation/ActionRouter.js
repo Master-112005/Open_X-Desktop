@@ -4331,18 +4331,18 @@ const newTabMatch = input.match(
 
     const passwordMatch = source.match(/\b(?:with|using|set|password|passcode|pin)\s+(?:password|passcode|pin)?\s*[:=]?\s*([^\s].+)$/i);
     const password = passwordMatch?.[1]
-      ? passwordMatch[1].replace(/\s+(?:for|on)\s+(?:the\s+)?(?:app|application|folder|directory)\s*$/i, '').trim()
+      ? passwordMatch[1].replace(/\s+(?:for|on)\s+(?:the\s+)?(?:app|application)\s*$/i, '').trim()
       : '';
     const withoutPassword = passwordMatch
       ? source.slice(0, passwordMatch.index).trim()
       : source;
-    const targetMatch = withoutPassword.match(/^\s*lock\s+(?:the\s+)?(.+?)(?:\s+(app|application|folder|directory))?\s*$/i) ||
-      withoutPassword.match(/^\s*lock\s+(?:the\s+)?(app|application|folder|directory)\s+(.+?)\s*$/i);
+    const targetMatch = withoutPassword.match(/^\s*lock\s+(?:the\s+)?(.+?)(?:\s+(app|application|folder|directory|file))?\s*$/i) ||
+      withoutPassword.match(/^\s*lock\s+(?:the\s+)?(app|application|folder|directory|file)\s+(.+?)\s*$/i);
     if (!targetMatch) {
       return null;
     }
 
-    const typeFirst = /^(?:app|application|folder|directory)$/i.test(targetMatch[1] || '');
+    const typeFirst = /^(?:app|application|folder|directory|file)$/i.test(targetMatch[1] || '');
     const type = this._normalizeSecurityLockType(typeFirst ? targetMatch[1] : targetMatch[2]);
     const target = (typeFirst ? targetMatch[2] : targetMatch[1] || '').trim();
     if (!target) {
@@ -4362,7 +4362,8 @@ const newTabMatch = input.match(
   }
 
   _normalizeSecurityLockType(value) {
-    return /folder|directory/i.test(String(value || '')) ? 'folder' : 'app';
+    if (/folder|directory|file/i.test(String(value || ''))) return 'unsupported';
+    return 'app';
   }
 
   _resolveBrowserFollowupIntent(rawText, preparedInput) {
@@ -4479,7 +4480,9 @@ const newTabMatch = input.match(
     const input = String(preparedInput?.correctedText || rawText || '').trim();
     const raw = String(rawText || input || '').trim();
     const durationWords = '(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty(?:\\s*five)?|sixty)';
-    const durationUnits = '(?:seconds?|secs?|minutes?|mins?|hours?|hrs?)';
+    const durationUnits = '(?:seconds?|secs?|minutes?|mins?|minits?|hours?|hrs?)';
+    const rawReminderParts = this.entityExtractor.extractReminderParts(raw);
+    const correctedReminderParts = this.entityExtractor.extractReminderParts(input);
     const taskTimer = input.match(/^(?:set|create|add)\s+(?:a\s+)?timer\s+for\s+(.+?)\s+at\s+(\d{1,2}(?:(?::|\s+)\d{2})?\s*(?:am|pm)?)$/i);
     const taskDurationTimer = input.match(new RegExp(
       `^(?:set|start|create|add)\\s+(?:a\\s+)?timer\\s+(?:for|of)\\s+(${durationWords}\\s*${durationUnits})\\s+(?:to|for)\\s+(.+)$`,
@@ -4491,7 +4494,7 @@ const newTabMatch = input.match(
       `^(?:set|start|create|add)\\s+(?:a\\s+)?timer\\s+(?:to|for)\\s+(.+?)\\s+in\\s+(${durationWords}\\s*${durationUnits})$`,
       'i'
     ));
-    if (!taskTimer && !taskDurationTimer && !/^(?:(?:daily|every\s+(?:day|morning|evening|night|weekday|week))\s+)?(?:remind|notify|alert|set\s+(?:a\s+)?(?:recurring\s+)?reminder|create\s+(?:a\s+)?(?:recurring\s+)?reminder|add\s+(?:a\s+)?(?:recurring\s+)?reminder|schedule\s+(?:a\s+)?(?:recurring\s+)?reminder)\b/i.test(input)) {
+    if (!taskTimer && !taskDurationTimer && !rawReminderParts.timeExpression && !correctedReminderParts.timeExpression && !/^(?:(?:daily|every\s+(?:day|morning|evening|night|weekday|week))\s+)?(?:remind|notify|alert|set\s+(?:a\s+)?(?:recurring\s+)?reminder|create\s+(?:a\s+)?(?:recurring\s+)?reminder|add\s+(?:a\s+)?(?:recurring\s+)?reminder|schedule\s+(?:a\s+)?(?:recurring\s+)?reminder)\b/i.test(input)) {
       return null;
     }
 
@@ -4501,7 +4504,6 @@ const newTabMatch = input.match(
     }
 
     const entities = this.entityExtractor.extract(intent, rawText);
-    const rawReminderParts = this.entityExtractor.extractReminderParts(raw);
     if (rawReminderParts.timeExpression) entities.timeExpression = rawReminderParts.timeExpression;
     if (rawReminderParts.duration) entities.duration = rawReminderParts.duration;
     if (rawReminderParts.reminderText) {
@@ -4526,7 +4528,6 @@ const newTabMatch = input.match(
       entities.reminderCategory = this.entityExtractor._extractReminderCategory(entities.reminderText);
     }
     const correctedEntities = this.entityExtractor.extract(intent, input);
-    const correctedReminderParts = this.entityExtractor.extractReminderParts(input);
     if (!entities.timeExpression && correctedReminderParts.timeExpression) {
       entities.timeExpression = correctedReminderParts.timeExpression;
     }

@@ -185,26 +185,54 @@ describe('Security Locks', function() {
     assert.equal(manager.unlock({ type: 'app', target: 'chrome', password: '9999' }).success, false);
   });
 
-  it('should update a folder lock target when the folder path changes through OpenX', function() {
+  it('should reject folder locks and hide legacy folder lock records', async function() {
     const root = tempRoot();
     const manager = new SecurityLockManager({
       app: { dataDir: root },
       logging: { console: false, file: false }
     });
-    const oldPath = path.join(root, 'Old Folder');
-    const newPath = path.join(root, 'New Folder');
-    manager.upsertLock({ type: 'folder', target: oldPath, displayName: 'Old Folder', path: oldPath, password: '1234' });
 
-    const updated = manager.updateTarget({
+    const folder = manager.upsertLock({
       type: 'folder',
-      oldTarget: oldPath,
-      newTarget: newPath,
-      newPath,
-      displayName: 'New Folder'
+      target: path.join(root, 'Private'),
+      displayName: 'Private',
+      password: '1234'
     });
+    assert.equal(folder.success, false);
+    assert.match(folder.error, /Only app locks/);
 
-    assert.equal(updated.success, true);
-    assert.equal(manager.findLock({ type: 'folder', target: newPath })?.displayName, 'New Folder');
-    assert.equal(manager.findLock({ type: 'folder', target: oldPath }), null);
+    manager.upsertLock({ type: 'app', target: 'chrome', displayName: 'Chrome', password: '1234' });
+    const rawPath = path.join(root, 'security', 'locks.json');
+    const raw = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+    raw.locks.push({
+      id: 'legacy-folder',
+      type: 'folder',
+      target: path.join(root, 'Old Folder'),
+      displayName: 'Old Folder',
+      passwordHash: raw.locks[0].passwordHash,
+      enabled: true
+    });
+    fs.writeFileSync(rawPath, JSON.stringify(raw, null, 2));
+
+    const reloaded = new SecurityLockManager({
+      app: { dataDir: root },
+      logging: { console: false, file: false }
+    });
+    assert.deepEqual(reloaded.listLocks().map(lock => lock.displayName), ['Chrome']);
+    assert.equal(reloaded.findLock({ type: 'folder', target: path.join(root, 'Old Folder') }), null);
+
+    const engine = new AutomationEngine({
+      securityLocks: reloaded,
+      app: { dataDir: root },
+      logging: { console: false, file: false }
+    });
+    const result = await engine.execute('security.lock', {
+      type: 'unsupported',
+      target: 'Private',
+      displayName: 'Private',
+      password: '1234'
+    }, { source: 'chat' });
+    assert.equal(result.success, false);
+    assert.match(result.error, /Only app locks/);
   });
 });

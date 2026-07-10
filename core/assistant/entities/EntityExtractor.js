@@ -156,6 +156,7 @@ const SCHEDULE_NUMERIC_DATE_PATTERN = String.raw`\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d
 const SCHEDULE_MONTH_DAY_PATTERN = String.raw`(?:the\s+)?(?:\d{1,2}(?:st|nd|rd|th)?(?:\s+(?:of\s+)?(?:this|next)\s+month|\s+(?:this|next)\s+month)|(?:this|next)\s+month\s+\d{1,2}(?:st|nd|rd|th)?|${SCHEDULE_MONTH_NAME_PATTERN}\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+(?:\d{2,4}|(?:of\s+)?(?:this|next)\s+year))?|\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?${SCHEDULE_MONTH_NAME_PATTERN}(?:,?\s+(?:\d{2,4}|(?:of\s+)?(?:this|next)\s+year))?|${SCHEDULE_NUMERIC_DATE_PATTERN})`;
 const SCHEDULE_DAY_PATTERN = String.raw`today|tomorrow(?:\s+(?:morning|afternoon|evening|night))?|tonight|next\s+week|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|${SCHEDULE_MONTH_DAY_PATTERN}`;
 const SCHEDULE_NATURAL_TIME_PATTERN = String.raw`noon|midnight|(?:morning|afternoon|evening|night)(?:\s+at\s+${SCHEDULE_CLOCK_PATTERN})?|(?:half|quarter)\s+(?:past|to)\s+\w+`;
+const REMINDER_VERB_PATTERN = String.raw`(?:remind|reminder|notify|alert|remember|note|save)`;
 
 class EntityExtractor {
   constructor(config) {
@@ -816,9 +817,11 @@ class EntityExtractor {
     const source = String(raw || '')
       .replace(/\b((?:set|create|add|schedule)\s+(?:a\s+)?(?:new\s+)?reminder)\s+t\s+(?=\d)/ig, '$1 at ')
       .replace(/\b(?:tommorow|tommrow|tomorow)\b/ig, 'tomorrow')
+      .replace(/\bmondy\b/ig, 'monday')
+      .replace(/\blcass\b/ig, 'class')
       .replace(/\s+/g, ' ')
       .trim();
-    if (!/\b(?:remind|reminder|notify|alert)\b/i.test(source)) return {};
+    if (!new RegExp(`\\b${REMINDER_VERB_PATTERN}\\b`, 'i').test(source)) return {};
 
     const scheduleMatches = [];
     const addMatch = (kind, match, valueIndex = 1) => {
@@ -835,7 +838,8 @@ class EntityExtractor {
     const explicitTimePattern = String.raw`(?:\d{1,2}(?:(?::|\s+)\d{2})?\s*(?:am|pm)|${SCHEDULE_SPOKEN_HOUR_PATTERN}\s*(?:am|pm)|noon|midnight|(?:half|quarter)\s+(?:past|to)\s+\w+)`;
     const leadingTimeMatch = source.match(new RegExp(`\\b(?:at|by)\\s+(${explicitTimePattern})\\b`, 'i'));
     const bareTimeMatch = source.match(new RegExp(`\\b(${explicitTimePattern})\\b`, 'i'));
-    const timeMatch = leadingTimeMatch || bareTimeMatch;
+    const dayPeriodTimeMatch = source.match(/\b(?:morning|afternoon|evening|night)\s+(?:at\s+)?(\d{1,2}(?::\d{2})?)\b/i);
+    const timeMatch = leadingTimeMatch || bareTimeMatch || dayPeriodTimeMatch;
     const time = addMatch('time', timeMatch);
     const textBetweenDateAndTime = dateMatch && timeMatch && dateMatch.index < timeMatch.index
       ? source.slice(dateMatch.index + dateMatch[0].length, timeMatch.index)
@@ -847,12 +851,15 @@ class EntityExtractor {
     const timeExpression = date
       ? `${time && timeMatch.index < dateMatch.index ? `${renderedTime} ` : ''}${date}${time && timeMatch.index >= dateMatch.index && !new RegExp(`\\b${time.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(date) ? `${timeSeparator}${renderedTime}` : ''}`
       : (duration || time || '');
+    if (!timeExpression && /^\s*(?:remember|note|save)\b/i.test(source)) {
+      return {};
+    }
 
     const escapePattern = value => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const removePhrase = (text, phrase) => String(text || '').replace(new RegExp(`(^|\\s)${escapePattern(phrase)}(?=\\s|$)`, 'i'), ' ');
 
     let reminderText = source
-      .replace(/^.*?\b(?:(?:remind|notify|alert)(?:\s+me)?|(?:set|create|add|schedule)\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|reminder)(?:\s+(?:me|to|that|about|for|on|at|in|after|by|say)\b)?\s*/i, ' ');
+      .replace(new RegExp(`^.*?\\b(?:(?:(?:remind|notify|alert)(?:\\s+me)?|(?:remember|note|save)(?:\\s+(?:me|this|that))?)|(?:set|create|add|schedule)\\s+(?:a\\s+)?(?:new\\s+|recurring\\s+)?reminder|reminder)(?:\\s+(?:me|to|that|about|for|on|at|in|after|by|say|i\\s+have|i\\s+need\\s+to|my)\\b)?\\s*`, 'i'), ' ');
     for (const match of scheduleMatches.sort((a, b) => b.index - a.index)) {
       reminderText = removePhrase(reminderText, match.full);
       if (match.value && match.value !== match.full) {

@@ -570,7 +570,7 @@ const RESPONSE_BUILDERS = {
     'security.lock': context => {
       const lock = valueFromContext(context, 'lock', context.result?.data?.lock || {});
       const name = lock.displayName || valueFromContext(context, 'target', 'target');
-      return `${name} is now protected by an OpenX ${lock.type || valueFromContext(context, 'type', 'app')} lock.`;
+      return `${name} is now protected by an OpenX app lock.`;
     },
     'security.unlock': context => {
       const lock = valueFromContext(context, 'lock', context.result?.data?.lock || {});
@@ -584,9 +584,9 @@ const RESPONSE_BUILDERS = {
     },
     'security.listLocks': context => {
       const locks = valueFromContext(context, 'locks', context.result?.data?.locks || []);
-      if (!Array.isArray(locks) || locks.length === 0) return 'No app or folder locks are configured.';
-      const names = locks.slice(0, 6).map(lock => `${lock.displayName} (${lock.type})`).join(', ');
-      return `Configured security locks: ${names}.`;
+      if (!Array.isArray(locks) || locks.length === 0) return 'No app locks are configured.';
+      const names = locks.slice(0, 6).map(lock => lock.displayName || lock.target).join(', ');
+      return `Configured app locks: ${names}.`;
     },
     'browser.open': context => {
       const url = valueFromContext(context, 'url');

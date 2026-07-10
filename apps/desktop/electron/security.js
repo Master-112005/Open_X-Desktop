@@ -133,7 +133,7 @@ function validateSettings(payload) {
 function validateSecurityLock(payload) {
   requirePlainObject(payload);
   const type = requireString(payload.type || 'app', 'type', { maxLength: 20 });
-  if (!['app', 'folder'].includes(type)) throw new TypeError('security lock type is not supported');
+  if (type !== 'app') throw new TypeError('only app locks are supported');
   const target = requireString(payload.target, 'target', { maxLength: 1000 });
   const displayName = payload.displayName === undefined
     ? target
@@ -154,7 +154,7 @@ function validateSecurityLockDelete(payload) {
   if (payload.id !== undefined) normalized.id = requireString(payload.id, 'id', { maxLength: 128 });
   if (payload.type !== undefined) {
     normalized.type = requireString(payload.type, 'type', { maxLength: 20 });
-    if (!['app', 'folder'].includes(normalized.type)) throw new TypeError('security lock type is not supported');
+    if (normalized.type !== 'app') throw new TypeError('only app locks are supported');
   }
   if (payload.target !== undefined) normalized.target = requireString(payload.target, 'target', { maxLength: 1000 });
   if (!normalized.id && !normalized.target) throw new TypeError('id or target is required');
