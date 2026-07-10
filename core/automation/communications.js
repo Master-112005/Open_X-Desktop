@@ -2,7 +2,7 @@ const { Logger } = require('../assistant/Data');
 const BrowserController = require('./browser');
 const FileController = require('./files');
 const { launchTarget } = require('./common/launcher');
-const WhatsAppDesktopController = require('../../plugins/communications/whatsapp-desktop');
+const { CommunicationEngine } = require('../communication');
 
 function normalizePhoneNumber(value) {
   const source = String(value || '').trim();
@@ -21,10 +21,28 @@ class CommunicationsController {
     this.logger = new Logger(config?.logging || { level: 'info' });
     this.browser = new BrowserController(config);
     this.files = new FileController(config);
-    this.whatsAppDesktop = new WhatsAppDesktopController(config);
+    this.communicationEngine = config?.communicationEngine || new CommunicationEngine({
+      config,
+      eventBus: config?.eventBus || null,
+      logger: this.logger
+    });
+    this.whatsAppDesktop = {
+      sendMessage: (contactName, messageText) => this.communicationEngine.prepareMessage({
+        provider: 'whatsapp',
+        recipient: contactName,
+        message: messageText,
+        background: true,
+        timeoutMs: this._operationTimeoutMs()
+      }),
+      startVoiceCall: () => ({
+        success: false,
+        error: 'Direct WhatsApp calling is not supported by the communication engine'
+      }),
+      destroy: () => this.communicationEngine.stop()
+    };
   }
 
-  async composeMessage(contactName, messageText, platform) {
+  async composeMessage(contactName, messageText, platform, options = {}) {
     if (!contactName) {
       return { success: false, error: 'No contact name provided' };
     }
@@ -43,13 +61,13 @@ class CommunicationsController {
     }
 
     const phone = normalizePhoneNumber(contactName);
-    const desktopMessageResult = await this._composeWhatsAppDesktopMessage(contactName, preparedMessageText, platform);
-    if (desktopMessageResult?.success) {
-      return desktopMessageResult;
+    const engineResult = await this._prepareWhatsAppMessage(contactName, preparedMessageText, platform, options);
+    if (engineResult?.success || engineResult?.needsClarification) {
+      return engineResult;
     }
 
     if (!phone) {
-      return desktopMessageResult || {
+      return engineResult || {
         success: false,
         error: `WhatsApp could not open the chat for ${contactName}`
       };
@@ -69,7 +87,8 @@ class CommunicationsController {
         platform: 'whatsapp',
         phone,
         url,
-        delivery: 'draft'
+        delivery: 'draft',
+        transport: 'wa.me'
       }
     };
   }
@@ -192,13 +211,20 @@ class CommunicationsController {
     launchTarget(uri);
   }
 
-  async _composeWhatsAppDesktopMessage(contactName, messageText, platform) {
+  async _prepareWhatsAppMessage(contactName, messageText, platform, options = {}) {
     const requestedPlatform = String(platform || '').trim().toLowerCase();
     if (requestedPlatform && requestedPlatform !== 'whatsapp') {
       return null;
     }
 
-    return this.whatsAppDesktop.sendMessage(contactName, messageText);
+    return this.communicationEngine.prepareMessage({
+      provider: 'whatsapp',
+      recipient: contactName,
+      message: messageText,
+      contactId: options.contactId,
+      background: true,
+      timeoutMs: this._operationTimeoutMs()
+    });
   }
 
   async _startWhatsAppDesktopCall(contactName, platform) {
@@ -210,8 +236,13 @@ class CommunicationsController {
     return this.whatsAppDesktop.startVoiceCall(contactName);
   }
 
-  destroy() {
-    this.whatsAppDesktop?.destroy?.();
+  async destroy() {
+    await this.communicationEngine?.stop?.();
+  }
+
+  _operationTimeoutMs() {
+    const configured = Number(this.config?.communication?.operationTimeoutMs);
+    return Math.max(3000, Math.min(Number.isFinite(configured) ? configured : 8000, 8000));
   }
 }
 

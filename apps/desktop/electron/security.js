@@ -162,6 +162,29 @@ function validateCloudPairRequest(payload) {
   return { pairRequestId };
 }
 
+function validateCommunicationProvider(payload) {
+  requirePlainObject(payload);
+  const provider = requireString(payload.provider || 'whatsapp', 'provider', { maxLength: 40 }).toLowerCase();
+  if (!/^[a-z0-9_-]+$/.test(provider)) throw new TypeError('provider is invalid');
+  return { provider };
+}
+
+function validateCommunicationDraftAction(payload) {
+  const { provider } = validateCommunicationProvider(payload);
+  const draftId = requireString(payload.draftId, 'draftId', { maxLength: 128 });
+  if (!/^[A-Za-z0-9._:-]+$/.test(draftId)) throw new TypeError('draftId is invalid');
+  return { provider, draftId };
+}
+
+function validateCommunicationContactSelection(payload) {
+  requirePlainObject(payload);
+  const choiceIndex = Number(payload.choiceIndex);
+  if (!Number.isInteger(choiceIndex) || choiceIndex < 1 || choiceIndex > 8) {
+    throw new TypeError('choiceIndex is invalid');
+  }
+  return { choiceIndex };
+}
+
 function validateScheduleAction(payload) {
   requirePlainObject(payload);
   const id = requireString(payload.id, 'id', { maxLength: 200 });
@@ -287,6 +310,12 @@ const IPC_VALIDATORS = Object.freeze({
   'cloud:pairing:status': validateEmpty,
   'cloud:pairing:approve': validateCloudPairRequest,
   'cloud:pairing:reject': validateCloudPairRequest,
+  'communication:status': validateEmpty,
+  'communication:connect': validateCommunicationProvider,
+  'communication:disconnect': validateCommunicationProvider,
+  'communication:selectContact': validateCommunicationContactSelection,
+  'communication:sendPrepared': validateCommunicationDraftAction,
+  'communication:cancelPrepared': validateCommunicationDraftAction,
   'phone:pairingQR:create': validateEmpty,
   'phone:server:status': validateEmpty,
   'phone:devices:list': validateEmpty,

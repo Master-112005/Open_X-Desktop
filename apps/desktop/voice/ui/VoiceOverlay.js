@@ -408,11 +408,16 @@ class VoiceOverlay extends EventEmitter {
       label: String(action?.label || '').slice(0, 80),
       kind: String(action?.kind || '').slice(0, 40),
       scheduleId: String(action?.scheduleId || '').slice(0, 140),
+      provider: String(action?.provider || '').slice(0, 40),
+      draftId: String(action?.draftId || '').slice(0, 128),
+      choiceIndex: Math.max(0, Math.min(8, Number(action?.choiceIndex) || 0)),
       minutes: Math.max(1, Math.min(180, Number(action?.minutes) || 5)),
       primary: action?.primary === true
     })).filter(action => {
       if (!action.id || !action.label) return false;
       if (['snooze', 'stop'].includes(action.kind || action.id)) return Boolean(action.scheduleId);
+      if (['send', 'cancel'].includes(action.kind || action.id)) return Boolean(action.draftId);
+      if ((action.kind || action.id) === 'contact-select') return action.choiceIndex > 0;
       return true;
     });
   }

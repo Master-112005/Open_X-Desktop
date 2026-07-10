@@ -129,6 +129,18 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /\.phone-panel\.active/);
   });
 
+  it('should expose WhatsApp communication connection controls', function() {
+    assert.match(html, /data-section-target="communication"/);
+    assert.match(html, /id="settings-section-communication"/);
+    assert.match(html, /id="whatsapp-connect-btn"/);
+    assert.match(html, /id="whatsapp-disconnect-btn"/);
+    assert.match(script, /loadCommunicationStatus/);
+    assert.match(script, /connectCommunicationProvider\('whatsapp'\)/);
+    assert.match(script, /disconnectCommunicationProvider\('whatsapp'\)/);
+    assert.match(css, /\.communication-provider-card/);
+    assert.match(css, /\.communication-status\.connected/);
+  });
+
   it('should group identity and theme under System while keeping Phone separate', function() {
     assert.match(html, /data-section-target="system"/);
     assert.match(html, /id="system-options"/);

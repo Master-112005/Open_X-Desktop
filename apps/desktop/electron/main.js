@@ -239,6 +239,12 @@ const IPC_CHANNELS = [
   'cloud:pairing:status',
   'cloud:pairing:approve',
   'cloud:pairing:reject',
+  'communication:status',
+  'communication:connect',
+  'communication:disconnect',
+  'communication:selectContact',
+  'communication:sendPrepared',
+  'communication:cancelPrepared',
   'phone:pairingQR:create',
   'phone:server:status',
   'phone:devices:list',
@@ -1433,6 +1439,168 @@ function presentCloudPhoneResultInDynamicIsland(event = {}) {
   }
 }
 
+function getCommunicationEngine() {
+  return assistant?.automation?.communicationEngine || assistant?.automation?.communications?.communicationEngine || null;
+}
+
+function getCommunicationProvider(providerId = 'whatsapp') {
+  try {
+    return getCommunicationEngine()?.manager?.get?.(providerId);
+  } catch (_) {
+    return null;
+  }
+}
+
+function presentCommunicationDraftInDynamicIsland(event = {}) {
+  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
+  const provider = String(event.provider || 'whatsapp').toLowerCase();
+  const draftId = String(event.draftId || '').trim();
+  if (!draftId) return false;
+  const draft = getCommunicationProvider(provider)?.getDraft?.(draftId);
+  if (!draft) return false;
+  try {
+    voiceOverlay.displayAssistantResult({
+      success: true,
+      intent: 'communication.confirmation',
+      response: `WhatsApp draft ready for ${draft.recipient}`,
+      data: {
+        actions: [
+          {
+            id: 'cancel',
+            label: 'Cancel',
+            kind: 'cancel',
+            provider,
+            draftId
+          },
+          {
+            id: 'send',
+            label: 'Send',
+            kind: 'send',
+            provider,
+            draftId,
+            primary: true
+          }
+        ],
+        resultEntries: [{
+          index: 1,
+          name: draft.recipient,
+          type: 'WhatsApp',
+          location: 'Draft ready',
+          snippet: draft.message
+        }]
+      },
+      ui: {
+        icon: 'WA',
+        previewStatus: 'WhatsApp confirmation',
+        preExpandDelayMs: 350,
+        autoHideMs: 0,
+        persistUntilAction: true
+      }
+    });
+    return true;
+  } catch (error) {
+    mainLogger.warn('Dynamic Island communication confirmation failed', { error: error.message });
+    return false;
+  }
+}
+
+function presentCommunicationContactChoicesInDynamicIsland(result = {}) {
+  const data = result?.data || {};
+  const choices = Array.isArray(data.choices) ? data.choices : [];
+  if (
+    data.clarificationType !== 'communication.duplicateContacts' ||
+    choices.length === 0 ||
+    !voiceOverlay ||
+    typeof voiceOverlay.displayAssistantResult !== 'function'
+  ) {
+    return false;
+  }
+  const recipient = String(data.recipient || 'that contact').replace(/\s+/g, ' ').trim().slice(0, 80);
+  try {
+    voiceOverlay.displayAssistantResult({
+      success: false,
+      needsClarification: true,
+      intent: 'communication.contactSelection',
+      response: `Multiple contacts match "${recipient}". Select one to continue.`,
+      data: {
+        choices,
+        actions: choices.slice(0, 3).map((choice, index) => ({
+          id: `contact-${Number(choice.index) || index + 1}`,
+          label: String(choice.title || `Contact ${Number(choice.index) || index + 1}`).slice(0, 80),
+          kind: 'contact-select',
+          choiceIndex: Number(choice.index) || index + 1,
+          primary: index === 0
+        }))
+      },
+      ui: {
+        icon: 'WA',
+        previewStatus: 'Choose WhatsApp contact',
+        preExpandDelayMs: 250,
+        autoHideMs: 0,
+        persistUntilAction: true
+      }
+    });
+    return true;
+  } catch (error) {
+    mainLogger.warn('Dynamic Island communication contact selection failed', { error: error.message });
+    return false;
+  }
+}
+
+function presentCommunicationAttentionInDynamicIsland(event = {}) {
+  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
+  const provider = String(event.provider || 'whatsapp').toLowerCase();
+  try {
+    voiceOverlay.displayAssistantResult({
+      success: true,
+      intent: 'communication.attention',
+      response: 'WhatsApp requires your attention. Please scan the QR code.',
+      data: {
+        actions: [
+          {
+            id: 'dismiss',
+            label: 'Dismiss',
+            kind: 'dismiss'
+          },
+          {
+            id: 'open',
+            label: 'Open',
+            kind: 'open-settings',
+            primary: true
+          }
+        ],
+        resultEntries: [{
+          index: 1,
+          name: 'WhatsApp',
+          type: 'Connection',
+          location: provider,
+          snippet: 'Open Communication settings to connect WhatsApp.'
+        }]
+      },
+      ui: {
+        icon: 'WA',
+        previewStatus: 'WhatsApp needs connection',
+        preExpandDelayMs: 350,
+        autoHideMs: 0,
+        persistUntilAction: true
+      }
+    });
+    return true;
+  } catch (error) {
+    mainLogger.warn('Dynamic Island communication attention failed', { error: error.message });
+    return false;
+  }
+}
+
+function registerCommunicationEventHandlers() {
+  const engine = getCommunicationEngine();
+  if (!engine || engine.__openxMainHandlersAttached) return;
+  engine.__openxMainHandlersAttached = true;
+  engine.on('communication.messagePrepared', presentCommunicationDraftInDynamicIsland);
+  engine.on('communication.qrCodeDetected', presentCommunicationAttentionInDynamicIsland);
+  engine.on('communication.loggedOut', presentCommunicationAttentionInDynamicIsland);
+}
+
 function getTimerWidgetState(preferredId = null, options = {}) {
   const includeStopwatch = options.includeStopwatch === true || timerWidgetMode === 'stopwatch';
   const state = assistant?.automation?.scheduler?.getTimerWidgetState?.(preferredId, { includeStopwatch });
@@ -1852,6 +2020,10 @@ function registerIpcHandler(channel, handler) {
       mainLogger.warn('IPC request rejected', {
         channel,
         sender: getIpcSenderUrl(event),
+        senderWebContentsId: event?.sender?.id || null,
+        senderWindowId: event?.sender ? BrowserWindow.fromWebContents(event.sender)?.id || null : null,
+        voiceOverlayWebContentsId: voiceOverlay?.windowController?.window?.webContents?.id || null,
+        trustedVoiceOverlaySender: isTrustedVoiceOverlayIpcSender(event, channel),
         error: error.message
       });
       throw new Error('Invalid or unauthorized IPC request');
@@ -1913,6 +2085,7 @@ function setupIPC() {
   registerIpcHandler('command:process', async (_event, { input, source }) => {
     if (!assistant) return { success: false, response: 'Assistant not initialized' };
     const result = await assistant.processCommand(input, source);
+    presentCommunicationContactChoicesInDynamicIsland(result);
     if (
       result?.needsClarification &&
       result.data?.clarificationType === 'browser.open.blankTabAlreadyOpen' &&
@@ -1979,7 +2152,8 @@ function setupIPC() {
       ...snapshot,
       cloudStatus: cloudConnectionManager?.getStatus?.() || null,
       cloudPairingStatus: cloudPairingManager?.getStatus?.() || null,
-      cloudCommandStatus: cloudCommandManager?.getStatus?.() || null
+      cloudCommandStatus: cloudCommandManager?.getStatus?.() || null,
+      communicationStatus: await getCommunicationEngine()?.health?.() || null
     };
   });
 
@@ -2075,6 +2249,55 @@ function setupIPC() {
     const result = initializeCloudPairing().rejectPairing(pairRequestId);
     sendCloudPairingStatus();
     return result;
+  });
+
+  registerIpcHandler('communication:status', async () => {
+    return await getCommunicationEngine()?.health?.() || {
+      started: false,
+      providers: {
+        whatsapp: {
+          connected: false,
+          state: 'unavailable',
+          browserRunning: false
+        }
+      }
+    };
+  });
+
+  registerIpcHandler('communication:connect', async (_event, { provider }) => {
+    const engine = getCommunicationEngine();
+    if (!engine) return { success: false, error: 'Communication engine unavailable' };
+    await engine.connect(provider, {
+      visible: true,
+      waitForLogin: true,
+      closeAfterLogin: true,
+      loginTimeoutMs: 5 * 60 * 1000
+    });
+    return await engine.health();
+  });
+
+  registerIpcHandler('communication:disconnect', async (_event, { provider }) => {
+    const engine = getCommunicationEngine();
+    if (!engine) return { success: false, error: 'Communication engine unavailable' };
+    await engine.disconnect(provider);
+    return await engine.health();
+  });
+
+  registerIpcHandler('communication:selectContact', async (_event, { choiceIndex }) => {
+    if (!assistant) return { success: false, error: 'Assistant not initialized' };
+    const result = await assistant.processCommand(String(choiceIndex), 'voice');
+    presentCommunicationContactChoicesInDynamicIsland(result);
+    return result;
+  });
+
+  registerIpcHandler('communication:sendPrepared', async (_event, { provider, draftId }) => {
+    const result = await getCommunicationEngine()?.sendPrepared?.(draftId, provider);
+    return result || { success: false, error: 'Communication engine unavailable' };
+  });
+
+  registerIpcHandler('communication:cancelPrepared', async (_event, { provider, draftId }) => {
+    const result = await getCommunicationEngine()?.cancelPrepared?.(draftId, provider);
+    return result || { success: false, error: 'Communication engine unavailable' };
   });
 
   registerIpcHandler('phone:pairingQR:create', async () => {
@@ -2715,6 +2938,7 @@ async function initializeAssistant() {
   });
   voiceAssistantBridge.on(VOICE_INTEGRATION_EVENTS.VOICE_RESPONSE_READY, event => {
     try {
+      if (presentCommunicationContactChoicesInDynamicIsland(event?.result || {})) return;
       voiceOverlay?.displayAssistantResult?.(event?.result || {});
     } catch (error) {
       mainLogger.warn('Voice overlay assistant result display failed', { error: error.message });
@@ -2731,6 +2955,11 @@ async function initializeAssistant() {
     sessionManager: voiceSessionManager,
     resources: { sessionManager: voiceSessionManager, ...voiceResources }
   });
+  registerCommunicationEventHandlers();
+  getCommunicationEngine()?.start?.()
+    .catch(error => {
+      mainLogger.warn('Communication service startup failed', { error: error.message });
+    });
   scheduleVoiceRuntimePrewarm('assistant-initialized');
   scheduleVoiceResourceWarmup('post-startup');
 
@@ -2861,9 +3090,15 @@ function registerPowerRecoveryHandlers() {
 }
 
 function isTrustedVoiceOverlayIpcSender(event, channel) {
-  if (!['schedule:alertAction', 'voiceOverlay:collapse'].includes(channel)) return false;
+  if (![
+    'schedule:alertAction',
+    'voiceOverlay:collapse',
+    'communication:selectContact',
+    'communication:sendPrepared',
+    'communication:cancelPrepared'
+  ].includes(channel)) return false;
   const overlayContents = voiceOverlay?.windowController?.window?.webContents;
-  if (!overlayContents || event?.sender !== overlayContents) return false;
+  if (!overlayContents || event?.sender?.id !== overlayContents.id) return false;
   const senderUrl = getIpcSenderUrl(event);
   return typeof senderUrl === 'string' && senderUrl.startsWith('data:text/html');
 }

@@ -147,6 +147,10 @@
               <span class="nav-label">Mobile</span>
               <span class="nav-hint">Verify your Windows identity and connect a trusted mobile device.</span>
             </button>
+            <button class="settings-nav-chip" data-section-target="communication" type="button">
+              <span class="nav-label">Communication</span>
+              <span class="nav-hint">Connect WhatsApp for message drafts.</span>
+            </button>
             <button class="settings-nav-chip" data-section-target="modes" type="button">
               <span class="nav-label">Modes</span>
               <span class="nav-hint">Create up to 5 app launch modes.</span>
@@ -410,6 +414,33 @@
                 <input class="field" id="device-search" type="search" placeholder="Search devices..." aria-label="Search devices">
               </div>
               <div class="phone-device-list" id="phone-device-list"></div>
+            </div>
+          </section>
+
+          <section class="settings-section" data-settings-section="communication" id="settings-section-communication">
+            <div class="section-heading">Communication</div>
+            <div class="communication-provider-card">
+              <div class="communication-provider-header">
+                <div>
+                  <strong>WhatsApp</strong>
+                  <span id="whatsapp-connection-summary">Checking connection...</span>
+                </div>
+                <span class="communication-status" id="whatsapp-connection-state">Unknown</span>
+              </div>
+              <div class="phone-server-grid">
+                <div class="phone-server-item">
+                  <span>Browser</span>
+                  <strong id="whatsapp-browser-state">--</strong>
+                </div>
+                <div class="phone-server-item">
+                  <span>Session</span>
+                  <strong id="whatsapp-session-state">--</strong>
+                </div>
+              </div>
+              <div class="communication-actions">
+                <button class="primary-btn" id="whatsapp-connect-btn" type="button">Connect WhatsApp</button>
+                <button class="secondary-btn" id="whatsapp-disconnect-btn" type="button">Disconnect</button>
+              </div>
             </div>
           </section>
 

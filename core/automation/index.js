@@ -10,6 +10,7 @@ const AppController = require('./apps');
 const BrowserController = require('./browser');
 const MediaController = require('./media');
 const CommunicationsController = require('./communications');
+const { CommunicationEngine } = require('../communication');
 const SystemController = require('./system');
 const WindowsController = require('./windows');
 const SchedulerController = require('./scheduler');
@@ -36,7 +37,15 @@ class AutomationEngine {
     this.apps = new AppController(config);
     this.browser = new BrowserController(config);
     this.media = new MediaController(config);
-    this.communications = new CommunicationsController(config);
+    this.communicationEngine = config?.communicationEngine || new CommunicationEngine({
+      config,
+      eventBus: config?.eventBus || null,
+      logger: this.logger
+    });
+    this.communications = new CommunicationsController({
+      ...config,
+      communicationEngine: this.communicationEngine
+    });
     this.system = new SystemController(config);
     this.windows = new WindowsController(config);
     this.scheduler = new SchedulerController(config);
@@ -157,7 +166,8 @@ class AutomationEngine {
       'message.compose': (entities) => this.communications.composeMessage(
         entities.contactName,
         entities.messageText,
-        entities.platform
+        entities.platform,
+        { contactId: entities.contactId }
       ),
       'email.compose': (entities) => this.communications.composeEmail(
         entities.contactName,
@@ -1177,6 +1187,7 @@ class AutomationEngine {
       this.apps,
       this.browser,
       this.media,
+      this.communicationEngine,
       this.communications,
       this.system,
       this.windows,
