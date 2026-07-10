@@ -256,15 +256,6 @@ class FolderController {
         fs.rmSync(sourcePath, { recursive: true, force: true });
       }
 
-      this.securityLocks?.updateTarget?.({
-        type: 'folder',
-        oldTarget: sourcePath,
-        oldPath: sourcePath,
-        newTarget: finalPath,
-        newPath: finalPath,
-        displayName: path.basename(finalPath)
-      });
-
       return { success: true, data: { source: sourcePath, destination: finalPath } };
     } catch (err) {
       this.logger.error('Failed to move folder', err);
@@ -365,31 +356,6 @@ class FolderController {
   }
 
   _checkFolderLock(folderPath, requestedName, options = {}) {
-    const lock = this.securityLocks?.findLock?.({ type: 'folder', target: folderPath, path: folderPath });
-    if (!lock) return null;
-    if (!options.securityUnlocked && !options.password) {
-      return {
-        success: false,
-        needsClarification: true,
-        error: `${lock.displayName || requestedName || path.basename(folderPath)} is locked. Enter the folder password to open it.`,
-        data: {
-          clarificationType: 'security.unlock',
-          lockType: 'folder',
-          target: folderPath,
-          displayName: lock.displayName || path.basename(folderPath)
-        }
-      };
-    }
-    if (options.password) {
-      const verified = this.securityLocks.unlock({ type: 'folder', target: folderPath, path: folderPath, password: options.password });
-      if (!verified.success) {
-        return {
-          success: false,
-          error: 'Incorrect folder password',
-          data: { lockType: 'folder', target: folderPath, displayName: lock.displayName || path.basename(folderPath) }
-        };
-      }
-    }
     return null;
   }
 

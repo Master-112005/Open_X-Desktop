@@ -251,7 +251,7 @@ const INTENT_DEFINITIONS = [
   },
   {
     id: 'security.lock',
-    patterns: ['lock app', 'lock folder', 'set app lock', 'set folder lock'],
+    patterns: ['lock app', 'set app lock'],
     permissionLevel: 'medium',
     action: 'security.lock',
     entities: [
@@ -259,7 +259,7 @@ const INTENT_DEFINITIONS = [
       { name: 'target', type: 'string', required: true },
       { name: 'password', type: 'string', required: true }
     ],
-    description: 'Create or update a local OpenX app or folder password lock'
+    description: 'Create a local OpenX app password lock'
   },
   {
     id: 'phone.sendFile',

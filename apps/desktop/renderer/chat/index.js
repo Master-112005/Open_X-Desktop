@@ -1831,7 +1831,7 @@ function renderSecurityLocks(locks = settingsSnapshot?.securityLocks || []) {
   if (items.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'section-note';
-    empty.textContent = 'No app or folder locks saved yet.';
+    empty.textContent = 'No app locks saved yet.';
     securityLockListEl.appendChild(empty);
     return;
   }
@@ -1844,7 +1844,7 @@ function renderSecurityLocks(locks = settingsSnapshot?.securityLocks || []) {
     const name = document.createElement('strong');
     name.textContent = lock.displayName || lock.target || 'Locked item';
     const meta = document.createElement('span');
-    meta.textContent = lock.type === 'folder' ? 'Folder password set' : 'App password set';
+    meta.textContent = 'App password set';
     copy.append(name, meta);
 
     const actions = document.createElement('div');
@@ -1899,11 +1899,10 @@ function renderSecurityLockEditor(lock) {
     save.disabled = true;
     try {
       const result = await window.openx.upsertSecurityLock({
-        type: lock.type || 'app',
-        target: lock.lastKnownPath || lock.target,
+        type: 'app',
+        target: lock.target,
         displayName: lock.displayName || lock.target,
-        password: nextPassword,
-        path: lock.type === 'folder' ? (lock.lastKnownPath || lock.target) : ''
+        password: nextPassword
       });
       if (!result?.success) throw new Error(result?.error || 'Save failed');
       settingsSnapshot.securityLocks = result.data?.locks || await window.openx.listSecurityLocks();

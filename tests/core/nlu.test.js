@@ -152,6 +152,7 @@ describe('Natural Language Router', function() {
     const router = createRouter();
     const notify = router.resolveIntent('notify me in ten minits to sign the sheet');
     const alert = router.resolveIntent('alert me to submit the form at 5 pm');
+    const remember = router.resolveIntent('remember i have lcass on mondy morning 9');
 
     assert.equal(notify.intent.id, 'reminder.set');
     assert.equal(notify.entities.duration, 10);
@@ -160,5 +161,8 @@ describe('Natural Language Router', function() {
     assert.equal(alert.intent.id, 'reminder.set');
     assert.equal(alert.entities.timeExpression, '5 pm');
     assert.equal(alert.entities.reminderText, 'submit the form');
+    assert.equal(remember.intent.id, 'reminder.set');
+    assert.equal(remember.entities.timeExpression, 'monday 9');
+    assert.equal(remember.entities.reminderText, 'class');
   });
 });

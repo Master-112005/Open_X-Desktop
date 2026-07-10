@@ -12,7 +12,11 @@ function nowIso() {
 }
 
 function normalizeType(value) {
-  return String(value || '').trim().toLowerCase() === 'folder' ? 'folder' : 'app';
+  return String(value || '').trim().toLowerCase();
+}
+
+function isSupportedType(type) {
+  return type === 'app';
 }
 
 function normalizeTarget(value) {
@@ -43,11 +47,12 @@ class SecurityLockManager {
   }
 
   listLocks() {
-    return this._load().locks.map(publicLock);
+    return this._load().locks.filter(lock => lock.type === 'app').map(publicLock);
   }
 
   upsertLock(input = {}) {
-    const type = normalizeType(input.type);
+    const type = normalizeType(input.type || 'app');
+    if (!isSupportedType(type)) return { success: false, error: 'Only app locks are supported' };
     const target = normalizeTarget(input.target || input.displayName || input.path);
     const password = String(input.password || '');
     if (!target) return { success: false, error: 'Lock target is required' };
@@ -76,7 +81,7 @@ class SecurityLockManager {
   removeLock(input = {}) {
     const store = this._load();
     const id = String(input.id || '').trim();
-    const type = normalizeType(input.type);
+    const type = normalizeType(input.type || 'app');
     const target = normalizeTarget(input.target || input.displayName || input.path);
     const index = store.locks.findIndex(lock => (
       id ? lock.id === id : (lock.type === type && lock.target === target)
@@ -89,7 +94,8 @@ class SecurityLockManager {
 
   updateTarget(input = {}) {
     const store = this._load();
-    const type = normalizeType(input.type);
+    const type = normalizeType(input.type || 'app');
+    if (!isSupportedType(type)) return { success: false, error: 'Only app locks are supported' };
     const oldTarget = normalizeTarget(input.oldTarget || input.target || input.oldPath);
     const newTarget = normalizeTarget(input.newTarget || input.newPath || input.path);
     if (!oldTarget || !newTarget) return { success: false, error: 'Old and new targets are required' };
@@ -121,15 +127,15 @@ class SecurityLockManager {
   }
 
   findLock(input = {}) {
-    const type = normalizeType(input.type);
+    const type = normalizeType(input.type || 'app');
+    if (!isSupportedType(type)) return null;
     const id = String(input.id || '').trim();
     const target = normalizeTarget(input.target || input.displayName || input.path);
     const store = this._load();
     return store.locks.find(lock => lock.enabled !== false && (
       id ? lock.id === id : lock.type === type && (
         lock.target === target ||
-        normalizeTarget(lock.displayName) === target ||
-        (type === 'folder' && normalizeTarget(lock.lastKnownPath) === target)
+        normalizeTarget(lock.displayName) === target
       )
     )) || null;
   }
@@ -169,7 +175,7 @@ class SecurityLockManager {
         .filter(lock => lock && typeof lock === 'object' && lock.passwordHash)
         .map(lock => ({
           id: String(lock.id || crypto.randomUUID()),
-          type: normalizeType(lock.type),
+          type: normalizeType(lock.type || 'app'),
           target: normalizeTarget(lock.target || lock.displayName || lock.lastKnownPath),
           displayName: String(lock.displayName || lock.target || '').trim(),
           lastKnownPath: String(lock.lastKnownPath || '').trim(),
@@ -179,7 +185,7 @@ class SecurityLockManager {
           updatedAt: lock.updatedAt || nowIso(),
           lastUnlockedAt: lock.lastUnlockedAt || null
         }))
-        .filter(lock => lock.target)
+        .filter(lock => lock.type === 'app' && lock.target)
     };
     try {
       this._cacheMtimeMs = fs.statSync(this.storePath).mtimeMs;

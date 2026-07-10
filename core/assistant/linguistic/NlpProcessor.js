@@ -488,7 +488,7 @@ class NlpProcessor {
       }
     }
 
-    if (['search', 'play', 'pause', 'resume', 'stop', 'set', 'remind'].includes(action.verb)) {
+    if (['search', 'play', 'pause', 'resume', 'stop', 'set', 'remind', 'remember'].includes(action.verb)) {
       return this._buildCommandTail(tokens, action.index, action.verb);
     }
 

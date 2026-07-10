@@ -288,7 +288,9 @@ class NaturalLanguageRouter {
     if (hasFileEvidence && ['send', 'share', 'transfer', 'copy', 'push', 'move', 'give', 'get', 'bring'].includes(action) && hasPhoneTransferTarget) {
       return 'phone-transfer';
     }
-    if (has('schedule') || (action === 'set' && /\btime\s+for\s+(?:\d+|one|two|three|four|five|ten)\s+(?:seconds?|minutes?|hours?)\b/.test(text))) {
+    if (has('schedule') ||
+      (['remember', 'note', 'save'].includes(action) && this.entityExtractor.extractReminderParts(text).timeExpression) ||
+      (action === 'set' && /\btime\s+for\s+(?:\d+|one|two|three|four|five|ten)\s+(?:seconds?|minutes?|minits?|hours?)\b/.test(text))) {
       return 'schedule';
     }
     if (has('brightness')) {
@@ -369,8 +371,8 @@ class NaturalLanguageRouter {
       if (action === 'close') return 'window.close';
     }
 
-    if (domain === 'schedule' && ['set', 'open', 'remind'].includes(action)) {
-      if (/\b(?:alert|notify|remind|reminder|reminders)\b/.test(text)) return 'reminder.set';
+    if (domain === 'schedule' && ['set', 'open', 'remind', 'remember', 'note', 'save'].includes(action)) {
+      if (/\b(?:alert|notify|remind|reminder|reminders|remember|note|save)\b/.test(text)) return 'reminder.set';
       if (/\b(?:alarm|alarms|wake\s+me)\b/.test(text)) return 'alarm.set';
       if (/\b(?:timer|timers)\b/.test(text) || /\btime\s+for\b/.test(text)) return 'timer.set';
     }

@@ -958,6 +958,10 @@ class Assistant extends EventEmitter {
       return chatMemory;
     }
 
+    if (this._looksLikeScheduledMemoryRequest(raw)) {
+      return null;
+    }
+
     const explicitLearning = this.learning.learnFromText(raw);
     if (explicitLearning) {
       if (explicitLearning.type === 'rejected-sensitive' || explicitLearning.sensitive) {
@@ -978,6 +982,15 @@ class Assistant extends EventEmitter {
     }
 
     return null;
+  }
+
+  _looksLikeScheduledMemoryRequest(input) {
+    const raw = String(input || '').trim();
+    if (!/^(?:remember|note|save)\b/i.test(raw)) {
+      return false;
+    }
+    const parts = this.router?.entityExtractor?.extractReminderParts?.(raw);
+    return Boolean(parts?.timeExpression || parts?.duration);
   }
 
   _appendLearningPrompt(response, input, routedInput, result) {
