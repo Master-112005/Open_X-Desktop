@@ -38,22 +38,8 @@ class CommunicationEngine extends EventEmitter {
 
   async start() {
     this.started = true;
-    if (this.config?.communication?.autoStart === false) {
-      return this.health();
-    }
-    const providerId = this.defaultProvider;
-    try {
-      const provider = this.manager.get(providerId);
-      if (provider.hasPersistentSession?.() !== true) {
-        return this.health();
-      }
-      await provider.connect({ visible: false });
-    } catch (error) {
-      this._publish(COMMUNICATION_EVENTS.ERROR, {
-        provider: providerId,
-        code: error.code || 'START_FAILED'
-      });
-    }
+    // Providers are registered during startup, but browser-backed providers
+    // must stay dormant until an actual communication operation needs them.
     return this.health();
   }
 

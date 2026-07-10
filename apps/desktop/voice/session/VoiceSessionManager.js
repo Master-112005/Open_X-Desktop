@@ -55,6 +55,10 @@ class VoiceSessionManager {
     this.currentSession = null;
     this.currentState = this.stateMachine.getInitialState();
     this.activeTimers = new Map();
+    // Voice stays resident for the lifetime of the desktop app, so retain only
+    // enough lifecycle detail for useful diagnostics instead of every session.
+    this.maxSessionHistory = Math.max(1, Number(dependencies.maxSessionHistory) || 100);
+    this.maxTransitionLog = Math.max(1, Number(dependencies.maxTransitionLog) || 500);
     this.transitionLog = [];
     this.sessionHistory = [];
     this.recognitionCycleSequence = 0;
@@ -688,7 +692,7 @@ class VoiceSessionManager {
     this._clearAllTimeouts();
     this._releaseSessionResources();
     if (snapshot) {
-      this.sessionHistory.push(snapshot);
+      this._recordSessionSnapshot(snapshot);
     }
     this.currentSession = null;
     this._transitionTo(VoiceStateMachine.STATES.IDLE, { reason: 'cleanup-complete', sessionSnapshot: snapshot });
@@ -704,7 +708,7 @@ class VoiceSessionManager {
     this._clearAllTimeouts();
     this._releaseSessionResources();
     if (this.currentSession) {
-      this.sessionHistory.push(this.currentSession.toJSON());
+      this._recordSessionSnapshot(this.currentSession.toJSON());
     }
     this.currentSession = null;
     this.recognitionCycle = this._createRecognitionCycle('manager-reset');
@@ -784,6 +788,7 @@ class VoiceSessionManager {
       reason: details.reason || ''
     };
     this.transitionLog.push(transition);
+    this._trimHistory(this.transitionLog, this.maxTransitionLog);
     if (this.currentSession) {
       this.currentSession.setState(nextState, { at: now, reason: details.reason });
     }
@@ -792,6 +797,17 @@ class VoiceSessionManager {
     this._log('State Changed', transition);
     this._publish(SESSION_EVENTS.VOICE_STATE_CHANGED, this._buildEventPayload(details.sessionSnapshot, { transition }));
     return this.currentState;
+  }
+
+  _recordSessionSnapshot(snapshot) {
+    this.sessionHistory.push(snapshot);
+    this._trimHistory(this.sessionHistory, this.maxSessionHistory);
+  }
+
+  _trimHistory(history, limit) {
+    if (history.length > limit) {
+      history.splice(0, history.length - limit);
+    }
   }
 
   /**

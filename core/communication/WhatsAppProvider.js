@@ -34,6 +34,7 @@ class WhatsAppProvider extends CommunicationProvider {
 
   async connect(options = {}) {
     await this.session.connect(options);
+    this.session.touch?.();
     return this.health();
   }
 
@@ -51,7 +52,9 @@ class WhatsAppProvider extends CommunicationProvider {
   }
 
   async ensureReady(options = {}) {
-    return this.session.ensureReady(options);
+    const page = await this.session.ensureReady(options);
+    this.session.touch?.();
+    return page;
   }
 
   async searchContacts(recipient, options = {}) {
@@ -61,6 +64,7 @@ class WhatsAppProvider extends CommunicationProvider {
     }
 
     const page = options.page || await this.ensureReady(options.readyOptions || options);
+    this.session.touch?.();
     const searchBox = await this._runStep('locate-search-box', () => this._resolveRequired(page, 'searchBox', 'search-box-not-found'));
     if (!searchBox.found) {
       return fail(new SearchBoxNotFoundError(this.id, {
@@ -76,6 +80,7 @@ class WhatsAppProvider extends CommunicationProvider {
     await this._runStep('wait-for-search-results', () => page.waitForTimeout?.(700), 1500);
 
     const contacts = await this._runStep('read-search-results', () => this._readSearchResults(page, query));
+    this.session.touch?.();
     return ok({
       provider: this.id,
       query,
@@ -175,6 +180,7 @@ class WhatsAppProvider extends CommunicationProvider {
       recipient: this.debug ? selected.name : undefined,
       message: this.debug ? message : undefined
     });
+    this.session.touch?.();
 
     return ok({
       provider: this.id,
@@ -190,7 +196,11 @@ class WhatsAppProvider extends CommunicationProvider {
   async send(draftId) {
     const draft = this.preparedDrafts.get(draftId);
     if (!draft) return fail(new MessageDraftError(this.id, 'Message draft not found'));
+    const needsRestore = this.session.isBrowserRunning?.() === false;
     const page = await this.ensureReady();
+    if (needsRestore) {
+      await this._restoreDraft(draft, page);
+    }
     const sendButton = await this._resolveRequired(page, 'sendButton', 'send-button-not-found');
     if (!sendButton.found) {
       return fail(new MessageDraftError(this.id, 'WhatsApp send button was not found', {
@@ -199,6 +209,7 @@ class WhatsAppProvider extends CommunicationProvider {
       }));
     }
     await sendButton.locator.click();
+    this.session.touch?.();
     this.preparedDrafts.delete(draftId);
     this._publish(COMMUNICATION_EVENTS.MESSAGE_SENT, {
       provider: this.id,
@@ -221,6 +232,7 @@ class WhatsAppProvider extends CommunicationProvider {
       await this._clearEditable(page);
     }
     this.preparedDrafts.delete(draftId);
+    this.session.touch?.();
     return ok({
       provider: this.id,
       draftId,
@@ -238,6 +250,28 @@ class WhatsAppProvider extends CommunicationProvider {
 
   async _requireReadyPage(options = {}) {
     return this.ensureReady(options);
+  }
+
+  async _restoreDraft(draft, page) {
+    const contactsResult = await this.searchContacts(draft.recipient, { page });
+    if (!contactsResult.success || contactsResult.data.contacts.length === 0) {
+      throw new ContactNotFoundError(this.id, { contact: draft.recipient });
+    }
+    const selected = contactsResult.data.contacts.find(contact => String(contact.id) === String(draft.contact?.id)) ||
+      contactsResult.data.contacts.find(contact => normalize(contact.name) === normalize(draft.recipient)) ||
+      contactsResult.data.contacts[0];
+    const opened = await this.openConversation(selected, { page });
+    if (!opened.success) {
+      throw new MessageDraftError(this.id, 'Unable to restore WhatsApp message draft');
+    }
+    const box = await this._runStep('restore-draft-box', () => this._waitForMessageBox(page));
+    if (!box) {
+      throw new MessageDraftError(this.id, 'WhatsApp message box was not found while restoring the draft');
+    }
+    await this._runStep('restore-draft-focus', () => box.click());
+    await this._runStep('restore-draft-clear', () => this._clearEditable(page));
+    await this._runStep('restore-draft-message', () => box.fill(draft.message).catch(() => page.keyboard.type(draft.message)));
+    this.session.touch?.();
   }
 
   async _readSearchResults(page, query) {

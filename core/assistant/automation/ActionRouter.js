@@ -648,6 +648,10 @@ class ActionRouter {
     const text = String(rawText || '').toLowerCase();
     const fileCommand = /\b(?:folder|directory|file|document)\b/.test(text) &&
       /\b(?:open|show|launch|start|find|locate|search|move|copy|rename|delete|create)\b/.test(text);
+    // A rename command commonly omits the word "file" (for example,
+    // "Rename Notes to Meeting Notes"). Preserve its original wording so the
+    // noisy-voice repair path cannot turn the action verb into "remember".
+    const renameCommand = /^\s*rename\s+.+?\s+to\s+.+/i.test(String(rawText || ''));
     const phoneTransferCommand = PHONE_TRANSFER_ACTION_PATTERN.test(text) &&
       PHONE_TRANSFER_TARGET_WORD_PATTERN.test(text) &&
       PHONE_TRANSFER_FILE_EVIDENCE_PATTERN.test(text);
@@ -655,7 +659,7 @@ class ActionRouter {
       /\b(?:set|start|create|add|pause|resume|reset|stop|cancel|delete|show|list|snooze|wake|remind)\b/.test(text);
     const networkCommand = /\b(?:wifi|wi\s*fi|bluetooth|blue\s*tooth)\b/.test(text) &&
       /\b(?:open|show|check|connect|disconnect|forget|enable|disable|turn|switch|settings|status)\b/.test(text);
-    return fileCommand || phoneTransferCommand || scheduleCommand || networkCommand;
+    return fileCommand || renameCommand || phoneTransferCommand || scheduleCommand || networkCommand;
   }
 
   _resolveCapabilityCommandIntent(rawText, preparedInput = {}, options = {}) {
@@ -4485,6 +4489,11 @@ const newTabMatch = input.match(
   _resolveExplicitReminderIntent(rawText, preparedInput) {
     const input = String(preparedInput?.correctedText || rawText || '').trim();
     const raw = String(rawText || input || '').trim();
+    // Scheduling a power action is not an ordinary reminder: falling through
+    // to the critical power intent ensures the user must confirm it.
+    if (/\bschedule\s+(?:a\s+)?(?:restart|reboot|shut\s*down|shutdown|power\s+off|sleep|hibernate)\b/i.test(raw)) {
+      return null;
+    }
     const durationWords = '(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty(?:\\s*five)?|sixty)';
     const durationUnits = '(?:seconds?|secs?|minutes?|mins?|minits?|hours?|hrs?)';
     const rawReminderParts = this.entityExtractor.extractReminderParts(raw);
