@@ -209,12 +209,12 @@ class WhatsAppProvider extends CommunicationProvider {
       }));
     }
     await sendButton.locator.click();
-    this.session.touch?.();
     this.preparedDrafts.delete(draftId);
     this._publish(COMMUNICATION_EVENTS.MESSAGE_SENT, {
       provider: this.id,
       draftId
     });
+    await this._releaseSessionAfterTerminalOperation('message-sent');
     return ok({
       provider: this.id,
       draftId,
@@ -225,14 +225,19 @@ class WhatsAppProvider extends CommunicationProvider {
   async cancel(draftId) {
     const draft = this.preparedDrafts.get(draftId);
     if (!draft) return ok({ provider: this.id, draftId, cancelled: true });
-    const page = await this.session.getPage();
-    const box = await this._waitForMessageBox(page);
-    if (box) {
-      await box.click();
-      await this._clearEditable(page);
+    const browserRunning = typeof this.session.isBrowserRunning === 'function'
+      ? this.session.isBrowserRunning()
+      : true;
+    if (browserRunning) {
+      const page = await this.session.getPage();
+      const box = await this._waitForMessageBox(page);
+      if (box) {
+        await box.click();
+        await this._clearEditable(page);
+      }
     }
     this.preparedDrafts.delete(draftId);
-    this.session.touch?.();
+    await this._releaseSessionAfterTerminalOperation('message-cancelled');
     return ok({
       provider: this.id,
       draftId,
@@ -272,6 +277,16 @@ class WhatsAppProvider extends CommunicationProvider {
     await this._runStep('restore-draft-clear', () => this._clearEditable(page));
     await this._runStep('restore-draft-message', () => box.fill(draft.message).catch(() => page.keyboard.type(draft.message)));
     this.session.touch?.();
+  }
+
+  async _releaseSessionAfterTerminalOperation(reason) {
+    if (typeof this.session.releaseAfterOperation === 'function') {
+      await this.session.releaseAfterOperation(reason);
+      return;
+    }
+    if (typeof this.session.disconnect === 'function') {
+      await this.session.disconnect();
+    }
   }
 
   async _readSearchResults(page, query) {
