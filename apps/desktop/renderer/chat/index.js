@@ -49,6 +49,12 @@ const cloudPairingQrEl = document.getElementById('cloud-pairing-qr');
 const cloudPairingExpiryEl = document.getElementById('cloud-pairing-expiry');
 const cloudPairingCountdownEl = document.getElementById('cloud-pairing-countdown');
 const cloudPairingRequestsEl = document.getElementById('cloud-pairing-requests');
+const whatsappConnectionSummaryEl = document.getElementById('whatsapp-connection-summary');
+const whatsappConnectionStateEl = document.getElementById('whatsapp-connection-state');
+const whatsappBrowserStateEl = document.getElementById('whatsapp-browser-state');
+const whatsappSessionStateEl = document.getElementById('whatsapp-session-state');
+const whatsappConnectBtn = document.getElementById('whatsapp-connect-btn');
+const whatsappDisconnectBtn = document.getElementById('whatsapp-disconnect-btn');
 const phoneDeviceListEl = document.getElementById('phone-device-list');
 const deviceSearchEl = document.getElementById('device-search');
 const deviceFilterEl = document.getElementById('device-filter');
@@ -107,6 +113,7 @@ let renderedMessageCount = messagesEl ? messagesEl.querySelectorAll('.message').
 let phonePairingCountdownHandle = null;
 let cloudPairingCountdownHandle = null;
 let cloudStatusPollHandle = null;
+let communicationStatusPollHandle = null;
 let latestCloudStatus = null;
 const scheduleTimers = new Map();
 
@@ -1124,6 +1131,7 @@ function setActiveSettingsSection(sectionName) {
 
   setActiveSystemBlock(activeSystemBlock);
   if (activeSettingsSection === 'phone') setActivePhonePanel(activePhonePanel);
+  if (activeSettingsSection === 'communication') loadCommunicationStatus();
 
   settingsFooterSection.classList.toggle('open', Boolean(activeSettingsSection));
   const settingsContent = document.querySelector('.settings-content');
@@ -1412,6 +1420,10 @@ function collectSettingsPayload() {
       connectionTimeoutMs: Number(document.getElementById(fieldIds.cloudConnectionTimeout).value || 10000),
       heartbeatIntervalMs: settingsSnapshot?.settings?.cloud?.heartbeatIntervalMs || 30000
     },
+    communication: {
+      ...(settingsSnapshot?.settings?.communication || {}),
+      defaultProvider: 'whatsapp'
+    },
     modes: collectModesPayload()
   };
 }
@@ -1468,6 +1480,9 @@ function applySnapshot(snapshot) {
   if (snapshot?.cloudPairingStatus) {
     renderCloudPairingStatus(snapshot.cloudPairingStatus);
   }
+  if (snapshot?.communicationStatus) {
+    renderCommunicationStatus(snapshot.communicationStatus);
+  }
   ensureWelcomeMessage();
 }
 
@@ -1479,12 +1494,16 @@ function openSettingsPanel() {
   loadPhoneDevices();
   loadCloudStatus();
   loadCloudPairingStatus();
+  loadCommunicationStatus();
   if (!cloudStatusPollHandle) {
     cloudStatusPollHandle = setInterval(() => {
       loadPhoneServerStatus();
       loadCloudStatus();
       loadCloudPairingStatus();
     }, 5000);
+  }
+  if (!communicationStatusPollHandle) {
+    communicationStatusPollHandle = setInterval(loadCommunicationStatus, 5000);
   }
 }
 
@@ -1497,6 +1516,10 @@ function closeSettingsPanel() {
   if (cloudStatusPollHandle) {
     clearInterval(cloudStatusPollHandle);
     cloudStatusPollHandle = null;
+  }
+  if (communicationStatusPollHandle) {
+    clearInterval(communicationStatusPollHandle);
+    communicationStatusPollHandle = null;
   }
   stopCloudPairingCountdown();
   inputBox.focus();
@@ -1702,6 +1725,80 @@ function collectCloudRuntimeSettings() {
     connectionTimeoutMs: Number(cloudConnectionTimeoutEl?.value || settingsSnapshot?.settings?.cloud?.connectionTimeoutMs || 10000),
     heartbeatIntervalMs: settingsSnapshot?.settings?.cloud?.heartbeatIntervalMs || 30000
   };
+}
+
+function communicationStateClass(state) {
+  return String(state || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+}
+
+function renderCommunicationStatus(status) {
+  const providerStatus = status?.providers?.whatsapp || status?.whatsapp || status || {};
+  const state = providerStatus.state || (providerStatus.connected ? 'CONNECTED' : 'unknown');
+  const connected = providerStatus.connected === true;
+  if (whatsappConnectionStateEl) {
+    whatsappConnectionStateEl.textContent = connected ? 'Connected' : state.replace(/-/g, ' ');
+    whatsappConnectionStateEl.className = `communication-status ${communicationStateClass(state)}`;
+  }
+  if (whatsappConnectionSummaryEl) {
+    whatsappConnectionSummaryEl.textContent = connected
+      ? 'WhatsApp Web is ready for message drafts.'
+      : state === 'QR_REQUIRED'
+        ? 'Scan the QR code in the WhatsApp window.'
+        : 'Connect once to keep the session available.';
+  }
+  if (whatsappBrowserStateEl) whatsappBrowserStateEl.textContent = providerStatus.browserRunning ? 'Running' : 'Stopped';
+  if (whatsappSessionStateEl) whatsappSessionStateEl.textContent = state.replace(/-/g, ' ');
+  if (whatsappConnectBtn) {
+    whatsappConnectBtn.disabled = false;
+    whatsappConnectBtn.textContent = connected ? 'Reconnect' : 'Connect WhatsApp';
+  }
+  if (whatsappDisconnectBtn) {
+    whatsappDisconnectBtn.disabled = providerStatus.browserRunning !== true;
+  }
+}
+
+async function loadCommunicationStatus() {
+  if (!window.openx?.getCommunicationStatus) return;
+  try {
+    renderCommunicationStatus(await window.openx.getCommunicationStatus());
+  } catch (_) {
+    renderCommunicationStatus({
+      providers: {
+        whatsapp: {
+          connected: false,
+          state: 'unavailable',
+          browserRunning: false
+        }
+      }
+    });
+  }
+}
+
+async function connectWhatsApp() {
+  if (!window.openx?.connectCommunicationProvider || !whatsappConnectBtn) return;
+  whatsappConnectBtn.disabled = true;
+  whatsappConnectBtn.textContent = 'Opening...';
+  if (whatsappConnectionSummaryEl) whatsappConnectionSummaryEl.textContent = 'Opening WhatsApp Web. Scan the QR code if requested.';
+  try {
+    renderCommunicationStatus(await window.openx.connectCommunicationProvider('whatsapp'));
+  } catch (_) {
+    if (whatsappConnectionSummaryEl) whatsappConnectionSummaryEl.textContent = 'Unable to open WhatsApp connection.';
+  } finally {
+    whatsappConnectBtn.disabled = false;
+  }
+}
+
+async function disconnectWhatsApp() {
+  if (!window.openx?.disconnectCommunicationProvider || !whatsappDisconnectBtn) return;
+  whatsappDisconnectBtn.disabled = true;
+  try {
+    await window.openx.disconnectCommunicationProvider('whatsapp');
+    await loadCommunicationStatus();
+  } catch (_) {
+    if (whatsappConnectionSummaryEl) whatsappConnectionSummaryEl.textContent = 'Unable to disconnect WhatsApp.';
+  } finally {
+    whatsappDisconnectBtn.disabled = false;
+  }
 }
 
 function renderCloudStatus(status) {
@@ -2142,6 +2239,8 @@ settingsNavButtons.forEach(button => {
       loadPhoneDevices();
       loadCloudStatus();
       loadCloudPairingStatus();
+    } else if (sectionName === 'communication') {
+      loadCommunicationStatus();
     }
   });
 });
@@ -2190,6 +2289,8 @@ phoneDeviceRemoveCancel?.addEventListener('click', closePhoneDeviceRemoveDialog)
 phoneDeviceRemoveConfirm?.addEventListener('click', confirmPhoneDeviceRemoval);
 cloudConnectBtn?.addEventListener('click', toggleCloudConnection);
 cloudGenerateQrBtn?.addEventListener('click', generateCloudPairingQR);
+whatsappConnectBtn?.addEventListener('click', connectWhatsApp);
+whatsappDisconnectBtn?.addEventListener('click', disconnectWhatsApp);
 phoneDeviceRemoveDialog?.addEventListener('click', (event) => {
   if (event.target === phoneDeviceRemoveDialog) closePhoneDeviceRemoveDialog();
 });

@@ -193,7 +193,9 @@ function appendVoiceActions(fragment, payload = {}) {
         ? 'Snoozing...'
         : (kind === 'stop' || kind === 'end')
           ? 'Stopping...'
-          : 'Closing...';
+          : kind === 'contact-select'
+            ? 'Opening...'
+            : 'Closing...';
       stopVoiceAlertSound();
       if (['ok', 'dismiss', 'close'].includes(kind)) {
         const feedback = buildVoiceActionFeedback(action);
@@ -203,6 +205,54 @@ function appendVoiceActions(fragment, payload = {}) {
           hideAfterMs: 5000
         });
         return;
+      }
+      if (kind === 'open-settings') {
+        try {
+          await ipcRenderer.invoke('window:openSettings');
+        } catch (_) {}
+        collapseVoiceIslandAfter(80, {
+          statusText: 'Settings opened',
+          icon: 'WA',
+          hideAfterMs: 5000
+        });
+        return;
+      }
+      if (kind === 'contact-select' && action.choiceIndex) {
+        try {
+          const result = await ipcRenderer.invoke('communication:selectContact', {
+            choiceIndex: action.choiceIndex
+          });
+          if (!result?.success && !result?.needsClarification) {
+            throw new Error(result?.error || 'Action failed');
+          }
+          return;
+        } catch (_) {
+          button.textContent = originalLabel;
+          setVoiceActionRowResolving(row, button, false);
+          return;
+        }
+      }
+      if (['send', 'cancel'].includes(kind) && action.draftId) {
+        try {
+          const channel = kind === 'send' ? 'communication:sendPrepared' : 'communication:cancelPrepared';
+          const result = await ipcRenderer.invoke(channel, {
+            provider: action.provider || 'whatsapp',
+            draftId: action.draftId
+          });
+          if (!result?.success) {
+            throw new Error(result?.error || 'Action failed');
+          }
+          collapseVoiceIslandAfter(80, {
+            statusText: kind === 'send' ? 'Message sent' : 'Draft cancelled',
+            icon: 'WA',
+            hideAfterMs: 5000
+          });
+          return;
+        } catch (_) {
+          button.textContent = originalLabel;
+          setVoiceActionRowResolving(row, button, false);
+          return;
+        }
       }
       try {
         const scheduleAction = kind === 'end' ? 'stop' : kind;
@@ -441,6 +491,24 @@ const openxApi = {
 
   disconnectCloud: () =>
     ipcRenderer.invoke('cloud:disconnect'),
+
+  getCommunicationStatus: () =>
+    ipcRenderer.invoke('communication:status'),
+
+  connectCommunicationProvider: (provider = 'whatsapp') =>
+    ipcRenderer.invoke('communication:connect', { provider }),
+
+  disconnectCommunicationProvider: (provider = 'whatsapp') =>
+    ipcRenderer.invoke('communication:disconnect', { provider }),
+
+  selectCommunicationContact: (choiceIndex) =>
+    ipcRenderer.invoke('communication:selectContact', { choiceIndex }),
+
+  sendPreparedCommunication: (provider, draftId) =>
+    ipcRenderer.invoke('communication:sendPrepared', { provider, draftId }),
+
+  cancelPreparedCommunication: (provider, draftId) =>
+    ipcRenderer.invoke('communication:cancelPrepared', { provider, draftId }),
 
   generateCloudPairingQR: () =>
     ipcRenderer.invoke('cloud:pairingQR:create'),

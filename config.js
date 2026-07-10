@@ -121,6 +121,16 @@ const CONFIG = {
     fileTransferTimeoutMs: 10 * 60 * 1000
   },
 
+  communication: {
+    defaultProvider: 'whatsapp',
+    autoStart: true,
+    debug: false,
+    operationTimeoutMs: 8000,
+    whatsapp: {
+      headless: false
+    }
+  },
+
   logging: {
     level: 'info',
     maxFileSize: 10485760,

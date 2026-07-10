@@ -4088,6 +4088,60 @@ html[data-glass-contrast] #send-btn {
   gap: 8px;
 }
 
+.communication-provider-card {
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+}
+
+.communication-provider-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.communication-provider-header strong,
+.communication-provider-header span {
+  display: block;
+}
+
+.communication-provider-header span {
+  color: var(--muted-color);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.communication-status {
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 999px;
+  color: var(--muted-color);
+  flex: 0 0 auto;
+  font-size: 12px;
+  padding: 6px 10px;
+  text-transform: capitalize;
+}
+
+.communication-status.connected {
+  border-color: rgba(82, 211, 132, .4);
+  color: var(--success-color);
+}
+
+.communication-status.qr-required {
+  border-color: rgba(255, 202, 87, .42);
+  color: var(--warning-color);
+}
+
+.communication-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 @media (max-width: 460px) {
   .phone-section-header {
     align-items: stretch;

@@ -114,6 +114,33 @@ describe('Electron Security Boundary', function() {
     );
   });
 
+  it('should validate communication provider and draft IPC payloads', function() {
+    assert.deepEqual(
+      IPC_VALIDATORS['communication:connect']({ provider: 'WhatsApp' }),
+      { provider: 'whatsapp' }
+    );
+    assert.deepEqual(
+      IPC_VALIDATORS['communication:sendPrepared']({ provider: 'whatsapp', draftId: 'wa_123:abc' }),
+      { provider: 'whatsapp', draftId: 'wa_123:abc' }
+    );
+    assert.deepEqual(
+      IPC_VALIDATORS['communication:selectContact']({ choiceIndex: 2 }),
+      { choiceIndex: 2 }
+    );
+    assert.throws(
+      () => IPC_VALIDATORS['communication:cancelPrepared']({ provider: '../bad', draftId: 'wa_123' }),
+      /provider is invalid/
+    );
+    assert.throws(
+      () => IPC_VALIDATORS['communication:sendPrepared']({ provider: 'whatsapp', draftId: '../bad' }),
+      /draftId is invalid/
+    );
+    assert.throws(
+      () => IPC_VALIDATORS['communication:selectContact']({ choiceIndex: 0 }),
+      /choiceIndex is invalid/
+    );
+  });
+
   it('should validate planner IPC payloads', function() {
     assert.deepEqual(
       IPC_VALIDATORS['window:openPlanner']({ view: 'timetable' }),
@@ -157,6 +184,8 @@ describe('Electron Security Boundary', function() {
       'security:verifyAccess',
       'cloud:status', 'cloud:connect', 'cloud:disconnect',
       'cloud:pairingQR:create', 'cloud:pairing:status', 'cloud:pairing:approve', 'cloud:pairing:reject',
+      'communication:status', 'communication:connect', 'communication:disconnect',
+      'communication:selectContact', 'communication:sendPrepared', 'communication:cancelPrepared',
       'phone:pairingQR:create', 'phone:server:status', 'phone:devices:list',
       'phone:device:rename', 'phone:device:trust:update', 'phone:device:permissions:update',
       'phone:device:remove', 'phone:device:disconnect',

@@ -183,6 +183,7 @@ class ActionRouter {
     }
 
     const intentResult = this._resolveIntent(rawCommandText, preparedInput, source);
+    this._logRoutingDiagnostics(rawCommandText, preparedInput, intentResult);
     const minAcceptableConfidence = 0.3;
 
     if (!intentResult) {
@@ -343,6 +344,7 @@ class ActionRouter {
       ['_resolvePhoneTransferIntent', () => this._resolvePhoneTransferIntent(rawCommandText, preparedInput, source)],
       ['_resolveScreenshotIntent', () => this._resolveScreenshotIntent(rawCommandText, preparedInput)],
       ['_resolveFormFillIntent', () => this._resolveFormFillIntent(rawCommandText, preparedInput)],
+      ['_resolveExplicitCommunicationIntent', () => this._resolveExplicitCommunicationIntent(rawCommandText, preparedInput)],
       ['_resolveEarlyCapabilityCommandIntent', () => this._resolveEarlyCapabilityCommandIntent(rawCommandText, preparedInput)],
       ['_resolveYouTubeMediaIntent', () => this._resolveYouTubeMediaIntent(rawCommandText, preparedInput)],
       ['_resolveBrowserFollowupIntent', () => this._resolveBrowserFollowupIntent(rawCommandText, preparedInput)],
@@ -362,7 +364,6 @@ class ActionRouter {
       ['_resolveLocalInfoIntent', () => this._resolveLocalInfoIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitAppIntent', () => this._resolveExplicitAppIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitWindowIntent', () => this._resolveExplicitWindowIntent(rawCommandText, preparedInput)],
-      ['_resolveExplicitCommunicationIntent', () => this._resolveExplicitCommunicationIntent(rawCommandText, preparedInput)],
       ['_resolveKnownWebOpenIntent', () => this._resolveKnownWebOpenIntent(rawCommandText, preparedInput)],
       ['_resolveSiteSearchIntent', () => this._resolveSiteSearchIntent(rawCommandText, preparedInput)],
       ['_resolvePersonalPhotoIntent', () => this._resolvePersonalPhotoIntent(rawCommandText, preparedInput)],
@@ -1247,7 +1248,10 @@ class ActionRouter {
         preparedInput,
         validationStatus: 'incomplete'
       });
-      const capability = this._resolveCapabilityCommandIntent(rawCommandText, preparedInput, { allowGeneric: false });
+      const isCommunicationIntent = ['message.send', 'email.compose', 'call.start'].includes(intentResult.intent.id);
+      const capability = isCommunicationIntent
+        ? null
+        : this._resolveCapabilityCommandIntent(rawCommandText, preparedInput, { allowGeneric: false });
       if (capability) {
         return this._completeIntent(commandId, capability, rawCommandText, source, preparedInput, options);
       }
@@ -1561,6 +1565,56 @@ class ActionRouter {
       this.clauseActionableCache.delete(this.clauseActionableCache.keys().next().value);
     }
     return actionable;
+  }
+
+  _logRoutingDiagnostics(rawCommandText, preparedInput, intentResult) {
+    if (this.config?.communication?.debug !== true && this.config?.assistant?.debugRouting !== true) {
+      return;
+    }
+
+    const intent = intentResult?.intent || null;
+    const messageIntent = this.intentRegistry.get('message.send');
+    let messageEntities = {};
+    if (messageIntent) {
+      try {
+        messageEntities = this.entityExtractor.extract(messageIntent, rawCommandText);
+      } catch (_) {
+        messageEntities = {};
+      }
+    }
+    const messageCandidate = Boolean(
+      messageEntities?.contactName ||
+      messageEntities?.messageText ||
+      messageEntities?.platform ||
+      /\b(?:send|message|text|msg|whatsapp|telegram|signal|discord|messenger|instagram|say|ask|tell)\b/i.test(rawCommandText)
+    );
+
+    const helpWonReason = intent?.id === 'help' && messageCandidate
+      ? this._explainMessageIntentLoss(messageEntities)
+      : null;
+
+    this.logger.debug('Routing diagnostics', {
+      rawInput: rawCommandText,
+      normalizedInput: preparedInput?.correctedText || '',
+      detectedIntent: intent?.id || null,
+      intentConfidence: Number(intentResult?.confidence || 0),
+      extractedEntities: intentResult?.entities || {},
+      chosenAction: intent?.action || null,
+      selectedCommunicationProvider: intent?.id === 'message.send'
+        ? (intentResult?.entities?.platform || this.config?.communication?.defaultProvider || 'whatsapp')
+        : null,
+      helpWonReason
+    });
+  }
+
+  _explainMessageIntentLoss(messageEntities = {}) {
+    const missing = [];
+    if (!messageEntities.contactName) missing.push('contactName');
+    if (!messageEntities.messageText) missing.push('messageText');
+    if (missing.length > 0) {
+      return `message.send missing ${missing.join(', ')}`;
+    }
+    return 'message.send parsed but a higher-priority resolver selected help';
   }
 
   _isPoliteLeadInClause(clause) {
@@ -3543,7 +3597,9 @@ class ActionRouter {
   }
 
   _resolveExplicitCommunicationIntent(rawText, preparedInput) {
-    const input = String(preparedInput?.correctedText || rawText || '').trim();
+    const stripLeadIn = value => String(value || '').trim()
+      .replace(/^(?:hello|hi|hey|good\s+(?:morning|afternoon|evening))[\s,]+(?:(?:jaanu|jarvis|openx|assistant|sir|bro|boss)[\s,]+)?/i, '');
+    const input = stripLeadIn(preparedInput?.correctedText || rawText);
     if (!input) return null;
 
     const lower = input.toLowerCase();
@@ -3560,18 +3616,22 @@ class ActionRouter {
     }
 
     const messageIntent = this.intentRegistry.get('message.send');
-    if (messageIntent && /^(?:say|send|message|text|ask|tell|msg|massage)\b/i.test(lower)) {
-      const entities = this.entityExtractor.extract(messageIntent, rawText);
+    if (messageIntent) {
+      const entities = this.entityExtractor.extract(messageIntent, stripLeadIn(rawText));
       if (entities.contactName && entities.messageText) {
         return { intent: messageIntent, confidence: 1, entities };
+      }
+      if (/^(?:say|send|message|text|ask|tell|msg|massage|whatsapp|telegram|signal|discord|messenger|instagram)\b/i.test(lower) &&
+        (entities.contactName || entities.messageText || entities.platform)) {
+        return { intent: messageIntent, confidence: 0.98, entities };
       }
     }
 
     const callIntent = this.intentRegistry.get('call.start');
     if (callIntent && /^(?:call|dial|phone|ring)\b/i.test(lower)) {
-      const entities = this.entityExtractor.extract(callIntent, rawText);
+      const entities = this.entityExtractor.extract(callIntent, stripLeadIn(rawText));
       if (entities.contactName) {
-        return { intent: callIntent, confidence: 1 };
+        return { intent: callIntent, confidence: 1, entities };
       }
     }
 
@@ -4810,10 +4870,14 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
       return intent ? { intent, confidence: 1, entities: {} } : null;
     }
 
-    if (
+    const greetingStartsCommand = variants.some(text =>
+      /^(?:hello|hi|hey|good\s+(?:morning|afternoon|evening))\b(?=.*\b(?:open|launch|start|run|send|message|text|ask|tell|call|dial|phone|ring|remind|remember|set|create|delete|close|search|find|play|pause|move|copy|rename|list|show|turn|increase|decrease|lower|raise)\b)/.test(text)
+    );
+
+    if (!greetingStartsCommand && (
       variants.some(text => /^(?:how\s+are\s+you|how\s+do\s+you\s+do|are\s+you\s+(?:ok|okay|ready))\b/.test(text)) ||
       variants.some(text => /^(?:hello|hi|hey|good\s+(?:morning|afternoon|evening))\b/.test(text))
-    ) {
+    )) {
       const intent = this.intentRegistry.get('greeting');
       if (!intent) {
         return null;

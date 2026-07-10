@@ -364,6 +364,15 @@ class SettingsService {
         fileTransferChunkBytes: clampNumber(this.baseConfig?.cloud?.fileTransferChunkBytes, 1024, 16384, 12288),
         fileTransferTimeoutMs: clampNumber(this.baseConfig?.cloud?.fileTransferTimeoutMs, 30000, 3600000, 10 * 60 * 1000)
       },
+      communication: {
+        defaultProvider: 'whatsapp',
+        autoStart: this.baseConfig?.communication?.autoStart !== false,
+        debug: this.baseConfig?.communication?.debug === true,
+        operationTimeoutMs: clampNumber(this.baseConfig?.communication?.operationTimeoutMs, 5000, 60000, 8000),
+        whatsapp: {
+          headless: this.baseConfig?.communication?.whatsapp?.headless === true
+        }
+      },
       modes: []
     };
   }
@@ -457,6 +466,7 @@ class SettingsService {
     runtimeConfig.chat.glassTint = settings.chat.glassTint;
     runtimeConfig.modes = deepClone(settings.modes);
     runtimeConfig.cloud = deepClone(settings.cloud);
+    runtimeConfig.communication = deepClone(settings.communication);
 
     return runtimeConfig;
   }
@@ -532,6 +542,15 @@ class SettingsService {
         commandMaxQueueSize: clampNumber(source.cloud?.commandMaxQueueSize, 1, 250, this.defaults.cloud.commandMaxQueueSize),
         fileTransferChunkBytes: clampNumber(source.cloud?.fileTransferChunkBytes, 1024, 16384, this.defaults.cloud.fileTransferChunkBytes),
         fileTransferTimeoutMs: clampNumber(source.cloud?.fileTransferTimeoutMs, 30000, 3600000, this.defaults.cloud.fileTransferTimeoutMs)
+      },
+      communication: {
+        defaultProvider: String(source.communication?.defaultProvider || this.defaults.communication.defaultProvider).trim().toLowerCase() || 'whatsapp',
+        autoStart: source.communication?.autoStart !== false,
+        debug: source.communication?.debug === true,
+        operationTimeoutMs: clampNumber(source.communication?.operationTimeoutMs, 5000, 60000, this.defaults.communication.operationTimeoutMs),
+        whatsapp: {
+          headless: source.communication?.whatsapp?.headless === true
+        }
       },
       modes: sanitizeModes(source.modes)
     };

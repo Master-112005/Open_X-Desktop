@@ -786,7 +786,7 @@ const RESPONSE_BUILDERS = {
         if (delivery === 'sent') {
           return `Sent the WhatsApp message to ${contactName}.`;
         }
-        return `I've prepared the WhatsApp message for ${contactName}. Please check it on your screen.`;
+        return `I've prepared the WhatsApp message for ${contactName}. Use the confirmation controls to send or cancel it.`;
       }
       return `I've prepared the message for ${contactName} and it is ready for your review.`;
     },

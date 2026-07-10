@@ -613,6 +613,14 @@ class EntityExtractor {
         })
       },
       {
+        regex: /^(whatsapp|telegram|signal|discord|messenger|instagram)\s+("[^"]+"|'[^']+'|[^\s]+)\s+(?:saying\s+|that\s+)?(.+)$/i,
+        map: match => ({
+          platform: match[1],
+          contactName: match[2],
+          messageText: match[3]
+        })
+      },
+      {
         regex: /^(?:send|share)\s+(.+?\.(?:pdf|txt|docx?|xlsx?|pptx?|csv|json|xml|html?|js|ts|py|java|png|jpe?g|gif|webp|mp[34]|mkv|wav|zip|rar))(?:\s+file)?\s+to\s+(.+?)(?:\s+(?:on|via|using)\s+(.+))?$/i,
         map: match => ({
           messageText: `file ${cleanEntityName(match[1], { stripTypeWords: true })}`,
@@ -713,6 +721,12 @@ class EntityExtractor {
     const messageCommand = this._parseMessageCommand(raw);
     if (messageCommand?.contactName) {
       return messageCommand.contactName;
+    }
+
+    const partialMessage = String(raw || '').trim().match(/^(?:message|text|msg|massage)\s+(.+)$/i) ||
+      String(raw || '').trim().match(/^(?:whatsapp|telegram|signal|discord|messenger|instagram)\s+(.+)$/i);
+    if (partialMessage?.[1]) {
+      return this._cleanContactName(partialMessage[1]);
     }
 
     const callCommand = this._parseCallCommand(raw);

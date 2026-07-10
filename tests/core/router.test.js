@@ -1487,7 +1487,56 @@ describe('Action Router', function() {
     assert.deepEqual(executed.map(step => step.actionId), ['browser.openFirstResult']);
   });
 
-  it('should route whatsapp message commands to message.send', async function() {
+  it('should route messaging utterances to message.compose', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+    const cases = [
+      ['send hi to charan', 'charan', 'hi', null],
+      ['whatsapp charan hi', 'charan', 'hi', 'whatsapp'],
+      ['say hi to charan on whatsapp', 'charan', 'hi', 'whatsapp'],
+      ['send hello to mohit', 'mohit', 'hello', null],
+      ['say hi to daddy on whatsapp', 'daddy', 'hi', 'whatsapp']
+    ];
+
+    for (const [command, contactName, messageText, platform] of cases) {
+      executed.length = 0;
+      const result = await router.process(command, 'chat');
+      assert.equal(result.intent, 'message.send', command);
+      assert.equal(result.entities.contactName, contactName, command);
+      assert.equal(result.entities.messageText, messageText, command);
+      assert.equal(result.entities.platform, platform, command);
+      assert.equal(executed[0]?.actionId, 'message.compose', command);
+    }
+  });
+
+  it('should keep incomplete message commands in the messaging domain', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const router = new ActionRouter(config, {
+      execute() {
+        throw new Error('should not execute incomplete messages');
+      }
+    });
+    const result = await router.process('message charan', 'chat');
+
+    assert.equal(result.intent, 'message.send');
+    assert.equal(result.needsClarification, true);
+    assert.equal(result.entities.contactName, 'charan');
+    assert.equal(result.entities.messageText, null);
+    assert.notEqual(result.intent, 'assistant.capability');
+  });
+
+  it('should not let greeting lead-ins swallow whatsapp message commands', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -1497,9 +1546,9 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('say hi to daddy on whatsapp', 'chat');
+    const result = await router.process('hi jaanu send hi to mohit on whatsapp', 'chat');
     assert.equal(result.intent, 'message.send');
-    assert.equal(result.entities.contactName, 'daddy');
+    assert.equal(result.entities.contactName, 'mohit');
     assert.equal(result.entities.messageText, 'hi');
     assert.equal(result.entities.platform, 'whatsapp');
   });
