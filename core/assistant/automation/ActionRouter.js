@@ -335,6 +335,7 @@ class ActionRouter {
       ['_resolveExplicitReminderIntent', () => this._resolveExplicitReminderIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitAlarmIntent', () => this._resolveExplicitAlarmIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitTimerIntent', () => this._resolveExplicitTimerIntent(rawCommandText, preparedInput)],
+      ['_resolveSecurityLockIntent', () => this._resolveSecurityLockIntent(rawCommandText, preparedInput)],
       ['_resolveSystemPowerIntent', () => this._resolveSystemPowerIntent(rawCommandText, preparedInput)],
       ['_resolveSystemSettingsIntent', () => this._resolveSystemSettingsIntent(rawCommandText, preparedInput)],
       ['_resolveSystemInsightIntent', () => this._resolveSystemInsightIntent(rawCommandText, preparedInput)],
@@ -4312,6 +4313,58 @@ const newTabMatch = input.match(
     return null;
   }
 
+  _resolveSecurityLockIntent(rawText, preparedInput) {
+    const source = String(preparedInput?.correctedText || rawText || '').trim();
+    const input = Normalizer.normalizeText(source);
+    if (!/\b(?:lock|unlock|password|security)\b/.test(input)) {
+      return null;
+    }
+
+    if (!/^\s*lock\b/i.test(source)) {
+      return null;
+    }
+
+    const intent = this.intentRegistry.get('security.lock');
+    if (!intent) {
+      return null;
+    }
+
+    const passwordMatch = source.match(/\b(?:with|using|set|password|passcode|pin)\s+(?:password|passcode|pin)?\s*[:=]?\s*([^\s].+)$/i);
+    const password = passwordMatch?.[1]
+      ? passwordMatch[1].replace(/\s+(?:for|on)\s+(?:the\s+)?(?:app|application|folder|directory)\s*$/i, '').trim()
+      : '';
+    const withoutPassword = passwordMatch
+      ? source.slice(0, passwordMatch.index).trim()
+      : source;
+    const targetMatch = withoutPassword.match(/^\s*lock\s+(?:the\s+)?(.+?)(?:\s+(app|application|folder|directory))?\s*$/i) ||
+      withoutPassword.match(/^\s*lock\s+(?:the\s+)?(app|application|folder|directory)\s+(.+?)\s*$/i);
+    if (!targetMatch) {
+      return null;
+    }
+
+    const typeFirst = /^(?:app|application|folder|directory)$/i.test(targetMatch[1] || '');
+    const type = this._normalizeSecurityLockType(typeFirst ? targetMatch[1] : targetMatch[2]);
+    const target = (typeFirst ? targetMatch[2] : targetMatch[1] || '').trim();
+    if (!target) {
+      return null;
+    }
+
+    return {
+      intent,
+      confidence: password ? 1 : 0.92,
+      entities: {
+        type,
+        target,
+        displayName: target,
+        ...(password ? { password } : {})
+      }
+    };
+  }
+
+  _normalizeSecurityLockType(value) {
+    return /folder|directory/i.test(String(value || '')) ? 'folder' : 'app';
+  }
+
   _resolveBrowserFollowupIntent(rawText, preparedInput) {
     const input = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
     if (!/^(?:click|open|go\s+to)\s+(?:the\s+)?(?:first|top(?:\s+(?:\d+|one|two|three|four|five))?)\s+(?:links?|results?|search\s+results?)\b/.test(input)) {
@@ -4448,6 +4501,13 @@ const newTabMatch = input.match(
     }
 
     const entities = this.entityExtractor.extract(intent, rawText);
+    const rawReminderParts = this.entityExtractor.extractReminderParts(raw);
+    if (rawReminderParts.timeExpression) entities.timeExpression = rawReminderParts.timeExpression;
+    if (rawReminderParts.duration) entities.duration = rawReminderParts.duration;
+    if (rawReminderParts.reminderText) {
+      entities.reminderText = rawReminderParts.reminderText;
+      entities.reminderCategory = rawReminderParts.reminderCategory || this.entityExtractor._extractReminderCategory(rawReminderParts.reminderText);
+    }
     if (taskTimer) {
       entities.reminderText = taskTimer[1].trim();
       entities.timeExpression = taskTimer[2].replace(/^(\d{1,2})\s+(\d{2})/, '$1:$2').replace(/\s+/g, ' ').trim();
@@ -4466,6 +4526,17 @@ const newTabMatch = input.match(
       entities.reminderCategory = this.entityExtractor._extractReminderCategory(entities.reminderText);
     }
     const correctedEntities = this.entityExtractor.extract(intent, input);
+    const correctedReminderParts = this.entityExtractor.extractReminderParts(input);
+    if (!entities.timeExpression && correctedReminderParts.timeExpression) {
+      entities.timeExpression = correctedReminderParts.timeExpression;
+    }
+    if (!entities.duration && correctedReminderParts.duration) {
+      entities.duration = correctedReminderParts.duration;
+    }
+    if (!entities.reminderText && correctedReminderParts.reminderText) {
+      entities.reminderText = correctedReminderParts.reminderText;
+      entities.reminderCategory = correctedReminderParts.reminderCategory || this.entityExtractor._extractReminderCategory(correctedReminderParts.reminderText);
+    }
     if (!entities.timeExpression && correctedEntities.timeExpression) {
       entities.timeExpression = correctedEntities.timeExpression;
     }

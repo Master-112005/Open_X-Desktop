@@ -122,6 +122,7 @@ class ProcessMonitor {
     this.timer = setInterval(() => {
       this.pollOnce();
     }, this.intervalMs);
+    this.timer.unref?.();
   }
 
   stop() {

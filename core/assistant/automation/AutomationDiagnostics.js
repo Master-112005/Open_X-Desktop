@@ -1,5 +1,12 @@
 'use strict';
 
+const MAX_DIAGNOSTIC_ITEMS = 100;
+
+function pushBounded(list, item) {
+  list.push(item);
+  if (list.length > MAX_DIAGNOSTIC_ITEMS) list.splice(0, list.length - MAX_DIAGNOSTIC_ITEMS);
+}
+
 class AutomationDiagnostics {
   constructor() {
     this.automationTime = {};
@@ -16,15 +23,15 @@ class AutomationDiagnostics {
   }
 
   controller(record = {}) {
-    this.controllerExecution.push({ ...record, timestamp: Date.now() });
+    pushBounded(this.controllerExecution, { ...record, timestamp: Date.now() });
   }
 
   warn(message, data = {}) {
-    this.warnings.push({ message: String(message || ''), data, timestamp: Date.now() });
+    pushBounded(this.warnings, { message: String(message || ''), data, timestamp: Date.now() });
   }
 
   error(error, data = {}) {
-    this.errors.push({
+    pushBounded(this.errors, {
       name: error?.name || 'Error',
       message: String(error?.message || error || ''),
       stack: error?.stack || '',

@@ -5,6 +5,7 @@ const MAX_CONTEXT_AGE_MS = 2 * 60 * 60 * 1000;
 const MAX_TOPIC_MEMORY = 40;
 const MAX_USER_PREFERENCES = 50;
 const MAX_USER_FACTS = 100;
+const MAX_HISTORY_DATA_ITEMS = 3;
 const TOPIC_STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'can', 'could',
   'did', 'do', 'does', 'for', 'from', 'give', 'go', 'had', 'has', 'have',
@@ -69,10 +70,10 @@ class ContextManager {
       needsClarification: Boolean(result?.needsClarification),
       entities: result?.entities || {},
       response: result?.response || '',
-      data: result?.data || null,
-      languageUnderstanding: result?.languageUnderstanding || null,
-      validation: result?.validation || result?.data?.validation || null,
-      verification: result?.verification || result?.data?.verification || null
+      data: this._compactData(result?.data),
+      languageUnderstanding: this._compactStatus(result?.languageUnderstanding, ['status', 'intent', 'domain', 'action']),
+      validation: this._compactStatus(result?.validation || result?.data?.validation, ['status', 'check', 'reason']),
+      verification: this._compactStatus(result?.verification || result?.data?.verification, ['status', 'check', 'reason'])
     };
 
     this.history.push(entry);
@@ -584,6 +585,48 @@ class ContextManager {
       data.entry?.title,
       data.query
     ].map(value => String(value || '').trim()).find(Boolean) || '';
+  }
+
+  _compactStatus(value, keys) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value || null;
+    const compact = {};
+    for (const key of keys) {
+      if (value[key] !== undefined && value[key] !== null) compact[key] = value[key];
+    }
+    return Object.keys(compact).length > 0 ? compact : null;
+  }
+
+  _compactData(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return data || null;
+    const compact = {};
+    [
+      'query',
+      'path',
+      'transferredName',
+      'topic',
+      'category',
+      'dueAt',
+      'matchedWindow',
+      'launchMethod',
+      'app',
+      'appId'
+    ].forEach(key => {
+      if (data[key] !== undefined && data[key] !== null) compact[key] = data[key];
+    });
+    if (data.entry?.title) compact.entry = { title: String(data.entry.title) };
+    if (data.opened) compact.opened = this._compactFileCandidate(data.opened);
+    if (Array.isArray(data.entries)) compact.entries = data.entries.slice(0, MAX_HISTORY_DATA_ITEMS).map(item => this._compactFileCandidate(item));
+    if (Array.isArray(data.results)) compact.results = data.results.slice(0, MAX_HISTORY_DATA_ITEMS).map(item => this._compactFileCandidate(item));
+    return Object.keys(compact).length > 0 ? compact : null;
+  }
+
+  _compactFileCandidate(value) {
+    if (typeof value === 'string') return value;
+    if (!value || typeof value !== 'object') return {};
+    return {
+      name: String(value.name || value.title || '').trim(),
+      path: String(value.path || value.location || '').trim()
+    };
   }
 
   _fileReferenceFromEntry(entry) {

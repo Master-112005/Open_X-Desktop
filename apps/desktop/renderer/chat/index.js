@@ -19,6 +19,7 @@ const settingsStatusEl = document.getElementById('settings-status');
 const modeGridEl = document.getElementById('mode-grid');
 const modeUsageEl = document.getElementById('mode-usage');
 const modeAddBtn = document.getElementById('mode-add-btn');
+const securityLockListEl = document.getElementById('security-lock-list');
 const phoneGenerateTokenBtn = document.getElementById('phone-generate-token-btn');
 const phonePairingTokenEl = document.getElementById('phone-pairing-token');
 const phonePairingStatusEl = document.getElementById('phone-pairing-status');
@@ -88,6 +89,7 @@ let settingsSnapshot = null;
 let selectedThemeId = 'graphite';
 let activeSettingsSection = null;
 let activeSystemBlock = 'identity';
+let securitySettingsUnlocked = false;
 let activePhonePanel = 'connect';
 let activePhoneConnectMode = 'local';
 let hasRenderedWelcome = false;
@@ -1016,7 +1018,7 @@ function populateSettingsForm() {
   setFieldValue(fieldIds.chatMaxHistory, String(settings.chat.maxHistory));
   setFieldValue(fieldIds.glassTint, String(settings.chat.glassTint ?? 42));
   applyGlassTint(settings.chat.glassTint ?? 42);
-  setFieldValue(fieldIds.systemPermissionLevel, settings.system.permissionLevel);
+  setFieldValue(fieldIds.systemPermissionLevel, settings.system?.permissionLevel || 'medium');
   setFieldValue(fieldIds.cloudRelayUrl, settings.cloud?.relayUrl || 'wss://openx-server.onrender.com/ws');
   setFieldValue(fieldIds.cloudConnectionTimeout, String(settings.cloud?.connectionTimeoutMs || 10000));
   if (cloudAutoConnectEl) cloudAutoConnectEl.checked = settings.cloud?.autoConnect === true;
@@ -1035,7 +1037,7 @@ function populateSettingsForm() {
 }
 
 function updatePermissionScale() {
-  const selected = document.getElementById(fieldIds.systemPermissionLevel).value;
+  const selected = document.getElementById(fieldIds.systemPermissionLevel)?.value || 'medium';
   document.querySelectorAll('.permission-option').forEach(button => {
     const isActive = button.dataset.permission === selected;
     button.classList.toggle('active', isActive);
@@ -1044,8 +1046,11 @@ function updatePermissionScale() {
 }
 
 function setActiveSystemBlock(blockName) {
-  const allowedBlocks = new Set(['identity', 'theme', 'access']);
+  const allowedBlocks = new Set(['identity', 'theme', 'security']);
   activeSystemBlock = allowedBlocks.has(blockName) ? blockName : 'identity';
+  if (activeSystemBlock === 'security' && !securitySettingsUnlocked) {
+    activeSystemBlock = 'identity';
+  }
 
   systemOptionButtons.forEach(button => {
     const isActive = button.dataset.systemBlockTarget === activeSystemBlock;
@@ -1128,6 +1133,18 @@ function setActiveSettingsSection(sectionName) {
   settingsFooterSection.classList.toggle('open', Boolean(activeSettingsSection));
   const settingsContent = document.querySelector('.settings-content');
   if (settingsContent) settingsContent.scrollTop = 0;
+}
+
+async function unlockSecuritySettings() {
+  setSettingsStatus('Verify your Windows identity to open Security.', 'info');
+  const result = await window.openx?.verifySecurityAccess?.();
+  if (result?.success) {
+    securitySettingsUnlocked = true;
+    setSettingsStatus('Security unlocked.', 'success');
+    return true;
+  }
+  setSettingsStatus(result?.message || 'Security verification required.', 'error');
+  return false;
 }
 
 function splitInstructionDraft(value) {
@@ -1401,7 +1418,7 @@ function collectSettingsPayload() {
       role: document.getElementById(fieldIds.profileRole).value.trim()
     },
     system: {
-      permissionLevel: document.getElementById(fieldIds.systemPermissionLevel).value
+      permissionLevel: document.getElementById(fieldIds.systemPermissionLevel)?.value || settingsSnapshot?.settings?.system?.permissionLevel || 'medium'
     },
     cloud: {
       enabled: latestCloudStatus?.connected === true || settingsSnapshot?.settings?.cloud?.enabled === true,
@@ -1428,11 +1445,12 @@ function updateSettingsSummary() {
   const theme = (settingsSnapshot?.availableThemes || []).find(entry => entry.id === selectedThemeId)
     || (settingsSnapshot?.availableThemes || [])[0];
   document.getElementById('settings-hero-name').textContent = assistantName;
-  document.getElementById('settings-hero-title').textContent = 'Configured for local automation, profile storage, voice, theme, and access controls.';
+  document.getElementById('settings-hero-title').textContent = 'Configured for local automation, profile storage, voice, theme, and security locks.';
   document.getElementById('settings-hero-honorific').textContent = settingsSnapshot?.settings?.assistant?.honorific || 'sir';
   document.getElementById('settings-hero-theme').textContent = theme?.label || 'Theme';
   document.getElementById('settings-hero-learning').textContent = settingsSnapshot?.settings?.activeLearning?.enabled === false ? 'Disabled' : 'Enabled';
-  document.getElementById('settings-hero-permission').textContent = settingsSnapshot?.settings?.system?.permissionLevel || 'medium';
+  const lockCount = Array.isArray(settingsSnapshot?.securityLocks) ? settingsSnapshot.securityLocks.length : 0;
+  document.getElementById('settings-hero-security').textContent = `${lockCount} Lock${lockCount === 1 ? '' : 's'}`;
 }
 
 function ensureWelcomeMessage() {
@@ -1469,6 +1487,7 @@ function applySnapshot(snapshot) {
   if (snapshot?.cloudPairingStatus) {
     renderCloudPairingStatus(snapshot.cloudPairingStatus);
   }
+  renderSecurityLocks(snapshot?.securityLocks || []);
   ensureWelcomeMessage();
 }
 
@@ -1803,6 +1822,101 @@ function renderCloudPairingRequests(requests) {
     card.append(copy, actions);
     cloudPairingRequestsEl.appendChild(card);
   });
+}
+
+function renderSecurityLocks(locks = settingsSnapshot?.securityLocks || []) {
+  if (!securityLockListEl) return;
+  securityLockListEl.replaceChildren();
+  const items = Array.isArray(locks) ? locks : [];
+  if (items.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'section-note';
+    empty.textContent = 'No app or folder locks saved yet.';
+    securityLockListEl.appendChild(empty);
+    return;
+  }
+
+  items.forEach(lock => {
+    const row = document.createElement('article');
+    row.className = 'security-lock-row';
+    const copy = document.createElement('div');
+    copy.className = 'security-lock-copy';
+    const name = document.createElement('strong');
+    name.textContent = lock.displayName || lock.target || 'Locked item';
+    const meta = document.createElement('span');
+    meta.textContent = lock.type === 'folder' ? 'Folder password set' : 'App password set';
+    copy.append(name, meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'security-lock-actions';
+    const edit = document.createElement('button');
+    edit.className = 'secondary-btn';
+    edit.type = 'button';
+    edit.textContent = 'Edit';
+    edit.addEventListener('click', () => renderSecurityLockEditor(lock));
+    const remove = document.createElement('button');
+    remove.className = 'danger-btn';
+    remove.type = 'button';
+    remove.textContent = 'Delete';
+    remove.addEventListener('click', async () => {
+      remove.disabled = true;
+      try {
+        const result = await window.openx.deleteSecurityLock({ id: lock.id });
+        if (!result?.success) throw new Error(result?.error || 'Delete failed');
+        settingsSnapshot.securityLocks = result.data?.locks || await window.openx.listSecurityLocks();
+        renderSecurityLocks(settingsSnapshot.securityLocks);
+        updateSettingsSummary();
+        setSettingsStatus('Security lock deleted.', 'success');
+      } catch (_) {
+        setSettingsStatus('Unable to delete security lock.', 'error');
+      }
+    });
+    actions.append(edit, remove);
+    row.append(copy, actions);
+    securityLockListEl.appendChild(row);
+  });
+}
+
+function renderSecurityLockEditor(lock) {
+  if (!securityLockListEl) return;
+  renderSecurityLocks(settingsSnapshot?.securityLocks || []);
+  const editor = document.createElement('div');
+  editor.className = 'security-lock-editor';
+  const password = document.createElement('input');
+  password.className = 'field';
+  password.type = 'password';
+  password.placeholder = 'New password';
+  const save = document.createElement('button');
+  save.className = 'primary-btn';
+  save.type = 'button';
+  save.textContent = 'Save';
+  save.addEventListener('click', async () => {
+    const nextPassword = String(password.value || '');
+    if (nextPassword.length < 4) {
+      setSettingsStatus('Enter a password with at least 4 characters.', 'error');
+      return;
+    }
+    save.disabled = true;
+    try {
+      const result = await window.openx.upsertSecurityLock({
+        type: lock.type || 'app',
+        target: lock.lastKnownPath || lock.target,
+        displayName: lock.displayName || lock.target,
+        password: nextPassword,
+        path: lock.type === 'folder' ? (lock.lastKnownPath || lock.target) : ''
+      });
+      if (!result?.success) throw new Error(result?.error || 'Save failed');
+      settingsSnapshot.securityLocks = result.data?.locks || await window.openx.listSecurityLocks();
+      renderSecurityLocks(settingsSnapshot.securityLocks);
+      updateSettingsSummary();
+      setSettingsStatus('Security lock updated.', 'success');
+    } catch (_) {
+      setSettingsStatus('Unable to update security lock.', 'error');
+    }
+  });
+  editor.append(password, save);
+  securityLockListEl.prepend(editor);
+  password.focus();
 }
 
 function renderCloudPairingStatus(status) {
@@ -2147,8 +2261,15 @@ settingsNavButtons.forEach(button => {
   });
 });
 systemOptionButtons.forEach(button => {
-  button.addEventListener('click', () => {
-    setActiveSystemBlock(button.dataset.systemBlockTarget);
+  button.addEventListener('click', async () => {
+    const targetBlock = button.dataset.systemBlockTarget;
+    if (targetBlock === 'security' && !securitySettingsUnlocked) {
+      button.disabled = true;
+      const unlocked = await unlockSecuritySettings();
+      button.disabled = false;
+      if (!unlocked) return;
+    }
+    setActiveSystemBlock(targetBlock);
     const settingsContent = document.querySelector('.settings-content');
     if (settingsContent) settingsContent.scrollTop = 0;
   });

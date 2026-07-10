@@ -30,6 +30,7 @@ function buildDataPaths(config = {}) {
   const phoneDir = path.join(root, 'phone');
   const voiceDir = path.join(root, 'voice');
   const cloudDir = path.join(root, 'cloud');
+  const securityDir = path.join(root, 'security');
   const phoneReceivedDir = path.join(os.homedir(), 'Downloads', 'OpenX Received');
 
   return {
@@ -53,6 +54,8 @@ function buildDataPaths(config = {}) {
     voiceDiagnosticsDir: path.join(voiceDir, 'diagnostics'),
     cloudDir,
     cloudLogPath: path.join(cloudDir, 'connection.log'),
+    securityDir,
+    securityLocksPath: path.join(securityDir, 'locks.json'),
     phoneDir,
     phoneReceivedDir,
     phoneTempDir: path.join(runtimeDir, 'phone-transfer'),
@@ -221,6 +224,7 @@ function ensureDataRoot(config = {}) {
     paths.voiceDir,
     paths.voiceDiagnosticsDir,
     paths.cloudDir,
+    paths.securityDir,
     paths.phoneDir,
     paths.phoneReceivedDir,
     paths.phoneTempDir

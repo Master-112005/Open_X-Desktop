@@ -1,5 +1,12 @@
 'use strict';
 
+const MAX_DIAGNOSTIC_ITEMS = 100;
+
+function pushBounded(list, item) {
+  list.push(item);
+  if (list.length > MAX_DIAGNOSTIC_ITEMS) list.splice(0, list.length - MAX_DIAGNOSTIC_ITEMS);
+}
+
 class VerificationDiagnostics {
   constructor() {
     this.verificationTime = {};
@@ -11,10 +18,10 @@ class VerificationDiagnostics {
   }
 
   time(id, durationMs) { this.verificationTime[String(id || '')] = Math.max(0, Number(durationMs) || 0); }
-  evidence(item) { this.verificationEvidence.push(item); }
-  warn(message, data = {}) { this.warnings.push({ message: String(message || ''), data, timestamp: Date.now() }); }
+  evidence(item) { pushBounded(this.verificationEvidence, item); }
+  warn(message, data = {}) { pushBounded(this.warnings, { message: String(message || ''), data, timestamp: Date.now() }); }
   error(error, data = {}) {
-    this.errors.push({
+    pushBounded(this.errors, {
       name: error?.name || 'Error',
       message: String(error?.message || error || ''),
       stack: error?.stack || '',

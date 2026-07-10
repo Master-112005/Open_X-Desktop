@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenX App Lock</title>
+  <link rel="stylesheet" href="./index.css">
+</head>
+<body>
+  <main class="unlock-shell">
+    <div class="unlock-copy">
+      <span class="eyebrow">App locked</span>
+      <h1 id="app-name">Locked app</h1>
+    </div>
+    <form id="unlock-form">
+      <input id="password" type="password" autocomplete="current-password" placeholder="Password" autofocus>
+      <div class="actions">
+        <button class="secondary" id="cancel-btn" type="button">Cancel</button>
+        <button class="primary" id="unlock-btn" type="submit">Unlock</button>
+      </div>
+      <p id="status" role="status"></p>
+    </form>
+  </main>
+  <script src="./index.js"></script>
+</body>
+</html>

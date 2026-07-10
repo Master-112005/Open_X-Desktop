@@ -77,6 +77,7 @@ function pathLocationLabel(folderPath) {
 class FolderController {
   constructor(config) {
     this.logger = new Logger(config?.logging || { level: 'info' });
+    this.securityLocks = config?.securityLocks || null;
   }
 
   search(query, options = {}) {
@@ -255,6 +256,15 @@ class FolderController {
         fs.rmSync(sourcePath, { recursive: true, force: true });
       }
 
+      this.securityLocks?.updateTarget?.({
+        type: 'folder',
+        oldTarget: sourcePath,
+        oldPath: sourcePath,
+        newTarget: finalPath,
+        newPath: finalPath,
+        displayName: path.basename(finalPath)
+      });
+
       return { success: true, data: { source: sourcePath, destination: finalPath } };
     } catch (err) {
       this.logger.error('Failed to move folder', err);
@@ -271,6 +281,8 @@ class FolderController {
       const selectedPath = options.selectedPath || options.targetPath;
       if (selectedPath && path.isAbsolute(selectedPath) && fs.existsSync(selectedPath) && fs.statSync(selectedPath).isDirectory()) {
         const safeSelectedPath = requireSafeUserPath(selectedPath, { allowRoot: true });
+        const locked = this._checkFolderLock(safeSelectedPath, folderName, options);
+        if (locked) return locked;
         this._openFolderPath(safeSelectedPath, options);
         return { success: true, data: { path: safeSelectedPath, folderName: path.basename(safeSelectedPath), openWith: options.openWith || null } };
       }
@@ -320,6 +332,8 @@ class FolderController {
         }
 
         const matchedPath = requireSafeUserPath(matches[0], { allowRoot: true });
+        const locked = this._checkFolderLock(matchedPath, folderName, options);
+        if (locked) return locked;
         this._openFolderPath(matchedPath, options);
         return { success: true, data: { path: matchedPath, folderName: path.basename(matchedPath), openWith: options.openWith || null } };
       }
@@ -330,6 +344,8 @@ class FolderController {
       }
       requireSafeUserPath(fullPath, { allowRoot: true });
 
+      const locked = this._checkFolderLock(fullPath, folderName, options);
+      if (locked) return locked;
       this._openFolderPath(fullPath, options);
       return { success: true, data: { path: fullPath, folderName: path.basename(fullPath), openWith: options.openWith || null } };
     } catch (err) {
@@ -346,6 +362,35 @@ class FolderController {
     }
 
     launchTarget(folderPath);
+  }
+
+  _checkFolderLock(folderPath, requestedName, options = {}) {
+    const lock = this.securityLocks?.findLock?.({ type: 'folder', target: folderPath, path: folderPath });
+    if (!lock) return null;
+    if (!options.securityUnlocked && !options.password) {
+      return {
+        success: false,
+        needsClarification: true,
+        error: `${lock.displayName || requestedName || path.basename(folderPath)} is locked. Enter the folder password to open it.`,
+        data: {
+          clarificationType: 'security.unlock',
+          lockType: 'folder',
+          target: folderPath,
+          displayName: lock.displayName || path.basename(folderPath)
+        }
+      };
+    }
+    if (options.password) {
+      const verified = this.securityLocks.unlock({ type: 'folder', target: folderPath, path: folderPath, password: options.password });
+      if (!verified.success) {
+        return {
+          success: false,
+          error: 'Incorrect folder password',
+          data: { lockType: 'folder', target: folderPath, displayName: lock.displayName || path.basename(folderPath) }
+        };
+      }
+    }
+    return null;
   }
 
   _findFolderMatches(folderName) {

@@ -430,6 +430,24 @@ const openxApi = {
   getSettings: () =>
     ipcRenderer.invoke('settings:get'),
 
+  listSecurityLocks: () =>
+    ipcRenderer.invoke('security:listLocks'),
+
+  verifySecurityAccess: () =>
+    ipcRenderer.invoke('security:verifyAccess'),
+
+  upsertSecurityLock: (lock) =>
+    ipcRenderer.invoke('security:upsertLock', lock),
+
+  deleteSecurityLock: (lock) =>
+    ipcRenderer.invoke('security:deleteLock', lock),
+
+  submitSecurityUnlock: (payload) =>
+    ipcRenderer.invoke('securityUnlock:submit', payload),
+
+  cancelSecurityUnlock: () =>
+    ipcRenderer.invoke('securityUnlock:cancel'),
+
   getCloudStatus: () =>
     ipcRenderer.invoke('cloud:status'),
 
@@ -581,6 +599,15 @@ const openxApi = {
     const handler = (_event, payload) => callback(payload);
     ipcRenderer.on('planner:entriesChanged', handler);
     return () => ipcRenderer.removeListener('planner:entriesChanged', handler);
+  },
+
+  onSecurityUnlockContext: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Security unlock listener must be a function');
+    }
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('securityUnlock:context', handler);
+    return () => ipcRenderer.removeListener('securityUnlock:context', handler);
   }
 };
 
