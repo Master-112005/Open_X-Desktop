@@ -4,19 +4,35 @@ Report date: 2026-07-10
 
 Repository: `C:\Users\rakes\Documents\PROJECTS\Project-Intigerity\OpenX`
 
-Package: `openx@5.5.1`
+Package: `openx@6.0.0`
 
-Runtime: Electron 28, Node.js, CommonJS
+Runtime: Electron 28, Node.js, CommonJS, Windows-first desktop automation
 
-## Summary
+## Executive Summary
 
-OpenX is a deterministic, local-first Windows desktop assistant. The same assistant command path serves chat, voice, phone, and cloud-delivered text. The runtime is organized around input acquisition, language normalization, linguistic understanding, semantic understanding, entity understanding, memory/context, reasoning, planning, validation, automation, verification, response generation, and learning.
+OpenX is a deterministic, local-first Windows desktop assistant. The same assistant core handles chat, voice, phone, cloud-delivered commands, plugin/API input, clipboard/OCR-style acquisition, and communication workflows. The architecture is staged: input acquisition, normalization, linguistic analysis, semantic analysis, entity understanding, memory/context, reasoning, planning, decision/validation, automation, verification/response, and learning.
 
-The assistant currently supports desktop automation, browser control, local file/folder work, media control, scheduler tools, planner entries, phone pairing and file transfer, optional cloud relay transport, local voice sessions, plugin-backed integrations, and renderer-based settings/activity surfaces.
+The current codebase includes desktop automation, browser control, local file/folder operations, media control, scheduler and planner tools, phone pairing and transfer, cloud relay command/file transport, local voice sessions, plugin-backed integrations, renderer settings/activity surfaces, crash recovery, and a lazy WhatsApp communication provider.
+
+## Recent Improvements And Inclusions
+
+The latest important changes are now part of the assistant runtime and should be treated as current behavior:
+
+- WhatsApp is lazily initialized. `CommunicationEngine.start()` registers providers only and no longer launches Playwright during assistant startup.
+- WhatsApp browser resources are created only on the first WhatsApp operation through `WhatsAppSessionManager.ensureReady()` / `connect()`.
+- WhatsApp uses a persistent browser profile under the OpenX data root, so login survives idle shutdown and later recreation.
+- WhatsApp now has a default 5 minute idle timer. `touch()` resets it after each operation, and idle shutdown disposes the browser context, page handlers, context handlers, and timer.
+- Pending WhatsApp drafts are restored after idle shutdown before final send confirmation, preserving the existing draft/confirmation flow.
+- Voice diagnostics are bounded with `maxSessionHistory` and `maxTransitionLog`, reducing long-session memory growth.
+- Voice event publishing isolates listener failures so one renderer or integration listener cannot break the session manager.
+- Active-window polling uses an unref'd interval and isolates subscriber failures, reducing shutdown and UI smoothness blockers.
+- Chat renderer performance work keeps message rendering bounded, coalesces scroll work, reduces expensive repaint behavior while typing, and limits settings/cloud polling to active settings use.
+- Crash recovery has a bounded restart policy with persisted compact crash metadata in `apps/desktop/electron/crash-recovery.js`.
+- Assistant routing improvements include safer rename correction handling, scheduled power-action confirmation, and multi-word rename parsing.
 
 ## Repository Scan
 
-Filtered scan excludes generated or local-heavy directories:
+Filtered scan excludes generated, local-heavy, and tool-output directories:
 
 ```text
 .git/
@@ -25,37 +41,33 @@ dist/
 .code-review-graph/
 .codex/
 .cursor/
+.agents/
 graphify-out/
 ```
 
 Current filtered counts:
 
-| Area | Files | Tests |
-|---|---:|---:|
-| `apps` | 114 | 0 |
-| `build` | 5 | 0 |
-| `core` | 445 | 0 |
-| `docs` | 11 | 0 |
-| `models` | 4 | 0 |
-| `plugins` | 12 | 0 |
-| `scripts` | 2 | 0 |
-| `tests` | 69 | 69 |
-
-Totals:
-
 | Metric | Count |
 |---|---:|
-| Filtered files | 672 |
-| Filtered directories | 72 |
-| JavaScript files | 629 |
-| Test files | 69 |
+| Filtered files | 683 |
+| Filtered directories | 73 |
+| JavaScript files | 640 |
+| Test files | 70 |
+| Markdown/docs files | 17 |
 | Registered intents | 115 |
-| Validated IPC channels | 41 |
+| Validated IPC channels | 47 |
+
+Graphify architecture snapshot:
+
+- 4,937 nodes
+- 9,749 edges
+- 158 detected communities
+- Most connected abstractions: `ActionRouter`, `VoiceSessionManager`, `Assistant`, `CloudConnectionManager`, `ActiveLearningManager`, `MediaController`, `ContextManager`, `SchedulerController`, `normalizeText()`, `EntityExtractor`
 
 ## Runtime Command Flow
 
 ```text
-Input text
+Input source
   -> InputSourceManager.acquire()
   -> PipelineManager.process()
   -> LanguageNormalizationStage.execute()
@@ -72,63 +84,81 @@ Input text
   -> Assistant response object
 ```
 
-The public assistant contract is:
+The public assistant API is:
 
 ```js
 Assistant.processCommand(input, source, options)
 ```
 
-Supported command sources include `chat`, `voice`, `phone`, and cloud packets routed through phone-compatible command context.
+The lower-level pipeline facade is:
+
+```js
+AssistantEngine.processCommand(input, source, options)
+PipelineManager.process({ input, source, options, rawUserInput })
+PipelineEngine.run(context)
+```
+
+## Input Methods
+
+OpenX has explicit acquisition adapters under `core/assistant/acquisition/`:
+
+| Input method | Main adapter / entry point | Purpose |
+|---|---|---|
+| Chat text | `ChatAdapter` and `command:process` IPC | Renderer chat commands. |
+| Voice | `VoiceAdapter`, `VoiceSessionManager`, `VoiceAssistantBridge` | Microphone/STT transcripts routed into the assistant. |
+| Phone local | `PhoneAdapter`, `PhoneServer`, `PhoneCommandRouter` | Local WebSocket commands from OpenX Mobile. |
+| Cloud relay | `CloudAdapter`, `CloudConnectionManager`, `CloudCommandManager` | Remote relay command packets routed through the phone-compatible path. |
+| Plugin/API | `PluginAdapter`, `APIAdapter`, `PluginManager` | Plugin-supplied or direct API command input. |
+| Clipboard | `ClipboardAdapter` | Clipboard-backed context acquisition. |
+| OCR | `OCRAdapter` | OCR-derived input or metadata. |
+| Attachments | `AttachmentResolver` | Normalizes file/attachment metadata for command context. |
+
+All sources are normalized into a common assistant request shape before routing and automation.
 
 ## Critical Entry Points
 
-| File | Method / function | Responsibility |
+| File | Important function / method | Responsibility |
 |---|---|---|
-| `core/assistant/index.js` | `Assistant.processCommand(input, source, options)` | Public command API used by chat, voice, phone, cloud, tests, and plugin flows. |
-| `core/assistant/index.js` | `Assistant._processCommandDirect(input, source, options)` | Handles pending confirmations, clarifications, schedule completion, learning input, context answers, routing, timeout guard, and final response shaping. |
-| `core/assistant/AssistantEngine.js` | `AssistantEngine.processCommand(input, source, options)` | Acquires raw input and sends it through the configured assistant pipeline. |
-| `core/assistant/pipeline/PipelineManager.js` | `process({ input, source, options, rawUserInput })` | Coordinates configured pipeline execution and result output. |
-| `core/assistant/pipeline/PipelineEngine.js` | `process(context)` | Executes stage objects in deterministic order and records diagnostics. |
-| `core/assistant/automation/ActionRouter.js` | `process(inputText, source, options)` | Main command router for executable intents, clarification, multi-command routing, contextual rewrites, and entity extraction. |
-| `core/assistant/automation/ActionRouter.js` | `_execute(commandId, intentResult, entities, rawCommandText, source, languageUnderstanding, executionOptions)` | Executes routed intent through NLE/automation and attaches validation, verification, response, and learning evidence. |
-| `core/assistant/semantic/NaturalLanguageRouter.js` | `parse(rawText, preparedInput)` | Builds semantic frames, token roles, relations, domains, intents, and extracted entities. |
-| `core/assistant/semantic/NaturalLanguageRouter.js` | `resolveIntent(text)` | Converts natural sentence structure into an intent/entity result for router use. |
-| `core/assistant/linguistic/NlpProcessor.js` | `prepare(text)` | Normalizes, repairs, tokenizes, builds intent text, detects query forms, and creates linguistic frame data. |
-| `core/assistant/entities/EntityPipeline.js` | `run(semanticRepresentation, options)` | Runs registered extractors, normalization, resolution, validation, relationship building, graph building, diagnostics, and immutable structured output. |
-| `core/assistant/entities/EntityContext.js` | `addEntity(type, entity)` / `toStructuredEntities()` | Stores extracted entities and produces the downstream entity object. |
-| `core/assistant/entities/StructuredEntities.js` | constructor | Freezes structured entity collections, graph, relationships, diagnostics, metadata, timing, confidence, and extension slots. |
-| `core/automation/index.js` | `AutomationEngine.execute(actionId, entities, context)` | Dispatches validated action IDs to app/browser/file/folder/media/scheduler/planner/system/phone/plugin controllers. |
-| `core/assistant/automation/NaturalLanguageExecution.js` | `execute(actionId, entities, context)` | NLE boundary between assistant routing and automation execution. |
-| `core/automation/scheduler.js` | `setReminder()`, `setAlarm()`, `setTimer()` | Creates scheduler entries, persistence, due events, snooze, cancel, list, clear, and stopwatch operations. |
-| `core/automation/apps.js` | `AppController.open(appName, options)` | Resolves local app launches, existing windows, Start menu entries, known app mappings, and allowed web-app fallback context. |
-| `core/automation/browser.js` | browser action methods | Opens URLs/searches/tabs, resolves browser names, and checks network requirements for internet actions. |
-| `core/automation/files.js` | file action methods | Handles create/open/delete/rename/copy/move/search/list/smart-find with local path safety. |
-| `core/automation/folders.js` | folder action methods | Handles create/open/delete/move/search and folder ambiguity choices. |
-| `apps/desktop/electron/main.js` | `setupIPC()` | Registers trusted renderer IPC handlers for commands, settings, phone, cloud, planner, scheduler alerts, timer widget, TTS, and windows. |
-| `apps/desktop/electron/security.js` | `IPC_VALIDATORS` | Validates every renderer IPC payload before the main process handler receives it. |
+| `core/assistant/index.js` | `Assistant.processCommand(input, source, options)` | Public assistant command API used by chat, voice, phone, cloud, tests, and plugin flows. |
+| `core/assistant/index.js` | `Assistant._processCommandDirect(input, source, options)` | Handles pending confirmations, clarifications, schedule completion, feedback/learning flows, context questions, routing, and final response shaping. |
+| `core/assistant/index.js` | `Assistant.confirmAndExecute(commandId, intentId, entities)` | Executes a protected pending command after user confirmation. |
+| `core/assistant/index.js` | `Assistant.cancelPendingConfirmation()` | Cancels a pending protected action. |
+| `core/assistant/index.js` | `Assistant.destroy()` | Clears pending state and destroys automation dependencies. |
+| `core/assistant/AssistantEngine.js` | `AssistantEngine.processCommand()` | Acquires input and drives the configured assistant pipeline. |
+| `core/assistant/pipeline/PipelineManager.js` | `process(...)` | Builds and coordinates the ordered assistant stages. |
+| `core/assistant/pipeline/PipelineEngine.js` | `run(context)` | Executes stage objects and records diagnostics. |
+| `core/assistant/automation/ActionRouter.js` | `process(inputText, source, options)` | Main executable intent router, including multi-command handling, clarifications, contextual rewrites, and entity extraction. |
+| `core/assistant/automation/ActionRouter.js` | `_execute(...)` | Sends routed actions through validation, NLE, automation, verification, response, and learning evidence. |
+| `core/assistant/semantic/NaturalLanguageRouter.js` | `parse(rawText, preparedInput)` | Builds semantic frames, roles, relationships, domains, intents, and extracted entities. |
+| `core/assistant/semantic/NaturalLanguageRouter.js` | `resolveIntent(text)` | Converts natural text into an intent/entity result for router use. |
+| `core/assistant/linguistic/NlpProcessor.js` | `prepare(text)` | Normalizes, repairs, tokenizes, detects question forms, and creates linguistic frame data. |
+| `core/assistant/entities/EntityPipeline.js` | `run(semanticRepresentation, options)` | Runs extractors, normalizers, resolvers, validators, graph building, diagnostics, and structured output. |
+| `core/assistant/entities/EntityContext.js` | `addEntity()` / `toStructuredEntities()` | Stores extracted entities and produces downstream immutable entity collections. |
+| `core/assistant/entities/StructuredEntities.js` | constructor | Freezes structured entities, graph, relationships, diagnostics, metadata, timing, confidence, and extension slots. |
+| `core/automation/index.js` | `AutomationEngine.execute(actionId, entities, context)` | Dispatches validated action IDs to automation controllers. |
+| `core/assistant/automation/NaturalLanguageExecution.js` | `execute(actionId, entities, context)` | Boundary between assistant routing and automation execution. |
+| `apps/desktop/electron/main.js` | `setupIPC()` | Registers trusted renderer IPC handlers for assistant, voice, settings, phone, cloud, communication, planner, schedule alerts, timer widget, TTS, and windows. |
+| `apps/desktop/electron/security.js` | `IPC_VALIDATORS` | Validates every renderer IPC payload before main process handlers receive it. |
 | `apps/desktop/preload.js` | `openxApi` | Exposes the safe renderer API through `contextBridge`. |
-| `apps/desktop/settings.js` | `SettingsService` methods | Loads, validates, saves, resets, and builds runtime settings. |
-| `core/phone/PhoneCommandRouter.js` | `routeCommand(assistant, command, context)` | Routes phone-origin commands into `Assistant.processCommand()`. |
-| `core/phone/PhoneServer.js` | server lifecycle and message handlers | Hosts local phone WebSocket pairing, sessions, command messages, and file transfer coordination. |
-| `core/cloud/CloudConnectionManager.js` | connection lifecycle methods | Manages relay socket state, reconnect, heartbeat, device registration, packets, presence, and notifications. |
-| `core/cloud/CloudCommandManager.js` | command queue and packet handlers | Receives cloud command packets and routes them through the assistant command path. |
-| `core/cloud/CloudFileTransferManager.js` | transfer methods | Handles metadata approval, chunked transfer, acknowledgements, progress, cancellation, timeout cleanup, and checksum verification. |
+| `apps/desktop/settings.js` | `SettingsService` | Loads, validates, saves, resets, and builds runtime settings. |
+| `apps/desktop/electron/crash-recovery.js` | `CrashRecoveryPolicy` | Bounds automatic restarts and persists compact crash metadata. |
 
 ## Assistant Intelligence Modules
 
 | Directory | Purpose |
 |---|---|
-| `core/assistant/acquisition/` | Source adapters for chat, voice, phone, API, plugin, clipboard, OCR, cloud, attachment metadata, and confidence. |
-| `core/assistant/normalization/` | Text cleanup, spell repair, date/time/number/unit normalization, abbreviations, contractions, punctuation, whitespace, slang, Unicode handling. |
-| `core/assistant/linguistic/` | Tokenization, sentence/clause analysis, subject/object/verb/modifier/negation/question/pronoun logic, NLP preparation. |
+| `core/assistant/acquisition/` | Source adapters for chat, voice, phone, cloud, API, plugin, clipboard, OCR, attachments, and confidence. |
+| `core/assistant/normalization/` | Text cleanup, spell repair, date/time/number/unit normalization, punctuation, whitespace, slang, Unicode, abbreviations, contractions. |
+| `core/assistant/linguistic/` | Tokenization, sentence/clause analysis, subject/object/verb/modifier/negation/question/pronoun logic. |
 | `core/assistant/semantic/` | Meaning representation, role labeling, relationship analysis, web target resolution, semantic routing. |
 | `core/assistant/entities/` | Pluggable extractors, registry, normalization, resolution, validation, relationship graph, structured entities. |
 | `core/assistant/memory/` | Working, session, dialogue, topic, conversation, and long-term memory context. |
+| `core/assistant/context/` | Desktop, app, browser, clipboard, selection, screen, time, user, media, calendar, system, and window context. |
 | `core/assistant/reasoning/` | Intent registry, pattern scoring, confidence, clarification, conflict, goal/intent/task reasoning. |
 | `core/assistant/planning/` | Task graph, execution graph, dependency, parallel, recovery, and workflow planners. |
 | `core/assistant/decision/` | Execution, confirmation, clarification, conflict, policy decisions, diagnostics, registry. |
-| `core/assistant/validation/` | Permission, safety, entity, context, automation, confirmation, constraint validation. |
-| `core/assistant/automation/` | Router, dispatcher, automation context/result/diagnostics, NLE bridge, execution stage. |
+| `core/assistant/validation/` | Permission, safety, entity, context, automation, confirmation, and constraint validation. |
+| `core/assistant/automation/` | Router, dispatcher, automation context/result/diagnostics, NLE bridge, execution stages. |
 | `core/assistant/verification/` | Application, browser, cloud, reminder, transfer, window, execution verification and response integration. |
 | `core/assistant/response/` | Response generator, personality, formatters, clarification/confirmation/error/suggestion/summary responses. |
 | `core/assistant/learning/` | Feedback, correction, alias, preference, usage, habit, conversation, workflow learning with guarded storage. |
@@ -144,7 +174,7 @@ Critical files:
 | `EntityPipeline.js` | Runs extractors, processors, diagnostics, and final structured output. |
 | `EntityRegistry.js` | Registers extractors, normalizers, resolvers, validators, providers, and custom entity types. |
 | `BaseEntityExtractor.js` | Extractor lifecycle: `initialize()`, `supports()`, `extract()`, `validate()`, `cleanup()`, `destroy()`. |
-| `EntityNormalizer.js` | Canonical entity mapping such as apps, browsers, folders, websites, dates, and times. |
+| `EntityNormalizer.js` | Canonical entity mapping for apps, browsers, folders, websites, dates, times, and common values. |
 | `EntityResolver.js` | Resolves known apps, folders, contacts, devices, and paths by identity only. |
 | `EntityValidator.js` | Records quality status, missing values, duplicates, invalid paths/dates, and unknown entities. |
 | `EntityRelationshipBuilder.js` | Stores entity-to-entity relationships such as reminder -> date -> time. |
@@ -161,7 +191,7 @@ timers, windows, networks, volumeLevels, brightnessLevels
 
 ## Intent And Automation Surface
 
-The intent registry currently exposes 115 intent IDs. Major groups:
+The intent registry exposes 115 intent IDs. Major groups:
 
 ```text
 app.*, browser.*, file.*, folder.*, media.*, volume.*, brightness.*,
@@ -170,22 +200,77 @@ system.*, window.*, phone.*, message/email/call, form.fill,
 assistant.*, mode.start, greeting, thanks, help
 ```
 
-The automation engine maps executable actions to controller methods in `core/automation/index.js`. Main controller ownership:
+Main controller ownership:
 
 | Controller | Responsibilities |
 |---|---|
 | `AppController` | App open/close/switch/new tab, visible-window matching, Start menu fallback. |
-| `BrowserController` | Browser open/search/site search/tab open/tab close/tab listing. |
+| `BrowserController` | Browser open/search/site search/first-result/tab open/tab close/tab listing. |
 | `FileController` | File create/open/delete/rename/copy/move/search/list/smart find. |
-| `FolderController` | Folder create/open/delete/move/search and clarification choices. |
-| `MediaController` | Playback, search, pause/resume/stop, platform actions, media volume. |
+| `FolderController` | Folder create/open/delete/move/search and ambiguity choices. |
+| `MediaController` | Playback, search, pause/resume/stop, platform actions, fullscreen, media volume. |
 | `SchedulerController` | Reminders, alarms, timers, stopwatch, snooze, list, clear, due events. |
 | `PlannerController` | Calendar/timetable open and entry creation. |
-| `SystemController` | Status, time/date, calculations, CPU/memory/battery/disk/process insight, Bluetooth. |
+| `SystemController` | Status, time/date, calculations, CPU, memory, battery, disk, processes, insight, Bluetooth. |
 | `WindowsController` | Window minimize/maximize/close, screen lock, sleep, restart, shutdown. |
-| `CommunicationsController` | Message, email, and call composition/start flows. |
+| `CommunicationsController` | Message, email, call, WhatsApp draft preparation, and communication-engine handoff. |
 
-## Renderer And IPC Surface
+## Communication And WhatsApp
+
+The current communication stack lives under `core/communication/` and is separate from the older desktop WhatsApp plugin under `plugins/communications/`.
+
+| File | Important function / method | Responsibility |
+|---|---|---|
+| `CommunicationEngine.js` | `constructor(options)` | Registers default providers, including WhatsApp, without launching browser resources. |
+| `CommunicationEngine.js` | `start()` | Marks the communication engine started and returns health only. It does not connect providers. |
+| `CommunicationEngine.js` | `prepareMessage(...)` | Ensures the selected provider is ready, composes a draft, and publishes communication events. |
+| `CommunicationEngine.js` | `sendPrepared(draftId, providerId)` | Sends a previously prepared draft. |
+| `CommunicationEngine.js` | `cancelPrepared(draftId, providerId)` | Cancels a prepared draft. |
+| `WhatsAppSessionManager.js` | `ensureReady(options)` | Lazily starts Playwright/browser context when a WhatsApp operation needs it and waits for logged-in readiness. |
+| `WhatsAppSessionManager.js` | `connect(options)` | Creates or reuses the persistent browser context and page. |
+| `WhatsAppSessionManager.js` | `_launch(options)` | Calls `chromium.launchPersistentContext(profileDir, ...)` and loads WhatsApp Web. |
+| `WhatsAppSessionManager.js` | `touch()` | Resets the idle timer after activity. |
+| `WhatsAppSessionManager.js` | `_closeContext(options)` | Clears the idle timer, detaches Playwright handlers, drops page/context references, closes context, and emits disconnect. |
+| `WhatsAppSessionManager.js` | `_detachResourceListeners(context, page)` | Removes context/page listeners for close, crash, and console events. |
+| `WhatsAppSessionManager.js` | `hasPersistentSession()` | Detects saved browser profile state without launching the browser. |
+| `WhatsAppProvider.js` | `searchContacts(recipient, options)` | Searches WhatsApp contacts and returns duplicate-contact choices without sending. |
+| `WhatsAppProvider.js` | `composeMessage(recipient, messageText, options)` | Opens the selected chat, writes a draft, stores `preparedDrafts`, and requests final confirmation. |
+| `WhatsAppProvider.js` | `send(draftId)` | Reopens/restores draft if idle shutdown occurred, then clicks send. |
+| `WhatsAppProvider.js` | `cancel(draftId)` | Clears the draft and removes pending state. |
+| `WhatsAppProvider.js` | `_restoreDraft(draft, page)` | Restores recipient and message after lazy browser recreation. |
+| `WhatsAppSelectors.js` | `resolveElement(page, name, options)` | Resolves WhatsApp DOM targets through multiple selector candidates and diagnostics. |
+
+WhatsApp lifecycle:
+
+```text
+Assistant startup
+  -> CommunicationEngine constructor registers WhatsAppProvider
+  -> CommunicationEngine.start() returns health only
+  -> no Playwright process, no browser page, no WhatsApp RAM use
+
+First WhatsApp command
+  -> CommunicationsController._prepareWhatsAppMessage()
+  -> CommunicationEngine.prepareMessage()
+  -> WhatsAppProvider.ensureReady()
+  -> WhatsAppSessionManager.ensureReady()
+  -> launchPersistentContext(profileDir)
+  -> search contact
+  -> create draft
+  -> request send/cancel confirmation
+
+Idle period
+  -> touch() timer expires after 5 minutes by default
+  -> _closeContext()
+  -> context/page/listeners/timer disposed
+  -> persistent profile remains on disk
+
+Next WhatsApp command
+  -> ensureReady() recreates browser context
+  -> saved profile restores login
+  -> pending draft can be restored before send
+```
+
+## Renderer, IPC, And UI Surface
 
 The renderer API is exposed through `apps/desktop/preload.js` and validated in `apps/desktop/electron/security.js`.
 
@@ -203,6 +288,12 @@ cloud:pairingQR:create
 cloud:status
 command:confirm
 command:process
+communication:cancelPrepared
+communication:connect
+communication:disconnect
+communication:selectContact
+communication:sendPrepared
+communication:status
 config:get
 phone:device:disconnect
 phone:device:permissions:update
@@ -235,38 +326,82 @@ window:openPlanner
 window:openSettings
 ```
 
-Renderer performance notes:
+Renderer and smoothness notes:
 
-- `apps/desktop/renderer/chat/index.js` caps rendered chat messages and coalesces scroll work.
-- `apps/desktop/renderer/chat/index.css` applies paint containment to workspace/message/input areas.
-- The composer avoids expensive blur repainting while the user types.
-- Settings cloud status polling runs only while the settings panel is open.
+- `apps/desktop/renderer/chat/index.js` keeps rendered messages bounded and coalesces scroll work.
+- `apps/desktop/renderer/chat/index.css` applies paint containment to workspace, messages, and input areas.
+- The composer avoids expensive blur repainting while the user is typing.
+- Settings cloud status polling runs only while settings are open.
+- Dynamic Island communication actions are driven by communication events from the main process.
+- Voice overlay UI listens to `VoiceSessionManager` events and handles action feedback without bypassing the voice lifecycle manager.
 
-## Storage And Persistence
+## Voice System
 
-Managed data root:
+Voice entry path:
 
 ```text
-%USERPROFILE%\OpenX_Data\
+AudioCapture
+  -> AudioPipeline / RNNoise / VAD
+  -> SpeechSourceClassifier
+  -> STTEngine / SherpaRuntime / Parakeet model
+  -> TranscriptProcessor
+  -> VoiceAssistantBridge
+  -> AssistantDispatcher
+  -> Assistant.processCommand()
+  -> TTS / overlay response
 ```
 
-Important paths are built in `core/assistant/Data.js`:
+Important voice modules:
 
-| Path | Data |
+| Directory | Role |
 |---|---|
-| `settings.json` | Desktop and assistant settings. |
-| `schedules.json` | Reminders, alarms, timers, stopwatch state. |
-| `planner.json` | Calendar and timetable entries. |
-| `learning/` | Alias, preference, correction, usage, workflow, and learning stores. |
-| `logs/` | Local runtime logs. |
-| `voice/diagnostics/` | Voice diagnostics and metrics. |
-| `cloud/connection.log` | Cloud relay connection log. |
-| `phone/` | Pairing, devices, permissions, transfer history. |
-| `received/` | Phone/cloud received files. |
-| `runtime/phone-transfer/` | Temporary transfer files. |
-| `screenshots/` | Screenshot capture output. |
+| `apps/desktop/voice/audio/` | Capture, device selection, audio frame contracts. |
+| `apps/desktop/voice/preprocessing/` | RNNoise, VAD, frame processing, source classification. |
+| `apps/desktop/voice/stt/` | Model loading, Sherpa runtime, decoder state, transcript assembly. |
+| `apps/desktop/voice/normalization/` | Transcript cleanup, command normalization, dictionary/acronym/app/technology normalization. |
+| `apps/desktop/voice/session/` | Continuous session lifecycle and state machine. |
+| `apps/desktop/voice/integration/` | Dispatch from transcript to assistant and TTS/session coordination. |
+| `apps/desktop/voice/ui/` | Overlay, status rendering, accessibility, animations. |
+| `apps/desktop/voice/diagnostics/` | Metrics, health, latency, privacy filtering, event timeline, resource monitoring. |
 
-JSON persistence uses bounded reads and atomic writes through `readJsonFile()` and `writeJsonAtomic()`.
+Important `VoiceSessionManager` methods:
+
+```text
+initialize()
+warmUpResources()
+prepareSession()
+startSession()
+beginListening()
+beginProcessing()
+beginExecution()
+beginSpeaking()
+completeSpeakingTurn()
+finishSession()
+failSession()
+recoverFromError()
+configureAudio()
+initializeAudio()
+startAudioCapture()
+stopAudioCapture()
+processAudioFrame()
+initializeAudioProcessing()
+processAudioFrame()
+initializeSpeechToText()
+startSpeechToText()
+recognizeProcessedFrame()
+finalizeSpeechToText()
+processTranscript()
+getStatus()
+destroy()
+```
+
+Memory and stability details:
+
+- Session history and transition logs are bounded.
+- Speech pre-roll is bounded by `speechPrerollFrameLimit`.
+- Runtime logging is rate-limited by `_logRuntimePipeline()`.
+- Partial transcript publication suppresses duplicate, stale, and unstable partials.
+- Empty final transcripts recover the recognition stream without closing the long-running voice session.
 
 ## Phone And Cloud
 
@@ -304,68 +439,119 @@ metadata packet
   -> completion acknowledgement
 ```
 
-## Voice
+Important files:
 
-Voice entry path:
+| File | Responsibility |
+|---|---|
+| `core/phone/PhoneServer.js` | Local WebSocket pairing, sessions, commands, transfer coordination. |
+| `core/phone/PhoneCommandRouter.js` | Routes phone-origin commands into the assistant. |
+| `core/phone/FileTransferManager.js` | Local file transfer coordination. |
+| `core/phone/TransferIntegrity.js` | File checksum/integrity validation. |
+| `core/cloud/CloudConnectionManager.js` | Relay socket lifecycle, heartbeat, reconnect, presence, packets. |
+| `core/cloud/CloudCommandManager.js` | Cloud command queue and assistant routing. |
+| `core/cloud/CloudFileTransferManager.js` | Chunked cloud file transfer lifecycle. |
+
+## Crash Recovery And Resource Lifecycle
+
+Crash recovery is owned by `apps/desktop/electron/crash-recovery.js` and integrated from `apps/desktop/electron/main.js`.
+
+Important methods:
+
+| Method | Purpose |
+|---|---|
+| `readCrashTimestamps(now)` | Reads only valid recent crash timestamps inside the configured window. |
+| `getState(now)` | Returns whether restart is blocked and how many restarts remain. |
+| `requestRestart(now, metadata)` | Persists a crash attempt and returns whether automatic restart is allowed. |
+| `markStable(now)` | Clears crash history after stable runtime or normal shutdown. |
+
+Resource lifecycle improvements:
+
+- Renderer recovery has a restart budget and delay.
+- Recovery timers are tracked and cleared on shutdown.
+- Voice shortcut recovery can reset after resume.
+- WhatsApp browser lifecycle is independent of assistant startup and idles out when unused.
+- Active-window polling does not keep the process alive on its own.
+
+## Storage And Persistence
+
+Managed data root:
 
 ```text
-AudioCapture
-  -> AudioPipeline / RNNoise / VAD
-  -> STTEngine / SherpaRuntime / Parakeet model
-  -> TranscriptProcessor
-  -> VoiceAssistantBridge
-  -> AssistantDispatcher
-  -> Assistant.processCommand()
-  -> TTS / overlay response
+%USERPROFILE%\OpenX_Data\
 ```
 
-Critical voice modules:
+Important paths built through `core/assistant/Data.js`:
 
-| Directory | Role |
+| Path | Data |
 |---|---|
-| `apps/desktop/voice/audio/` | Capture, device selection, audio frame contracts. |
-| `apps/desktop/voice/preprocessing/` | RNNoise, VAD, frame processing, source classification. |
-| `apps/desktop/voice/stt/` | Model loading, Sherpa runtime, decoder state, transcript assembly. |
-| `apps/desktop/voice/normalization/` | Transcript cleanup, command normalization, dictionary/acronym/app normalization. |
-| `apps/desktop/voice/session/` | Continuous session lifecycle and state machine. |
-| `apps/desktop/voice/integration/` | Dispatch from transcript to assistant. |
-| `apps/desktop/voice/ui/` | Overlay, status rendering, accessibility, animations. |
-| `apps/desktop/voice/diagnostics/` | Metrics, health, latency, privacy filtering, event timeline. |
+| `settings.json` | Desktop and assistant settings. |
+| `schedules.json` | Reminders, alarms, timers, stopwatch state. |
+| `planner.json` | Calendar and timetable entries. |
+| `learning/` | Alias, preference, correction, usage, workflow, and learning stores. |
+| `logs/` | Local runtime logs. |
+| `voice/diagnostics/` | Voice diagnostics and metrics. |
+| `cloud/connection.log` | Cloud relay connection log. |
+| `phone/` | Pairing, devices, permissions, transfer history. |
+| `received/` | Phone/cloud received files. |
+| `runtime/phone-transfer/` | Temporary transfer files. |
+| `screenshots/` | Screenshot capture output. |
+| `communication/whatsapp/profile/` | Persistent WhatsApp browser profile and login state. |
+| `communication/diagnostics/` | WhatsApp selector/state diagnostics. |
 
-## Verification
+JSON persistence uses bounded reads and atomic writes through `readJsonFile()` and `writeJsonAtomic()`.
 
-Latest focused checks run for this report:
+## Build, Runtime, And Packaging
+
+Key scripts:
+
+```text
+npm start
+npm run dev
+npm run lint
+npm test
+npm run test:core
+npm run test:automation
+npm run test:context
+npm run test:learning
+npm run test:ui
+npm run validate
+npm run build
+npm run package
+```
+
+Packaging includes:
+
+- Electron app entry: `apps/desktop/electron/main.js`
+- Source bundles: `apps/**/*`, `core/**/*`, `plugins/**/*`, `config.js`, `package.json`
+- Parakeet model files from `models/parakeet/`
+- Chrome native messaging host from `build/openx-chrome-host.exe`
+- Playwright and Sherpa unpacked from ASAR for runtime compatibility
+
+## Verification Status
+
+Latest verification recorded for the current code state:
 
 ```powershell
-npx mocha tests\ui\chat-renderer.test.js tests\core\electron-security.test.js tests\core\entities.test.js tests\core\nlu.test.js --timeout 60000 --exit
-npx mocha tests\automation\automation.test.js tests\core\assistant.test.js --timeout 90000 --exit
-node --check apps\desktop\electron\main.js
-node --check apps\desktop\preload.js
-node --check apps\desktop\electron\security.js
-node --check apps\desktop\renderer\chat\index.js
-node --check core\automation\index.js
-node --check core\automation\apps.js
-node --check core\automation\folders.js
-node --check core\assistant\automation\ActionRouter.js
-node --check core\assistant\semantic\NaturalLanguageRouter.js
-node --check core\assistant\entities\EntityExtractor.js
-node --check core\assistant\index.js
-node --check core\assistant\linguistic\NlpProcessor.js
+npm run lint
+npx mocha tests/core/communication-engine.test.js --exit --reporter min
+npx mocha "tests/core/**/*.test.js" --exit --reporter min
 git diff --check
+graphify update .
 ```
 
 Results:
 
 ```text
-UI / IPC / entities / NLU: 67 passing
-Automation / assistant: 109 passing
-Syntax checks: passing
-Diff whitespace check: passing, with normal CRLF warnings on Windows
+Lint: passing
+Communication focused tests: 21 passing
+Core tests: passing
+Diff whitespace check: clean, with normal CRLF warnings on Windows
+Graphify update: completed after code changes
 ```
 
 ## Current Directory Tree
 
-Filtered current structure with files shown under each folder:
+Filtered current structure with required source, docs, build resources, models, plugins, scripts, and tests. Generated/local-heavy folders are excluded.
 
 ```text
 OpenX/
@@ -384,6 +570,7 @@ OpenX/
 |       |   |   |-- index.css
 |       |   |   |-- index.html
 |       |   |   +-- index.js
+|       |   |-- security-unlock/
 |       |   |-- settings/
 |       |   |   |-- index.css
 |       |   |   |-- index.html
@@ -503,9 +690,9 @@ OpenX/
 |       |-- preload.js
 |       +-- settings.js
 |-- build/
-|   |-- ICON_README.md
 |   |-- icon.ico
 |   |-- icon.png
+|   |-- ICON_README.md
 |   |-- installer.nsh
 |   +-- openx-chrome-host.exe
 |-- core/
@@ -958,6 +1145,17 @@ OpenX/
 |   |   |-- CloudRequestQueue.js
 |   |   |-- CloudResponseSerializer.js
 |   |   +-- index.js
+|   |-- communication/
+|   |   |-- CommunicationEngine.js
+|   |   |-- CommunicationErrors.js
+|   |   |-- CommunicationEvents.js
+|   |   |-- CommunicationProvider.js
+|   |   |-- CommunicationProviderManager.js
+|   |   |-- CommunicationResult.js
+|   |   |-- index.js
+|   |   |-- WhatsAppProvider.js
+|   |   |-- WhatsAppSelectors.js
+|   |   +-- WhatsAppSessionManager.js
 |   |-- context-awareness/
 |   |   |-- active-window.js
 |   |   |-- app-registry.js
@@ -965,22 +1163,23 @@ OpenX/
 |   |   |-- mode-engine.js
 |   |   |-- process-monitor.js
 |   |   +-- signals.js
-|   +-- phone/
-|       |-- DeviceRegistry.js
-|       |-- FileTransferManager.js
-|       |-- FileTransferProtocol.js
-|       |-- IdentityVerificationService.js
-|       |-- index.js
-|       |-- PairingService.js
-|       |-- PairingTokenManager.js
-|       |-- PhoneCommandRouter.js
-|       |-- PhoneConnectionManager.js
-|       |-- PhoneServer.js
-|       |-- QRPairingService.js
-|       |-- SecurityManager.js
-|       |-- SessionManager.js
-|       |-- TransferHistory.js
-|       +-- TransferIntegrity.js
+|   |-- phone/
+|   |   |-- DeviceRegistry.js
+|   |   |-- FileTransferManager.js
+|   |   |-- FileTransferProtocol.js
+|   |   |-- IdentityVerificationService.js
+|   |   |-- index.js
+|   |   |-- PairingService.js
+|   |   |-- PairingTokenManager.js
+|   |   |-- PhoneCommandRouter.js
+|   |   |-- PhoneConnectionManager.js
+|   |   |-- PhoneServer.js
+|   |   |-- QRPairingService.js
+|   |   |-- SecurityManager.js
+|   |   |-- SessionManager.js
+|   |   |-- TransferHistory.js
+|   |   +-- TransferIntegrity.js
+|   +-- security/
 |-- docs/
 |   |-- architecture/
 |   |   |-- overview.md
@@ -1043,13 +1242,14 @@ OpenX/
 |   |   |-- active-learning-v2.test.js
 |   |   |-- app-language.test.js
 |   |   |-- architecture-structure.test.js
-|   |   |-- assistant-intelligence-pipeline.test.js
 |   |   |-- assistant.test.js
+|   |   |-- assistant-intelligence-pipeline.test.js
 |   |   |-- browser-language.test.js
 |   |   |-- cloud-command-manager.test.js
 |   |   |-- cloud-connection.test.js
 |   |   |-- cloud-file-transfer-manager.test.js
 |   |   |-- command-corpus.test.js
+|   |   |-- communication-engine.test.js
 |   |   |-- crash-recovery.test.js
 |   |   |-- data-root.test.js
 |   |   |-- decision-automation.test.js
@@ -1061,9 +1261,9 @@ OpenX/
 |   |   |-- input-acquisition.test.js
 |   |   |-- intents.test.js
 |   |   |-- language-normalization.test.js
+|   |   |-- learning.test.js
 |   |   |-- learning-engine.test.js
 |   |   |-- learning-repair.test.js
-|   |   |-- learning.test.js
 |   |   |-- linguistic-understanding.test.js
 |   |   |-- logger.test.js
 |   |   |-- media-youtube-corpus.test.js
@@ -1073,13 +1273,13 @@ OpenX/
 |   |   |-- parser.test.js
 |   |   |-- performance-memory.test.js
 |   |   |-- permissions.test.js
+|   |   |-- phone.test.js
 |   |   |-- phone-device-permissions.test.js
 |   |   |-- phone-file-transfer.test.js
 |   |   |-- phone-identity-verification.test.js
 |   |   |-- phone-pairing.test.js
 |   |   |-- phone-qr-pairing.test.js
 |   |   |-- phone-security.test.js
-|   |   |-- phone.test.js
 |   |   |-- planner.test.js
 |   |   |-- planning.test.js
 |   |   |-- reasoning.test.js
@@ -1106,9 +1306,22 @@ OpenX/
 |-- commands.md
 |-- config.js
 |-- eslint.config.mjs
-|-- package-lock.json
 |-- package.json
+|-- package-lock.json
 |-- README.md
 |-- report.md
 +-- RULES.md
+```
+
+Excluded from this tree:
+
+```text
+.git/
+node_modules/
+dist/
+.code-review-graph/
+.codex/
+.cursor/
+.agents/
+graphify-out/
 ```

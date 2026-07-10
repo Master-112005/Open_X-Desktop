@@ -72,6 +72,12 @@ class WhatsAppSessionManager extends EventEmitter {
     this.preserveStateOnClose = false;
     this.profileDir = options.profileDir || this._resolveProfileDir();
     this.diagnosticsDir = options.diagnosticsDir || this._resolveDiagnosticsDir();
+    this._lifecycle('Session created', {
+      state: this.lastState,
+      profileDir: this.profileDir,
+      idleTimeoutMs: this.idleTimeoutMs,
+      browserRunning: this.isBrowserRunning()
+    });
   }
 
   _resolveProfileDir() {
@@ -84,6 +90,13 @@ class WhatsAppSessionManager extends EventEmitter {
   }
 
   async connect(options = {}) {
+    this._lifecycle('Connect requested', {
+      hasContext: Boolean(this.context),
+      hasPage: Boolean(this.page),
+      connecting: Boolean(this.connecting),
+      waitForLogin: options.waitForLogin === true,
+      closeAfterLogin: options.closeAfterLogin === true
+    });
     if (this.context && this.page) {
       if (options.visible === true) {
         await this._showPageWindow(this.page);
@@ -95,9 +108,16 @@ class WhatsAppSessionManager extends EventEmitter {
         }
       }
       this.touch();
+      this._lifecycle('Existing browser session reused', {
+        state: this.lastState,
+        browserRunning: this.isBrowserRunning()
+      });
       return this.page;
     }
     if (this.connecting) {
+      this._lifecycle('Existing browser launch reused', {
+        state: this.lastState
+      });
       return this.connecting;
     }
 
@@ -121,6 +141,11 @@ class WhatsAppSessionManager extends EventEmitter {
   }
 
   async _launch(options = {}) {
+    this._lifecycle('Browser launch requested', {
+      profileDir: this.profileDir,
+      visible: options.visible === true,
+      background: options.background === true
+    });
     fs.mkdirSync(this.profileDir, { recursive: true });
     this._setState(this.context ? SESSION_STATES.RECONNECTING : SESSION_STATES.INITIALIZING);
     const playwright = this.playwright || loadPlaywright();
@@ -149,6 +174,9 @@ class WhatsAppSessionManager extends EventEmitter {
       args,
       acceptDownloads: false
     }), this._stageTimeout(options, 'launchTimeoutMs', DEFAULT_LAUNCH_TIMEOUT_MS));
+    this._lifecycle('Persistent context created', {
+      profileDir: this.profileDir
+    });
     this._debug('browser-launched', {
       profileDir: this.profileDir,
       browserRunning: true,
@@ -167,6 +195,9 @@ class WhatsAppSessionManager extends EventEmitter {
       () => this.context.newPage(),
       this._stageTimeout(options, 'pageTimeoutMs', 5000)
     );
+    this._lifecycle('Page acquired', {
+      existingPage: Boolean(this.context.pages?.()[0])
+    });
     this._pageCrashHandler = () => {
       this._setState(SESSION_STATES.ERROR);
       this.emit(COMMUNICATION_EVENTS.ERROR, {
@@ -201,25 +232,86 @@ class WhatsAppSessionManager extends EventEmitter {
   }
 
   async disconnect() {
-    await this._closeContext();
+    await this._closeContext({ reason: 'disconnect-requested' });
+  }
+
+  async releaseAfterOperation(reason = 'operation-complete') {
+    this._lifecycle('Terminal operation release requested', {
+      reason,
+      browserRunning: this.isBrowserRunning()
+    });
+    await this._closeContext({ reason });
   }
 
   async _closeContext(options = {}) {
+    this._lifecycle('Preparing shutdown', {
+      reason: options.reason || null,
+      preserveState: options.preserveState === true,
+      hasContext: Boolean(this.context),
+      hasPage: Boolean(this.page),
+      hasIdleTimer: Boolean(this.idleTimer)
+    });
     this._clearIdleTimer();
     const context = this.context;
     const page = this.page;
     const state = this.lastState;
+    this._lifecycle('Removing listeners', {
+      hasContextCloseHandler: Boolean(this._contextCloseHandler),
+      hasPageCrashHandler: Boolean(this._pageCrashHandler),
+      hasPageConsoleHandler: Boolean(this._pageConsoleHandler)
+    });
     this._detachResourceListeners(context, page);
     this.context = null;
     this.page = null;
+    this._lifecycle('Nulling references', {
+      reason: options.reason || null
+    });
     this._setState(options.preserveState ? state : SESSION_STATES.DISCONNECTED);
+    if (page?.close) {
+      this._lifecycle('Closing page', {
+        reason: options.reason || null
+      });
+      await page.close({ runBeforeUnload: false }).catch(error => {
+        if (!/closed|Target page, context or browser has been closed/i.test(String(error?.message || ''))) {
+          throw error;
+        }
+        this._lifecycle('Page already closed during shutdown', {
+          reason: options.reason || null,
+          error: error.message
+        });
+      });
+      this._lifecycle('Page closed', {
+        reason: options.reason || null
+      });
+    }
     if (context) {
-      await context.close();
+      this._lifecycle('Closing context', {
+        reason: options.reason || null
+      });
+      await context.close().catch(error => {
+        if (!/closed|Target page, context or browser has been closed/i.test(String(error?.message || ''))) {
+          throw error;
+        }
+        this._lifecycle('Context already closed during shutdown', {
+          reason: options.reason || null,
+          error: error.message
+        });
+      });
+      this._lifecycle('Context closed', {
+        reason: options.reason || null
+      });
       this.emit(COMMUNICATION_EVENTS.DISCONNECTED, { provider: 'whatsapp' });
     }
+    this._lifecycle('Shutdown complete', {
+      reason: options.reason || null,
+      browserRunning: this.isBrowserRunning()
+    });
   }
 
   _handleContextClosed(context) {
+    this._lifecycle('Context close event received', {
+      matchesCurrentContext: !context || !this.context || context === this.context
+    });
     if (context && this.context && context !== this.context) return;
     this._clearIdleTimer();
     this._detachResourceListeners(context, this.page);
@@ -247,22 +339,36 @@ class WhatsAppSessionManager extends EventEmitter {
   }
 
   touch() {
+    this._lifecycle('Idle timer touch requested', {
+      hasContext: Boolean(this.context),
+      hasPage: Boolean(this.page),
+      connecting: Boolean(this.connecting)
+    });
     if (!this.context || !this.page || this.connecting) return false;
     this._clearIdleTimer();
     this.idleTimer = this.setTimer(() => {
+      this._lifecycle('Idle timer fired', {
+        idleTimeoutMs: this.idleTimeoutMs
+      });
       this.idleTimer = null;
-      this.idleClosing = this._closeContext()
+      this.idleClosing = this._closeContext({ reason: 'idle-timeout' })
         .catch(error => this.logger.warn?.('[WhatsAppSession] idle shutdown failed', { error: error.message }))
         .finally(() => {
           this.idleClosing = null;
         });
     }, this.idleTimeoutMs);
     this.idleTimer.unref?.();
+    this._lifecycle('Idle timer scheduled', {
+      idleTimeoutMs: this.idleTimeoutMs
+    });
     return true;
   }
 
   _clearIdleTimer() {
     if (!this.idleTimer) return;
+    this._lifecycle('Idle timer reset', {
+      idleTimeoutMs: this.idleTimeoutMs
+    });
     this.clearTimer(this.idleTimer);
     this.idleTimer = null;
   }
@@ -622,6 +728,14 @@ class WhatsAppSessionManager extends EventEmitter {
   _debug(message, data = {}) {
     if (!this.debug) return;
     this.logger.info?.(`[WhatsAppSession] ${message}`, data);
+  }
+
+  _lifecycle(message, data = {}) {
+    this.logger.info?.('[WhatsAppSession] lifecycle', {
+      at: new Date().toISOString(),
+      message,
+      ...data
+    });
   }
 
   _stageTimeout(options, name, fallback) {

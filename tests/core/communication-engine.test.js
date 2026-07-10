@@ -195,6 +195,65 @@ describe('Communication Engine', function() {
     assert.equal(provider.getDraft('draft-1'), null);
   });
 
+  it('closes the WhatsApp session immediately after a prepared message is sent', async function() {
+    const page = {};
+    let sent = 0;
+    const lifecycle = [];
+    const provider = new WhatsAppProvider({
+      session: {
+        on() {},
+        isBrowserRunning: () => true,
+        ensureReady: async () => page,
+        touch: () => lifecycle.push('touch'),
+        releaseAfterOperation: async reason => lifecycle.push(`release:${reason}`)
+      }
+    });
+    provider.preparedDrafts.set('draft-1', {
+      id: 'draft-1',
+      recipient: 'Mohit',
+      message: 'Hi',
+      contact: { id: 'chat:0:mohit', name: 'Mohit' }
+    });
+    provider._resolveRequired = async () => ({
+      found: true,
+      locator: { click: async () => { sent += 1; } }
+    });
+
+    const result = await provider.send('draft-1');
+
+    assert.equal(result.success, true);
+    assert.equal(sent, 1);
+    assert.equal(provider.getDraft('draft-1'), null);
+    assert.deepEqual(lifecycle, ['touch', 'release:message-sent']);
+  });
+
+  it('cancels an idle WhatsApp draft without recreating the browser and releases the session', async function() {
+    const releases = [];
+    const provider = new WhatsAppProvider({
+      session: {
+        on() {},
+        isBrowserRunning: () => false,
+        getPage: async () => {
+          throw new Error('cancel should not recreate an idle browser');
+        },
+        releaseAfterOperation: async reason => releases.push(reason)
+      }
+    });
+    provider.preparedDrafts.set('draft-1', {
+      id: 'draft-1',
+      recipient: 'Mohit',
+      message: 'Hi',
+      contact: { id: 'chat:0:mohit', name: 'Mohit' }
+    });
+
+    const result = await provider.cancel('draft-1');
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.cancelled, true);
+    assert.equal(provider.getDraft('draft-1'), null);
+    assert.deepEqual(releases, ['message-cancelled']);
+  });
+
   it('does not autostart WhatsApp before a persistent session exists', async function() {
     let connected = false;
     const provider = new EventEmitter();
@@ -290,6 +349,64 @@ describe('Communication Engine', function() {
     const page = await session.getPage();
     assert.equal(page, nextPage);
     assert.equal(launches, 2);
+  });
+
+  it('releases WhatsApp resources immediately after a terminal operation', async function() {
+    const logs = [];
+    const timers = [];
+    const cleared = new Set();
+    const context = new EventEmitter();
+    const page = new EventEmitter();
+    context.pages = () => [page];
+    context.newPage = async () => page;
+    context.close = async () => {
+      context.closed = true;
+      context.emit('close');
+    };
+    context.setDefaultTimeout = () => {};
+    context.setDefaultNavigationTimeout = () => {};
+    page.goto = async () => {};
+    page.close = async () => {
+      page.closed = true;
+    };
+
+    const session = new WhatsAppSessionManager({
+      idleTimeoutMs: 5000,
+      setTimeout: (callback, delay) => {
+        const timer = { callback, delay, unref() {} };
+        timers.push(timer);
+        return timer;
+      },
+      clearTimeout: timer => cleared.add(timer),
+      logger: {
+        info: (message, data) => logs.push({ message, ...data }),
+        warn: (message, data) => logs.push({ message, ...data })
+      },
+      playwright: {
+        chromium: {
+          launchPersistentContext: async () => context
+        }
+      }
+    });
+    session.detectState = async () => ({ state: 'CONNECTED' });
+
+    await session.connect();
+    assert.equal(session.isBrowserRunning(), true);
+    assert.equal(timers.length, 1);
+
+    await session.releaseAfterOperation('message-sent');
+
+    assert.equal(page.closed, true);
+    assert.equal(context.closed, true);
+    assert.equal(session.isBrowserRunning(), false);
+    assert.equal(context.listenerCount('close'), 0);
+    assert.equal(page.listenerCount('crash'), 0);
+    assert.equal(page.listenerCount('console'), 0);
+    assert.equal(cleared.has(timers[0]), true);
+    assert.ok(logs.some(entry => entry.message === 'Terminal operation release requested' && entry.reason === 'message-sent'));
+    assert.ok(logs.some(entry => entry.message === 'Closing page'));
+    assert.ok(logs.some(entry => entry.message === 'Closing context'));
+    assert.ok(logs.some(entry => entry.message === 'Shutdown complete' && entry.browserRunning === false));
   });
 
   it('launches visible setup without minimized or off-screen flags', async function() {
