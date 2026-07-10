@@ -1504,6 +1504,22 @@ function presentCommunicationDraftInDynamicIsland(event = {}) {
   }
 }
 
+function cleanCommunicationContactTitle(value, fallbackIndex = 1) {
+  const fallback = `Contact ${fallbackIndex}`;
+  let title = String(value || fallback).replace(/\s+/g, ' ').trim();
+  if (!title) title = fallback;
+  title = title
+    .replace(/\b(?:wds|ic)(?:-[a-z0-9_]+)+\b/gi, ' ')
+    .replace(/\s+(?:Yesterday|Today|Tomorrow).*$/i, '')
+    .replace(/\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun),?.*$/i, '')
+    .replace(/\s+\d{1,2}:\d{2}(?:\s?[AP]M)?.*$/i, '')
+    .replace(/\s+\d{1,2}\/\d{1,2}(?:\/\d{2,4})?.*$/i, '')
+    .replace(/\s+(?:Photo|Image|Video|Audio|Document|Sticker|GIF|Voice message|Contact card|Location).*$/i, '')
+    .replace(/\s+(?:Typing|Online|Read|Unread|Delivered|Sent|Seen|Status|Verified).*$/i, '')
+    .replace(/\b(?:read|unread|delivered|sent|seen|status|verified|badge|image|photo|icon)\b/gi, ' ');
+  return String(title || fallback).replace(/\s+/g, ' ').trim().slice(0, 80) || fallback;
+}
+
 function presentCommunicationContactChoicesInDynamicIsland(result = {}) {
   const data = result?.data || {};
   const choices = Array.isArray(data.choices) ? data.choices : [];
@@ -1515,20 +1531,26 @@ function presentCommunicationContactChoicesInDynamicIsland(result = {}) {
   ) {
     return false;
   }
-  const recipient = String(data.recipient || 'that contact').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const cleanChoices = choices.map((choice, index) => {
+    const choiceIndex = Number(choice.index) || index + 1;
+    return {
+      ...choice,
+      index: choiceIndex,
+      title: cleanCommunicationContactTitle(choice.title, choiceIndex)
+    };
+  });
   try {
     voiceOverlay.displayAssistantResult({
       success: false,
       needsClarification: true,
       intent: 'communication.contactSelection',
-      response: `Multiple contacts match "${recipient}". Select one to continue.`,
+      response: 'Multiple matching contacts found',
       data: {
-        choices,
-        actions: choices.slice(0, 3).map((choice, index) => ({
-          id: `contact-${Number(choice.index) || index + 1}`,
-          label: String(choice.title || `Contact ${Number(choice.index) || index + 1}`).slice(0, 80),
+        actions: cleanChoices.slice(0, 3).map((choice, index) => ({
+          id: `contact-${choice.index || index + 1}`,
+          label: `${choice.index || index + 1}. ${choice.title}`,
           kind: 'contact-select',
-          choiceIndex: Number(choice.index) || index + 1,
+          choiceIndex: choice.index || index + 1,
           primary: index === 0
         }))
       },
