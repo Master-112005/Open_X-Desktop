@@ -19,6 +19,14 @@ function normalize(value) {
   return cleanText(value).toLowerCase();
 }
 
+const CONTACT_TITLE_SELECTORS = [
+  '[data-testid="cell-frame-title"]',
+  '[data-testid="chat-list-title"]',
+  '[data-testid="conversation-title"]',
+  'span[title]',
+  '[title]'
+];
+
 class WhatsAppProvider extends CommunicationProvider {
   constructor(options = {}) {
     super({ ...options, id: 'whatsapp' });
@@ -298,9 +306,11 @@ class WhatsAppProvider extends CommunicationProvider {
     for (let index = 0; index < count; index += 1) {
       const row = rows.nth(index);
       if (!await row.isVisible()) continue;
-      const raw = cleanText(await row.textContent().catch(() => ''));
-      const name = this._extractContactName(raw, query);
+      const raw = await row.textContent().catch(() => '');
+      const title = await this._readCanonicalContactTitle(row);
+      const name = title || this._extractContactName(raw, query);
       if (!name) continue;
+      this._logContactNameExtraction({ raw, name, source: title ? 'title' : 'fallback' });
       const normalizedName = normalize(name);
       if (target && !normalizedName.includes(target) && !target.includes(normalizedName)) continue;
       const cell = row.locator?.('[data-testid="cell-frame-container"]');
@@ -315,17 +325,97 @@ class WhatsAppProvider extends CommunicationProvider {
     return this._dedupeContacts(matches);
   }
 
+  async _readCanonicalContactTitle(row) {
+    if (!row || typeof row.locator !== 'function') return '';
+    for (const selector of CONTACT_TITLE_SELECTORS) {
+      const locator = row.locator(selector);
+      const name = await this._readFirstCleanTitle(locator, selector);
+      if (name) return name;
+    }
+    return '';
+  }
+
+  async _readFirstCleanTitle(locator, selector) {
+    if (!locator) return '';
+    const broadSelector = selector === 'span[title]' || selector === '[title]';
+    const maxCandidates = broadSelector ? 4 : 1;
+    let count = 1;
+    if (typeof locator.count === 'function') {
+      try {
+        count = Math.min(await locator.count(), maxCandidates);
+      } catch {
+        count = 0;
+      }
+    }
+    if (count <= 0) return '';
+    for (let index = 0; index < count; index += 1) {
+      const candidate = typeof locator.nth === 'function'
+        ? locator.nth(index)
+        : (typeof locator.first === 'function' ? locator.first() : locator);
+      const title = await this._readSingleTitleValue(candidate);
+      if (title) return title;
+      if (typeof locator.nth !== 'function') break;
+    }
+    return '';
+  }
+
+  async _readSingleTitleValue(locator) {
+    if (!locator) return '';
+    if (typeof locator.getAttribute === 'function') {
+      const title = cleanText(await locator.getAttribute('title').catch(() => ''));
+      const cleanTitle = this._sanitizeContactTitle(title);
+      if (cleanTitle) return cleanTitle;
+    }
+    if (typeof locator.textContent === 'function') {
+      const text = cleanText(await locator.textContent().catch(() => ''));
+      const cleanTitle = this._sanitizeContactTitle(text);
+      if (cleanTitle) return cleanTitle;
+    }
+    return '';
+  }
+
   _extractContactName(raw, query) {
-    const text = cleanText(raw);
+    const text = String(raw || '');
     if (!text) return '';
     const parts = text
-      .split(/\n| {2,}/)
-      .map(cleanText)
+      .split(/\r?\n| {2,}/)
+      .map(part => this._sanitizeContactTitle(part))
       .filter(Boolean);
+    const whole = this._sanitizeContactTitle(text);
+    if (whole) parts.unshift(whole);
     const queryNorm = normalize(query);
     const exact = parts.find(part => normalize(part) === queryNorm);
     if (exact) return exact;
-    return parts.find(part => normalize(part).includes(queryNorm)) || parts[0] || '';
+    return parts.find(part => {
+      const partNorm = normalize(part);
+      return partNorm.includes(queryNorm) || queryNorm.includes(partNorm);
+    }) || parts[0] || '';
+  }
+
+  _sanitizeContactTitle(value) {
+    let text = cleanText(value);
+    if (!text) return '';
+
+    text = text
+      .replace(/\b(?:wds|ic)(?:-[a-z0-9_]+)+\b/gi, ' ')
+      .replace(/\s+(?:Yesterday|Today|Tomorrow).*$/i, '')
+      .replace(/\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun),?.*$/i, '')
+      .replace(/\s+\d{1,2}:\d{2}(?:\s?[AP]M)?.*$/i, '')
+      .replace(/\s+\d{1,2}\/\d{1,2}(?:\/\d{2,4})?.*$/i, '')
+      .replace(/\s+(?:Photo|Image|Video|Audio|Document|Sticker|GIF|Voice message|Contact card|Location).*$/i, '')
+      .replace(/\s+(?:Typing|Online|Read|Unread|Delivered|Sent|Seen|Status|Verified).*$/i, '')
+      .replace(/\b(?:read|unread|delivered|sent|seen|status|verified|badge|image|photo|icon)\b/gi, ' ');
+
+    return cleanText(text);
+  }
+
+  _logContactNameExtraction({ raw, name, source }) {
+    if (!this.debug) return;
+    this.logger.debug?.('[WhatsAppProvider] contact name extracted', {
+      source,
+      name,
+      rawText: raw
+    });
   }
 
   _dedupeContacts(contacts) {

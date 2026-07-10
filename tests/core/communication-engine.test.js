@@ -735,11 +735,12 @@ describe('Communication Engine', function() {
 
   it('selects the matching WhatsApp chat row instead of the search-results container', async function() {
     const cell = { click: async () => {} };
+    const emptyLocator = { count: async () => 0 };
     const row = {
       isVisible: async () => true,
       textContent: async () => 'MUMMY Yesterday Photo',
       locator: selector => {
-        assert.equal(selector, '[data-testid="cell-frame-container"]');
+        if (selector !== '[data-testid="cell-frame-container"]') return emptyLocator;
         return cell;
       }
     };
@@ -753,5 +754,61 @@ describe('Communication Engine', function() {
 
     assert.equal(contacts.length, 1);
     assert.equal(contacts[0].locator, cell);
+  });
+
+  it('uses the dedicated WhatsApp contact title instead of the full accessibility row text', async function() {
+    const cell = { click: async () => {} };
+    const title = {
+      getAttribute: async attribute => (attribute === 'title' ? 'CHARAN' : ''),
+      textContent: async () => 'CHARAN'
+    };
+    const titleLocator = {
+      count: async () => 1,
+      nth: () => title
+    };
+    const emptyLocator = { count: async () => 0 };
+    const row = {
+      isVisible: async () => true,
+      textContent: async () => 'CHARAN Yesterdaywds-ic-readic-imagePhoto',
+      locator: selector => {
+        if (selector === '[data-testid="cell-frame-title"]') return titleLocator;
+        if (selector === '[data-testid="cell-frame-container"]') return cell;
+        return emptyLocator;
+      }
+    };
+    const provider = new WhatsAppProvider({ session: { on() {} } });
+    const contacts = await provider._readSearchResults({
+      locator: selector => {
+        assert.equal(selector, '[role="row"][data-testid^="list-item-"]');
+        return { count: async () => 1, nth: () => row };
+      }
+    }, 'charan');
+
+    assert.equal(contacts.length, 1);
+    assert.equal(contacts[0].name, 'CHARAN');
+    assert.equal(Object.prototype.hasOwnProperty.call(contacts[0], 'rawText'), false);
+  });
+
+  it('sanitizes fallback WhatsApp row text before exposing contact choices', async function() {
+    const cell = { click: async () => {} };
+    const emptyLocator = { count: async () => 0 };
+    const row = {
+      isVisible: async () => true,
+      textContent: async () => 'CHARAN Yesterdaywds-ic-readic-imagePhoto',
+      locator: selector => {
+        if (selector === '[data-testid="cell-frame-container"]') return cell;
+        return emptyLocator;
+      }
+    };
+    const provider = new WhatsAppProvider({ session: { on() {} } });
+    const contacts = await provider._readSearchResults({
+      locator: selector => {
+        assert.equal(selector, '[role="row"][data-testid^="list-item-"]');
+        return { count: async () => 1, nth: () => row };
+      }
+    }, 'charan');
+
+    assert.equal(contacts.length, 1);
+    assert.equal(contacts[0].name, 'CHARAN');
   });
 });
