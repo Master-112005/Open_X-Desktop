@@ -219,7 +219,10 @@ const unresponsiveTimeouts = new Map();
 const VOICE_SHORTCUT_DEBOUNCE_MS = 450;
 const VOICE_ACTIVE_CANCEL_GRACE_MS = 650;
 const VOICE_SPEAKING_DOUBLE_TAP_MS = 1400;
-const VOICE_CAPTURE_WARMUP_DELAY_MS = 350;
+const VOICE_IDLE_RUNTIME_PREWARM_DELAY_MS = 15 * 1000;
+const VOICE_IDLE_RESOURCE_WARMUP_DELAY_MS = 45 * 1000;
+const VOICE_RESUME_RUNTIME_PREWARM_DELAY_MS = 1200;
+const VOICE_RESUME_RESOURCE_WARMUP_DELAY_MS = 2500;
 const IPC_CHANNELS = [
   'command:process',
   'command:confirm',
@@ -772,25 +775,37 @@ function prewarmVoiceRuntime(reason = 'startup') {
   }
 }
 
-function scheduleVoiceRuntimePrewarm(reason = 'startup') {
+function scheduleVoiceRuntimePrewarm(reason = 'startup', delayMs = VOICE_IDLE_RUNTIME_PREWARM_DELAY_MS) {
   if (voiceCaptureWarmupTimer) {
     clearTimeout(voiceCaptureWarmupTimer);
     voiceCaptureWarmupTimer = null;
   }
+  const warmupDelayMs = Math.max(0, Number(delayMs) || 0);
   voiceCaptureWarmupTimer = setTimeout(() => {
     voiceCaptureWarmupTimer = null;
     prewarmVoiceRuntime(reason);
-  }, VOICE_CAPTURE_WARMUP_DELAY_MS);
+  }, warmupDelayMs);
   if (typeof voiceCaptureWarmupTimer.unref === 'function') {
     voiceCaptureWarmupTimer.unref();
   }
 }
 
-function scheduleVoiceResourceWarmup(reason = 'post-startup') {
+function shouldPrewarmVoiceResources() {
+  return runtimeConfig?.voice?.preloadResources === true ||
+    runtimeConfig?.voice?.preloadStt === true ||
+    process.env.OPENX_PREWARM_VOICE_STT === '1';
+}
+
+function scheduleVoiceResourceWarmup(reason = 'post-startup', delayMs = VOICE_IDLE_RESOURCE_WARMUP_DELAY_MS) {
   if (voiceResourceWarmupTimer) {
     clearTimeout(voiceResourceWarmupTimer);
     voiceResourceWarmupTimer = null;
   }
+  if (!shouldPrewarmVoiceResources()) {
+    mainLogger.info('Voice resource warm-up skipped until first use', { reason });
+    return false;
+  }
+  const warmupDelayMs = Math.max(0, Number(delayMs) || 0);
   voiceResourceWarmupTimer = setTimeout(() => {
     voiceResourceWarmupTimer = null;
     if (!voiceSessionManager || cleanupFinished || cleanupPromise) return;
@@ -799,10 +814,11 @@ function scheduleVoiceResourceWarmup(reason = 'post-startup') {
     } catch (error) {
       mainLogger.warn('Voice resource warm-up failed', { error: error.message });
     }
-  }, VOICE_CAPTURE_WARMUP_DELAY_MS * 2);
+  }, warmupDelayMs);
   if (typeof voiceResourceWarmupTimer.unref === 'function') {
     voiceResourceWarmupTimer.unref();
   }
+  return true;
 }
 
 function buildSettingsSnapshot() {
@@ -1088,9 +1104,9 @@ function scheduleVoiceResumeRecovery(reason = 'system-resume') {
     voiceResumeRecoveryTimer = null;
     if (cleanupFinished || cleanupPromise) return;
     mainLogger.info('Voice runtime recovery after system resume started', { reason });
-    scheduleVoiceRuntimePrewarm(reason);
-    scheduleVoiceResourceWarmup(reason);
-  }, 1200);
+    scheduleVoiceRuntimePrewarm(reason, VOICE_RESUME_RUNTIME_PREWARM_DELAY_MS);
+    scheduleVoiceResourceWarmup(reason, VOICE_RESUME_RESOURCE_WARMUP_DELAY_MS);
+  }, VOICE_RESUME_RUNTIME_PREWARM_DELAY_MS);
   if (typeof voiceResumeRecoveryTimer.unref === 'function') {
     voiceResumeRecoveryTimer.unref();
   }
@@ -3062,6 +3078,13 @@ async function destroyAssistantInstance() {
     voiceOverlay = null;
   }
   destroyVoiceCaptureWindow();
+  if (voiceSessionManager) {
+    try {
+      voiceSessionManager.destroy?.('assistant-destroy');
+    } catch (error) {
+      mainLogger.warn('Failed to destroy voice session resources', { error: error.message });
+    }
+  }
   voiceSessionManager = null;
 
   if (!assistant) {
@@ -3519,8 +3542,8 @@ async function initializeAssistant() {
     .catch(error => {
       mainLogger.warn('Communication service startup failed', { error: error.message });
     });
-  scheduleVoiceRuntimePrewarm('assistant-initialized');
-  scheduleVoiceResourceWarmup('post-startup');
+  scheduleVoiceRuntimePrewarm('assistant-idle-prewarm');
+  scheduleVoiceResourceWarmup('desktop-idle-warmup');
 
   registerChatShortcut();
   mainLogger.info('Assistant initialized', {
@@ -3675,6 +3698,25 @@ function normalizeError(reason) {
   }
 }
 
+function buildCrashRecoveryMetadata(origin, error, component = 'main-process') {
+  return {
+    origin,
+    reason: error?.message || String(error || 'Unknown crash'),
+    component,
+    pid: process.pid,
+    uptimeMs: Math.round(process.uptime() * 1000),
+    memory: process.memoryUsage?.() || null,
+    assistantInitialized: Boolean(assistant),
+    voiceState: voiceSessionManager?.getCurrentState?.() || '',
+    windows: {
+      chat: Boolean(chatWindow && !chatWindow.isDestroyed()),
+      voice: Boolean(voiceOverlay?.windowController?.window && !voiceOverlay.windowController.window.isDestroyed()),
+      planner: Boolean(plannerWindow && !plannerWindow.isDestroyed()),
+      timer: Boolean(timerWidgetWindow && !timerWidgetWindow.isDestroyed())
+    }
+  };
+}
+
 function waitForTimeout(milliseconds) {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
@@ -3704,14 +3746,11 @@ function handleFatalError(reason, origin) {
 
   if (app?.isReady?.() && !cleanupFinished) {
     try {
-      if (crashRecoveryPolicy.requestRestart(Date.now(), {
-        origin,
-        reason: error.message,
-        component: 'main-process'
-      })) {
+      const recoveryMetadata = buildCrashRecoveryMetadata(origin, error, 'main-process');
+      if (crashRecoveryPolicy.requestRestart(Date.now(), recoveryMetadata)) {
         app.relaunch();
       } else {
-        mainLogger.error('Automatic relaunch blocked by crash-loop policy');
+        mainLogger.error('Automatic relaunch blocked by crash-loop policy', crashRecoveryPolicy.getDiagnostics());
       }
     } catch (relaunchError) {
       mainLogger.error('Failed to schedule application relaunch', { error: relaunchError.message });

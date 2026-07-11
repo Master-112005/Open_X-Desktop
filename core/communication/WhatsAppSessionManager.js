@@ -16,9 +16,11 @@ const {
 const DEFAULT_LAUNCH_TIMEOUT_MS = 30000;
 const DEFAULT_NAVIGATION_TIMEOUT_MS = 20000;
 const DEFAULT_READY_TIMEOUT_MS = 30000;
+const DEFAULT_UI_READY_TIMEOUT_MS = 30000;
 const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const DETECTION_CANDIDATE_TIMEOUT_MS = 250;
 const INSPECTION_TIMEOUT_MS = 1000;
+const READY_POLL_INTERVAL_MS = 250;
 const BACKGROUND_WINDOW_BOUNDS = Object.freeze({
   left: -32000,
   top: -32000,
@@ -244,10 +246,25 @@ class WhatsAppSessionManager extends EventEmitter {
     this.page.on?.('crash', this._pageCrashHandler);
     this.page.on?.('console', this._pageConsoleHandler);
     await this._runStage(
-      'load-whatsapp',
+      'page-goto-whatsapp',
       () => this.page.goto(WhatsAppSelectors.url, { waitUntil: 'domcontentloaded' }),
       this._stageTimeout(options, 'navigationTimeoutMs', DEFAULT_NAVIGATION_TIMEOUT_MS)
     );
+    await this._runStage(
+      'wait-for-load-state',
+      () => this.page.waitForLoadState?.('domcontentloaded', {
+        timeout: this._stageTimeout(options, 'navigationTimeoutMs', DEFAULT_NAVIGATION_TIMEOUT_MS)
+      }) || Promise.resolve(),
+      this._stageTimeout(options, 'loadStateTimeoutMs', 5000)
+    );
+    const readySnapshot = await this._runStage(
+      'wait-for-whatsapp-ready',
+      () => this.waitForWhatsAppReady(options),
+      this._stageTimeout(options, 'uiReadyTimeoutMs', DEFAULT_UI_READY_TIMEOUT_MS)
+    );
+    if (readySnapshot.state === SESSION_STATES.UNKNOWN) {
+      void this.captureDiagnostics('whatsapp-ui-ready-timeout', readySnapshot).catch(() => {});
+    }
     if (this.config?.communication?.whatsapp?.inspector === true && this.page.pause) {
       this.logger.warn?.('[WhatsAppSession] Playwright inspector paused');
       await this.page.pause();
@@ -465,8 +482,7 @@ class WhatsAppSessionManager extends EventEmitter {
     if (!this.context || !this.page) {
       await this._runStage('start-connection', () => this.connect({
         visible: options.visible === true,
-        background: options.background === true,
-        timeoutMs
+        background: options.background === true
       }), timeoutMs).catch(error => {
         this._setState(SESSION_STATES.ERROR);
         throw new BrowserNotRunningError('whatsapp', this._diagnostics(error));
@@ -475,6 +491,12 @@ class WhatsAppSessionManager extends EventEmitter {
 
     const startedAt = Date.now();
     let lastSnapshot = null;
+    const remainingForReadiness = Math.max(1, timeoutMs - (Date.now() - startedAt));
+    lastSnapshot = await this._runStage(
+      'wait-for-whatsapp-ready',
+      () => this.waitForWhatsAppReady({ ...options, timeoutMs: remainingForReadiness }),
+      remainingForReadiness
+    );
     while (Date.now() - startedAt <= timeoutMs) {
       const remainingMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
       let snapshot;
@@ -533,22 +555,15 @@ class WhatsAppSessionManager extends EventEmitter {
     const dom = await this._detectDomState();
     const layout = this._detectLayout(dom);
     this.lastLayout = layout;
-    if (layout === WhatsAppSelectors.layouts.QR_LOGIN) {
-      this._setState(SESSION_STATES.QR_REQUIRED);
+    const state = this._stateForLayout(layout);
+    if (state === SESSION_STATES.QR_REQUIRED) {
+      this._setState(state);
       this.emit(COMMUNICATION_EVENTS.QR_CODE_DETECTED, { provider: 'whatsapp' });
-    } else if (layout === WhatsAppSelectors.layouts.LOADING) {
-      this._setState(SESSION_STATES.LOADING);
-    } else if (layout === 'Offline') {
-      this._setState(SESSION_STATES.OFFLINE);
-    } else if (
-      layout === WhatsAppSelectors.layouts.LOGGED_IN ||
-      layout === WhatsAppSelectors.layouts.CHAT_OPEN ||
-      layout === WhatsAppSelectors.layouts.EMPTY_CHAT
-    ) {
-      this._setState(SESSION_STATES.CONNECTED);
+    } else if (state === SESSION_STATES.CONNECTED) {
+      this._setState(state);
       this.emit(COMMUNICATION_EVENTS.CONNECTED, { provider: 'whatsapp' });
     } else {
-      this._setState(SESSION_STATES.UNKNOWN);
+      this._setState(state);
     }
 
     const snapshot = { state: this.lastState, layout, dom, url: inspection.url, inspection };
@@ -580,6 +595,77 @@ class WhatsAppSessionManager extends EventEmitter {
       await page.waitForTimeout?.(500);
     }
     return this.detectState();
+  }
+
+  async waitForWhatsAppReady(options = {}) {
+    const page = this.page;
+    if (!page) {
+      this._setState(SESSION_STATES.DISCONNECTED);
+      return {
+        state: SESSION_STATES.DISCONNECTED,
+        layout: null,
+        dom: null,
+        url: '',
+        inspection: null
+      };
+    }
+
+    const timeoutMs = Math.max(
+      1000,
+      Number(options.timeoutMs) ||
+        Number(options.uiReadyTimeoutMs) ||
+        Number(this.config?.communication?.whatsapp?.uiReadyTimeoutMs) ||
+        DEFAULT_UI_READY_TIMEOUT_MS
+    );
+    const pollIntervalMs = Math.max(
+      100,
+      Math.min(
+        Number(options.pollIntervalMs) ||
+          Number(this.config?.communication?.whatsapp?.readyPollIntervalMs) ||
+          READY_POLL_INTERVAL_MS,
+        1000
+      )
+    );
+    const startedAt = Date.now();
+    let lastSnapshot = null;
+
+    while (Date.now() - startedAt <= timeoutMs) {
+      const dom = await this._detectDomState();
+      const layout = this._detectLayout(dom);
+      const inspection = await this._inspectPage();
+      const elapsedMs = Date.now() - startedAt;
+      const state = this._stateForLayout(layout, { initializing: true });
+      const snapshot = { state, layout, dom, url: inspection.url, inspection };
+      lastSnapshot = snapshot;
+      this.lastLayout = layout;
+      this._setState(state);
+      this._logReadinessSnapshot('waitForWhatsAppReady', snapshot, elapsedMs, timeoutMs);
+
+      if (this._isStableWhatsAppUiLayout(layout)) {
+        this._debug('whatsapp-ui-ready', this._diagnostics(null, snapshot));
+        return snapshot;
+      }
+
+      if (layout === 'Offline') {
+        return snapshot;
+      }
+
+      await this._wait(pollIntervalMs);
+    }
+
+    const inspection = lastSnapshot?.inspection || await this._inspectPage();
+    const timeoutSnapshot = {
+      ...(lastSnapshot || {}),
+      state: SESSION_STATES.UNKNOWN,
+      layout: lastSnapshot?.layout || 'Unknown',
+      dom: lastSnapshot?.dom || await this._detectDomState(),
+      url: inspection.url,
+      inspection
+    };
+    this.lastLayout = timeoutSnapshot.layout;
+    this._setState(SESSION_STATES.UNKNOWN);
+    this._logReadinessSnapshot('waitForWhatsAppReady-timeout', timeoutSnapshot, Date.now() - startedAt, timeoutMs);
+    return timeoutSnapshot;
   }
 
   async health() {
@@ -633,6 +719,56 @@ class WhatsAppSessionManager extends EventEmitter {
     }
     if (dom.sidebar.visible || dom.chatList.visible || dom.searchBox.visible) return WhatsAppSelectors.layouts.LOGGED_IN;
     return 'Unknown';
+  }
+
+  _stateForLayout(layout, options = {}) {
+    if (layout === WhatsAppSelectors.layouts.QR_LOGIN) return SESSION_STATES.QR_REQUIRED;
+    if (layout === WhatsAppSelectors.layouts.LOADING) return SESSION_STATES.LOADING;
+    if (layout === 'Offline') return SESSION_STATES.OFFLINE;
+    if (
+      layout === WhatsAppSelectors.layouts.LOGGED_IN ||
+      layout === WhatsAppSelectors.layouts.CHAT_OPEN ||
+      layout === WhatsAppSelectors.layouts.EMPTY_CHAT
+    ) {
+      return SESSION_STATES.CONNECTED;
+    }
+    return options.initializing === true ? SESSION_STATES.INITIALIZING : SESSION_STATES.UNKNOWN;
+  }
+
+  _isStableWhatsAppUiLayout(layout) {
+    return layout === WhatsAppSelectors.layouts.QR_LOGIN ||
+      layout === WhatsAppSelectors.layouts.LOGGED_IN ||
+      layout === WhatsAppSelectors.layouts.CHAT_OPEN ||
+      layout === WhatsAppSelectors.layouts.EMPTY_CHAT;
+  }
+
+  async _wait(ms) {
+    if (this.page?.waitForTimeout) {
+      await this.page.waitForTimeout(ms);
+      return;
+    }
+    await new Promise(resolve => {
+      const timer = this.setTimer(resolve, ms);
+      timer.unref?.();
+    });
+  }
+
+  _logReadinessSnapshot(stage, snapshot, elapsedMs, timeoutMs) {
+    const report = this._requiredElementReport(snapshot.dom) || { found: [], missing: [] };
+    this.logger.info?.('[WhatsAppSession] readiness inspected', {
+      at: new Date().toISOString(),
+      stage,
+      elapsedMs,
+      timeoutMs,
+      url: snapshot.inspection?.url || snapshot.url || '',
+      title: snapshot.inspection?.title || '',
+      readyState: snapshot.inspection?.readyState || 'unavailable',
+      htmlLength: snapshot.inspection?.htmlLength || 0,
+      layout: snapshot.layout,
+      state: snapshot.state,
+      selectorsFound: report.found,
+      selectorsMissing: report.missing
+    });
   }
 
   async captureDiagnostics(reason = 'whatsapp-diagnostics', snapshot = null, resolverReport = null) {

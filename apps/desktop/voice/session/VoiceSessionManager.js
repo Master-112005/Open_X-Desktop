@@ -720,6 +720,33 @@ class VoiceSessionManager {
   }
 
   /**
+   * Destroy all manager-owned voice resources and detach event listeners.
+   * This is used by settings reloads, crash cleanup, and update shutdowns so
+   * STT models, audio handles, timers, and renderer listeners are not kept
+   * alive after the assistant lifecycle has been replaced.
+   * @param {string} reason Destruction reason for diagnostics.
+   * @returns {{destroyed: boolean, state: string}}
+   */
+  destroy(reason = 'destroy') {
+    this._clearAllTimeouts();
+    if (this.currentSession) {
+      try {
+        this._recordSessionSnapshot(this.currentSession.toJSON());
+      } catch (_) {}
+    }
+    this.currentSession = null;
+    this._stopRecognitionCycle(`manager-${reason}`);
+    this._detachResourceListeners();
+    this._releaseSessionResources({ destroy: true });
+    this.speechPrerollFrames = [];
+    this.transitionLog = [];
+    this.events.removeAllListeners();
+    this.currentState = this.stateMachine.getInitialState();
+    this._log('Destroyed', { reason, state: this.currentState });
+    return { destroyed: true, state: this.currentState };
+  }
+
+  /**
    * Return an immutable snapshot of the current session.
    * @returns {object|null}
    */
@@ -915,13 +942,26 @@ class VoiceSessionManager {
    * @returns {void}
    * @private
    */
-  _releaseSessionResources() {
+  _releaseSessionResources(options = {}) {
+    const destroy = options.destroy === true;
     for (const key of Object.keys(this.resources)) {
       const resource = this.resources[key];
       if (!resource) continue;
       try {
-        if (key === 'audioCapture' && typeof resource.close === 'function') {
+        if (destroy && key === 'sttEngine' && typeof resource.destroy === 'function') {
+          resource.destroy();
+          this.resources[key] = null;
+        } else if (destroy && key === 'audioProcessor' && typeof resource.close === 'function') {
           resource.close();
+          this.resources[key] = null;
+        } else if (destroy && key === 'transcriptProcessor') {
+          this.resources[key] = null;
+        } else if (destroy && key === 'speechSourceClassifier') {
+          if (typeof resource.reset === 'function') resource.reset();
+          this.resources[key] = null;
+        } else if (key === 'audioCapture' && typeof resource.close === 'function') {
+          resource.close();
+          if (destroy) this.resources[key] = null;
         } else if (key === 'audioProcessor' && typeof resource.reset === 'function') {
           resource.reset();
         } else if (key === 'speechSourceClassifier' && typeof resource.reset === 'function') {
@@ -940,6 +980,25 @@ class VoiceSessionManager {
           this._log(`Resource cleanup failed: ${key}`, { error: error.message });
         }
       }
+    }
+  }
+
+  _detachResourceListeners() {
+    this._detach(this.resources.audioCapture, AUDIO_EVENTS.AUDIO_FRAME, this._audioFrameListener);
+    this._detach(this.resources.audioProcessor, AUDIO_PROCESSING_EVENTS.FRAME_PROCESSED, this._processedFrameListener);
+    this._detach(this.resources.sttEngine, STT_EVENTS.PARTIAL_RESULT, this._partialTranscriptListener);
+    this._detach(this.resources.sttEngine, STT_EVENTS.FINAL_RESULT, this._finalTranscriptListener);
+    this._detach(this.resources.transcriptProcessor, NORMALIZATION_EVENTS.NORMALIZED_TRANSCRIPT_READY, this._normalizedTranscriptListener);
+  }
+
+  _detach(resource, eventName, listener) {
+    if (!resource || !eventName || !listener) return;
+    if (typeof resource.off === 'function') {
+      resource.off(eventName, listener);
+      return;
+    }
+    if (typeof resource.removeListener === 'function') {
+      resource.removeListener(eventName, listener);
     }
   }
 

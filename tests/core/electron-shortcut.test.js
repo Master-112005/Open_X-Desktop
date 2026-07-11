@@ -80,8 +80,13 @@ describe('Electron Chat Shortcut', function() {
     assert.match(script, /canGrantVoiceCapturePermission\(webContents, permission, requestingUrl\)/);
     assert.match(script, /function createVoiceCaptureWindow\(\)/);
     assert.match(script, /function prewarmVoiceRuntime\(reason = 'startup'\)/);
-    assert.match(script, /function scheduleVoiceRuntimePrewarm\(reason = 'startup'\)/);
-    assert.match(script, /scheduleVoiceRuntimePrewarm\('assistant-initialized'\)/);
+    assert.match(script, /function scheduleVoiceRuntimePrewarm\(reason = 'startup', delayMs = VOICE_IDLE_RUNTIME_PREWARM_DELAY_MS\)/);
+    assert.match(script, /const VOICE_IDLE_RUNTIME_PREWARM_DELAY_MS = 15 \* 1000/);
+    assert.match(script, /function shouldPrewarmVoiceResources\(\)/);
+    assert.match(script, /OPENX_PREWARM_VOICE_STT/);
+    assert.match(script, /scheduleVoiceRuntimePrewarm\('assistant-idle-prewarm'\)/);
+    assert.match(script, /scheduleVoiceResourceWarmup\('desktop-idle-warmup'\)/);
+    assert.doesNotMatch(script, /scheduleVoiceRuntimePrewarm\('assistant-initialized'\)/);
     assert.match(script, /function createDesktopMicrophoneBackend\(\)/);
     assert.match(script, /voiceCapture:start/);
     assert.match(script, /voiceCapture:stop/);

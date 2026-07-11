@@ -71,25 +71,30 @@ class CommunicationEngine extends EventEmitter {
   async prepareMessage({ provider, recipient, message, contactId, timeoutMs, background } = {}) {
     const selectedProvider = provider || this.defaultProvider;
     const readyOptions = {
-      timeoutMs,
       background: background === true
     };
+    const operationTimeoutMs = Math.max(1000, Number(timeoutMs) || Number(this.config?.communication?.operationTimeoutMs) || 8000);
     try {
       this.logger.info('Communication prepareMessage started', {
         provider: selectedProvider,
-        timeoutMs: readyOptions.timeoutMs || null
+        operationTimeoutMs
       });
       this.logger.debug('Communication prepareMessage route', {
         selectedCommunicationProvider: selectedProvider,
         hasRecipient: Boolean(recipient),
         hasMessage: Boolean(message),
         background: readyOptions.background,
-        timeoutMs: readyOptions.timeoutMs || null
+        operationTimeoutMs
       });
       const communicationProvider = this.manager.get(selectedProvider);
       const page = await communicationProvider.ensureReady?.(readyOptions);
       this.logger.info('Communication prepareMessage ready', { provider: selectedProvider });
-      const result = await communicationProvider.composeMessage(recipient, message, { contactId, readyOptions, page });
+      const result = await communicationProvider.composeMessage(recipient, message, {
+        contactId,
+        readyOptions,
+        page,
+        timeoutMs: operationTimeoutMs
+      });
       this.logger.info('Communication prepareMessage completed', {
         provider: selectedProvider,
         success: Boolean(result?.success)

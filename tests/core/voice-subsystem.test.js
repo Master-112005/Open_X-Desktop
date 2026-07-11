@@ -412,6 +412,45 @@ describe('Voice Subsystem Architecture', function() {
     assert.equal(errors.length, 0);
   });
 
+  it('should destroy voice resources and detach listeners during assistant reload cleanup', function() {
+    const { VoiceSessionManager } = require('../../apps/desktop/voice');
+    const calls = [];
+    const listenerStore = new Map();
+    const resource = (name, extra = {}) => ({
+      on(event, listener) {
+        listenerStore.set(`${name}:${event}`, listener);
+        calls.push(`${name}:on:${event}`);
+      },
+      off(event, listener) {
+        if (listenerStore.get(`${name}:${event}`) === listener) {
+          listenerStore.delete(`${name}:${event}`);
+        }
+        calls.push(`${name}:off:${event}`);
+      },
+      ...extra
+    });
+    const manager = new VoiceSessionManager({
+      resources: {
+        audioCapture: resource('audioCapture', { close: () => calls.push('audioCapture:close') }),
+        audioProcessor: resource('audioProcessor', { close: () => calls.push('audioProcessor:close'), reset: () => calls.push('audioProcessor:reset') }),
+        sttEngine: resource('sttEngine', { cancel: () => calls.push('sttEngine:cancel'), destroy: () => calls.push('sttEngine:destroy') }),
+        transcriptProcessor: resource('transcriptProcessor', { reset: () => calls.push('transcriptProcessor:reset') })
+      },
+      setTimeout: () => ({ unref() {} }),
+      clearTimeout: () => {}
+    });
+
+    const destroyed = manager.destroy('test-cleanup');
+
+    assert.equal(destroyed.destroyed, true);
+    assert.equal(listenerStore.size, 0);
+    assert.ok(calls.includes('audioCapture:close'));
+    assert.ok(calls.includes('audioProcessor:close'));
+    assert.ok(calls.includes('sttEngine:destroy'));
+    assert.equal(manager.getSession(), null);
+    assert.equal(manager.isBusy(), false);
+  });
+
   it('should schedule and clear lifecycle timeout placeholders only', function() {
     const { VoiceSessionManager } = require('../../apps/desktop/voice');
     const scheduled = [];

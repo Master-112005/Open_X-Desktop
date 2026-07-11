@@ -78,7 +78,13 @@ describe('Crash Recovery Policy', function() {
     assert.equal(policy.requestRestart(1000, {
       origin: 'startup',
       component: 'main-process',
-      reason: longReason
+      reason: longReason,
+      pid: 123,
+      uptimeMs: 4567,
+      assistantInitialized: true,
+      voiceState: 'LISTENING',
+      windows: { chat: true, voice: true, planner: false, timer: false },
+      memory: { rss: 10, heapUsed: 20, external: 30 }
     }), true);
 
     const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
@@ -86,5 +92,23 @@ describe('Crash Recovery Policy', function() {
     assert.equal(state.lastCrash.component, 'main-process');
     assert.equal(state.lastCrash.reason.length, 180);
     assert.equal(state.lastCrash.timestamp, 1000);
+    assert.equal(state.lastCrash.pid, 123);
+    assert.equal(state.lastCrash.assistantInitialized, true);
+    assert.equal(state.lastCrash.voiceState, 'LISTENING');
+    assert.deepEqual(state.lastCrash.memory, { rss: 10, heapUsed: 20, external: 30 });
+  });
+
+  it('should expose detailed crash recovery diagnostics without changing restart state shape', function() {
+    const policy = new CrashRecoveryPolicy({ statePath, maxRestarts: 2, windowMs: 1000 });
+
+    assert.equal(policy.requestRestart(1000, { origin: 'startup', component: 'assistant', reason: 'boot failed' }), true);
+    const diagnostics = policy.getDiagnostics(1100);
+
+    assert.equal(diagnostics.blocked, false);
+    assert.deepEqual(diagnostics.crashTimestamps, [1000]);
+    assert.equal(diagnostics.crashRecords.length, 1);
+    assert.equal(diagnostics.lastCrash.component, 'assistant');
+    assert.equal(diagnostics.windowMs, 1000);
+    assert.equal(diagnostics.maxRestarts, 2);
   });
 });
