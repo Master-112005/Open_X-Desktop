@@ -410,6 +410,8 @@ class VoiceOverlay extends EventEmitter {
       scheduleId: String(action?.scheduleId || '').slice(0, 140),
       provider: String(action?.provider || '').slice(0, 40),
       draftId: String(action?.draftId || '').slice(0, 128),
+      updateActionId: String(action?.updateActionId || action?.id || '').slice(0, 80),
+      updatePayload: action?.updatePayload && typeof action.updatePayload === 'object' ? action.updatePayload : {},
       choiceIndex: Math.max(0, Math.min(8, Number(action?.choiceIndex) || 0)),
       minutes: Math.max(1, Math.min(180, Number(action?.minutes) || 5)),
       primary: action?.primary === true

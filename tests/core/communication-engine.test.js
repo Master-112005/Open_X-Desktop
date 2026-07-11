@@ -120,11 +120,13 @@ describe('Communication Engine', function() {
   });
 
   it('prepares a WhatsApp draft and emits a confirmation event', async function() {
+    const idleBlocks = [];
     const provider = new WhatsAppProvider({
       session: {
         on() {},
         ensureReady: async () => ({}),
-        getPage: async () => ({})
+        getPage: async () => ({}),
+        setIdleShutdownBlocked: (blocked, reason) => idleBlocks.push({ blocked, reason })
       }
     });
     const events = [];
@@ -157,6 +159,7 @@ describe('Communication Engine', function() {
     assert.equal(events.length, 1);
     assert.equal(events[0].draftId, result.data.draftId);
     assert.equal(events[0].message, undefined);
+    assert.deepEqual(idleBlocks, [{ blocked: true, reason: 'pending-whatsapp-draft' }]);
   });
 
   it('restores a pending draft after idle shutdown before sending it', async function() {
@@ -186,6 +189,15 @@ describe('Communication Engine', function() {
       found: true,
       locator: { click: async () => { sent += 1; } }
     });
+    provider._verifyMessageSent = async () => ({
+      success: true,
+      inputEmpty: true,
+      draftDisappeared: true,
+      draftStillExists: false,
+      outgoingMessageBubbleExists: true,
+      messageAppearsInChatHistory: true,
+      sendButtonStateChanged: true
+    });
 
     const result = await provider.send('draft-1');
 
@@ -199,12 +211,14 @@ describe('Communication Engine', function() {
     const page = {};
     let sent = 0;
     const lifecycle = [];
+    const idleBlocks = [];
     const provider = new WhatsAppProvider({
       session: {
         on() {},
         isBrowserRunning: () => true,
         ensureReady: async () => page,
         touch: () => lifecycle.push('touch'),
+        setIdleShutdownBlocked: (blocked, reason) => idleBlocks.push({ blocked, reason }),
         releaseAfterOperation: async reason => lifecycle.push(`release:${reason}`)
       }
     });
@@ -218,13 +232,68 @@ describe('Communication Engine', function() {
       found: true,
       locator: { click: async () => { sent += 1; } }
     });
+    provider._verifyMessageSent = async () => ({
+      success: true,
+      inputEmpty: true,
+      draftDisappeared: true,
+      draftStillExists: false,
+      outgoingMessageBubbleExists: true,
+      messageAppearsInChatHistory: true,
+      sendButtonStateChanged: true
+    });
 
     const result = await provider.send('draft-1');
 
     assert.equal(result.success, true);
     assert.equal(sent, 1);
     assert.equal(provider.getDraft('draft-1'), null);
-    assert.deepEqual(lifecycle, ['touch', 'release:message-sent']);
+    assert.deepEqual(lifecycle, ['touch', 'touch', 'release:message-sent']);
+    assert.deepEqual(idleBlocks, [{ blocked: false, reason: '' }]);
+  });
+
+  it('does not report WhatsApp send success or close the session until send verification passes', async function() {
+    const page = {
+      keyboard: { press: async () => {} },
+      waitForTimeout: async () => {}
+    };
+    let sent = 0;
+    let released = false;
+    const provider = new WhatsAppProvider({
+      session: {
+        on() {},
+        isBrowserRunning: () => true,
+        ensureReady: async () => page,
+        touch() {},
+        releaseAfterOperation: async () => { released = true; }
+      }
+    });
+    provider.preparedDrafts.set('draft-1', {
+      id: 'draft-1',
+      recipient: 'Mohit',
+      message: 'Hi',
+      contact: { id: 'chat:0:mohit', name: 'Mohit' }
+    });
+    provider._resolveRequired = async () => ({
+      found: true,
+      locator: { click: async () => { sent += 1; } }
+    });
+    provider._verifyMessageSent = async () => ({
+      success: false,
+      inputEmpty: false,
+      draftDisappeared: false,
+      draftStillExists: true,
+      outgoingMessageBubbleExists: false,
+      messageAppearsInChatHistory: false,
+      sendButtonStateChanged: false
+    });
+
+    const result = await provider.send('draft-1');
+
+    assert.equal(result.success, false);
+    assert.equal(result.code, 'MESSAGE_DRAFT_FAILED');
+    assert.equal(sent, 1);
+    assert.equal(provider.getDraft('draft-1').message, 'Hi');
+    assert.equal(released, false);
   });
 
   it('cancels an idle WhatsApp draft without recreating the browser and releases the session', async function() {
