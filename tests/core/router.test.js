@@ -31,6 +31,36 @@ describe('Action Router', function() {
     assert.ok(result.entities.appName);
   });
 
+  it('should route assistant update commands to the shared update presentation action', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const router = new ActionRouter(config, {
+      execute(actionId, entities, context) {
+        executed.push({ actionId, entities, context });
+        return {
+          success: true,
+          data: {
+            operation: entities.operation,
+            presentation: {
+              status: { message: 'Update status is available.' },
+              version: { currentVersionLabel: 'Version 6.0.1', latestVersionLabel: 'Version 6.1.0' }
+            }
+          }
+        };
+      }
+    });
+
+    const result = await router.process('show update progress', 'voice');
+
+    assert.equal(result.success, true);
+    assert.equal(result.intent, 'update.presentation');
+    assert.equal(result.entities.operation, 'progress');
+    assert.equal(executed[0].actionId, 'update.presentation');
+    assert.equal(executed[0].context.source, 'voice');
+  });
+
   it('should preserve and route multi-word rename commands', async function() {
     const executed = [];
     const config = {

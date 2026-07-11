@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, globalShortcut, session, screen, powerMonitor, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, globalShortcut, session, screen, powerMonitor, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -26,6 +26,7 @@ const { SettingsService } = require('../settings');
 const { AssistantEventBus, EVENTS, Logger } = require('../../../core/assistant/Data');
 const { ensureDataRoot, migrateLegacyData } = require('../../../core/assistant/Data');
 const { CloudCommandManager, CloudConnectionManager, CloudFileTransferManager, CloudLogger, CloudPairingManager } = require('../../../core/cloud');
+const { UpdateEngine } = require('../../../core/update');
 const CrashRecoveryPolicy = require('./crash-recovery');
 const {
   DeviceRegistry,
@@ -151,6 +152,7 @@ class ChildProcessRegistry {
 const childProcessRegistry = new ChildProcessRegistry();
 
 const mainLogger = new Logger(BASE_CONFIG.logging);
+const desktopStartupStartedAt = Date.now();
 const crashRecoveryPolicy = new CrashRecoveryPolicy({
   statePath: path.join(BASE_CONFIG.app.dataPaths.runtimeDir, 'crash-recovery.json'),
   maxRestarts: 3,
@@ -210,6 +212,7 @@ let cloudConnectionManager = null;
 let cloudPairingManager = null;
 let cloudCommandManager = null;
 let cloudFileTransferManager = null;
+let updateEngine = null;
 const rendererCrashHistory = new Map();
 const recoveryTimeouts = new Set();
 const unresponsiveTimeouts = new Map();
@@ -231,6 +234,37 @@ const IPC_CHANNELS = [
   'window:closePlanner',
   'config:get',
   'settings:get',
+  'update:status',
+  'update:version',
+  'update:diagnostics',
+  'update:checkVersion',
+  'update:getVersionStatus',
+  'update:getVersionDiagnostics',
+  'update:download:start',
+  'update:download:pause',
+  'update:download:resume',
+  'update:download:cancel',
+  'update:download:status',
+  'update:download:diagnostics',
+  'update:verify',
+  'update:verification:status',
+  'update:verification:diagnostics',
+  'update:getPresentation',
+  'update:getReleaseNotes',
+  'update:getProgress',
+  'update:getActions',
+  'update:executeAction',
+  'update:getStatus',
+  'update:install',
+  'update:cancelInstallation',
+  'update:getInstallationStatus',
+  'update:getInstallationDiagnostics',
+  'update:selfUpdate',
+  'update:selfUpdateStatus',
+  'update:selfUpdateDiagnostics',
+  'update:recoveryStatus',
+  'update:recoveryDiagnostics',
+  'update:rollbackHistory',
   'security:verifyAccess',
   'cloud:status',
   'cloud:connect',
@@ -773,6 +807,250 @@ function scheduleVoiceResourceWarmup(reason = 'post-startup') {
 
 function buildSettingsSnapshot() {
   return settingsService.getSnapshot();
+}
+
+function getUpdateEngine() {
+  if (!updateEngine) {
+    updateEngine = new UpdateEngine({
+      config: runtimeConfig || settingsService?.buildRuntimeConfig?.() || BASE_CONFIG,
+      relayClientProvider: () => cloudConnectionManager,
+      logger: mainLogger,
+      installationConfirmationHandler: confirmUpdateInstallation,
+      installationSaveHandlers: [saveStateForUpdateInstallation],
+      installationShutdownHandlers: [prepareRuntimeForUpdateInstallation],
+      selfUpdateSaveHandlers: [saveStateForSelfUpdate],
+      selfUpdateShutdownHandlers: [prepareRuntimeForSelfUpdate],
+      selfUpdateRestoreHandlers: [restoreRuntimeAfterSelfUpdate],
+      recoveryBackupPathsProvider: buildRecoveryBackupPaths,
+      recoveryRestoreHandlers: [restoreRuntimeAfterRecovery],
+      restartOptions: buildSelfUpdateRestartOptions()
+    });
+  }
+  updateEngine.setRelayClient?.(() => cloudConnectionManager);
+  updateEngine.setUpdateNotificationDisplayHandler?.((card, event) => presentUpdateAvailableInDynamicIsland(event, card));
+  updateEngine.setUpdateNotificationAckSender?.((event, stage, status, details) => (
+    cloudConnectionManager?.acknowledgeUpdateEvent?.(event.eventId, stage, status, details) === true
+  ));
+  return updateEngine;
+}
+
+function ensureUpdateEngineInitialized() {
+  const engine = getUpdateEngine();
+  if (!engine.isInitialized()) {
+    const result = engine.initialize();
+    if (!result.success) return result;
+  }
+  return null;
+}
+
+async function executeUpdatePresentationAction(actionId, payload = {}) {
+  const result = await getUpdateEngine().executePresentationAction(actionId, payload);
+  if (actionId === 'install' && result?.data?.result?.type === 'installation.launched') {
+    scheduleQuitAfterInstallerLaunch();
+  }
+  if (actionId === 'selfUpdate' && result?.data?.result?.type === 'selfUpdate.completed') {
+    scheduleQuitAfterSelfUpdateRestart();
+  }
+  const dataPath = result?.data?.result?.data?.path || result?.data?.path || '';
+  if (result?.success !== false && dataPath && ['openDownloadsFolder', 'openLogsFolder'].includes(actionId)) {
+    try {
+      await shell.openPath(dataPath);
+    } catch (error) {
+      mainLogger.warn('Update presentation folder open failed', { actionId, path: dataPath, error: error.message });
+    }
+  }
+  return result;
+}
+
+function buildSelfUpdateRestartOptions() {
+  return {
+    executablePath: process.execPath,
+    args: process.argv.slice(1),
+    cwd: process.cwd(),
+    env: { ...process.env }
+  };
+}
+
+function buildRecoveryBackupPaths() {
+  const candidates = new Set();
+  try {
+    candidates.add(process.execPath);
+  } catch (_) {}
+  try {
+    candidates.add(app.getAppPath());
+  } catch (_) {}
+  try {
+    if (app.isPackaged && process.resourcesPath) {
+      candidates.add(path.join(process.resourcesPath, 'app.asar'));
+      candidates.add(path.join(process.resourcesPath, 'app.asar.unpacked'));
+    }
+  } catch (_) {}
+  return Array.from(candidates)
+    .filter(Boolean)
+    .filter(candidate => {
+      try {
+        return fs.existsSync(candidate);
+      } catch (_) {
+        return false;
+      }
+    })
+    .map(candidate => ({ path: candidate, alias: path.basename(candidate) }));
+}
+
+async function confirmUpdateInstallation(request = {}) {
+  const version = request?.session?.installerVersion || 'unknown';
+  const message = `Version ${version} has been downloaded and verified.\n\nOpenX must close to launch the verified installer.`;
+  const response = await dialog.showMessageBox({
+    type: 'question',
+    title: 'OpenX Update Ready',
+    message: 'OpenX Update Ready',
+    detail: `${message}\n\nInstallation will not start unless you choose Install Now.`,
+    buttons: ['Install Now', 'Later'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true
+  });
+  return {
+    confirmed: response.response === 0,
+    reason: response.response === 0 ? 'confirmed' : 'user_cancelled'
+  };
+}
+
+async function saveStateForUpdateInstallation() {
+  try {
+    settingsService?.saveSettings?.(settingsService.getSettings());
+  } catch (error) {
+    mainLogger.warn('Settings save before update installation failed', { error: error.message });
+    throw error;
+  }
+}
+
+async function saveStateForSelfUpdate(context = {}) {
+  await saveStateForUpdateInstallation(context);
+  try {
+    mainLogger.info('Self-update state preservation completed', {
+      sessionId: context.session?.sessionId || null,
+      targetVersion: context.session?.targetVersion || null
+    });
+  } catch (_) {}
+}
+
+async function prepareRuntimeForUpdateInstallation() {
+  try {
+    await getCommunicationEngine()?.disconnectAll?.();
+  } catch (error) {
+    mainLogger.warn('Communication shutdown before update installation failed', { error: error.message });
+  }
+  try {
+    await cloudConnectionManager?.disconnect?.();
+  } catch (error) {
+    mainLogger.warn('Cloud disconnect before update installation failed', { error: error.message });
+  }
+  try {
+    voiceSessionManager?.cancelSession?.('update-installation');
+  } catch (error) {
+    mainLogger.warn('Voice cancellation before update installation failed', { error: error.message });
+  }
+}
+
+async function prepareRuntimeForSelfUpdate(context = {}) {
+  await prepareRuntimeForUpdateInstallation(context);
+  try {
+    if (chatWindow && !chatWindow.isDestroyed()) chatWindow.hide();
+    if (plannerWindow && !plannerWindow.isDestroyed()) plannerWindow.hide();
+    if (timerWidgetWindow && !timerWidgetWindow.isDestroyed()) timerWidgetWindow.hide();
+  } catch (error) {
+    mainLogger.warn('Window hide before self update failed', { error: error.message });
+  }
+  try {
+    mainLogger.info('Runtime prepared for silent self update', {
+      sessionId: context.session?.sessionId || null,
+      targetVersion: context.session?.targetVersion || null
+    });
+  } catch (_) {}
+}
+
+async function restoreRuntimeAfterSelfUpdate(context = {}) {
+  try {
+    mainLogger.info('Self-update restart launched; restoration metadata recorded', {
+      sessionId: context.session?.sessionId || null,
+      targetVersion: context.session?.targetVersion || null,
+      restartPid: context.restart?.pid || null
+    });
+  } catch (_) {}
+}
+
+async function restoreRuntimeAfterRecovery(context = {}) {
+  try {
+    mainLogger.warn('Update recovery restored previous application files', {
+      sessionId: context.session?.sessionId || null,
+      rollbackBackupId: context.rollback?.backupId || null,
+      restoredFiles: context.rollback?.restored?.length || 0
+    });
+  } catch (_) {}
+}
+
+async function validateUpdateRecoveryStartup() {
+  const initializationError = ensureUpdateEngineInitialized();
+  if (initializationError) return initializationError;
+  return getUpdateEngine().validateStartup({
+    applicationStarted: true,
+    servicesInitialized: true,
+    coreModulesInitialized: true,
+    assistantInitialized: Boolean(assistant),
+    ipcInitialized: ipcRegistered,
+    configurationLoaded: Boolean(runtimeConfig),
+    mainWindowCreated: app.isPackaged ? true : Boolean(chatWindow && !chatWindow.isDestroyed()),
+    startupDurationMs: Date.now() - desktopStartupStartedAt,
+    responsive: true,
+    criticalModulesLoaded: true,
+    initializationCompleted: true,
+    fatalStartupErrors: [],
+    fatalExceptions: [],
+    healthDurationMs: 0
+  });
+}
+
+async function handleStartupFailureWithRecovery(error) {
+  try {
+    if (!settingsService) settingsService = new SettingsService(BASE_CONFIG);
+    if (!runtimeConfig) runtimeConfig = settingsService.buildRuntimeConfig();
+    const initializationError = ensureUpdateEngineInitialized();
+    if (!initializationError) {
+      const recovery = await getUpdateEngine().handleStartupFailure(error, {
+        restartOptions: buildSelfUpdateRestartOptions(),
+        fatalStartupErrors: [error]
+      });
+      if (recovery?.success === true) {
+        mainLogger.warn('Startup failure triggered update rollback recovery', { type: recovery.type });
+        scheduleQuitAfterSelfUpdateRestart();
+        return;
+      }
+    }
+  } catch (recoveryError) {
+    mainLogger.error('Startup update recovery failed', { error: recoveryError.message });
+  }
+  handleFatalError(error, 'startup');
+}
+
+function scheduleQuitAfterInstallerLaunch() {
+  setTimeout(() => {
+    try {
+      app.quit();
+    } catch (error) {
+      mainLogger.warn('App quit after installer launch failed', { error: error.message });
+    }
+  }, 250);
+}
+
+function scheduleQuitAfterSelfUpdateRestart() {
+  setTimeout(() => {
+    try {
+      app.exit(0);
+    } catch (error) {
+      mainLogger.warn('App exit after self-update restart failed', { error: error.message });
+    }
+  }, 250);
 }
 
 function clearVoiceResumeRecoveryTimer() {
@@ -1439,6 +1717,50 @@ function presentCloudPhoneResultInDynamicIsland(event = {}) {
   }
 }
 
+function presentUpdateAvailableInDynamicIsland(event = {}, card = null) {
+  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
+  if (!card) {
+    try {
+      card = getUpdateEngine().getPresentation({ source: 'dynamic-island' })?.data?.card || null;
+    } catch (_) {
+      card = null;
+    }
+  }
+  const latestVersion = String(event.latestVersion || card?.notification?.latestVersion || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const hasPresentationCard = card?.intent === 'update.presentation';
+  if (!latestVersion && !hasPresentationCard) return false;
+  const releaseNotes = String(event.releaseNotes || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  try {
+    voiceOverlay.displayAssistantResult(card || {
+      success: true,
+      intent: 'update.available',
+      response: `Version ${latestVersion} Available`,
+      data: {
+        actions: [],
+        buttons: [],
+        resultEntries: [{
+          index: 1,
+          name: `Version ${latestVersion}`,
+          type: 'OpenX update',
+          location: String(event.channel || 'stable').slice(0, 80),
+          snippet: releaseNotes || (event.mandatory ? 'Mandatory update available.' : 'Update available.')
+        }]
+      },
+      ui: {
+        icon: 'UP',
+        previewStatus: 'OpenX update available',
+        preExpandDelayMs: 450,
+        autoHideMs: event.mandatory ? 30000 : 18000,
+        persistUntilAction: false
+      }
+    });
+    return true;
+  } catch (error) {
+    mainLogger.warn('Dynamic Island update notification failed', { error: error.message });
+    return false;
+  }
+}
+
 function getCommunicationEngine() {
   return assistant?.automation?.communicationEngine || assistant?.automation?.communications?.communicationEngine || null;
 }
@@ -1794,6 +2116,13 @@ function initializeCloudConnection() {
   cloudConnectionManager.on('notification', notification => {
     if (String(notification?.category || '').toLowerCase() !== 'phone' && !notification?.details?.appName) return;
     presentPhoneNotificationInDynamicIsland(notification, { source: 'phone-cloud' });
+  });
+  cloudConnectionManager.on('update-available', event => {
+    try {
+      getUpdateEngine().handleUpdateAvailableEvent(event);
+    } catch (error) {
+      mainLogger.warn('Update availability event handling failed', { error: error.message });
+    }
   });
   return cloudConnectionManager;
 }
@@ -2177,6 +2506,200 @@ function setupIPC() {
       cloudCommandStatus: cloudCommandManager?.getStatus?.() || null,
       communicationStatus: await getCommunicationEngine()?.health?.() || null
     };
+  });
+
+  registerIpcHandler('update:status', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getStatus();
+  });
+
+  registerIpcHandler('update:version', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getVersion();
+  });
+
+  registerIpcHandler('update:diagnostics', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getDiagnostics();
+  });
+
+  registerIpcHandler('update:checkVersion', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().checkVersionNow({ source: 'ipc' });
+  });
+
+  registerIpcHandler('update:getVersionStatus', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getVersionCheckStatus();
+  });
+
+  registerIpcHandler('update:getVersionDiagnostics', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getVersionCheckDiagnostics();
+  });
+
+  registerIpcHandler('update:download:start', async (_event, payload = {}) => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().startDownload(payload);
+  });
+
+  registerIpcHandler('update:download:pause', async (_event, payload = {}) => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().pauseDownload(payload.taskId);
+  });
+
+  registerIpcHandler('update:download:resume', async (_event, payload = {}) => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().resumeDownload(payload.taskId);
+  });
+
+  registerIpcHandler('update:download:cancel', async (_event, payload = {}) => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().cancelDownload(payload.taskId);
+  });
+
+  registerIpcHandler('update:download:status', async (_event, payload = {}) => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getDownloadStatus(payload.taskId || '');
+  });
+
+  registerIpcHandler('update:download:diagnostics', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getDownloadDiagnostics();
+  });
+
+  registerIpcHandler('update:verify', async (_event, payload = {}) => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().verifyPackage(payload);
+  });
+
+  registerIpcHandler('update:verification:status', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getVerificationStatus();
+  });
+
+  registerIpcHandler('update:verification:diagnostics', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getVerificationDiagnostics();
+  });
+
+  registerIpcHandler('update:getPresentation', async (_event, context = {}) => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getPresentation(context);
+  });
+
+  registerIpcHandler('update:getReleaseNotes', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getReleaseNotes();
+  });
+
+  registerIpcHandler('update:getProgress', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getProgress();
+  });
+
+  registerIpcHandler('update:getActions', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getActions();
+  });
+
+  registerIpcHandler('update:executeAction', async (_event, { actionId, payload } = {}) => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return executeUpdatePresentationAction(actionId, payload || {});
+  });
+
+  registerIpcHandler('update:getStatus', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getPresentationStatus();
+  });
+
+  registerIpcHandler('update:install', async (_event, payload = {}) => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    const result = await getUpdateEngine().install({ source: payload.source || 'ipc' });
+    if (result?.type === 'installation.launched') scheduleQuitAfterInstallerLaunch();
+    return result;
+  });
+
+  registerIpcHandler('update:cancelInstallation', async (_event, payload = {}) => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().cancelInstallation(payload.reason || 'cancelled');
+  });
+
+  registerIpcHandler('update:getInstallationStatus', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getInstallationStatus();
+  });
+
+  registerIpcHandler('update:getInstallationDiagnostics', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getInstallationDiagnostics();
+  });
+
+  registerIpcHandler('update:selfUpdate', async (_event, payload = {}) => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    const result = await getUpdateEngine().selfUpdate({
+      source: payload.source || 'ipc',
+      approved: true,
+      restartOptions: buildSelfUpdateRestartOptions()
+    });
+    if (result?.type === 'selfUpdate.completed') scheduleQuitAfterSelfUpdateRestart();
+    return result;
+  });
+
+  registerIpcHandler('update:selfUpdateStatus', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getSelfUpdateStatus();
+  });
+
+  registerIpcHandler('update:selfUpdateDiagnostics', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getSelfUpdateDiagnostics();
+  });
+
+  registerIpcHandler('update:recoveryStatus', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getRecoveryStatus();
+  });
+
+  registerIpcHandler('update:recoveryDiagnostics', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getRecoveryDiagnostics();
+  });
+
+  registerIpcHandler('update:rollbackHistory', async () => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().getRollbackHistory();
   });
 
   registerIpcHandler('security:verifyAccess', async () => {
@@ -2637,6 +3160,15 @@ async function cleanupRuntime() {
         cloudConnectionManager = null;
       }
     }
+    if (updateEngine) {
+      try {
+        updateEngine.shutdown();
+      } catch (error) {
+        mainLogger.error('[UPDATE] Cleanup failed', { error: error.message });
+      } finally {
+        updateEngine = null;
+      }
+    }
     destroyTextToSpeech();
     await destroyAssistantInstance();
     eventBus?.removeAllListeners?.();
@@ -2932,6 +3464,11 @@ function registerChatShortcut() {
 async function initializeAssistant() {
   ensureDataDir();
   runtimeConfig = settingsService.buildRuntimeConfig();
+  runtimeConfig.updatePresentationHandler = async ({ command = '', operation = '', source = 'assistant' } = {}) => {
+    const initializationError = ensureUpdateEngineInitialized();
+    if (initializationError) return initializationError;
+    return getUpdateEngine().assistantUpdateRequest(command || operation, source);
+  };
   assistant = new Assistant(runtimeConfig, { eventBus });
   assistant.router.permissionValidator.setUserLevel(
     settingsService.getSettings().system.permissionLevel
@@ -3117,7 +3654,10 @@ function isTrustedVoiceOverlayIpcSender(event, channel) {
     'voiceOverlay:collapse',
     'communication:selectContact',
     'communication:sendPrepared',
-    'communication:cancelPrepared'
+    'communication:cancelPrepared',
+    'update:executeAction',
+    'update:install',
+    'update:selfUpdate'
   ].includes(channel)) return false;
   const overlayContents = voiceOverlay?.windowController?.window?.webContents;
   if (!overlayContents || event?.sender?.id !== overlayContents.id) return false;
@@ -3236,10 +3776,12 @@ app.whenReady().then(async () => {
   initializeCloudPairing();
   initializeCloudCommands();
   await maybeAutoConnectCloud('desktop-startup');
+  ensureUpdateEngineInitialized();
   showTimerWidget();
   if (!app.isPackaged) {
     createChatWindow();
   }
+  await validateUpdateRecoveryStartup();
   stableRuntimeHandle = setTimeout(() => {
     stableRuntimeHandle = null;
     try {
@@ -3254,7 +3796,7 @@ app.whenReady().then(async () => {
     platform: process.platform,
     release: os.release()
   });
-}).catch(error => handleFatalError(error, 'startup'));
+}).catch(error => handleStartupFailureWithRecovery(error));
 
 app.on('window-all-closed', () => {
   // Keep running in tray so the tray menu can reopen chat.

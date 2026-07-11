@@ -69,6 +69,8 @@ class WhatsAppSessionManager extends EventEmitter {
     );
     this.idleTimer = null;
     this.idleClosing = null;
+    this.idleShutdownBlocked = false;
+    this.idleShutdownBlockReason = null;
     this._contextCloseHandler = null;
     this._pageCrashHandler = null;
     this._pageConsoleHandler = null;
@@ -382,9 +384,18 @@ class WhatsAppSessionManager extends EventEmitter {
     this._lifecycle('Idle timer touch requested', {
       hasContext: Boolean(this.context),
       hasPage: Boolean(this.page),
-      connecting: Boolean(this.connecting)
+      connecting: Boolean(this.connecting),
+      blocked: this.idleShutdownBlocked,
+      blockReason: this.idleShutdownBlockReason
     });
     if (!this.context || !this.page || this.connecting) return false;
+    if (this.idleShutdownBlocked) {
+      this._clearIdleTimer();
+      this._lifecycle('Idle timer not scheduled because shutdown is blocked', {
+        reason: this.idleShutdownBlockReason
+      });
+      return false;
+    }
     this._clearIdleTimer();
     this.idleTimer = this.setTimer(() => {
       this._lifecycle('Idle timer fired', {
@@ -402,6 +413,20 @@ class WhatsAppSessionManager extends EventEmitter {
       idleTimeoutMs: this.idleTimeoutMs
     });
     return true;
+  }
+
+  setIdleShutdownBlocked(blocked, reason = '') {
+    this.idleShutdownBlocked = blocked === true;
+    this.idleShutdownBlockReason = this.idleShutdownBlocked ? String(reason || 'blocked') : null;
+    this._lifecycle('Idle shutdown block changed', {
+      blocked: this.idleShutdownBlocked,
+      reason: this.idleShutdownBlockReason
+    });
+    if (this.idleShutdownBlocked) {
+      this._clearIdleTimer();
+      return false;
+    }
+    return this.touch();
   }
 
   _clearIdleTimer() {

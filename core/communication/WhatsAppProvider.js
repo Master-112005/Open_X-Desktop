@@ -131,6 +131,10 @@ class WhatsAppProvider extends CommunicationProvider {
   }
 
   async composeMessage(recipient, messageText, options = {}) {
+    this._logStage('prepareMessage started', {
+      hasRecipient: Boolean(recipient),
+      hasMessage: Boolean(messageText)
+    });
     const message = cleanText(messageText);
     if (!message) {
       return fail(new MessageDraftError(this.id, 'Message text is required'));
@@ -177,11 +181,17 @@ class WhatsAppProvider extends CommunicationProvider {
       contact: selected
     };
     this.preparedDrafts.set(draftId, draft);
+    this._syncPendingDraftIdleBlock();
+    this._logStage('Pending draft created', {
+      draftId,
+      recipient: selected.name
+    });
     this._publish(COMMUNICATION_EVENTS.CONTACT_RESOLVED, { provider: this.id });
     this._publish(COMMUNICATION_EVENTS.MESSAGE_PREPARED, {
       provider: this.id,
       draftId
     });
+    this._logStage('Waiting for confirmation', { draftId });
     this._publish(COMMUNICATION_EVENTS.CONFIRMATION_REQUESTED, {
       provider: this.id,
       draftId,
@@ -189,6 +199,11 @@ class WhatsAppProvider extends CommunicationProvider {
       message: this.debug ? message : undefined
     });
     this.session.touch?.();
+    this._logStage('prepareMessage completed', {
+      draftId,
+      delivery: 'draft',
+      requiresFinalConfirmation: true
+    });
 
     return ok({
       provider: this.id,
@@ -202,6 +217,7 @@ class WhatsAppProvider extends CommunicationProvider {
   }
 
   async send(draftId) {
+    this._logStage('Send requested', { draftId });
     const draft = this.preparedDrafts.get(draftId);
     if (!draft) return fail(new MessageDraftError(this.id, 'Message draft not found'));
     const needsRestore = this.session.isBrowserRunning?.() === false;
@@ -211,18 +227,68 @@ class WhatsAppProvider extends CommunicationProvider {
     }
     const sendButton = await this._resolveRequired(page, 'sendButton', 'send-button-not-found');
     if (!sendButton.found) {
+      this._logStage('Send button not found', { draftId });
       return fail(new MessageDraftError(this.id, 'WhatsApp send button was not found', {
         resolver: sendButton.report,
         diagnostics: sendButton.diagnostics
       }));
     }
-    await sendButton.locator.click();
+    this._logStage('Send button located', {
+      draftId,
+      selector: sendButton.selector || null,
+      strategy: sendButton.strategy || null
+    });
+    const sendAction = await this._performSendAction(page, sendButton.locator, draft);
+    this._logStage('Waiting for verification', {
+      draftId,
+      sendAction: sendAction.method
+    });
+    const verification = await this._verifyMessageSent(page, draft);
+    if (!verification.success && sendAction.method === 'click') {
+      const fallbackAction = await this._performKeyboardSend(page, draft);
+      this._logStage('Waiting for verification', {
+        draftId,
+        sendAction: fallbackAction.method
+      });
+      const fallbackVerification = await this._verifyMessageSent(page, draft);
+      if (!fallbackVerification.success) {
+        this._logStage('Verification failed', {
+          draftId,
+          verification: fallbackVerification
+        });
+        return fail(new MessageDraftError(this.id, 'WhatsApp message send could not be verified', {
+          verification: fallbackVerification
+        }));
+      }
+      this._logStage('Verification passed', {
+        draftId,
+        verification: fallbackVerification
+      });
+    } else if (!verification.success) {
+      this._logStage('Verification failed', {
+        draftId,
+        verification
+      });
+      return fail(new MessageDraftError(this.id, 'WhatsApp message send could not be verified', {
+        verification
+      }));
+    } else {
+      this._logStage('Verification passed', {
+        draftId,
+        verification
+      });
+    }
     this.preparedDrafts.delete(draftId);
+    this._syncPendingDraftIdleBlock();
+    this._logStage('Message confirmed sent', { draftId });
     this._publish(COMMUNICATION_EVENTS.MESSAGE_SENT, {
       provider: this.id,
       draftId
     });
+    this._logStage('Cleanup started', { draftId, reason: 'message-sent' });
     await this._releaseSessionAfterTerminalOperation('message-sent');
+    this._logStage('Cleanup completed', { draftId, reason: 'message-sent' });
+    this._logStage('Returning success', { draftId, delivery: 'sent' });
     return ok({
       provider: this.id,
       draftId,
@@ -245,6 +311,7 @@ class WhatsAppProvider extends CommunicationProvider {
       }
     }
     this.preparedDrafts.delete(draftId);
+    this._syncPendingDraftIdleBlock();
     await this._releaseSessionAfterTerminalOperation('message-cancelled');
     return ok({
       provider: this.id,
@@ -255,6 +322,12 @@ class WhatsAppProvider extends CommunicationProvider {
 
   getDraft(draftId) {
     return this.preparedDrafts.get(draftId) || null;
+  }
+
+  _syncPendingDraftIdleBlock() {
+    if (typeof this.session.setIdleShutdownBlocked !== 'function') return;
+    const hasPendingDrafts = this.preparedDrafts.size > 0;
+    this.session.setIdleShutdownBlocked(hasPendingDrafts, hasPendingDrafts ? 'pending-whatsapp-draft' : '');
   }
 
   hasPersistentSession() {
@@ -295,6 +368,148 @@ class WhatsAppProvider extends CommunicationProvider {
     if (typeof this.session.disconnect === 'function') {
       await this.session.disconnect();
     }
+  }
+
+  async _performSendAction(page, locator, draft) {
+    try {
+      await this._runStep('click-send-button', () => locator.click());
+      this._logStage('Send button clicked', { draftId: draft.id });
+      this.session.touch?.();
+      return { method: 'click', success: true };
+    } catch (error) {
+      this._logStage('Send button click failed', {
+        draftId: draft.id,
+        error: error.message
+      });
+      return this._performKeyboardSend(page, draft);
+    }
+  }
+
+  async _performKeyboardSend(page, draft) {
+    await this._runStep('press-send-enter', () => page.keyboard.press('Enter'));
+    this._logStage('Keyboard Enter pressed', { draftId: draft.id });
+    this.session.touch?.();
+    return { method: 'keyboard-enter', success: true };
+  }
+
+  async _verifyMessageSent(page, draft, options = {}) {
+    const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 8000);
+    const startedAt = Date.now();
+    let last = null;
+    this._logStage('Verification started', {
+      draftId: draft.id,
+      timeoutMs
+    });
+    while (Date.now() - startedAt <= timeoutMs) {
+      last = await this._readSendVerificationState(page, draft);
+      if (this._isVerifiedSent(last)) {
+        return {
+          success: true,
+          durationMs: Date.now() - startedAt,
+          ...last
+        };
+      }
+      await page.waitForTimeout?.(250);
+    }
+    const diagnostics = await this._captureDiagnostics('message-send-verification-failed').catch(error => ({
+      error: error.message
+    }));
+    return {
+      success: false,
+      durationMs: Date.now() - startedAt,
+      diagnostics,
+      ...(last || {})
+    };
+  }
+
+  async _readSendVerificationState(page, draft) {
+    const box = await this._waitForMessageBox(page).catch(() => null);
+    const draftText = await this._readEditableText(box);
+    const normalizedDraftText = normalize(draftText);
+    const normalizedMessage = normalize(draft.message);
+    const inputEmpty = !normalizedDraftText;
+    const draftStillExists = Boolean(normalizedMessage && normalizedDraftText.includes(normalizedMessage));
+    const draftDisappeared = inputEmpty || !draftStillExists;
+    const history = await this._messageAppearsInChatHistory(page, draft.message);
+    const sendState = await WhatsAppSelectors.resolveElement(page, 'sendButton', { timeoutMs: 100 }).catch(() => ({ found: false }));
+    const sendButtonStateChanged = !sendState.found || inputEmpty;
+    return {
+      inputEmpty,
+      draftDisappeared,
+      draftStillExists,
+      outgoingMessageBubbleExists: history.outgoingMessageBubbleExists,
+      messageAppearsInChatHistory: history.messageAppearsInChatHistory,
+      sendButtonStateChanged,
+      draftTextLength: draftText.length
+    };
+  }
+
+  _isVerifiedSent(state = {}) {
+    if (state.draftStillExists) return false;
+    return state.inputEmpty === true &&
+      state.draftDisappeared === true &&
+      state.messageAppearsInChatHistory === true &&
+      state.outgoingMessageBubbleExists === true &&
+      state.sendButtonStateChanged === true;
+  }
+
+  async _readEditableText(locator) {
+    if (!locator) return '';
+    if (typeof locator.inputValue === 'function') {
+      const value = await locator.inputValue().catch(() => '');
+      if (cleanText(value)) return cleanText(value);
+    }
+    if (typeof locator.textContent === 'function') {
+      const text = await locator.textContent().catch(() => '');
+      if (cleanText(text)) return cleanText(text);
+    }
+    if (typeof locator.evaluate === 'function') {
+      const value = await locator.evaluate(node => (
+        node?.value || node?.innerText || node?.textContent || ''
+      )).catch(() => '');
+      return cleanText(value);
+    }
+    return '';
+  }
+
+  async _messageAppearsInChatHistory(page, message) {
+    const text = cleanText(message);
+    if (!text || typeof page.evaluate !== 'function') {
+      return {
+        outgoingMessageBubbleExists: false,
+        messageAppearsInChatHistory: false
+      };
+    }
+    return page.evaluate(expected => {
+      const normalizeText = value => String(value || '').replace(/\s+/g, ' ').trim();
+      const root = document.querySelector('#main') || document.body;
+      if (!root) {
+        return {
+          outgoingMessageBubbleExists: false,
+          messageAppearsInChatHistory: false
+        };
+      }
+      const footer = root.querySelector('footer');
+      const candidates = Array.from(root.querySelectorAll([
+        '.message-out',
+        '[data-pre-plain-text]',
+        '[data-testid*="msg"]',
+        '[data-testid*="message"]',
+        'div.copyable-text',
+        'span.selectable-text'
+      ].join(',')));
+      const matching = candidates.filter(node => {
+        if (footer && footer.contains(node)) return false;
+        return normalizeText(node.innerText || node.textContent).includes(expected);
+      });
+      return {
+        outgoingMessageBubbleExists: matching.some(node => Boolean(node.closest?.('.message-out')) || String(node.className || '').includes('message-out')) || matching.length > 0,
+        messageAppearsInChatHistory: matching.length > 0
+      };
+    }, text).catch(() => ({
+      outgoingMessageBubbleExists: false,
+      messageAppearsInChatHistory: false
+    }));
   }
 
   async _readSearchResults(page, query) {
@@ -479,6 +694,14 @@ class WhatsAppProvider extends CommunicationProvider {
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  _logStage(stage, data = {}) {
+    this.logger.info?.('[WhatsAppProvider] pipeline', {
+      stage,
+      at: new Date().toISOString(),
+      ...data
+    });
   }
 
   _publish(event, payload = {}) {

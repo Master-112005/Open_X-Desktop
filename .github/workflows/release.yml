@@ -1,0 +1,215 @@
+name: OpenX Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel written to manifest.json.
+        required: false
+        default: stable
+        type: choice
+        options:
+          - stable
+          - beta
+          - alpha
+      release_status:
+        description: GitHub release and manifest status.
+        required: false
+        default: published
+        type: choice
+        options:
+          - published
+          - prerelease
+      minimum_version:
+        description: Optional minimum OpenX version required by this release.
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  release:
+    name: Build, package, manifest, and publish
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    env:
+      CI: true
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_CHANNEL: ${{ github.event.inputs.channel || 'stable' }}
+      RELEASE_STATUS: ${{ github.event.inputs.release_status || 'published' }}
+      RELEASE_MINIMUM_VERSION: ${{ github.event.inputs.minimum_version }}
+      ELECTRON_CACHE: ${{ github.workspace }}\.cache\electron
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}\.cache\electron-builder
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Restore Electron and Playwright caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/electron
+            .cache/electron-builder
+            ~\AppData\Local\ms-playwright
+          key: ${{ runner.os }}-release-cache-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-release-cache-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate release environment
+        run: node scripts/release/validate-release-environment.js
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify package version and release uniqueness
+        id: version
+        run: node scripts/release/validate-release-version.js
+
+      - name: Verify build resources
+        run: |
+          $required = @(
+            'build/icon.ico',
+            'build/installer.nsh',
+            'build/openx-chrome-host.exe',
+            'models/parakeet/encoder.int8.onnx',
+            'models/parakeet/decoder.int8.onnx',
+            'models/parakeet/joiner.int8.onnx',
+            'models/parakeet/tokens.txt'
+          )
+          foreach ($path in $required) {
+            if (!(Test-Path -LiteralPath $path)) {
+              throw "Required build resource missing: $path"
+            }
+          }
+          node -e "const pkg=require('./package.json'); if(!pkg.build || !pkg.build.win || !pkg.build.nsis) process.exit(1); console.log('electron-builder configuration verified');"
+
+      - name: Build Electron application
+        run: npm run build
+
+      - name: Package Windows installer
+        run: npm run package
+
+      - name: Locate installer and calculate checksum
+        id: assets
+        run: node scripts/release/prepare-release-assets.js
+
+      - name: Generate release notes
+        id: notes
+        env:
+          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+        run: node scripts/release/create-release-notes.js
+
+      - name: Generate manifest.json
+        env:
+          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+          INSTALLER_PATH: ${{ steps.assets.outputs.installer_path }}
+          INSTALLER_NAME: ${{ steps.assets.outputs.installer_name }}
+          INSTALLER_TYPE: ${{ steps.assets.outputs.installer_type }}
+          INSTALLER_ARCHITECTURE: ${{ steps.assets.outputs.architecture }}
+          INSTALLER_SIZE_HUMAN: ${{ steps.assets.outputs.size_human }}
+          RELEASE_NOTES_FILE: ${{ steps.notes.outputs.release_notes_path }}
+        run: node scripts/release/generate-release-manifest.js
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openx-release-${{ steps.version.outputs.tag_name }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            ${{ steps.assets.outputs.installer_path }}
+            ${{ steps.assets.outputs.checksum_path }}
+            dist/manifest.json
+            dist/release-notes.md
+
+      - name: Create draft GitHub Release and upload assets
+        env:
+          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+          RELEASE_NAME: ${{ steps.version.outputs.release_name }}
+          INSTALLER_PATH: ${{ steps.assets.outputs.installer_path }}
+          CHECKSUM_PATH: ${{ steps.assets.outputs.checksum_path }}
+          RELEASE_NOTES_FILE: ${{ steps.notes.outputs.release_notes_path }}
+        run: |
+          $flags = @('--draft', '--target', '${{ github.sha }}')
+          if ($env:RELEASE_STATUS -eq 'prerelease') {
+            $flags += '--prerelease'
+          } else {
+            $flags += '--latest'
+          }
+
+          gh release create $env:TAG_NAME `
+            $env:INSTALLER_PATH `
+            $env:CHECKSUM_PATH `
+            'dist/manifest.json' `
+            --title $env:RELEASE_NAME `
+            --notes-file $env:RELEASE_NOTES_FILE `
+            @flags
+
+      - name: Verify uploaded release assets
+        env:
+          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+          INSTALLER_NAME: ${{ steps.assets.outputs.installer_name }}
+          CHECKSUM_NAME: ${{ steps.assets.outputs.installer_name }}.sha256
+        run: |
+          $release = gh release view $env:TAG_NAME --json isDraft,isPrerelease,assets | ConvertFrom-Json
+          if ($release.isDraft -ne $true) {
+            throw 'Release must remain draft until asset verification completes.'
+          }
+          $assetNames = @($release.assets | ForEach-Object { $_.name })
+          foreach ($required in @($env:INSTALLER_NAME, $env:CHECKSUM_NAME, 'manifest.json')) {
+            if ($assetNames -notcontains $required) {
+              throw "Release asset missing after upload: $required"
+            }
+          }
+          Write-Host "Release assets verified: $($assetNames -join ', ')"
+
+      - name: Publish GitHub Release
+        env:
+          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+        run: gh release edit $env:TAG_NAME --draft=false
+
+      - name: Final release verification
+        env:
+          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+        run: |
+          $release = gh release view $env:TAG_NAME --json isDraft,isPrerelease,url,assets | ConvertFrom-Json
+          if ($release.isDraft -eq $true) {
+            throw 'Release is still draft after publish step.'
+          }
+          if ($release.assets.Count -lt 3) {
+            throw 'Published release does not contain all expected assets.'
+          }
+          Write-Host "OpenX release published: $($release.url)"

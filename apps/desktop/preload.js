@@ -217,6 +217,31 @@ function appendVoiceActions(fragment, payload = {}) {
         });
         return;
       }
+      if (kind === 'update' && action.updateActionId) {
+        try {
+          const result = action.updateActionId === 'selfUpdate'
+            ? await ipcRenderer.invoke('update:selfUpdate', { source: 'dynamic-island' })
+            : action.updateActionId === 'install'
+              ? await ipcRenderer.invoke('update:install', { source: 'dynamic-island' })
+              : await ipcRenderer.invoke('update:executeAction', {
+                actionId: action.updateActionId,
+                payload: action.updatePayload || {}
+                });
+          if (!result?.success) {
+            throw new Error(result?.error?.message || result?.error || 'Action failed');
+          }
+          collapseVoiceIslandAfter(80, {
+            statusText: action.updateActionId === 'check' ? 'Update checked' : 'Update action done',
+            icon: 'UP',
+            hideAfterMs: 5000
+          });
+          return;
+        } catch (_) {
+          button.textContent = originalLabel;
+          setVoiceActionRowResolving(row, button, false);
+          return;
+        }
+      }
       if (kind === 'contact-select' && action.choiceIndex) {
         try {
           const result = await ipcRenderer.invoke('communication:selectContact', {
@@ -479,6 +504,99 @@ const openxApi = {
 
   getSettings: () =>
     ipcRenderer.invoke('settings:get'),
+
+  getUpdateStatus: () =>
+    ipcRenderer.invoke('update:status'),
+
+  getUpdateVersion: () =>
+    ipcRenderer.invoke('update:version'),
+
+  getUpdateDiagnostics: () =>
+    ipcRenderer.invoke('update:diagnostics'),
+
+  checkUpdateVersion: () =>
+    ipcRenderer.invoke('update:checkVersion'),
+
+  getUpdateVersionStatus: () =>
+    ipcRenderer.invoke('update:getVersionStatus'),
+
+  getUpdateVersionDiagnostics: () =>
+    ipcRenderer.invoke('update:getVersionDiagnostics'),
+
+  startUpdateDownload: (payload = {}) =>
+    ipcRenderer.invoke('update:download:start', payload),
+
+  pauseUpdateDownload: (taskId) =>
+    ipcRenderer.invoke('update:download:pause', { taskId }),
+
+  resumeUpdateDownload: (taskId) =>
+    ipcRenderer.invoke('update:download:resume', { taskId }),
+
+  cancelUpdateDownload: (taskId) =>
+    ipcRenderer.invoke('update:download:cancel', { taskId }),
+
+  getUpdateDownloadStatus: (taskId = '') =>
+    taskId ? ipcRenderer.invoke('update:download:status', { taskId }) : ipcRenderer.invoke('update:download:status'),
+
+  getUpdateDownloadDiagnostics: () =>
+    ipcRenderer.invoke('update:download:diagnostics'),
+
+  verifyUpdatePackage: (payload = {}) =>
+    ipcRenderer.invoke('update:verify', payload),
+
+  getUpdateVerificationStatus: () =>
+    ipcRenderer.invoke('update:verification:status'),
+
+  getUpdateVerificationDiagnostics: () =>
+    ipcRenderer.invoke('update:verification:diagnostics'),
+
+  getUpdatePresentation: (context = {}) =>
+    ipcRenderer.invoke('update:getPresentation', context),
+
+  getUpdateReleaseNotes: () =>
+    ipcRenderer.invoke('update:getReleaseNotes'),
+
+  getUpdateProgress: () =>
+    ipcRenderer.invoke('update:getProgress'),
+
+  getUpdateActions: () =>
+    ipcRenderer.invoke('update:getActions'),
+
+  executeUpdateAction: (actionId, payload = {}) =>
+    ipcRenderer.invoke('update:executeAction', { actionId, payload }),
+
+  getUpdatePresentationStatus: () =>
+    ipcRenderer.invoke('update:getStatus'),
+
+  installUpdate: (payload = {}) =>
+    ipcRenderer.invoke('update:install', payload),
+
+  cancelUpdateInstallation: (reason = 'cancelled') =>
+    ipcRenderer.invoke('update:cancelInstallation', { reason }),
+
+  getUpdateInstallationStatus: () =>
+    ipcRenderer.invoke('update:getInstallationStatus'),
+
+  getUpdateInstallationDiagnostics: () =>
+    ipcRenderer.invoke('update:getInstallationDiagnostics'),
+
+  selfUpdate: (payload = {}) =>
+    ipcRenderer.invoke('update:selfUpdate', payload),
+
+  getSelfUpdateStatus: () =>
+    ipcRenderer.invoke('update:selfUpdateStatus'),
+
+  getSelfUpdateDiagnostics: () =>
+    ipcRenderer.invoke('update:selfUpdateDiagnostics'),
+
+  getUpdateRecoveryStatus: () =>
+    ipcRenderer.invoke('update:recoveryStatus'),
+
+  getUpdateRecoveryDiagnostics: () =>
+    ipcRenderer.invoke('update:recoveryDiagnostics'),
+
+  getUpdateRollbackHistory: () =>
+    ipcRenderer.invoke('update:rollbackHistory'),
 
   verifySecurityAccess: () =>
     ipcRenderer.invoke('security:verifyAccess'),
