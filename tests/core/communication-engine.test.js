@@ -52,8 +52,9 @@ describe('Communication Engine', function() {
     assert.equal(result.success, true);
     assert.equal(result.data.delivery, 'draft');
     assert.equal(result.data.recipient, 'Mohit');
-    assert.deepEqual(readyOptions, { background: true, timeoutMs: 7000 });
-    assert.deepEqual(composeOptions.readyOptions, { background: true, timeoutMs: 7000 });
+    assert.deepEqual(readyOptions, { background: true });
+    assert.deepEqual(composeOptions.readyOptions, { background: true });
+    assert.equal(composeOptions.timeoutMs, 7000);
   });
 
   it('caps WhatsApp message readiness below the assistant command timeout', async function() {
@@ -400,6 +401,7 @@ describe('Communication Engine', function() {
       }
     });
     session.detectState = async () => ({ state: 'CONNECTED' });
+    session.waitForWhatsAppReady = async () => ({ state: 'CONNECTED', layout: 'Logged In', dom: null });
 
     await session.connect();
     session.touch();
@@ -458,6 +460,7 @@ describe('Communication Engine', function() {
       }
     });
     session.detectState = async () => ({ state: 'CONNECTED' });
+    session.waitForWhatsAppReady = async () => ({ state: 'CONNECTED', layout: 'Logged In', dom: null });
 
     await session.connect();
     assert.equal(session.isBrowserRunning(), true);
@@ -651,6 +654,68 @@ describe('Communication Engine', function() {
     assert.ok(cdpCalls.some(call => call.method === 'Browser.setWindowBounds'));
     assert.equal(session.browserVisibility.mode, 'background-offscreen');
     assert.equal(session.browserVisibility.focused, false);
+  });
+
+  it('waits for WhatsApp UI hydration before initial state detection', async function() {
+    let hydrated = false;
+    let locatorChecks = 0;
+    const context = new EventEmitter();
+    const page = {
+      on() {},
+      url: () => 'https://web.whatsapp.com/',
+      title: async () => 'WhatsApp',
+      goto: async () => {},
+      waitForLoadState: async () => {},
+      waitForTimeout: async () => {
+        hydrated = true;
+      },
+      evaluate: async () => ({
+        readyState: 'complete',
+        htmlLength: hydrated ? 5000 : 2000,
+        visibleText: hydrated ? 'Chats Search' : 'Loading',
+        forms: [],
+        inputs: [],
+        buttons: [],
+        lists: [],
+        landmarks: []
+      }),
+      locator: selector => ({
+        first: () => ({
+          count: async () => {
+            locatorChecks += 1;
+            return hydrated && /#side|#pane-side|chat-list|Search/i.test(selector) ? 1 : 0;
+          },
+          isVisible: async () => hydrated && /#side|#pane-side|chat-list|Search/i.test(selector)
+        })
+      })
+    };
+    context.pages = () => [page];
+    context.newPage = async () => page;
+    context.close = async () => context.emit('close');
+    context.setDefaultTimeout = () => {};
+    context.setDefaultNavigationTimeout = () => {};
+    context.newCDPSession = async () => ({
+      send: async method => {
+        if (method === 'Browser.getWindowForTarget') return { windowId: 9, bounds: { windowState: 'normal' } };
+        if (method === 'Browser.getWindowBounds') return { bounds: { left: -32000, top: -32000, windowState: 'normal' } };
+        return {};
+      },
+      detach: async () => {}
+    });
+
+    const session = new WhatsAppSessionManager({
+      profileDir: __dirname,
+      playwright: {
+        chromium: {
+          launchPersistentContext: async () => context
+        }
+      }
+    });
+
+    await session.ensureReady({ timeoutMs: 3000, pollIntervalMs: 1 });
+
+    assert.equal(session.lastState, 'CONNECTED');
+    assert.ok(locatorChecks > 1);
   });
 
   it('reports QR login as its own session state', async function() {
