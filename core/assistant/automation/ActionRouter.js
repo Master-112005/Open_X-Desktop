@@ -343,7 +343,6 @@ class ActionRouter {
       ['_resolveSystemPowerIntent', () => this._resolveSystemPowerIntent(rawCommandText, preparedInput)],
       ['_resolveSystemSettingsIntent', () => this._resolveSystemSettingsIntent(rawCommandText, preparedInput)],
       ['_resolveSystemInsightIntent', () => this._resolveSystemInsightIntent(rawCommandText, preparedInput)],
-      ['_resolveUpdatePresentationIntent', () => this._resolveUpdatePresentationIntent(rawCommandText, preparedInput)],
       ['_resolveFolderOpenInAppIntent', () => this._resolveFolderOpenInAppIntent(rawCommandText, preparedInput)],
       ['_resolveWorkspaceSetupIntent', () => this._resolveWorkspaceSetupIntent(rawCommandText, preparedInput)],
       ['_resolvePhoneTransferIntent', () => this._resolvePhoneTransferIntent(rawCommandText, preparedInput, source)],
@@ -2760,48 +2759,6 @@ class ActionRouter {
     }
 
     return null;
-  }
-
-  _resolveUpdatePresentationIntent(rawText, preparedInput) {
-    const corrected = String(preparedInput?.correctedText || rawText || '').toLowerCase();
-    const raw = String(rawText || corrected || '').toLowerCase();
-    const input = `${raw} ${corrected}`.replace(/\s+/g, ' ').trim();
-    if (!input || !/\b(?:openx|assistant|app|application|software|system)?\s*(?:update|updates|version|release notes|changelog)\b/.test(input)) {
-      return null;
-    }
-
-    const intent = this.intentRegistry.get('update.presentation');
-    if (!intent) return null;
-
-    let operation = 'status';
-    if (/\bcheck(?:\s+for)?\b.*\bupdates?\b|\bupdates?\b.*\bcheck\b|\blatest\s+(?:openx\s+)?version\b/.test(input)) {
-      operation = 'check';
-    } else if (/\bdownload\b.*\bupdates?\b|\bupdates?\b.*\bdownload\b/.test(input)) {
-      operation = 'download';
-    } else if (/\bpause\b.*\bupdates?\b|\bupdates?\b.*\bpause\b/.test(input)) {
-      operation = 'pause';
-    } else if (/\bresume\b.*\bupdates?\b|\bupdates?\b.*\bresume\b/.test(input)) {
-      operation = 'resume';
-    } else if (/\bcancel\b.*\bupdates?\b|\bupdates?\b.*\bcancel\b/.test(input)) {
-      operation = 'cancel';
-    } else if (/\b(?:release notes|changelog|what changed)\b/.test(input)) {
-      operation = 'releaseNotes';
-    } else if (/\b(?:progress|download state|download status)\b/.test(input)) {
-      operation = 'progress';
-    } else if (/\b(?:current version|version am i on|what version|openx version)\b/.test(input)) {
-      operation = 'version';
-    } else if (/\binstall\b.*\bupdates?\b|\bupdates?\b.*\binstall\b/.test(input)) {
-      operation = 'install';
-    }
-
-    return {
-      intent,
-      confidence: 0.98,
-      entities: {
-        operation,
-        rawCommand: rawText
-      }
-    };
   }
 
   _resolveSmartFileIntent(rawText, preparedInput) {

@@ -774,29 +774,6 @@ const INTENT_DEFINITIONS = [
     description: 'Recognize a supported desktop-assistant capability that is handled safely or by a specialized controller'
   },
   {
-    id: 'update.presentation',
-    patterns: [
-      'check for updates',
-      'check openx updates',
-      'download update',
-      'pause update',
-      'resume update',
-      'cancel update',
-      'show update progress',
-      'show release notes',
-      'what version am i on',
-      'latest openx version',
-      'install update'
-    ],
-    permissionLevel: 'low',
-    action: 'update.presentation',
-    entities: [
-      { name: 'operation', type: 'string', required: false },
-      { name: 'rawCommand', type: 'string', required: false }
-    ],
-    description: 'Show or control the update presentation surface without changing installer behavior'
-  },
-  {
     id: 'help',
     patterns: ['help', 'what can you do', 'commands', 'capabilities', 'what can i say'],
     permissionLevel: 'low',
