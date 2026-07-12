@@ -1365,6 +1365,22 @@ function formatScheduleDueLabel(schedule = {}) {
   return due.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function formatScheduleRecurrenceLabel(recurrence = '') {
+  const key = String(recurrence || '').trim().toLowerCase();
+  if (!key) return '';
+  if (key.startsWith('weekly:')) {
+    const days = key
+      .slice('weekly:'.length)
+      .split(',')
+      .map(day => day.trim())
+      .filter(Boolean)
+      .map(day => day.charAt(0).toUpperCase() + day.slice(1));
+    if (days.length === 1) return `Every ${days[0]}`;
+    if (days.length > 1) return `Every ${days.slice(0, -1).join(', ')} and ${days[days.length - 1]}`;
+  }
+  return `Repeats ${key.replace(/-/g, ' ')}`;
+}
+
 function scheduleActionId(schedule = {}) {
   return String(schedule.id || schedule.taskName || '').trim();
 }
@@ -1395,24 +1411,20 @@ function presentScheduleInDynamicIsland(schedule = {}) {
   const kind = String(schedule.kind || 'Schedule').trim() || 'Schedule';
   const message = String(schedule.message || schedule.title || `${kind} is due`).trim();
   const dueLabel = formatScheduleDueLabel(schedule);
+  const recurrenceLabel = formatScheduleRecurrenceLabel(schedule.recurrence);
   try {
     voiceOverlay.displayAssistantResult({
       success: true,
       intent: 'schedule.due',
-      response: `${kind}: ${message}`,
+      response: message,
       data: {
         schedule: {
           ...schedule,
-          dueLabel
+          dueLabel,
+          recurrenceLabel
         },
         actions: buildScheduleDynamicIslandActions(schedule),
-        resultEntries: [{
-          index: 1,
-          name: message,
-          type: kind.toLowerCase(),
-          location: dueLabel,
-          snippet: schedule.recurrence ? `Repeats ${String(schedule.recurrence).replace(/-/g, ' ')}` : ''
-        }]
+        resultEntries: []
       },
       ui: {
         icon: kind.slice(0, 2).toUpperCase(),

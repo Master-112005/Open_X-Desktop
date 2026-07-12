@@ -13,11 +13,14 @@ describe('Dynamic Island Schedule Alerts', function() {
     assert.equal(fs.existsSync(path.join(root, 'apps', 'desktop', 'renderer', 'alert')), false);
     assert.match(main, /function presentScheduleInDynamicIsland\(schedule = \{\}\)/);
     assert.match(main, /function buildScheduleDynamicIslandActions\(schedule = \{\}\)/);
+    assert.match(main, /function formatScheduleRecurrenceLabel\(recurrence = ''\)/);
     assert.match(main, /function scheduleActionId\(schedule = \{\}\)/);
     assert.match(main, /intent: 'schedule\.due'/);
     assert.match(main, /label: 'Snooze 5 min'/);
     assert.match(main, /label: 'Stop'/);
     assert.match(main, /actions: buildScheduleDynamicIslandActions\(schedule\)/);
+    assert.match(main, /resultEntries: \[\]/);
+    assert.match(main, /recurrenceLabel/);
     assert.match(main, /scheduleId,\s*\n\s*primary: true/s);
     assert.match(main, /persistUntilAction: true/);
     assert.match(main, /autoHideMs: 0/);
@@ -35,11 +38,18 @@ describe('Dynamic Island Schedule Alerts', function() {
     assert.doesNotMatch(main, /alertWindow/);
 
     assert.match(voiceOverlay, /actions: this\._normalizeActions\(result\)/);
+    assert.match(voiceOverlay, /schedule: this\._normalizeScheduleDue\(result, intent\)/);
+    assert.match(voiceOverlay, /_normalizeScheduleDue\(result = \{\}, intent = ''\)/);
+    assert.match(voiceOverlay, /if \(intent === 'schedule\.due'\) \{\s*\n\s*return \[\];\s*\n\s*\}/s);
     assert.match(voiceOverlay, /draftId: String\(action\?\.draftId \|\| ''\)/);
     assert.match(voiceOverlay, /provider: String\(action\?\.provider \|\| ''\)/);
     assert.match(voiceOverlay, /choiceIndex: Math\.max\(0, Math\.min\(8, Number\(action\?\.choiceIndex\) \|\| 0\)\)/);
     assert.match(voiceOverlay, /\['snooze', 'stop'\]\.includes\(action\.kind \|\| action\.id\)/);
     assert.match(preload, /function appendVoiceActions\(fragment, payload = \{\}\)/);
+    assert.match(preload, /function appendVoiceScheduleDue\(fragment, payload = \{\}\)/);
+    assert.match(preload, /voice-schedule-due/);
+    assert.match(preload, /schedule-due-result/);
+    assert.match(preload, /if \(isScheduleDue\) \{\s*\n\s*appendVoiceScheduleDue\(fragment, payload\);\s*\n\s*\}/s);
     assert.doesNotMatch(preload, /ipcRenderer\.invoke\('communication:/);
     assert.match(preload, /ipcRenderer\.invoke\('schedule:alertAction'/);
     assert.match(preload, /ipcRenderer\.invoke\('voiceOverlay:collapse', options\)/);
@@ -60,6 +70,11 @@ describe('Dynamic Island Schedule Alerts', function() {
     assert.match(voiceWindow, /collapseAssistantResult\(options = \{\}\)/);
     assert.match(voiceWindow, /this\.hide\(\)/);
     assert.match(voiceWindow, /\.voice-card-body/);
+    assert.match(voiceWindow, /\.voice-schedule-due/);
+    assert.match(voiceWindow, /\.voice-schedule-title/);
+    assert.match(voiceWindow, /#voice-overlay\.schedule-due-result #assistant-response/);
+    assert.match(voiceWindow, /#voice-overlay\.schedule-due-result \.voice-action-row/);
+    assert.match(voiceWindow, /payload\.intent === 'schedule\.due'/);
     assert.match(voiceWindow, /-webkit-line-clamp: 2/);
     assert.match(voiceWindow, /resultSticky/);
     assert.match(voiceWindow, /scrollbar-width: none/);

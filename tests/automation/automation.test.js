@@ -1117,6 +1117,32 @@ describe('Automation Engine', function() {
     }
   });
 
+  it('should schedule recurring weekday alarms on the next matching day', function() {
+    const SchedulerController = require('../../core/automation/scheduler');
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-scheduler-weekday-'));
+    const scheduler = new SchedulerController({ app: { dataDir: tempDir } });
+
+    try {
+      const result = scheduler.setAlarm('8 pm', 'eat lunch', { recurrence: 'weekly:saturday,monday' });
+      assert.equal(result.success, true);
+      assert.equal(result.data.recurrence, 'weekly:saturday,monday');
+      const due = new Date(result.data.dueAt);
+      assert.ok([1, 6].includes(due.getDay()));
+      assert.equal(due.getHours(), 20);
+      assert.equal(due.getMinutes(), 0);
+
+      const completed = scheduler.complete(result.data.id);
+      const next = new Date(completed.data.dueAt);
+      assert.equal(completed.success, true);
+      assert.equal(completed.data.status, 'scheduled');
+      assert.ok([1, 6].includes(next.getDay()));
+      assert.ok(next.getTime() > due.getTime());
+    } finally {
+      scheduler.destroy();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('should route media actions correctly', function() {
     const engine = new AutomationEngine({});
     const actions = engine.getActions();

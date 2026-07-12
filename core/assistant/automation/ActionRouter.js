@@ -4524,7 +4524,7 @@ const newTabMatch = input.match(
       `^(?:set|start|create|add)\\s+(?:a\\s+)?timer\\s+(?:to|for)\\s+(.+?)\\s+in\\s+(${durationWords}\\s*${durationUnits})$`,
       'i'
     ));
-    if (!taskTimer && !taskDurationTimer && !rawReminderParts.timeExpression && !correctedReminderParts.timeExpression && !/^(?:(?:daily|every\s+(?:day|morning|evening|night|weekday|week))\s+)?(?:remind|notify|alert|set\s+(?:a\s+)?(?:recurring\s+)?reminder|create\s+(?:a\s+)?(?:recurring\s+)?reminder|add\s+(?:a\s+)?(?:recurring\s+)?reminder|schedule\s+(?:a\s+)?(?:recurring\s+)?reminder)\b/i.test(input)) {
+    if (!taskTimer && !taskDurationTimer && !rawReminderParts.timeExpression && !correctedReminderParts.timeExpression && !/^(?:(?:daily|every\s+(?:day|morning|evening|night|weekday|week|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\s+)?(?:remind|notify|alert|set\s+(?:a\s+)?(?:recurring\s+)?reminder|create\s+(?:a\s+)?(?:recurring\s+)?reminder|add\s+(?:a\s+)?(?:recurring\s+)?reminder|schedule\s+(?:a\s+)?(?:recurring\s+)?reminder)\b/i.test(input)) {
       return null;
     }
 
@@ -4577,7 +4577,7 @@ const newTabMatch = input.match(
     if (!entities.reminderText && correctedEntities.reminderText) {
       entities.reminderText = correctedEntities.reminderText;
     }
-    entities.recurrence = entities.recurrence || correctedEntities.recurrence || this._extractScheduleRecurrence(`${raw} ${input}`);
+    entities.recurrence = entities.recurrence || rawReminderParts.recurrence || correctedReminderParts.recurrence || correctedEntities.recurrence || this._extractScheduleRecurrence(`${raw} ${input}`);
     entities.timeExpression = this._stripScheduleRecurrenceFromTimeExpression(entities.timeExpression);
     if (!entities.reminderText) {
       const scheduleOnlyFallbackPattern = new RegExp(
@@ -4693,6 +4693,8 @@ const newTabMatch = input.match(
 
   _extractScheduleRecurrence(value) {
     const source = String(value || '').toLowerCase();
+    const weekdayRecurrence = this._extractScheduleWeekdayRecurrence(source);
+    if (weekdayRecurrence) return weekdayRecurrence;
     if (/\bevery\s+(?:one\s+)?hour\b|\bhourly\b/.test(source)) return 'hourly';
     if (/\bevery\s+(?:two|2)\s+hours?\b/.test(source)) return 'every-2-hours';
     if (/\bevery\s+weekday(?:\s+morning)?\b/.test(source)) return source.includes('morning') ? 'weekday-morning' : 'weekday';
@@ -4706,10 +4708,28 @@ const newTabMatch = input.match(
     return null;
   }
 
+  _extractScheduleWeekdayRecurrence(value) {
+    const source = String(value || '').toLowerCase();
+    const everyMatch = source.match(/\bevery\s+(.+)$/i);
+    if (!everyMatch?.[1]) return null;
+    const weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const days = [];
+    for (const token of everyMatch[1].replace(/[,&/]+/g, ' ').replace(/\s+/g, ' ').trim().split(' ')) {
+      if (weekdays.includes(token)) {
+        if (!days.includes(token)) days.push(token);
+        continue;
+      }
+      if ((token === 'and' || token === 'on') && days.length > 0) continue;
+      break;
+    }
+    return days.length > 0 ? `weekly:${days.join(',')}` : null;
+  }
+
   _stripScheduleRecurrenceFromTimeExpression(value) {
     const source = String(value || '').trim();
     if (!source) return source;
     const cleaned = source
+      .replace(/^every\s+(?:(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(?:and\s+|on\s+)?|,\s*)?)+\s+(?:at\s+)?/i, '')
       .replace(/^(?:every\s+(?:day|morning|evening|night|weekday|week)|daily|weekly)\s+(?:at\s+)?/i, '')
       .replace(/^at\s+/i, '')
       .trim();

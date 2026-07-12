@@ -63,6 +63,18 @@ describe('Reminder Extraction', function() {
       input: 'set a reminder on 12/12/2026 at 5 30 pm to call the office',
       text: 'call the office',
       time: '12/12/2026 at 5 30 pm'
+    },
+    {
+      input: 'remind me every saturday monday to eat lunch at 8pm',
+      text: 'eat lunch',
+      time: '8pm',
+      recurrence: 'weekly:saturday,monday'
+    },
+    {
+      input: 'remind me daily to drink water at 8pm',
+      text: 'drink water',
+      time: '8pm',
+      recurrence: 'daily'
     }
   ];
 
@@ -72,6 +84,7 @@ describe('Reminder Extraction', function() {
       assert.equal(parts.reminderText, testCase.text);
       assert.equal(parts.timeExpression, testCase.time);
       if (testCase.duration) assert.equal(parts.duration, testCase.duration);
+      if (testCase.recurrence) assert.equal(parts.recurrence, testCase.recurrence);
       assert.ok(scheduler._parseTimeExpression(parts.timeExpression) instanceof Date);
     });
   }
@@ -85,5 +98,17 @@ describe('Reminder Extraction', function() {
     assert.equal(result.intent.id, 'reminder.set');
     assert.equal(result.entities.reminderText, 'wish my brother');
     assert.equal(result.entities.timeExpression, '01/12/26 at five pm');
+  });
+
+  it('should route recurring weekday reminder sentences with separate text, time, and repeat rule', function() {
+    const result = router._resolveExplicitReminderIntent(
+      'remind me every saturday monday to eat lunch at 8pm',
+      { correctedText: 'remind me every saturday monday to eat lunch at 8pm' }
+    );
+
+    assert.equal(result.intent.id, 'reminder.set');
+    assert.equal(result.entities.reminderText, 'eat lunch');
+    assert.equal(result.entities.timeExpression, '8pm');
+    assert.equal(result.entities.recurrence, 'weekly:saturday,monday');
   });
 });

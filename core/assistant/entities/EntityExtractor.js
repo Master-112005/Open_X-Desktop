@@ -153,9 +153,11 @@ const SCHEDULE_CLOCK_PATTERN = String.raw`(?:\d{1,2}(?:(?::|\s+)\d{2})?|${SCHEDU
 const SCHEDULE_MONTH_NAME_PATTERN = String.raw`(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)`;
 const SCHEDULE_NUMERIC_DATE_PATTERN = String.raw`\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?`;
 const SCHEDULE_MONTH_DAY_PATTERN = String.raw`(?:the\s+)?(?:\d{1,2}(?:st|nd|rd|th)?(?:\s+(?:of\s+)?(?:this|next)\s+month|\s+(?:this|next)\s+month)|(?:this|next)\s+month\s+\d{1,2}(?:st|nd|rd|th)?|${SCHEDULE_MONTH_NAME_PATTERN}\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+(?:\d{2,4}|(?:of\s+)?(?:this|next)\s+year))?|\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?${SCHEDULE_MONTH_NAME_PATTERN}(?:,?\s+(?:\d{2,4}|(?:of\s+)?(?:this|next)\s+year))?|${SCHEDULE_NUMERIC_DATE_PATTERN})`;
-const SCHEDULE_DAY_PATTERN = String.raw`today|tomorrow(?:\s+(?:morning|afternoon|evening|night))?|tonight|next\s+week|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|${SCHEDULE_MONTH_DAY_PATTERN}`;
+const SCHEDULE_WEEKDAY_PATTERN = String.raw`monday|tuesday|wednesday|thursday|friday|saturday|sunday`;
+const SCHEDULE_DAY_PATTERN = String.raw`today|tomorrow(?:\s+(?:morning|afternoon|evening|night))?|tonight|next\s+week|(?:next\s+)?(?:${SCHEDULE_WEEKDAY_PATTERN})|${SCHEDULE_MONTH_DAY_PATTERN}`;
 const SCHEDULE_NATURAL_TIME_PATTERN = String.raw`noon|midnight|(?:morning|afternoon|evening|night)(?:\s+at\s+${SCHEDULE_CLOCK_PATTERN})?|(?:half|quarter)\s+(?:past|to)\s+\w+`;
 const REMINDER_VERB_PATTERN = String.raw`(?:remind|reminder|notify|alert|remember|note|save)`;
+const SCHEDULE_WEEKDAYS = Object.freeze(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']);
 
 class EntityExtractor {
   constructor(config) {
@@ -843,10 +845,22 @@ class EntityExtractor {
       return String(match[valueIndex] || '').replace(/\s+/g, ' ').trim();
     };
 
-    addMatch('recurrence', source.match(/\b(?:every\s+(?:day|morning|afternoon|evening|night|weekday|week)|daily)\b/i), 0);
+    const recurrenceMatch = this._extractRecurrenceMatch(source);
+    if (recurrenceMatch) {
+      scheduleMatches.push({
+        kind: 'recurrence',
+        full: recurrenceMatch.phrase,
+        value: recurrenceMatch.recurrence,
+        index: recurrenceMatch.index
+      });
+    }
     const durationMatch = source.match(new RegExp(`\\b(?:in|after|for)\\s+(${SCHEDULE_DURATION_PATTERN})\\b`, 'i'));
     const duration = addMatch('duration', durationMatch);
-    const dateMatch = source.match(new RegExp(`(?:\\b(?:on|for|by)\\s+)?(${SCHEDULE_DAY_PATTERN})\\b`, 'i'));
+    const rawDateMatch = source.match(new RegExp(`(?:\\b(?:on|for|by)\\s+)?(${SCHEDULE_DAY_PATTERN})\\b`, 'i'));
+    const dateInsideRecurrence = recurrenceMatch && rawDateMatch &&
+      rawDateMatch.index >= recurrenceMatch.index &&
+      rawDateMatch.index < recurrenceMatch.index + recurrenceMatch.phrase.length;
+    const dateMatch = dateInsideRecurrence ? null : rawDateMatch;
     const date = addMatch('date', dateMatch);
     const explicitTimePattern = String.raw`(?:\d{1,2}(?:(?::|\s+)\d{2})?\s*(?:am|pm)|${SCHEDULE_SPOKEN_HOUR_PATTERN}\s*(?:am|pm)|noon|midnight|(?:half|quarter)\s+(?:past|to)\s+\w+)`;
     const leadingTimeMatch = source.match(new RegExp(`\\b(?:at|by)\\s+(${explicitTimePattern})\\b`, 'i'));
@@ -873,7 +887,11 @@ class EntityExtractor {
 
     let reminderText = source
       .replace(new RegExp(`^.*?\\b(?:(?:(?:remind|notify|alert)(?:\\s+me)?|(?:remember|note|save)(?:\\s+(?:me|this|that))?)|(?:set|create|add|schedule)\\s+(?:a\\s+)?(?:new\\s+|recurring\\s+)?reminder|reminder)(?:\\s+(?:me|to|that|about|for|on|at|in|after|by|say|i\\s+have|i\\s+need\\s+to|my)\\b)?\\s*`, 'i'), ' ');
-    for (const match of scheduleMatches.sort((a, b) => b.index - a.index)) {
+    for (const match of scheduleMatches.sort((a, b) => {
+      if (a.kind === 'recurrence' && b.kind !== 'recurrence') return -1;
+      if (b.kind === 'recurrence' && a.kind !== 'recurrence') return 1;
+      return b.index - a.index;
+    })) {
       reminderText = removePhrase(reminderText, match.full);
       if (match.value && match.value !== match.full) {
         reminderText = removePhrase(reminderText, match.value);
@@ -896,6 +914,7 @@ class EntityExtractor {
     return {
       ...(timeExpression ? { timeExpression } : {}),
       ...(duration ? { duration: this._extractDuration(duration) } : {}),
+      ...(recurrenceMatch?.recurrence ? { recurrence: recurrenceMatch.recurrence } : {}),
       ...(reminderText ? {
         reminderText,
         reminderCategory: this._extractReminderCategory(reminderText)
@@ -1006,18 +1025,75 @@ class EntityExtractor {
   }
 
   _extractRecurrence(raw) {
-    const source = String(raw || '').toLowerCase();
-    if (/\bevery\s+(?:one\s+)?hour\b|\bhourly\b/.test(source)) return 'hourly';
-    if (/\bevery\s+(?:two|2)\s+hours?\b/.test(source)) return 'every-2-hours';
-    if (/\bevery\s+weekday(?:\s+morning)?\b/.test(source)) return source.includes('morning') ? 'weekday-morning' : 'weekday';
-    if (/\bevery\s+(?:day|morning|evening|night)\b|\bdaily\b/.test(source)) {
-      if (source.includes('morning')) return 'daily-morning';
-      if (source.includes('evening')) return 'daily-evening';
-      if (source.includes('night')) return 'daily-night';
-      return 'daily';
-    }
-    if (/\bevery\s+week\b|\bweekly\b/.test(source)) return 'weekly';
+    const recurrenceMatch = this._extractRecurrenceMatch(raw);
+    if (recurrenceMatch?.recurrence) return recurrenceMatch.recurrence;
     return null;
+  }
+
+  _extractRecurrenceMatch(raw) {
+    const source = String(raw || '').toLowerCase();
+    const simple = (pattern, recurrence) => {
+      const match = source.match(pattern);
+      return match ? { recurrence, phrase: match[0], index: match.index || 0 } : null;
+    };
+    const everyMatch = source.match(/\bevery\s+(.+)$/i);
+    if (everyMatch?.[1]) {
+      const tokens = everyMatch[1]
+        .replace(/[,&/]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .split(' ')
+        .filter(Boolean);
+      const days = [];
+      const phraseParts = ['every'];
+      for (const token of tokens) {
+        if (SCHEDULE_WEEKDAYS.includes(token)) {
+          if (!days.includes(token)) days.push(token);
+          phraseParts.push(token);
+          continue;
+        }
+        if ((token === 'and' || token === 'on') && days.length > 0) {
+          phraseParts.push(token);
+          continue;
+        }
+        break;
+      }
+      if (days.length > 0) {
+        return {
+          recurrence: `weekly:${days.join(',')}`,
+          phrase: phraseParts.join(' '),
+          index: everyMatch.index
+        };
+      }
+    }
+    const hourly = simple(/\bevery\s+(?:one\s+)?hour\b|\bhourly\b/i, 'hourly');
+    if (hourly) return hourly;
+    const twoHourly = simple(/\bevery\s+(?:two|2)\s+hours?\b/i, 'every-2-hours');
+    if (twoHourly) return twoHourly;
+    const weekday = source.match(/\bevery\s+weekday(?:\s+morning)?\b/i);
+    if (weekday) {
+      return {
+        recurrence: weekday[0].includes('morning') ? 'weekday-morning' : 'weekday',
+        phrase: weekday[0],
+        index: weekday.index || 0
+      };
+    }
+    const daily = source.match(/\bevery\s+(?:day|morning|evening|night)\b|\bdaily\b/i);
+    if (daily) {
+      const phrase = daily[0];
+      return {
+        recurrence: phrase.includes('morning')
+          ? 'daily-morning'
+          : phrase.includes('evening')
+            ? 'daily-evening'
+            : phrase.includes('night')
+              ? 'daily-night'
+              : 'daily',
+        phrase,
+        index: daily.index || 0
+      };
+    }
+    return simple(/\bevery\s+week\b|\bweekly\b/i, 'weekly');
   }
 
   _extractReminderText(text, raw) {

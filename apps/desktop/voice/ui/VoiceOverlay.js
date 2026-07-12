@@ -300,6 +300,7 @@ class VoiceOverlay extends EventEmitter {
       choices: this._normalizeChoices(result?.data?.choices),
       resultEntries: this._normalizeResultEntries(result, intent),
       actions: this._normalizeActions(result),
+      schedule: this._normalizeScheduleDue(result, intent),
       scheduleKind: String(result?.data?.schedule?.kind || '').slice(0, 40),
       icon: String(result?.ui?.icon || result?.data?.icon || '').slice(0, 3),
       previewStatus: String(result?.ui?.previewStatus || '').slice(0, 80),
@@ -377,14 +378,7 @@ class VoiceOverlay extends EventEmitter {
       }));
     }
     if (intent === 'schedule.due') {
-      const schedule = result?.data?.schedule || {};
-      return [Object.freeze({
-        index: 1,
-        name: String(schedule.message || schedule.title || 'Scheduled item').slice(0, 160),
-        type: String(schedule.kind || 'schedule').toLowerCase(),
-        location: String(schedule.dueLabel || schedule.dueAt || '').slice(0, 120),
-        snippet: String(schedule.category || '').slice(0, 120)
-      })];
+      return [];
     }
     if (!['file.search', 'folder.search', 'file.smartFind', 'file.list'].includes(intent)) {
       return [];
@@ -399,6 +393,18 @@ class VoiceOverlay extends EventEmitter {
       sizeMB: Number(entry?.sizeMB || 0),
       matchScore: Number(entry?.matchScore || 0)
     }));
+  }
+
+  _normalizeScheduleDue(result = {}, intent = '') {
+    if (intent !== 'schedule.due') return null;
+    const schedule = result?.data?.schedule || {};
+    return Object.freeze({
+      kind: String(schedule.kind || 'Schedule').slice(0, 40),
+      message: String(schedule.message || schedule.title || 'Scheduled item').replace(/\s+/g, ' ').trim().slice(0, 180),
+      dueLabel: String(schedule.dueLabel || '').slice(0, 80),
+      recurrenceLabel: String(schedule.recurrenceLabel || '').slice(0, 120),
+      category: String(schedule.category || '').slice(0, 80)
+    });
   }
 
   _normalizeActions(result = {}) {

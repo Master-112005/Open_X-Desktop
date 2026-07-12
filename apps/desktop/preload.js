@@ -49,6 +49,45 @@ function appendVoiceCard(list, entry, options = {}) {
   list.appendChild(item);
 }
 
+function appendVoiceScheduleDue(fragment, payload = {}) {
+  const schedule = payload.schedule || {};
+  const message = String(schedule.message || payload.response || 'Scheduled item').trim();
+  const kind = String(schedule.kind || payload.scheduleKind || 'Schedule').trim();
+  const dueLabel = String(schedule.dueLabel || '').trim();
+  const recurrenceLabel = String(schedule.recurrenceLabel || '').trim();
+  const category = String(schedule.category || '').trim();
+  const panel = document.createElement('div');
+  panel.className = 'voice-schedule-due';
+
+  const top = document.createElement('div');
+  top.className = 'voice-schedule-due-top';
+  const kindEl = document.createElement('span');
+  kindEl.className = 'voice-schedule-kind';
+  kindEl.textContent = kind;
+  const dueEl = document.createElement('span');
+  dueEl.className = 'voice-schedule-time';
+  dueEl.textContent = dueLabel || 'Now';
+  top.append(kindEl, dueEl);
+
+  const title = document.createElement('strong');
+  title.className = 'voice-schedule-title';
+  title.textContent = message;
+
+  const metaItems = [recurrenceLabel, category && category !== kind.toLowerCase() ? category : ''].filter(Boolean);
+  panel.append(top, title);
+  if (metaItems.length > 0) {
+    const meta = document.createElement('div');
+    meta.className = 'voice-schedule-meta';
+    for (const item of metaItems.slice(0, 2)) {
+      const chip = document.createElement('span');
+      chip.textContent = item;
+      meta.appendChild(chip);
+    }
+    panel.appendChild(meta);
+  }
+  fragment.appendChild(panel);
+}
+
 function getVoiceAlertAudioContext() {
   if (!voiceAlertAudioContext) {
     const Context = window.AudioContext || window.webkitAudioContext;
@@ -259,7 +298,7 @@ function renderVoiceAssistantResult(payload = {}) {
   if (!hasPayload) {
     stopVoiceAlertSound();
     clearVoiceActionCollapseTimer();
-    if (root) root.classList.remove('expanded', 'medium', 'large');
+    if (root) root.classList.remove('expanded', 'medium', 'large', 'schedule-due-result');
     responseEl.classList.remove('visible');
     voiceAssistantResultClearTimer = setTimeout(() => {
       voiceAssistantResultClearTimer = null;
@@ -269,9 +308,11 @@ function renderVoiceAssistantResult(payload = {}) {
   }
   if (root) {
     const displayMode = String(payload.displayMode || 'expanded').toLowerCase();
+    const isScheduleDue = String(payload.intent || '') === 'schedule.due';
     root.classList.add('expanded');
     root.classList.toggle('medium', displayMode === 'medium');
     root.classList.toggle('large', displayMode !== 'medium');
+    root.classList.toggle('schedule-due-result', isScheduleDue);
   }
   responseEl.replaceChildren();
   const fragment = document.createDocumentFragment();
@@ -282,12 +323,16 @@ function renderVoiceAssistantResult(payload = {}) {
     headingEl.textContent = heading;
     fragment.appendChild(headingEl);
   }
+  const isScheduleDue = String(payload.intent || '') === 'schedule.due';
   const response = String(payload.response || '').trim();
-  if (response) {
+  if (response && !isScheduleDue) {
     const text = document.createElement('div');
     text.className = 'voice-response-text';
     text.textContent = response;
     fragment.appendChild(text);
+  }
+  if (isScheduleDue) {
+    appendVoiceScheduleDue(fragment, payload);
   }
   const entries = Array.isArray(payload.resultEntries) ? payload.resultEntries : [];
   const choices = Array.isArray(payload.choices) ? payload.choices : [];
@@ -316,7 +361,7 @@ function renderVoiceAssistantResult(payload = {}) {
   appendVoiceActions(fragment, payload);
   responseEl.appendChild(fragment);
   if (String(payload.intent || '') === 'schedule.due') {
-    const scheduleKind = payload.scheduleKind || payload.resultEntries?.[0]?.type || '';
+    const scheduleKind = payload.scheduleKind || payload.schedule?.kind || '';
     playVoiceScheduleSound(scheduleKind);
   }
   requestAnimationFrame(() => responseEl.classList.add('visible'));
