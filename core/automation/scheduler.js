@@ -38,6 +38,16 @@ const MONTH_INDEX = Object.freeze({
   dec: 11, december: 11
 });
 
+const WEEKDAY_INDEX = Object.freeze({
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6
+});
+
 function inferReminderCategory(message, preferredCategory = '') {
   const preferred = String(preferredCategory || '').trim().toLowerCase();
   if (REMINDER_PRESENTATIONS[preferred]) return preferred;
@@ -166,13 +176,16 @@ class SchedulerController {
   }
 
   setAlarm(timeExpression, alarmLabel = '', options = {}) {
-    const dueAt = this._parseTimeExpression(timeExpression);
+    let dueAt = this._parseTimeExpression(timeExpression);
     if (!dueAt) {
       return { success: false, error: 'Invalid alarm time' };
     }
 
     const label = String(alarmLabel || '').trim();
     const recurrence = String(options.recurrence || '').trim();
+    if (recurrence) {
+      dueAt = this._alignRecurringDueDate(recurrence, dueAt);
+    }
     return this._scheduleNotification({
       kind: 'Alarm',
       title: label ? `${PRODUCT_NAME} Alarm: ${label}` : `${PRODUCT_NAME} Alarm`,
@@ -198,6 +211,9 @@ class SchedulerController {
       dueAt = new Date(Date.now() + (options.duration * 60 * 1000));
     } else if (options.timeExpression) {
       dueAt = this._parseTimeExpression(options.timeExpression);
+      if (dueAt && options.recurrence) {
+        dueAt = this._alignRecurringDueDate(options.recurrence, dueAt);
+      }
     } else if (options.recurrence) {
       dueAt = this._nextRecurringDate(options.recurrence, new Date());
     }
@@ -1004,8 +1020,21 @@ class SchedulerController {
   }
 
   _nextRecurringDate(recurrence, fromDate = new Date()) {
-    const next = new Date(Math.max(Date.now(), fromDate.getTime()));
+    const from = fromDate instanceof Date && Number.isFinite(fromDate.getTime()) ? fromDate : new Date();
+    const next = new Date(Math.max(Date.now(), from.getTime()));
     const key = String(recurrence || '').toLowerCase();
+    const weeklyDays = this._recurrenceWeekdays(key);
+    if (weeklyDays.length > 0) {
+      next.setHours(from.getHours(), from.getMinutes(), 0, 0);
+      next.setDate(next.getDate() + 1);
+      for (let index = 0; index < 14; index += 1) {
+        if (weeklyDays.includes(next.getDay()) && next.getTime() > Date.now()) {
+          return next;
+        }
+        next.setDate(next.getDate() + 1);
+      }
+      return next;
+    }
     if (key === 'hourly' || key === 'every-2-hours') {
       next.setTime(next.getTime() + (key === 'hourly' ? 1 : 2) * 3600000);
       return next;
@@ -1022,6 +1051,32 @@ class SchedulerController {
     else if (key.includes('evening')) next.setHours(18, 0, 0, 0);
     else if (key.includes('night')) next.setHours(21, 0, 0, 0);
     return next;
+  }
+
+  _alignRecurringDueDate(recurrence, dueAt) {
+    if (!(dueAt instanceof Date) || !Number.isFinite(dueAt.getTime())) return dueAt;
+    const weeklyDays = this._recurrenceWeekdays(recurrence);
+    if (weeklyDays.length === 0) return dueAt;
+    const candidate = new Date();
+    candidate.setSeconds(0, 0);
+    candidate.setHours(dueAt.getHours(), dueAt.getMinutes(), 0, 0);
+    for (let index = 0; index < 14; index += 1) {
+      if (weeklyDays.includes(candidate.getDay()) && candidate.getTime() > Date.now()) {
+        return candidate;
+      }
+      candidate.setDate(candidate.getDate() + 1);
+    }
+    return dueAt;
+  }
+
+  _recurrenceWeekdays(recurrence) {
+    const key = String(recurrence || '').toLowerCase().trim();
+    if (!key.startsWith('weekly:')) return [];
+    return key
+      .slice('weekly:'.length)
+      .split(',')
+      .map(day => WEEKDAY_INDEX[day.trim()])
+      .filter(day => Number.isInteger(day));
   }
 
   destroy() {
