@@ -1,6 +1,6 @@
 const { expect } = require('chai');
 const { WebSocketServer } = require('ws');
-const { CloudConnectionManager } = require('../../core/cloud');
+const { CloudConnectionManager, CloudE2EE } = require('../../core/cloud');
 
 function createSilentLogger() {
   return {
@@ -92,6 +92,90 @@ describe('CloudConnectionManager', () => {
       .to.equal('wss://relay.example.com/ws');
     expect(CloudConnectionManager.normalizeRelayUrl('http://localhost:8080/custom'))
       .to.equal('ws://localhost:8080/custom');
+  });
+
+  it('encrypts relay packet payloads and metadata before sending', () => {
+    const masterKey = CloudE2EE.generateSecret();
+    const sender = new CloudConnectionManager({
+      logger: createSilentLogger(),
+      e2eeMasterKey: masterKey,
+      settings: { heartbeatEnabled: false },
+      version: 'test'
+    });
+    const receiver = new CloudConnectionManager({
+      logger: createSilentLogger(),
+      e2eeMasterKey: masterKey,
+      settings: { heartbeatEnabled: false },
+      version: 'test'
+    });
+    const packet = {
+      packetId: 'packet-e2ee-1',
+      protocolVersion: 1,
+      packetType: 'request',
+      sourceDeviceId: 'phone-test',
+      destinationDeviceId: 'desktop-test',
+      ownerId: 'owner-test',
+      timestamp: Date.now(),
+      requestId: 'request-e2ee-1',
+      responseId: null,
+      metadata: { feature: 'assistant-command', retryable: true },
+      checksum: 'private-checksum',
+      encryption: null,
+      payload: {
+        type: 'assistant-command',
+        command: 'open downloads'
+      }
+    };
+
+    const encrypted = sender.protectRelayPacket(packet);
+    expect(encrypted.payload).to.deep.equal({ type: 'encrypted', scheme: CloudE2EE.SCHEME });
+    expect(encrypted.metadata).to.deep.equal({ encrypted: true, retryable: true });
+    expect(JSON.stringify(encrypted)).to.not.include('open downloads');
+    expect(JSON.stringify(encrypted)).to.not.include('assistant-command');
+
+    const decrypted = receiver.unprotectRelayMessage({ type: 'relay:packet', packet: encrypted });
+    expect(decrypted.packet.payload.command).to.equal('open downloads');
+    expect(decrypted.packet.metadata.feature).to.equal('assistant-command');
+    expect(decrypted.packet.checksum).to.equal('private-checksum');
+  });
+
+  it('rejects tampered encrypted relay packets', () => {
+    const masterKey = CloudE2EE.generateSecret();
+    const sender = new CloudConnectionManager({
+      logger: createSilentLogger(),
+      e2eeMasterKey: masterKey,
+      settings: { heartbeatEnabled: false },
+      version: 'test'
+    });
+    const receiver = new CloudConnectionManager({
+      logger: createSilentLogger(),
+      e2eeMasterKey: masterKey,
+      settings: { heartbeatEnabled: false },
+      version: 'test'
+    });
+    const relayErrors = [];
+    receiver.on('relay-error', error => relayErrors.push(error));
+    const encrypted = sender.protectRelayPacket({
+      packetId: 'packet-e2ee-2',
+      protocolVersion: 1,
+      packetType: 'request',
+      sourceDeviceId: 'phone-test',
+      destinationDeviceId: 'desktop-test',
+      ownerId: 'owner-test',
+      timestamp: Date.now(),
+      requestId: 'request-e2ee-2',
+      responseId: null,
+      metadata: { feature: 'assistant-command' },
+      checksum: null,
+      encryption: null,
+      payload: { type: 'assistant-command', command: 'open downloads' }
+    });
+    const tampered = { ...encrypted, destinationDeviceId: 'desktop-other' };
+
+    const decrypted = receiver.unprotectRelayMessage({ type: 'relay:packet', packet: tampered });
+    expect(decrypted).to.equal(null);
+    expect(relayErrors).to.have.length(1);
+    expect(relayErrors[0].code).to.equal('e2ee-packet-rejected');
   });
 
   it('updates and removes cloud devices through correlated relay requests', async () => {

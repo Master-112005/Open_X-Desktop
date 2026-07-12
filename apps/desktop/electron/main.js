@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, globalShortcut, session, screen, powerMonitor, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, globalShortcut, session, screen, powerMonitor, dialog, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -2080,6 +2080,58 @@ function sendCloudPairingStatus(status = null) {
   }
 }
 
+function getCloudE2EEKeyPath() {
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG.app?.dataPaths || {};
+  const securityDir = dataPaths.securityDir || path.join(dataPaths.root || app.getPath('userData'), 'security');
+  return path.join(securityDir, 'cloud-e2ee-key.json');
+}
+
+function loadCloudE2EEMasterKey() {
+  try {
+    const keyPath = getCloudE2EEKeyPath();
+    if (!fs.existsSync(keyPath)) return '';
+    const stored = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+    if (stored?.storage !== 'electron-safeStorage' || !stored?.ciphertext) return '';
+    if (!safeStorage?.isEncryptionAvailable?.()) return '';
+    return safeStorage.decryptString(Buffer.from(stored.ciphertext, 'base64')).trim();
+  } catch (error) {
+    mainLogger.warn('[CLOUD] Unable to load encrypted E2EE key', { error: error.message });
+    return '';
+  }
+}
+
+function saveCloudE2EEMasterKey(masterKey) {
+  const key = String(masterKey || '').trim();
+  if (!key) return false;
+  if (!safeStorage?.isEncryptionAvailable?.()) {
+    mainLogger.warn('[CLOUD] E2EE key not persisted because OS encryption is unavailable');
+    return false;
+  }
+  try {
+    const keyPath = getCloudE2EEKeyPath();
+    fs.mkdirSync(path.dirname(keyPath), { recursive: true, mode: 0o700 });
+    const ciphertext = safeStorage.encryptString(key).toString('base64');
+    fs.writeFileSync(keyPath, JSON.stringify({
+      version: 1,
+      storage: 'electron-safeStorage',
+      createdAt: new Date().toISOString(),
+      ciphertext
+    }, null, 2), { mode: 0o600 });
+    try { fs.chmodSync(keyPath, 0o600); } catch (_) {}
+    return true;
+  } catch (error) {
+    mainLogger.warn('[CLOUD] Unable to persist encrypted E2EE key', { error: error.message });
+    return false;
+  }
+}
+
+function createCloudSecureKeyStore() {
+  return {
+    saveMasterKey: saveCloudE2EEMasterKey,
+    loadMasterKey: loadCloudE2EEMasterKey
+  };
+}
+
 function initializeCloudConnection() {
   if (cloudConnectionManager) return cloudConnectionManager;
   const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG.app?.dataPaths || {};
@@ -2090,6 +2142,7 @@ function initializeCloudConnection() {
   cloudConnectionManager = new CloudConnectionManager({
     settings: runtimeConfig?.cloud || {},
     version: app.getVersion?.() || BASE_CONFIG.app?.version || '0.0.0',
+    e2eeMasterKey: loadCloudE2EEMasterKey(),
     logger: cloudLogger
   });
   cloudConnectionManager.on('status', status => sendCloudStatus(status));
@@ -2113,6 +2166,7 @@ function initializeCloudPairing() {
   cloudPairingManager = new CloudPairingManager({
     connectionManager: manager,
     logger: mainLogger,
+    secureKeyStore: createCloudSecureKeyStore(),
     tokenTtlMs: runtimeConfig?.cloud?.pairTokenTtlMs || 5 * 60 * 1000
   });
   cloudPairingManager.on('request', status => {

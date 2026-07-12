@@ -5,7 +5,6 @@ graphify-out/
 .code-review-graph/
 models/whisper/*.bin
 dist/
-build/
 .playwright-mcp/
 models/
 !core/assistant/models/

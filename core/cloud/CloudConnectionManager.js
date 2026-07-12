@@ -1,5 +1,6 @@
 const EventEmitter = require('events');
 const { WebSocket } = require('ws');
+const { SecurePacketChannel } = require('./CloudE2EE');
 
 const STATES = Object.freeze({
   DISCONNECTED: 'Disconnected',
@@ -76,6 +77,11 @@ class CloudConnectionManager extends EventEmitter {
     this.logger = options.logger || console;
     this.now = options.now || (() => Date.now());
     this.version = String(options.version || '0.0.0');
+    this.secureChannel = options.secureChannel || new SecurePacketChannel({
+      masterKey: options.e2eeMasterKey || '',
+      logger: this.logger,
+      now: this.now
+    });
 
     this.socket = null;
     this.state = STATES.DISCONNECTED;
@@ -222,9 +228,10 @@ class CloudConnectionManager extends EventEmitter {
   }
 
   sendRelayPacket(packet) {
+    const protectedPacket = this.protectRelayPacket(packet);
     const sent = this.send({
       type: 'relay:packet',
-      packet
+      packet: protectedPacket
     });
     if (!sent && packet?.metadata?.retryable === true) {
       this.reliability.retryCount += 1;
@@ -259,10 +266,11 @@ class CloudConnectionManager extends EventEmitter {
     });
   }
 
-  approvePairingRequest(pairRequestId) {
+  approvePairingRequest(pairRequestId, security = null) {
     return this.send({
       type: 'cloud-pair:approve',
-      pairRequestId
+      pairRequestId,
+      ...(security ? { security } : {})
     });
   }
 
@@ -591,7 +599,8 @@ class CloudConnectionManager extends EventEmitter {
       return;
     }
     if (payload?.type === 'relay:packet') {
-      this.emit('relay-packet', payload);
+      const message = this.unprotectRelayMessage(payload);
+      if (message) this.emit('relay-packet', message);
       return;
     }
     if (payload?.type === 'relay:ack') {
@@ -743,6 +752,46 @@ class CloudConnectionManager extends EventEmitter {
         localFirst: true
       }
     });
+  }
+
+  setE2EEMasterKey(masterKey) {
+    const applied = this.secureChannel.setMasterKey(masterKey);
+    this.emitStatus({ security: this.getSecurityStatus() });
+    return applied;
+  }
+
+  getSecurityStatus() {
+    return this.secureChannel.getStatus();
+  }
+
+  protectRelayPacket(packet) {
+    try {
+      return this.secureChannel.encryptPacket(packet);
+    } catch (error) {
+      this.logger.warn('E2EE packet encryption failed', { error: error.message });
+      return packet;
+    }
+  }
+
+  unprotectRelayMessage(message) {
+    try {
+      const packet = this.secureChannel.decryptPacket(message.packet || {});
+      return { ...message, packet };
+    } catch (error) {
+      this.logger.warn('E2EE packet rejected', {
+        packetId: message?.packet?.packetId || null,
+        requestId: message?.packet?.requestId || null,
+        error: error.message
+      });
+      this.emit('relay-error', {
+        type: 'relay:error',
+        code: 'e2ee-packet-rejected',
+        packetId: message?.packet?.packetId || null,
+        requestId: message?.packet?.requestId || null,
+        message: 'Encrypted packet could not be authenticated.'
+      });
+      return null;
+    }
   }
 
   applyAuthForCurrentDevice(auth, source = 'auth') {
@@ -905,6 +954,7 @@ class CloudConnectionManager extends EventEmitter {
       presence: this.presence.slice(),
       notifications: this.notifications.slice(),
       reliability: this.getReliabilityStatus(),
+      security: this.getSecurityStatus(),
       authenticated: Boolean(this.auth?.accessToken),
       friendlyMessage: this.getFriendlyMessage(),
       error: this.state === STATES.ERROR ? this.lastError : '',
