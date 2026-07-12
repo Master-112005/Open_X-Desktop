@@ -284,8 +284,8 @@ class CloudConnectionManager extends EventEmitter {
     return this.sendDeviceMutation('device:remove', { deviceId });
   }
 
-  listDevices() {
-    return this.sendDeviceMutation('device:list');
+  listDevices(options = {}) {
+    return this.sendDeviceMutation('device:list', {}, options);
   }
 
   updatePresence(state, metadata = {}) {
@@ -390,16 +390,17 @@ class CloudConnectionManager extends EventEmitter {
     });
   }
 
-  sendDeviceMutation(type, payload = {}) {
+  sendDeviceMutation(type, payload = {}, options = {}) {
     if (!this.isConnected()) {
       return Promise.reject(new Error('Connect to Relay Server first.'));
     }
     const requestId = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const timeoutMs = this.clamp(options.timeoutMs, 1000, 60000, DEFAULT_TIMEOUT_MS);
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(requestId);
         reject(new Error('Cloud device request timed out.'));
-      }, DEFAULT_TIMEOUT_MS);
+      }, timeoutMs);
       timeout.unref?.();
       this.pendingRequests.set(requestId, { resolve, reject, timeout });
       const sent = this.send({

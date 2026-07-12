@@ -54,6 +54,9 @@ class CloudCommandManager extends EventEmitter {
 
   handleRelayPacket(message) {
     const packet = message?.packet || null;
+    if (packet?.payload?.type === 'profile-sync') {
+      return { accepted: false, code: 'ignored-profile-sync' };
+    }
     const validation = this.validatePacket(packet);
     if (!validation.valid) {
       this.log('warn', 'Validation Failed', {

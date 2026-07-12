@@ -199,6 +199,7 @@ let cloudConnectionManager = null;
 let cloudPairingManager = null;
 let cloudCommandManager = null;
 let cloudFileTransferManager = null;
+let cloudProfileSyncRegistered = false;
 let updateEngine = null;
 const rendererCrashHistory = new Map();
 const recoveryTimeouts = new Set();
@@ -1422,6 +1423,129 @@ function broadcastScheduleSync(snapshot = null) {
   }
 }
 
+const PROFILE_SYNC_FIELDS = [
+  'fullName',
+  'email',
+  'phone',
+  'addressLine1',
+  'city',
+  'state',
+  'postalCode',
+  'country',
+  'company',
+  'role'
+];
+
+function normalizeProfileSyncProfile(profile = {}) {
+  const source = profile && typeof profile === 'object' ? profile : {};
+  return Object.fromEntries(PROFILE_SYNC_FIELDS.map(field => [
+    field,
+    String(source[field] || '').replace(/\s+/g, ' ').trim().slice(0, field === 'addressLine1' ? 180 : 120)
+  ]));
+}
+
+function getProfileSyncSnapshot() {
+  const settings = settingsService?.getSettings?.() || {};
+  return {
+    version: 1,
+    source: 'desktop',
+    generatedAt: new Date().toISOString(),
+    profile: normalizeProfileSyncProfile(settings.userProfile || {})
+  };
+}
+
+function createCloudProfilePacket(destinationDevice, snapshot, action = 'snapshot') {
+  const status = cloudConnectionManager?.getStatus?.() || {};
+  const sourceDevice = status.device || {};
+  const owner = status.owner || {};
+  const destinationDeviceId = String(destinationDevice?.deviceId || destinationDevice).trim();
+  if (!sourceDevice.deviceId || !owner.id || !destinationDeviceId) return null;
+  const requestId = `profile_sync_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+  return {
+    packetId: `profile_packet_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    protocolVersion: 1,
+    packetType: 'system',
+    sourceDeviceId: sourceDevice.deviceId,
+    destinationDeviceId,
+    ownerId: owner.id,
+    timestamp: Date.now(),
+    requestId,
+    responseId: null,
+    metadata: {
+      feature: 'profile-sync',
+      source: 'desktop',
+      retryable: false
+    },
+    checksum: null,
+    encryption: null,
+    payload: {
+      type: 'profile-sync',
+      action,
+      snapshot
+    }
+  };
+}
+
+function sendProfileSyncSnapshotToDevice(deviceId, snapshot = null) {
+  const packet = createCloudProfilePacket(deviceId, snapshot || getProfileSyncSnapshot());
+  return packet ? cloudConnectionManager?.sendRelayPacket?.(packet) === true : false;
+}
+
+function broadcastProfileSync(snapshot = null) {
+  const nextSnapshot = snapshot || getProfileSyncSnapshot();
+  try {
+    const status = cloudConnectionManager?.getStatus?.() || {};
+    if (status.connected !== true) return false;
+    const devices = Array.isArray(status.pairedDevices) ? status.pairedDevices : [];
+    let sent = 0;
+    for (const device of devices) {
+      if (!device?.deviceId || device.deviceId === status.device?.deviceId) continue;
+      if (sendProfileSyncSnapshotToDevice(device.deviceId, nextSnapshot)) sent += 1;
+    }
+    return sent > 0;
+  } catch (error) {
+    mainLogger.warn('[PROFILE] Cloud profile sync broadcast failed', { error: error.message });
+    return false;
+  }
+}
+
+async function applyProfileSyncFromPhone(profile = {}) {
+  const nextProfile = normalizeProfileSyncProfile(profile);
+  const saved = settingsService.saveSettings({ userProfile: nextProfile });
+  runtimeConfig = settingsService.buildRuntimeConfig();
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.webContents.send('settings:changed', buildSettingsSnapshot());
+  }
+  const snapshot = {
+    version: 1,
+    source: 'desktop',
+    generatedAt: new Date().toISOString(),
+    profile: normalizeProfileSyncProfile(saved.userProfile || nextProfile)
+  };
+  broadcastProfileSync(snapshot);
+  return snapshot;
+}
+
+function handleCloudProfileSyncPacket(message = {}) {
+  const packet = message.packet || {};
+  const payload = packet.payload || {};
+  if (payload.type !== 'profile-sync') return false;
+  const status = cloudConnectionManager?.getStatus?.() || {};
+  if (!status.connected || packet.destinationDeviceId !== status.device?.deviceId || packet.ownerId !== status.owner?.id) return false;
+  const action = String(payload.action || 'request').toLowerCase();
+  if (action === 'request') {
+    sendProfileSyncSnapshotToDevice(packet.sourceDeviceId);
+    return true;
+  }
+  if (action === 'upsert') {
+    applyProfileSyncFromPhone(payload.profile || payload.snapshot?.profile || {}).catch(error => {
+      mainLogger.warn('[PROFILE] Cloud profile sync apply failed', { error: error.message });
+    });
+    return true;
+  }
+  return false;
+}
+
 function lowerChatWindowForPlanner() {
   if (!chatWindow || chatWindow.isDestroyed() || !chatWindow.isVisible()) return;
   chatWindow.setAlwaysOnTop(false);
@@ -2004,6 +2128,9 @@ function initializeCloudPairing() {
       pairRequestId: result?.pairRequestId,
       type: result?.type
     });
+    if (result?.type === 'cloud-pair:paired') {
+      setTimeout(() => broadcastProfileSync(), 500).unref?.();
+    }
   });
   cloudPairingManager.on('status', status => sendCloudPairingStatus(status));
   return cloudPairingManager;
@@ -2127,19 +2254,62 @@ function currentCloudSettings() {
   return { ...settings };
 }
 
+const CLOUD_DEVICE_LIST_TIMEOUT_MS = 2500;
+const CLOUD_DEVICE_LIST_SUCCESS_TTL_MS = 5000;
+const CLOUD_DEVICE_LIST_FAILURE_COOLDOWN_MS = 30000;
+let cloudDeviceListRefreshPromise = null;
+let cloudDeviceListLastSuccessAt = 0;
+let cloudDeviceListLastFailureAt = 0;
+let cloudDeviceListLastFailureLogAt = 0;
+
 function coerceCloudTimestamp(value, fallback = Date.now()) {
   if (Number.isFinite(Number(value)) && Number(value) > 0) return Number(value);
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+async function refreshManagedCloudDevices(manager) {
+  if (!manager?.isConnected?.()) return false;
+  const now = Date.now();
+  if (cloudDeviceListRefreshPromise) {
+    await cloudDeviceListRefreshPromise;
+    return true;
+  }
+  if (now - cloudDeviceListLastSuccessAt < CLOUD_DEVICE_LIST_SUCCESS_TTL_MS) return true;
+  if (now - cloudDeviceListLastFailureAt < CLOUD_DEVICE_LIST_FAILURE_COOLDOWN_MS) return false;
+
+  cloudDeviceListRefreshPromise = manager.listDevices({ timeoutMs: CLOUD_DEVICE_LIST_TIMEOUT_MS })
+    .then(() => {
+      cloudDeviceListLastSuccessAt = Date.now();
+      cloudDeviceListLastFailureAt = 0;
+      return true;
+    })
+    .catch(error => {
+      const failedAt = Date.now();
+      cloudDeviceListLastFailureAt = failedAt;
+      if (failedAt - cloudDeviceListLastFailureLogAt >= CLOUD_DEVICE_LIST_FAILURE_COOLDOWN_MS) {
+        cloudDeviceListLastFailureLogAt = failedAt;
+        mainLogger.warn('Cloud device list refresh failed; using cached devices', { error: error.message });
+      } else {
+        mainLogger.debug?.('Cloud device list refresh skipped after recent failure', { error: error.message });
+      }
+      return false;
+    })
+    .finally(() => {
+      cloudDeviceListRefreshPromise = null;
+    });
+
+  await cloudDeviceListRefreshPromise;
+  return true;
+}
+
 async function buildManagedDeviceList() {
   const manager = cloudConnectionManager || initializeCloudConnection();
   if (manager?.isConnected?.()) {
     try {
-      await manager.listDevices();
+      await refreshManagedCloudDevices(manager);
     } catch (error) {
-      mainLogger.warn('Cloud device list refresh failed; using cached devices', { error: error.message });
+      mainLogger.debug?.('Cloud device list refresh fallback failed safely', { error: error.message });
     }
   }
   const cloudStatus = cloudConnectionManager?.getStatus?.() || {};
@@ -2651,6 +2821,7 @@ function setupIPC() {
     if (cloudSettings.enabled !== true && manager.state !== 'Disconnected') {
       await manager.disconnect('cloud-disabled-in-settings');
     }
+    broadcastProfileSync();
     return {
       ...buildSettingsSnapshot(),
       cloudStatus: manager.getStatus()
@@ -2941,10 +3112,15 @@ function getVoiceShortcuts() {
     .filter(shortcut => shortcut !== 'Control+Space');
 }
 
-function openChatFromShortcut(shortcut = '') {
+function toggleChatFromShortcut(shortcut = '') {
+  if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible()) {
+    chatWindow.hide();
+    mainLogger.info('Chat shortcut closed chat', { shortcut });
+    return { success: true, visible: false };
+  }
   createChatWindow();
   mainLogger.info('Chat shortcut opened chat', { shortcut });
-  return { success: true };
+  return { success: true, visible: true };
 }
 
 function quietMediaForVoiceActivation(shortcut = '') {
@@ -3146,7 +3322,7 @@ function registerChatShortcut() {
     try {
       const registered = globalShortcut.register(shortcut, () => {
         mainLogger.info('Chat shortcut pressed', { shortcut });
-        openChatFromShortcut(shortcut);
+        toggleChatFromShortcut(shortcut);
       });
 
       if (!registered) {
@@ -3250,6 +3426,11 @@ function initializeCloudMobileRuntime() {
     };
   }
   const cloudTransfers = initializeCloudFileTransfers();
+  const manager = initializeCloudConnection();
+  if (!cloudProfileSyncRegistered) {
+    manager.on('relay-packet', handleCloudProfileSyncPacket);
+    cloudProfileSyncRegistered = true;
+  }
   if (assistant?.automation) {
     assistant.automation.fileTransferManager = cloudTransfers;
   }

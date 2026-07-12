@@ -17,11 +17,12 @@ describe('Electron Chat Shortcut', function() {
     assert.match(script, /function getVoiceShortcuts\(\)/);
     assert.match(script, /Control\+Space/);
     assert.match(script, /Alt\+Space/);
-    assert.match(script, /function openChatFromShortcut\(shortcut = ''\)/);
+    assert.match(script, /function toggleChatFromShortcut\(shortcut = ''\)/);
     assert.match(script, /function startVoiceListeningFromShortcut\(shortcut = ''\)/);
     assert.match(script, /function createDesktopVoiceResources\(\)/);
     assert.match(script, /globalShortcut\.register\(shortcut/);
-    assert.match(script, /openChatFromShortcut\(shortcut\)/);
+    assert.match(script, /toggleChatFromShortcut\(shortcut\)/);
+    assert.match(script, /Chat shortcut closed chat/);
     assert.match(script, /startVoiceListeningFromShortcut\(shortcut\)/);
     assert.match(script, /chatWindow\.hide\(\)/);
     assert.match(script, /voiceSessionManager\.startSession/);
