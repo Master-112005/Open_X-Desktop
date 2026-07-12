@@ -28,17 +28,7 @@ const { ensureDataRoot, migrateLegacyData } = require('../../../core/assistant/D
 const { CloudCommandManager, CloudConnectionManager, CloudFileTransferManager, CloudLogger, CloudPairingManager } = require('../../../core/cloud');
 const { UpdateEngine } = require('../../../core/update');
 const CrashRecoveryPolicy = require('./crash-recovery');
-const {
-  DeviceRegistry,
-  FileTransferManager,
-  IdentityVerificationService,
-  PairingService,
-  PhoneCommandRouter,
-  PhoneServer,
-  QRPairingService,
-  TransferHistory
-} = require('../../../core/phone');
-const WindowsIdentityVerifier = require('../phone-verification');
+const WindowsIdentityVerifier = require('../identity-verification');
 const {
   IPC_VALIDATORS,
   assertTrustedIpcSender,
@@ -204,10 +194,7 @@ let fatalErrorHandling = false;
 let signalHandling = false;
 let stableRuntimeHandle = null;
 let chatLoweredForPlanner = false;
-let phoneServer = null;
-let qrPairingService = null;
-let phoneDeviceRegistry = null;
-let phoneIdentityVerificationService = null;
+let identityVerificationService = null;
 let cloudConnectionManager = null;
 let cloudPairingManager = null;
 let cloudCommandManager = null;
@@ -276,20 +263,9 @@ const IPC_CHANNELS = [
   'cloud:pairing:status',
   'cloud:pairing:approve',
   'cloud:pairing:reject',
-  'communication:status',
-  'communication:connect',
-  'communication:disconnect',
-  'communication:selectContact',
-  'communication:sendPrepared',
-  'communication:cancelPrepared',
-  'phone:pairingQR:create',
-  'phone:server:status',
-  'phone:devices:list',
-  'phone:device:rename',
-  'phone:device:trust:update',
-  'phone:device:permissions:update',
-  'phone:device:remove',
-  'phone:device:disconnect',
+  'cloud:devices:list',
+  'cloud:device:rename',
+  'cloud:device:remove',
   'settings:save',
   'settings:reset',
   'schedule:alertAction',
@@ -953,11 +929,6 @@ async function saveStateForSelfUpdate(context = {}) {
 
 async function prepareRuntimeForUpdateInstallation() {
   try {
-    await getCommunicationEngine()?.disconnectAll?.();
-  } catch (error) {
-    mainLogger.warn('Communication shutdown before update installation failed', { error: error.message });
-  }
-  try {
     await cloudConnectionManager?.disconnect?.();
   } catch (error) {
     mainLogger.warn('Cloud disconnect before update installation failed', { error: error.message });
@@ -1438,12 +1409,6 @@ function createCloudSchedulePacket(destinationDevice, snapshot) {
 function broadcastScheduleSync(snapshot = null) {
   const nextSnapshot = snapshot || getScheduleSyncSnapshot();
   try {
-    phoneServer?.broadcastScheduleSnapshot?.(nextSnapshot);
-  } catch (error) {
-    mainLogger.warn('[SCHEDULE] Local phone sync broadcast failed', { error: error.message });
-  }
-
-  try {
     const status = cloudConnectionManager?.getStatus?.() || {};
     if (status.connected !== true) return;
     const devices = Array.isArray(status.pairedDevices) ? status.pairedDevices : [];
@@ -1777,190 +1742,6 @@ function presentUpdateAvailableInDynamicIsland(event = {}, card = null) {
   }
 }
 
-function getCommunicationEngine() {
-  return assistant?.automation?.communicationEngine || assistant?.automation?.communications?.communicationEngine || null;
-}
-
-function getCommunicationProvider(providerId = 'whatsapp') {
-  try {
-    return getCommunicationEngine()?.manager?.get?.(providerId);
-  } catch (_) {
-    return null;
-  }
-}
-
-function presentCommunicationDraftInDynamicIsland(event = {}) {
-  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
-  const provider = String(event.provider || 'whatsapp').toLowerCase();
-  const draftId = String(event.draftId || '').trim();
-  if (!draftId) return false;
-  const draft = getCommunicationProvider(provider)?.getDraft?.(draftId);
-  if (!draft) return false;
-  try {
-    voiceOverlay.displayAssistantResult({
-      success: true,
-      intent: 'communication.confirmation',
-      response: `WhatsApp draft ready for ${draft.recipient}`,
-      data: {
-        actions: [
-          {
-            id: 'cancel',
-            label: 'Cancel',
-            kind: 'cancel',
-            provider,
-            draftId
-          },
-          {
-            id: 'send',
-            label: 'Send',
-            kind: 'send',
-            provider,
-            draftId,
-            primary: true
-          }
-        ],
-        resultEntries: [{
-          index: 1,
-          name: draft.recipient,
-          type: 'WhatsApp',
-          location: 'Draft ready',
-          snippet: draft.message
-        }]
-      },
-      ui: {
-        icon: 'WA',
-        previewStatus: 'WhatsApp confirmation',
-        preExpandDelayMs: 350,
-        autoHideMs: 0,
-        persistUntilAction: true
-      }
-    });
-    return true;
-  } catch (error) {
-    mainLogger.warn('Dynamic Island communication confirmation failed', { error: error.message });
-    return false;
-  }
-}
-
-function cleanCommunicationContactTitle(value, fallbackIndex = 1) {
-  const fallback = `Contact ${fallbackIndex}`;
-  let title = String(value || fallback).replace(/\s+/g, ' ').trim();
-  if (!title) title = fallback;
-  title = title
-    .replace(/\b(?:wds|ic)(?:-[a-z0-9_]+)+\b/gi, ' ')
-    .replace(/\s+(?:Yesterday|Today|Tomorrow).*$/i, '')
-    .replace(/\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun),?.*$/i, '')
-    .replace(/\s+\d{1,2}:\d{2}(?:\s?[AP]M)?.*$/i, '')
-    .replace(/\s+\d{1,2}\/\d{1,2}(?:\/\d{2,4})?.*$/i, '')
-    .replace(/\s+(?:Photo|Image|Video|Audio|Document|Sticker|GIF|Voice message|Contact card|Location).*$/i, '')
-    .replace(/\s+(?:Typing|Online|Read|Unread|Delivered|Sent|Seen|Status|Verified).*$/i, '')
-    .replace(/\b(?:read|unread|delivered|sent|seen|status|verified|badge|image|photo|icon)\b/gi, ' ');
-  return String(title || fallback).replace(/\s+/g, ' ').trim().slice(0, 80) || fallback;
-}
-
-function presentCommunicationContactChoicesInDynamicIsland(result = {}) {
-  const data = result?.data || {};
-  const choices = Array.isArray(data.choices) ? data.choices : [];
-  if (
-    data.clarificationType !== 'communication.duplicateContacts' ||
-    choices.length === 0 ||
-    !voiceOverlay ||
-    typeof voiceOverlay.displayAssistantResult !== 'function'
-  ) {
-    return false;
-  }
-  const cleanChoices = choices.map((choice, index) => {
-    const choiceIndex = Number(choice.index) || index + 1;
-    return {
-      ...choice,
-      index: choiceIndex,
-      title: cleanCommunicationContactTitle(choice.title, choiceIndex)
-    };
-  });
-  try {
-    voiceOverlay.displayAssistantResult({
-      success: false,
-      needsClarification: true,
-      intent: 'communication.contactSelection',
-      response: 'Multiple matching contacts found',
-      data: {
-        actions: cleanChoices.slice(0, 3).map((choice, index) => ({
-          id: `contact-${choice.index || index + 1}`,
-          label: `${choice.index || index + 1}. ${choice.title}`,
-          kind: 'contact-select',
-          choiceIndex: choice.index || index + 1,
-          primary: index === 0
-        }))
-      },
-      ui: {
-        icon: 'WA',
-        previewStatus: 'Choose WhatsApp contact',
-        preExpandDelayMs: 250,
-        autoHideMs: 0,
-        persistUntilAction: true
-      }
-    });
-    return true;
-  } catch (error) {
-    mainLogger.warn('Dynamic Island communication contact selection failed', { error: error.message });
-    return false;
-  }
-}
-
-function presentCommunicationAttentionInDynamicIsland(event = {}) {
-  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
-  const provider = String(event.provider || 'whatsapp').toLowerCase();
-  try {
-    voiceOverlay.displayAssistantResult({
-      success: true,
-      intent: 'communication.attention',
-      response: 'WhatsApp requires your attention. Please scan the QR code.',
-      data: {
-        actions: [
-          {
-            id: 'dismiss',
-            label: 'Dismiss',
-            kind: 'dismiss'
-          },
-          {
-            id: 'open',
-            label: 'Open',
-            kind: 'open-settings',
-            primary: true
-          }
-        ],
-        resultEntries: [{
-          index: 1,
-          name: 'WhatsApp',
-          type: 'Connection',
-          location: provider,
-          snippet: 'Open Communication settings to connect WhatsApp.'
-        }]
-      },
-      ui: {
-        icon: 'WA',
-        previewStatus: 'WhatsApp needs connection',
-        preExpandDelayMs: 350,
-        autoHideMs: 0,
-        persistUntilAction: true
-      }
-    });
-    return true;
-  } catch (error) {
-    mainLogger.warn('Dynamic Island communication attention failed', { error: error.message });
-    return false;
-  }
-}
-
-function registerCommunicationEventHandlers() {
-  const engine = getCommunicationEngine();
-  if (!engine || engine.__openxMainHandlersAttached) return;
-  engine.__openxMainHandlersAttached = true;
-  engine.on('communication.messagePrepared', presentCommunicationDraftInDynamicIsland);
-  engine.on('communication.qrCodeDetected', presentCommunicationAttentionInDynamicIsland);
-  engine.on('communication.loggedOut', presentCommunicationAttentionInDynamicIsland);
-}
-
 function getTimerWidgetState(preferredId = null, options = {}) {
   const includeStopwatch = options.includeStopwatch === true || timerWidgetMode === 'stopwatch';
   const state = assistant?.automation?.scheduler?.getTimerWidgetState?.(preferredId, { includeStopwatch });
@@ -2206,13 +1987,14 @@ function initializeCloudCommands() {
   return cloudCommandManager;
 }
 
-function initializeCloudFileTransfers(localFileTransferManager = null) {
+function initializeCloudFileTransfers() {
   if (cloudFileTransferManager) return cloudFileTransferManager;
   const manager = initializeCloudConnection();
   cloudFileTransferManager = new CloudFileTransferManager({
     connectionManager: manager,
-    localFileTransferManager,
     logger: mainLogger,
+    receiveDirectory: runtimeConfig?.app?.dataPaths?.cloudReceivedDir,
+    tempDirectory: runtimeConfig?.app?.dataPaths?.cloudTempDir,
     chunkBytes: runtimeConfig?.cloud?.fileTransferChunkBytes || 12 * 1024,
     timeoutMs: runtimeConfig?.cloud?.fileTransferTimeoutMs || 10 * 60 * 1000
   });
@@ -2259,42 +2041,12 @@ function initializeCloudFileTransfers(localFileTransferManager = null) {
   return cloudFileTransferManager;
 }
 
-function createCompositeFileTransferManager(localFileTransferManager, cloudManager) {
-  return {
-    getConnectedDevices() {
-      const localDevices = typeof localFileTransferManager?.getConnectedDevices === 'function'
-        ? localFileTransferManager.getConnectedDevices()
-        : [];
-      const cloudDevices = typeof cloudManager?.getConnectedDevices === 'function'
-        ? cloudManager.getConnectedDevices()
-        : [];
-      return [...localDevices, ...cloudDevices];
-    },
-    async sendFileToDevice(deviceId, sourcePath) {
-      const targetId = String(deviceId || '').trim();
-      const localDevices = typeof localFileTransferManager?.getConnectedDevices === 'function'
-        ? localFileTransferManager.getConnectedDevices()
-        : [];
-      if (localDevices.some(device => device.deviceId === targetId)) {
-        return localFileTransferManager.sendFileToDevice(targetId, sourcePath);
-      }
-      const cloudDevices = typeof cloudManager?.getConnectedDevices === 'function'
-        ? cloudManager.getConnectedDevices()
-        : [];
-      if (cloudDevices.some(device => device.deviceId === targetId)) {
-        return cloudManager.sendFileToDevice(targetId, sourcePath);
-      }
-      return localFileTransferManager.sendFileToDevice(targetId, sourcePath);
-    }
-  };
-}
-
 async function maybeAutoConnectCloud(reason = 'startup') {
   const manager = initializeCloudConnection();
   manager.updateSettings(runtimeConfig?.cloud || {});
   const cloudSettings = runtimeConfig?.cloud || {};
   if (cloudSettings.enabled !== true || cloudSettings.autoConnect !== true) {
-    mainLogger.info('[CLOUD] Auto connect skipped; local mode remains active', {
+    mainLogger.info('[CLOUD] Auto connect skipped', {
       reason,
       enabled: cloudSettings.enabled === true,
       autoConnect: cloudSettings.autoConnect === true
@@ -2317,32 +2069,11 @@ function currentCloudSettings() {
 }
 
 function buildManagedDeviceList() {
-  const localDevices = phoneDeviceRegistry?.listDevices?.() || [];
-  const serverStatus = phoneServer?.getStatus?.() || { connectedDevices: [] };
-  const connectedById = new Map((serverStatus.connectedDevices || []).map(device => [device.deviceId, device]));
   const cloudStatus = cloudConnectionManager?.getStatus?.() || {};
   const cloudById = new Map((cloudStatus.pairedDevices || []).map(device => [device.deviceId, device]));
-  const output = localDevices.map(device => {
-    const connected = connectedById.get(device.deviceId);
-    const cloud = cloudById.get(device.deviceId);
-    const sessionInfo = phoneServer?.getDeviceSession?.(device.deviceId) || null;
-    const connectionState = connected ? 'connected' : (cloud ? 'cloud-paired' : 'offline');
-    return {
-      ...device,
-      source: cloud ? 'local+cloud' : 'local',
-      friendlyName: device.deviceName,
-      connectionStatus: connectionState,
-      connected: Boolean(connected),
-      connectionDurationMs: connected?.connectedAt ? Math.max(0, Date.now() - Number(connected.connectedAt)) : 0,
-      lastSeen: connected?.lastSeen || device.lastSeen,
-      sessionStatus: sessionInfo?.active ? 'active' : (sessionInfo?.expired ? 'expired' : 'none'),
-      session: sessionInfo,
-      cloud: cloud || null
-    };
-  });
+  const output = [];
 
   for (const cloud of cloudById.values()) {
-    if (output.some(device => device.deviceId === cloud.deviceId)) continue;
     output.push({
       deviceId: cloud.deviceId,
       deviceName: cloud.friendlyName || cloud.deviceName || cloud.deviceId,
@@ -2452,7 +2183,6 @@ function setupIPC() {
   registerIpcHandler('command:process', async (_event, { input, source }) => {
     if (!assistant) return { success: false, response: 'Assistant not initialized' };
     const result = await assistant.processCommand(input, source);
-    presentCommunicationContactChoicesInDynamicIsland(result);
     if (
       result?.needsClarification &&
       result.data?.clarificationType === 'browser.open.blankTabAlreadyOpen' &&
@@ -2519,8 +2249,7 @@ function setupIPC() {
       ...snapshot,
       cloudStatus: cloudConnectionManager?.getStatus?.() || null,
       cloudPairingStatus: cloudPairingManager?.getStatus?.() || null,
-      cloudCommandStatus: cloudCommandManager?.getStatus?.() || null,
-      communicationStatus: await getCommunicationEngine()?.health?.() || null
+      cloudCommandStatus: cloudCommandManager?.getStatus?.() || null
     };
   });
 
@@ -2719,7 +2448,7 @@ function setupIPC() {
   });
 
   registerIpcHandler('security:verifyAccess', async () => {
-    const verification = await phoneIdentityVerificationService?.verifyIdentity?.();
+    const verification = await identityVerificationService?.verifyIdentity?.();
     if (verification?.success !== true) {
       return { success: false, message: 'Windows identity verification required.' };
     }
@@ -2783,7 +2512,7 @@ function setupIPC() {
   });
 
   registerIpcHandler('cloud:pairingQR:create', async () => {
-    const verification = await phoneIdentityVerificationService?.verifyIdentity?.();
+    const verification = await identityVerificationService?.verifyIdentity?.();
     if (verification?.success !== true) {
       return { success: false, message: 'Windows identity verification required.' };
     }
@@ -2812,83 +2541,11 @@ function setupIPC() {
     return result;
   });
 
-  registerIpcHandler('communication:status', async () => {
-    return await getCommunicationEngine()?.health?.() || {
-      started: false,
-      providers: {
-        whatsapp: {
-          connected: false,
-          state: 'unavailable',
-          browserRunning: false
-        }
-      }
-    };
-  });
-
-  registerIpcHandler('communication:connect', async (_event, { provider }) => {
-    const engine = getCommunicationEngine();
-    if (!engine) return { success: false, error: 'Communication engine unavailable' };
-    await engine.connect(provider, {
-      visible: true,
-      waitForLogin: true,
-      closeAfterLogin: true,
-      loginTimeoutMs: 5 * 60 * 1000
-    });
-    return await engine.health();
-  });
-
-  registerIpcHandler('communication:disconnect', async (_event, { provider }) => {
-    const engine = getCommunicationEngine();
-    if (!engine) return { success: false, error: 'Communication engine unavailable' };
-    await engine.disconnect(provider);
-    return await engine.health();
-  });
-
-  registerIpcHandler('communication:selectContact', async (_event, { choiceIndex }) => {
-    if (!assistant) return { success: false, error: 'Assistant not initialized' };
-    const result = await assistant.processCommand(String(choiceIndex), 'voice');
-    presentCommunicationContactChoicesInDynamicIsland(result);
-    return result;
-  });
-
-  registerIpcHandler('communication:sendPrepared', async (_event, { provider, draftId }) => {
-    const result = await getCommunicationEngine()?.sendPrepared?.(draftId, provider);
-    return result || { success: false, error: 'Communication engine unavailable' };
-  });
-
-  registerIpcHandler('communication:cancelPrepared', async (_event, { provider, draftId }) => {
-    const result = await getCommunicationEngine()?.cancelPrepared?.(draftId, provider);
-    return result || { success: false, error: 'Communication engine unavailable' };
-  });
-
-  registerIpcHandler('phone:pairingQR:create', async () => {
-    if (!qrPairingService) {
-      return { success: false, message: 'Mobile connection service unavailable.' };
-    }
-    return qrPairingService.generatePairingQR();
-  });
-
-  registerIpcHandler('phone:server:status', async () => {
-    return phoneServer?.getStatus?.() || {
-      serverStatus: 'stopped',
-      running: false,
-      currentIp: null,
-      currentPort: runtimeConfig?.phone?.port || null,
-      currentVersion: QRPairingService.PROTOCOL_VERSION,
-      protocolVersion: QRPairingService.PROTOCOL_VERSION,
-      host: runtimeConfig?.phone?.host || null,
-      connectedDevices: []
-    };
-  });
-
-  registerIpcHandler('phone:devices:list', async () => {
+  registerIpcHandler('cloud:devices:list', async () => {
     return buildManagedDeviceList();
   });
 
-  registerIpcHandler('phone:device:rename', async (_event, { deviceId, deviceName }) => {
-    const updated = phoneDeviceRegistry?.updateDeviceName(deviceId, deviceName);
-    if (updated) return { success: true, device: phoneDeviceRegistry.getDevice(deviceId) };
-
+  registerIpcHandler('cloud:device:rename', async (_event, { deviceId, deviceName }) => {
     const manager = initializeCloudConnection();
     const cloudDevice = manager.getStatus()?.pairedDevices?.find?.(device => device.deviceId === deviceId);
     if (!cloudDevice) return { success: false, message: 'Device not found.' };
@@ -2897,32 +2554,7 @@ function setupIPC() {
     return { success: result?.success === true, device: result?.device || null };
   });
 
-  registerIpcHandler('phone:device:trust:update', async (_event, { deviceId, trusted }) => {
-    const updated = phoneDeviceRegistry?.updateTrust(deviceId, trusted);
-    if (!updated) return { success: false, message: 'Device not found.' };
-    if (trusted !== true) {
-      phoneServer?.disconnectDevice(deviceId);
-      phoneServer?.revokeDeviceSession(deviceId);
-    }
-    return { success: true, device: phoneDeviceRegistry.getDevice(deviceId) };
-  });
-
-  registerIpcHandler('phone:device:permissions:update', async (_event, { deviceId, permissions }) => {
-    const updated = phoneDeviceRegistry?.updatePermissions(deviceId, permissions);
-    if (!updated) throw new Error('Device not found');
-    return phoneDeviceRegistry.getDevice(deviceId);
-  });
-
-  registerIpcHandler('phone:device:disconnect', async (_event, { deviceId }) => {
-    return { success: true, disconnected: phoneServer?.disconnectDevice(deviceId) || 0 };
-  });
-
-  registerIpcHandler('phone:device:remove', async (_event, { deviceId }) => {
-    phoneServer?.disconnectDevice(deviceId);
-    phoneServer?.revokeDeviceSession(deviceId);
-    if (phoneDeviceRegistry?.removeDevice(deviceId) === true) {
-      return { success: true };
-    }
+  registerIpcHandler('cloud:device:remove', async (_event, { deviceId }) => {
     const manager = initializeCloudConnection();
     const cloudDevice = manager.getStatus()?.pairedDevices?.find?.(device => device.deviceId === deviceId);
     if (!cloudDevice) return { success: false };
@@ -3132,21 +2764,7 @@ async function cleanupRuntime() {
     globalShortcut.unregisterAll();
     childProcessRegistry.killAll();
     teardownIPC();
-    if (qrPairingService) {
-      qrPairingService.destroy();
-      qrPairingService = null;
-    }
-    if (phoneServer) {
-      try {
-        await phoneServer.stop();
-      } catch (error) {
-        mainLogger.error('Phone server cleanup failed', { error: error.message });
-      } finally {
-        phoneServer = null;
-      }
-    }
-    phoneDeviceRegistry = null;
-    phoneIdentityVerificationService = null;
+    identityVerificationService = null;
     if (cloudFileTransferManager) {
       try {
         cloudFileTransferManager.destroy();
@@ -3520,7 +3138,6 @@ async function initializeAssistant() {
   });
   voiceAssistantBridge.on(VOICE_INTEGRATION_EVENTS.VOICE_RESPONSE_READY, event => {
     try {
-      if (presentCommunicationContactChoicesInDynamicIsland(event?.result || {})) return;
       voiceOverlay?.displayAssistantResult?.(event?.result || {});
     } catch (error) {
       mainLogger.warn('Voice overlay assistant result display failed', { error: error.message });
@@ -3537,11 +3154,6 @@ async function initializeAssistant() {
     sessionManager: voiceSessionManager,
     resources: { sessionManager: voiceSessionManager, ...voiceResources }
   });
-  registerCommunicationEventHandlers();
-  getCommunicationEngine()?.start?.()
-    .catch(error => {
-      mainLogger.warn('Communication service startup failed', { error: error.message });
-    });
   scheduleVoiceRuntimePrewarm('assistant-idle-prewarm');
   scheduleVoiceResourceWarmup('desktop-idle-warmup');
 
@@ -3551,86 +3163,17 @@ async function initializeAssistant() {
   });
 }
 
-async function initializePhoneServer() {
-  const commandRouter = new PhoneCommandRouter(() => assistant);
-  const resolvePhoneServerIp = () => QRPairingService.resolveDesktopIpv4();
-  const deviceRegistry = new DeviceRegistry({
-    filePath: runtimeConfig.app.dataPaths.phoneDevicesPath,
-    logger: mainLogger
-  });
-  phoneDeviceRegistry = deviceRegistry;
-  const identityVerificationService = new IdentityVerificationService({
-    verifier: new WindowsIdentityVerifier(),
-    logger: mainLogger
-  });
-  phoneIdentityVerificationService = identityVerificationService;
-  const pairingService = new PairingService({
-    deviceRegistry,
-    identityVerificationService,
-    pairingPath: runtimeConfig.app.dataPaths.phonePairingPath,
-    permissionsPath: runtimeConfig.app.dataPaths.phonePermissionsPath,
-    logger: mainLogger
-  });
-  const transferHistory = new TransferHistory({
-    filePath: runtimeConfig.app.dataPaths.phoneTransferHistoryPath
-  });
-  const fileTransferManager = new FileTransferManager({
-    deviceRegistry,
-    history: transferHistory,
-    dataPaths: runtimeConfig.app.dataPaths,
-    logger: mainLogger,
-    connectedDevicesProvider: () => phoneServer?.getStatus?.().connectedDevices || [],
-    sendToDevice: (deviceId, payload) => phoneServer?.sendToDevice(deviceId, payload) === true
-  });
-  const cloudTransfers = initializeCloudFileTransfers(fileTransferManager);
+function initializeCloudMobileRuntime() {
+  if (!identityVerificationService) {
+    const verifier = new WindowsIdentityVerifier();
+    identityVerificationService = {
+      verifyIdentity: () => verifier.verifyIdentity()
+    };
+  }
+  const cloudTransfers = initializeCloudFileTransfers();
   if (assistant?.automation) {
-    assistant.automation.fileTransferManager = createCompositeFileTransferManager(fileTransferManager, cloudTransfers);
+    assistant.automation.fileTransferManager = cloudTransfers;
   }
-  const configuredPort = runtimeConfig?.phone?.port;
-  const maxPortAttempts = 20;
-  let phoneServerAddress = null;
-  let phoneServerError = null;
-
-  for (let attempt = 0; attempt < maxPortAttempts; attempt += 1) {
-    const port = Number.isInteger(configuredPort) ? configuredPort + attempt : configuredPort;
-    phoneServer = new PhoneServer({
-      host: runtimeConfig?.phone?.host,
-      port,
-      protocolVersion: QRPairingService.PROTOCOL_VERSION,
-      resolveServerIp: resolvePhoneServerIp,
-      commandRouter,
-      pairingService,
-      fileTransferManager,
-      scheduleProvider: getScheduleSyncSnapshot,
-      scheduleUpsertHandler: upsertScheduleFromPhone,
-      notificationHandler: presentPhoneNotificationInDynamicIsland,
-      logger: mainLogger
-    });
-
-    try {
-      phoneServerAddress = await phoneServer.start();
-      if (attempt > 0) {
-        mainLogger.warn('[PHONE] Configured port unavailable; using fallback port', {
-          configuredPort,
-          port: phoneServerAddress.port
-        });
-      }
-      break;
-    } catch (error) {
-      phoneServerError = error;
-      phoneServer = null;
-      if (error?.code !== 'EADDRINUSE' || !Number.isInteger(configuredPort)) break;
-    }
-  }
-
-  if (!phoneServerAddress) throw phoneServerError || new Error('Unable to start mobile connection service');
-
-  qrPairingService = new QRPairingService({
-    pairingService,
-    serverPort: phoneServerAddress.port,
-    resolveServerIp: resolvePhoneServerIp,
-    logger: mainLogger
-  });
 }
 
 async function reloadRuntimeServices() {
@@ -3675,9 +3218,6 @@ function isTrustedVoiceOverlayIpcSender(event, channel) {
   if (![
     'schedule:alertAction',
     'voiceOverlay:collapse',
-    'communication:selectContact',
-    'communication:sendPrepared',
-    'communication:cancelPrepared',
     'update:executeAction',
     'update:install',
     'update:selfUpdate'
@@ -3810,10 +3350,10 @@ app.whenReady().then(async () => {
   registerPowerRecoveryHandlers();
   createTray();
   await initializeAssistant();
-  await initializePhoneServer();
   initializeCloudConnection();
   initializeCloudPairing();
   initializeCloudCommands();
+  initializeCloudMobileRuntime();
   await maybeAutoConnectCloud('desktop-startup');
   ensureUpdateEngineInitialized();
   showTimerWidget();

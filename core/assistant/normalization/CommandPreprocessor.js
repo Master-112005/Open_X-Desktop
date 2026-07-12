@@ -304,7 +304,6 @@ const TOKEN_CORRECTIONS = {
   worrd: 'word',
   workd: 'word',
   wordd: 'word',
-  whatsap: 'whatsapp',
   whare: 'where',
   whre: 'where',
   youtub: 'youtube',
@@ -320,8 +319,6 @@ const TOKEN_SEQUENCE_REPLACEMENTS = [
   { from: ['whare', 'i'], to: ['where', 'is'] },
   { from: ['where', 'i'], to: ['where', 'is'] },
   { from: ['whre', 'i'], to: ['where', 'is'] },
-  { from: ['what', 'sap'], to: ['whatsapp'] },
-  { from: ['what', 'sapp'], to: ['whatsapp'] },
   { from: ['you', 'tube'], to: ['youtube'] },
   { from: ['micro', 'soft'], to: ['microsoft'] }
 ];

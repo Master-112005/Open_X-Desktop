@@ -10,7 +10,6 @@ const AppController = require('./apps');
 const BrowserController = require('./browser');
 const MediaController = require('./media');
 const CommunicationsController = require('./communications');
-const { CommunicationEngine } = require('../communication');
 const SystemController = require('./system');
 const WindowsController = require('./windows');
 const SchedulerController = require('./scheduler');
@@ -24,6 +23,10 @@ const {
   requireSafeUserPath,
   resolveDirectory
 } = require('./common/path-utils');
+const {
+  isCancellationError,
+  throwIfAborted
+} = require('../assistant/utils/Cancellation');
 
 class AutomationEngine {
   constructor(config) {
@@ -37,15 +40,7 @@ class AutomationEngine {
     this.apps = new AppController(config);
     this.browser = new BrowserController(config);
     this.media = new MediaController(config);
-    this.communicationEngine = config?.communicationEngine || new CommunicationEngine({
-      config,
-      eventBus: config?.eventBus || null,
-      logger: this.logger
-    });
-    this.communications = new CommunicationsController({
-      ...config,
-      communicationEngine: this.communicationEngine
-    });
+    this.communications = new CommunicationsController(config);
     this.system = new SystemController(config);
     this.windows = new WindowsController(config);
     this.scheduler = new SchedulerController(config);
@@ -163,11 +158,15 @@ class AutomationEngine {
       'media.like': () => this.media.like(),
       'media.subscribe': () => this.media.subscribe(),
       'media.status': () => this.media.status(),
-      'message.compose': (entities) => this.communications.composeMessage(
+      'message.compose': (entities, context) => this.communications.composeMessage(
         entities.contactName,
         entities.messageText,
         entities.platform,
-        { contactId: entities.contactId }
+        {
+          contactId: entities.contactId,
+          signal: context?.signal || context?.executionContext?.signal || null,
+          operationContext: context?.executionContext || context?.operationContext || null
+        }
       ),
       'email.compose': (entities) => this.communications.composeEmail(
         entities.contactName,
@@ -279,6 +278,8 @@ class AutomationEngine {
   }
 
   async execute(actionId, entities, context = {}) {
+    const signal = context?.signal || context?.executionContext?.signal || null;
+    throwIfAborted(signal);
     const handler = this._actionMap[actionId];
     if (!handler) {
       this.logger.error(`Unknown action: ${actionId}`);
@@ -297,8 +298,12 @@ class AutomationEngine {
       }
       this.logger.info(`Executing: ${actionId}`, entities);
       const result = await handler(entities || {}, context || {});
+      throwIfAborted(signal);
       return this.verifier.verify(actionId, entities || {}, result);
     } catch (err) {
+      if (isCancellationError(err)) {
+        throw err;
+      }
       this.logger.error(`Action execution failed: ${actionId}`, err);
       return this.verifier.verify(actionId, entities || {}, {
         success: false,
@@ -1212,7 +1217,6 @@ class AutomationEngine {
       this.apps,
       this.browser,
       this.media,
-      this.communicationEngine,
       this.communications,
       this.system,
       this.windows,
@@ -1374,7 +1378,6 @@ class AutomationEngine {
       'notepad',
       'paint',
       'calculator',
-      'whatsapp',
       'discord',
       'spotify',
       'youtube',

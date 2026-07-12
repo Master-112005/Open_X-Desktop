@@ -104,11 +104,6 @@ const CONFIG = {
     }
   },
 
-  phone: {
-    host: '0.0.0.0',
-    port: 8080
-  },
-
   cloud: {
     relayUrl: process.env.OPENX_RELAY_URL || 'wss://openx-server.onrender.com/ws',
     connectionTimeoutMs: 10000,
@@ -122,13 +117,10 @@ const CONFIG = {
   },
 
   communication: {
-    defaultProvider: 'whatsapp',
+    defaultProvider: '',
     autoStart: true,
     debug: false,
-    operationTimeoutMs: 8000,
-    whatsapp: {
-      headless: false
-    }
+    operationTimeoutMs: 8000
   },
 
   logging: {

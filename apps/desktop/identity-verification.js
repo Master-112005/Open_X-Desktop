@@ -40,7 +40,7 @@ class WindowsIdentityVerifier {
   constructor(options = {}) {
     this.platform = options.platform || process.platform;
     this.execFile = options.execFile || execFile;
-    this.message = options.message || 'Verify your Windows identity to connect a phone to OpenX.';
+    this.message = options.message || 'Verify your Windows identity to connect OpenX Mobile.';
   }
 
   async verifyIdentity() {

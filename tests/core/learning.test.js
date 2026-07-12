@@ -257,7 +257,7 @@ describe('Active Learning Store', function() {
       success: false
     }), null);
     assert.equal(store.learnFromMultiCommand(
-      'open whatsapp and call daddy',
+      'open paint and call daddy',
       ['app.open', 'call.start']
     ), null);
 

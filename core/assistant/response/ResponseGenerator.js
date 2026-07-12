@@ -226,9 +226,6 @@ function humanizeError(error) {
   if (lowered.includes('provide an email address directly')) return 'I need the email address in the command before I can prepare that draft';
   if (lowered.includes('email draft needs')) return message;
   if (lowered.includes('messaging platform not supported')) return 'That messaging platform is not supported yet';
-  if (lowered.includes('direct whatsapp calling is not supported')) return 'Direct WhatsApp calling is not available through this assistant yet';
-  if (lowered.includes('whatsapp desktop automation failed')) return 'I could not complete the WhatsApp desktop action';
-  if (lowered.includes('call state could not be confirmed')) return 'I opened the WhatsApp chat, but I could not confirm that the voice call started';
   if (lowered.includes('no message text provided')) return 'I need the message text before I can prepare that message';
   if (lowered.includes('no contact name provided')) return 'I need the contact name before I can continue';
   if (lowered.includes('window not found')) return 'I could not find that window on the desktop';
@@ -780,14 +777,6 @@ const RESPONSE_BUILDERS = {
     },
     'message.send': context => {
       const contactName = valueFromContext(context, 'contactName');
-      const platform = valueFromContext(context, 'platform', 'message');
-      const delivery = valueFromContext(context, 'delivery');
-      if (platform === 'whatsapp') {
-        if (delivery === 'sent') {
-          return `Sent the WhatsApp message to ${contactName}.`;
-        }
-        return `I've prepared the WhatsApp message for ${contactName}. Use the confirmation controls to send or cancel it.`;
-      }
       return `I've prepared the message for ${contactName} and it is ready for your review.`;
     },
     'email.compose': context => {
@@ -800,10 +789,7 @@ const RESPONSE_BUILDERS = {
     },
     'call.start': context => {
       const contactName = valueFromContext(context, 'contactName');
-      const platform = valueFromContext(context, 'platform', 'phone');
-      return platform === 'whatsapp'
-        ? `Calling ${contactName} on WhatsApp.`
-        : `Calling ${contactName} now.`;
+      return `Calling ${contactName} now.`;
     },
     'timer.set': context => {
       const duration = valueFromContext(context, 'duration');

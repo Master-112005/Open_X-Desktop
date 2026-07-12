@@ -543,7 +543,7 @@ class NlpProcessor {
       { verb: 'create', words: ['create', 'make', 'new', 'add', 'generate', 'build'] },
       { verb: 'send', words: ['send', 'share', 'deliver', 'dispatch', 'mail', 'post'] },
       { verb: 'call', words: ['call', 'phone', 'dial', 'ring', 'contact'] },
-      { verb: 'message', words: ['message', 'text', 'sms', 'whatsapp', 'chat'] },
+      { verb: 'message', words: ['message', 'text', 'sms', 'chat'] },
       { verb: 'remember', words: ['remember', 'note', 'memorize', 'recall', 'store', 'save', 'keep'] },
       { verb: 'forget', words: ['forget', 'ignore', 'clear', 'delete', 'remove'] },
       { verb: 'maximize', words: ['maximize', 'fullscreen', 'expand', 'enlarge', 'bigger', 'grow'] },
@@ -787,8 +787,7 @@ class NlpProcessor {
       'text',
       'trash',
       'unmute',
-      'watch',
-      'whatsapp'
+      'watch'
     ]);
 
     return tokens.filter(token => actionWords.has(token)).length;

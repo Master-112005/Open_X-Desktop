@@ -2,8 +2,16 @@ const EventEmitter = require('events');
 const { Logger } = require('../assistant/Data');
 const COMMUNICATION_EVENTS = require('./CommunicationEvents');
 const CommunicationProviderManager = require('./CommunicationProviderManager');
-const WhatsAppProvider = require('./WhatsAppProvider');
 const { fail } = require('./CommunicationResult');
+const { createOperationScheduler } = require('./OperationScheduler');
+const {
+  abortController,
+  createTimeoutError,
+  deadlineFromTimeout,
+  linkAbortSignal,
+  remainingTimeMs,
+  throwIfAborted
+} = require('../assistant/utils/Cancellation');
 
 class CommunicationEngine extends EventEmitter {
   constructor(options = {}) {
@@ -13,15 +21,7 @@ class CommunicationEngine extends EventEmitter {
     this.eventBus = options.eventBus || this.config?.eventBus || null;
     this.manager = options.manager || new CommunicationProviderManager({ logger: this.logger });
     this.started = false;
-    this.defaultProvider = String(this.config?.communication?.defaultProvider || 'whatsapp').toLowerCase();
-    if (options.registerDefaultProviders !== false) {
-      this.registerProvider(options.whatsAppProvider || new WhatsAppProvider({
-        config: this.config,
-        logger: this.logger,
-        eventBus: this.eventBus,
-        debug: this.config?.communication?.debug === true
-      }));
-    }
+    this.defaultProvider = String(this.config?.communication?.defaultProvider || '').toLowerCase();
   }
 
   registerProvider(provider) {
@@ -68,33 +68,72 @@ class CommunicationEngine extends EventEmitter {
     return this.manager.get(providerId).ensureReady?.(options);
   }
 
-  async prepareMessage({ provider, recipient, message, contactId, timeoutMs, background } = {}) {
+  async prepareMessage({ provider, recipient, message, contactId, timeoutMs, background, signal, operationContext } = {}) {
     const selectedProvider = provider || this.defaultProvider;
-    const readyOptions = {
-      background: background === true
+    const configuredTimeoutMs = Math.max(1000, Number(timeoutMs) || Number(this.config?.communication?.operationTimeoutMs) || 8000);
+    const parentSignal = operationContext?.signal || signal || null;
+    const controller = new AbortController();
+    const unlinkParentAbort = linkAbortSignal(parentSignal, controller);
+    const operation = {
+      ...(operationContext || {}),
+      owner: operationContext?.owner || 'communication-engine',
+      operationId: operationContext?.operationId || `communication_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      startedAt: operationContext?.startedAt || Date.now(),
+      deadlineAt: Number(operationContext?.deadlineAt) || deadlineFromTimeout(configuredTimeoutMs),
+      signal: controller.signal,
+      controller
     };
-    const operationTimeoutMs = Math.max(1000, Number(timeoutMs) || Number(this.config?.communication?.operationTimeoutMs) || 8000);
+    operation.scheduler = createOperationScheduler(operation, { logger: this.logger });
+    const operationTimeoutMs = remainingTimeMs(operation, configuredTimeoutMs);
+    const readyOptions = {
+      background: background === true,
+      timeoutMs: operationTimeoutMs,
+      signal: operation.signal,
+      operationContext: operation
+    };
+    let deadlineTimer = null;
+    let communicationProvider = null;
+    let ownsProviderOperation = false;
     try {
+      if (operation.deadlineAt) {
+        deadlineTimer = setTimeout(() => {
+          abortController(controller, createTimeoutError(
+            'Communication operation timed out.',
+            'operation_timeout',
+            { provider: selectedProvider, operationId: operation.operationId }
+          ));
+        }, remainingTimeMs(operation, configuredTimeoutMs));
+        deadlineTimer.unref?.();
+      }
+      throwIfAborted(operation.signal);
       this.logger.info('Communication prepareMessage started', {
         provider: selectedProvider,
-        operationTimeoutMs
+        operationTimeoutMs,
+        operationId: operation.operationId,
+        deadlineAt: operation.deadlineAt || null
       });
       this.logger.debug('Communication prepareMessage route', {
         selectedCommunicationProvider: selectedProvider,
         hasRecipient: Boolean(recipient),
         hasMessage: Boolean(message),
         background: readyOptions.background,
-        operationTimeoutMs
+        operationTimeoutMs,
+        remainingMs: remainingTimeMs(operation, operationTimeoutMs)
       });
-      const communicationProvider = this.manager.get(selectedProvider);
+      communicationProvider = this.manager.get(selectedProvider);
+      ownsProviderOperation = communicationProvider.beginOperation?.(operation, 'communication-prepare-message') === true;
       const page = await communicationProvider.ensureReady?.(readyOptions);
+      throwIfAborted(operation.signal);
       this.logger.info('Communication prepareMessage ready', { provider: selectedProvider });
       const result = await communicationProvider.composeMessage(recipient, message, {
         contactId,
         readyOptions,
         page,
-        timeoutMs: operationTimeoutMs
+        timeoutMs: remainingTimeMs(operation, operationTimeoutMs),
+        signal: operation.signal,
+        operationContext: operation
       });
+      throwIfAborted(operation.signal);
       this.logger.info('Communication prepareMessage completed', {
         provider: selectedProvider,
         success: Boolean(result?.success)
@@ -116,19 +155,27 @@ class CommunicationEngine extends EventEmitter {
         code: error.code || 'PREPARE_FAILED'
       });
       return fail(error);
+    } finally {
+      if (ownsProviderOperation) {
+        communicationProvider?.endOperation?.(operation, 'communication-prepare-message-complete');
+      }
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      unlinkParentAbort();
     }
   }
 
-  async sendPrepared(draftId, providerId = this.defaultProvider) {
+  async sendPrepared(draftId, providerId = this.defaultProvider, options = {}) {
     try {
-      return await this.manager.get(providerId).send(draftId);
+      throwIfAborted(options.signal || null);
+      return await this.manager.get(providerId).send(draftId, options);
     } catch (error) {
       return fail(error);
     }
   }
 
-  async cancelPrepared(draftId, providerId = this.defaultProvider) {
+  async cancelPrepared(draftId, providerId = this.defaultProvider, options = {}) {
     try {
+      throwIfAborted(options.signal || null);
       return await this.manager.get(providerId).cancel(draftId);
     } catch (error) {
       return fail(error);

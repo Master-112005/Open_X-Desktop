@@ -2,6 +2,7 @@
 
 module.exports = {
   AsyncHelpers: require('./AsyncHelpers'),
+  Cancellation: require('./Cancellation'),
   ConfigurationLoader: require('./ConfigurationLoader'),
   DeepClone: require('./DeepClone'),
   ErrorHelpers: require('./ErrorHelpers'),

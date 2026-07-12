@@ -41,7 +41,6 @@ const APP_ALIASES = {
   'spotify': 'spotify',
   'discord': 'discord',
   'google chat': 'google chat',
-  'whatsapp': 'whatsapp',
   'telegram': 'telegram',
   'telgram': 'telegram',
   'teligram': 'telegram',
@@ -613,7 +612,7 @@ class EntityExtractor {
         })
       },
       {
-        regex: /^(whatsapp|telegram|signal|discord|messenger|instagram)\s+("[^"]+"|'[^']+'|[^\s]+)\s+(?:saying\s+|that\s+)?(.+)$/i,
+        regex: /^(telegram|signal|discord|messenger|instagram)\s+("[^"]+"|'[^']+'|[^\s]+)\s+(?:saying\s+|that\s+)?(.+)$/i,
         map: match => ({
           platform: match[1],
           contactName: match[2],
@@ -712,7 +711,6 @@ class EntityExtractor {
   _cleanPlatformName(value) {
     const source = String(value || '').trim().toLowerCase();
     if (!source) return null;
-    if (source.includes('whatsapp')) return 'whatsapp';
     if (source.includes('phone') || source.includes('mobile')) return 'phone';
     return source.replace(/\s+(?:please|now)$/i, '').trim() || null;
   }
@@ -724,7 +722,7 @@ class EntityExtractor {
     }
 
     const partialMessage = String(raw || '').trim().match(/^(?:message|text|msg|massage)\s+(.+)$/i) ||
-      String(raw || '').trim().match(/^(?:whatsapp|telegram|signal|discord|messenger|instagram)\s+(.+)$/i);
+      String(raw || '').trim().match(/^(?:telegram|signal|discord|messenger|instagram)\s+(.+)$/i);
     if (partialMessage?.[1]) {
       return this._cleanContactName(partialMessage[1]);
     }
@@ -753,7 +751,6 @@ class EntityExtractor {
       return callCommand.platform;
     }
 
-    if (/\bwhatsapp\b/i.test(raw)) return 'whatsapp';
     if (/\b(?:phone|mobile)\b/i.test(raw)) return 'phone';
     return null;
   }

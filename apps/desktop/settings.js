@@ -366,13 +366,10 @@ class SettingsService {
         fileTransferTimeoutMs: clampNumber(this.baseConfig?.cloud?.fileTransferTimeoutMs, 30000, 3600000, 10 * 60 * 1000)
       },
       communication: {
-        defaultProvider: 'whatsapp',
+        defaultProvider: '',
         autoStart: this.baseConfig?.communication?.autoStart !== false,
         debug: this.baseConfig?.communication?.debug === true,
-        operationTimeoutMs: clampNumber(this.baseConfig?.communication?.operationTimeoutMs, 5000, 60000, 8000),
-        whatsapp: {
-          headless: this.baseConfig?.communication?.whatsapp?.headless === true
-        }
+        operationTimeoutMs: clampNumber(this.baseConfig?.communication?.operationTimeoutMs, 5000, 60000, 8000)
       },
       update: new UpdateConfiguration(this.baseConfig?.update || {}).toJSON(),
       modes: []
@@ -547,13 +544,10 @@ class SettingsService {
         fileTransferTimeoutMs: clampNumber(source.cloud?.fileTransferTimeoutMs, 30000, 3600000, this.defaults.cloud.fileTransferTimeoutMs)
       },
       communication: {
-        defaultProvider: String(source.communication?.defaultProvider || this.defaults.communication.defaultProvider).trim().toLowerCase() || 'whatsapp',
+        defaultProvider: String(source.communication?.defaultProvider || this.defaults.communication.defaultProvider || '').trim().toLowerCase(),
         autoStart: source.communication?.autoStart !== false,
         debug: source.communication?.debug === true,
-        operationTimeoutMs: clampNumber(source.communication?.operationTimeoutMs, 5000, 60000, this.defaults.communication.operationTimeoutMs),
-        whatsapp: {
-          headless: source.communication?.whatsapp?.headless === true
-        }
+        operationTimeoutMs: clampNumber(source.communication?.operationTimeoutMs, 5000, 60000, this.defaults.communication.operationTimeoutMs)
       },
       update: new UpdateConfiguration(deepMerge(this.defaults.update, source.update || {})).toJSON(),
       modes: sanitizeModes(source.modes)

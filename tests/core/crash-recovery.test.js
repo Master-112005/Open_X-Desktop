@@ -44,6 +44,21 @@ describe('Crash Recovery Policy', function() {
     assert.equal(policy.requestRestart(1300), true);
   });
 
+  it('should keep recovered crash diagnostics after clearing the restart budget', function() {
+    const policy = new CrashRecoveryPolicy({ statePath, maxRestarts: 2, windowMs: 1000 });
+
+    assert.equal(policy.requestRestart(1000, { component: 'assistant', reason: 'startup failed' }), true);
+    policy.markStable(1200);
+    const diagnostics = policy.getDiagnostics(1300);
+
+    assert.deepEqual(diagnostics.crashTimestamps, []);
+    assert.deepEqual(diagnostics.crashRecords, []);
+    assert.equal(diagnostics.recoveredCrashRecords.length, 1);
+    assert.equal(diagnostics.recoveredCrashRecords[0].component, 'assistant');
+    assert.equal(diagnostics.lastCrash.reason, 'startup failed');
+    assert.equal(diagnostics.stableAt, 1200);
+  });
+
   it('should recover safely from corrupt state data', function() {
     fs.writeFileSync(statePath, '{bad json', 'utf8');
     const policy = new CrashRecoveryPolicy({ statePath, maxRestarts: 1, windowMs: 1000 });

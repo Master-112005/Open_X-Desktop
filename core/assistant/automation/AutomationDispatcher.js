@@ -2,6 +2,10 @@
 
 const AutomationContext = require('./AutomationContext');
 const { AutomationExecutionError } = require('./AutomationErrors');
+const {
+  isCancellationError,
+  throwIfAborted
+} = require('../utils/Cancellation');
 
 const ACTION_ROUTES = Object.freeze({
   OPEN_APPLICATION: 'app.open',
@@ -65,6 +69,7 @@ class AutomationDispatcher {
 
     context.executionStatus = 'RUNNING';
     for (const order of executionBlueprint?.ordering || []) {
+      throwIfAborted(options.executionContext?.signal || options.signal || null);
       const task = (executionBlueprint.tasks || []).find(candidate => candidate.id === order.taskId);
       if (!task?.action) continue;
       const route = resolveAutomationRoute(task, this.configuration.routes);
@@ -88,6 +93,7 @@ class AutomationDispatcher {
         if (record.success) context.completedActions.push(record);
         else context.failedActions.push(record);
       } catch (error) {
+        if (isCancellationError(error)) throw error;
         const wrapped = new AutomationExecutionError(`Automation failed for task: ${task.id}`, { cause: error });
         context.errors.push({ taskId: task.id, message: wrapped.message });
         context.diagnostics.error(wrapped, { taskId: task.id, route });

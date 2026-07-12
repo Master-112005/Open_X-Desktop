@@ -481,11 +481,11 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('clouse chrome and open whatsapp and clock', 'chat');
+    const result = await router.process('clouse chrome and open paint and clock', 'chat');
 
     assert.equal(result.intent, 'multi.command');
     assert.deepEqual(executed.map(step => step.actionId), ['app.close', 'app.open', 'app.open']);
-    assert.deepEqual(executed.map(step => step.entities.appName), ['chrome', 'whatsapp', 'clock']);
+    assert.deepEqual(executed.map(step => step.entities.appName), ['chrome', 'mspaint', 'clock']);
   });
 
   it('should tolerate misordered close app phrasing', async function() {
@@ -1577,10 +1577,10 @@ describe('Action Router', function() {
     const router = new ActionRouter(config, stubEngine);
     const cases = [
       ['send hi to charan', 'charan', 'hi', null],
-      ['whatsapp charan hi', 'charan', 'hi', 'whatsapp'],
-      ['say hi to charan on whatsapp', 'charan', 'hi', 'whatsapp'],
+      ['telegram charan hi', 'charan', 'hi', 'telegram'],
+      ['say hi to charan on telegram', 'charan', 'hi', 'telegram'],
       ['send hello to mohit', 'mohit', 'hello', null],
-      ['say hi to daddy on whatsapp', 'daddy', 'hi', 'whatsapp']
+      ['say hi to daddy on signal', 'daddy', 'hi', 'signal']
     ];
 
     for (const [command, contactName, messageText, platform] of cases) {
@@ -1612,7 +1612,7 @@ describe('Action Router', function() {
     assert.notEqual(result.intent, 'assistant.capability');
   });
 
-  it('should not let greeting lead-ins swallow whatsapp message commands', async function() {
+  it('should not let greeting lead-ins swallow message commands with platform wording', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -1622,11 +1622,11 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('hi jaanu send hi to mohit on whatsapp', 'chat');
+    const result = await router.process('hi jaanu send hi to mohit on telegram', 'chat');
     assert.equal(result.intent, 'message.send');
     assert.equal(result.entities.contactName, 'mohit');
     assert.equal(result.entities.messageText, 'hi');
-    assert.equal(result.entities.platform, 'whatsapp');
+    assert.equal(result.entities.platform, 'telegram');
   });
 
   it('should route call commands to call.start', async function() {
@@ -2539,7 +2539,7 @@ describe('Action Router', function() {
     const app = await router.process('do one thing open chrome only', 'chat');
     const search = await router.process('tell about indian cricket team', 'chat');
     const wifi = await router.process('put net off', 'chat');
-    const message = await router.process('send on whatsapp to Rahul hello bro', 'chat');
+    const message = await router.process('send on telegram to Rahul hello bro', 'chat');
 
     assert.equal(app.intent, 'app.open');
     assert.equal(app.entities.appName, 'chrome');
@@ -2550,7 +2550,7 @@ describe('Action Router', function() {
     assert.equal(message.intent, 'message.send');
     assert.equal(message.entities.contactName, 'Rahul');
     assert.equal(message.entities.messageText, 'hello bro');
-    assert.equal(message.entities.platform, 'whatsapp');
+    assert.equal(message.entities.platform, 'telegram');
     assert.deepEqual(executed.map(step => step.actionId), [
       'app.open',
       'browser.search',

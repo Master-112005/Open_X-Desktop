@@ -71,34 +71,13 @@ describe('Electron Security Boundary', function() {
     assert.throws(() => IPC_VALIDATORS['security:verifyAccess']({}), /does not accept/);
   });
 
-  it('should validate phone device permission mutations', function() {
+  it('should validate cloud device mutations', function() {
     assert.deepEqual(
-      IPC_VALIDATORS['phone:device:permissions:update']({
-        deviceId: 'phone001',
-        permissions: { remoteCommands: false, powerActions: true, clipboard: true }
-      }),
-      {
-        deviceId: 'phone001',
-        permissions: { remoteCommands: false, powerActions: true, clipboard: true }
-      }
-    );
-    assert.deepEqual(
-      IPC_VALIDATORS['phone:device:rename']({ deviceId: 'phone001', deviceName: '  Rakesh   Phone  ' }),
+      IPC_VALIDATORS['cloud:device:rename']({ deviceId: 'phone001', deviceName: '  Rakesh   Phone  ' }),
       { deviceId: 'phone001', deviceName: 'Rakesh Phone' }
     );
-    assert.deepEqual(
-      IPC_VALIDATORS['phone:device:trust:update']({ deviceId: 'phone001', trusted: false }),
-      { deviceId: 'phone001', trusted: false }
-    );
     assert.throws(
-      () => IPC_VALIDATORS['phone:device:permissions:update']({
-        deviceId: 'phone001',
-        permissions: { administrator: true }
-      }),
-      /permissions are invalid/
-    );
-    assert.throws(
-      () => IPC_VALIDATORS['phone:device:remove']({ deviceId: '..\\bad' }),
+      () => IPC_VALIDATORS['cloud:device:remove']({ deviceId: '..\\bad' }),
       /deviceId is invalid/
     );
   });
@@ -111,33 +90,6 @@ describe('Electron Security Boundary', function() {
     assert.throws(
       () => IPC_VALIDATORS['cloud:pairing:reject']({ pairRequestId: '../bad' }),
       /pairRequestId is invalid/
-    );
-  });
-
-  it('should validate communication provider and draft IPC payloads', function() {
-    assert.deepEqual(
-      IPC_VALIDATORS['communication:connect']({ provider: 'WhatsApp' }),
-      { provider: 'whatsapp' }
-    );
-    assert.deepEqual(
-      IPC_VALIDATORS['communication:sendPrepared']({ provider: 'whatsapp', draftId: 'wa_123:abc' }),
-      { provider: 'whatsapp', draftId: 'wa_123:abc' }
-    );
-    assert.deepEqual(
-      IPC_VALIDATORS['communication:selectContact']({ choiceIndex: 2 }),
-      { choiceIndex: 2 }
-    );
-    assert.throws(
-      () => IPC_VALIDATORS['communication:cancelPrepared']({ provider: '../bad', draftId: 'wa_123' }),
-      /provider is invalid/
-    );
-    assert.throws(
-      () => IPC_VALIDATORS['communication:sendPrepared']({ provider: 'whatsapp', draftId: '../bad' }),
-      /draftId is invalid/
-    );
-    assert.throws(
-      () => IPC_VALIDATORS['communication:selectContact']({ choiceIndex: 0 }),
-      /choiceIndex is invalid/
     );
   });
 
@@ -224,11 +176,7 @@ describe('Electron Security Boundary', function() {
       'security:verifyAccess',
       'cloud:status', 'cloud:connect', 'cloud:disconnect',
       'cloud:pairingQR:create', 'cloud:pairing:status', 'cloud:pairing:approve', 'cloud:pairing:reject',
-      'communication:status', 'communication:connect', 'communication:disconnect',
-      'communication:selectContact', 'communication:sendPrepared', 'communication:cancelPrepared',
-      'phone:pairingQR:create', 'phone:server:status', 'phone:devices:list',
-      'phone:device:rename', 'phone:device:trust:update', 'phone:device:permissions:update',
-      'phone:device:remove', 'phone:device:disconnect',
+      'cloud:devices:list', 'cloud:device:rename', 'cloud:device:remove',
       'settings:save', 'settings:reset',
       'schedule:alertAction', 'timerWidget:getState', 'timerWidget:close',
       'timerWidget:stopStopwatch', 'timerWidget:resumeStopwatch',

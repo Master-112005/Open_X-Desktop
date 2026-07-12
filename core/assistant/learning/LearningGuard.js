@@ -108,7 +108,7 @@ const SENSITIVE_CONTENT_PATTERNS = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i,
   /\b(?:sk-(?:proj-)?|gh[pousr]_|AKIA|AIza)[A-Z0-9_-]{16,}\b/i,
   /\beyJ[A-Z0-9_-]+\.eyJ[A-Z0-9_-]+\.[A-Z0-9_-]+\b/i,
-  /\b(?:call|text|message|whatsapp)\b.{0,40}\+?\d[\d ()-]{5,}\d\b/i
+  /\b(?:call|text|message)\b.{0,40}\+?\d[\d ()-]{5,}\d\b/i
 ];
 
 const PRIVATE_COMMUNICATION_PATTERN = /\b(?:send|message|text|email|call)\b/i;

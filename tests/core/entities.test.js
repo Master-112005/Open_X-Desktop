@@ -271,7 +271,7 @@ describe('Entity Extractor', function() {
     assert.equal(entities.reminderText, 'class');
   });
 
-  it('should extract message details for whatsapp drafts', function() {
+  it('should extract message details with an explicit chat platform', function() {
     const extractor = new EntityExtractor({});
     const intent = {
       entities: [
@@ -280,13 +280,13 @@ describe('Entity Extractor', function() {
         { name: 'platform', type: 'string', required: false }
       ]
     };
-    const entities = extractor.extract(intent, 'say hi to daddy on whatsapp');
+    const entities = extractor.extract(intent, 'say hi to daddy on telegram');
     assert.equal(entities.contactName, 'daddy');
     assert.equal(entities.messageText, 'hi');
-    assert.equal(entities.platform, 'whatsapp');
+    assert.equal(entities.platform, 'telegram');
   });
 
-  it('should treat in whatsapp as a message platform, not part of the contact', function() {
+  it('should treat in platform wording as a platform, not part of the contact', function() {
     const extractor = new EntityExtractor({});
     const intent = {
       entities: [
@@ -295,13 +295,13 @@ describe('Entity Extractor', function() {
         { name: 'platform', type: 'string', required: false }
       ]
     };
-    const entities = extractor.extract(intent, 'say hi to mummy in whatsapp');
+    const entities = extractor.extract(intent, 'say hi to mummy in telegram');
     assert.equal(entities.contactName, 'mummy');
     assert.equal(entities.messageText, 'hi');
-    assert.equal(entities.platform, 'whatsapp');
+    assert.equal(entities.platform, 'telegram');
   });
 
-  it('should extract platform-first Indian English WhatsApp messages', function() {
+  it('should extract platform-first Indian English messages', function() {
     const extractor = new EntityExtractor({});
     const intent = {
       entities: [
@@ -310,10 +310,10 @@ describe('Entity Extractor', function() {
         { name: 'platform', type: 'string', required: false }
       ]
     };
-    const entities = extractor.extract(intent, 'send on whatsapp to Rahul hello bro');
+    const entities = extractor.extract(intent, 'send on telegram to Rahul hello bro');
     assert.equal(entities.contactName, 'Rahul');
     assert.equal(entities.messageText, 'hello bro');
-    assert.equal(entities.platform, 'whatsapp');
+    assert.equal(entities.platform, 'telegram');
   });
 
   it('should extract file-send message details cleanly', function() {
@@ -325,10 +325,10 @@ describe('Entity Extractor', function() {
         { name: 'platform', type: 'string', required: false }
       ]
     };
-    const entities = extractor.extract(intent, 'send the report.pdf file to mummy on whatsapp');
+    const entities = extractor.extract(intent, 'send the report.pdf file to mummy on telegram');
     assert.equal(entities.contactName, 'mummy');
     assert.equal(entities.messageText, 'file report.pdf');
-    assert.equal(entities.platform, 'whatsapp');
+    assert.equal(entities.platform, 'telegram');
   });
 
   it('should extract call details', function() {
@@ -339,12 +339,12 @@ describe('Entity Extractor', function() {
         { name: 'platform', type: 'string', required: false }
       ]
     };
-    const entities = extractor.extract(intent, 'call bunty on whatsapp');
+    const entities = extractor.extract(intent, 'call bunty on phone');
     assert.equal(entities.contactName, 'bunty');
-    assert.equal(entities.platform, 'whatsapp');
+    assert.equal(entities.platform, 'phone');
   });
 
-  it('should extract ask-style whatsapp messages', function() {
+  it('should extract ask-style messages', function() {
     const extractor = new EntityExtractor({});
     const intent = {
       entities: [
