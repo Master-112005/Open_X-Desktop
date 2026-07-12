@@ -178,6 +178,33 @@ describe('CloudConnectionManager', () => {
     expect(relayErrors[0].code).to.equal('e2ee-packet-rejected');
   });
 
+  it('correlates pairing approvals and rejections with the pair request id', () => {
+    const manager = new CloudConnectionManager({
+      logger: createSilentLogger(),
+      settings: { heartbeatEnabled: false },
+      version: 'test'
+    });
+    const sent = [];
+    manager.send = payload => {
+      sent.push(payload);
+      return true;
+    };
+
+    expect(manager.approvePairingRequest('pair-approve-1', { scheme: 'openx-e2ee-v1' })).to.equal(true);
+    expect(manager.rejectPairingRequest('pair-reject-1')).to.equal(true);
+
+    expect(sent[0]).to.include({
+      type: 'cloud-pair:approve',
+      requestId: 'pair-approve-1',
+      pairRequestId: 'pair-approve-1'
+    });
+    expect(sent[1]).to.include({
+      type: 'cloud-pair:reject',
+      requestId: 'pair-reject-1',
+      pairRequestId: 'pair-reject-1'
+    });
+  });
+
   it('updates and removes cloud devices through correlated relay requests', async () => {
     const relayUrl = await startRelayStub();
     server.on('connection', socket => {

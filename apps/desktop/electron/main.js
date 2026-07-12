@@ -1808,10 +1808,22 @@ function saveCloudE2EEMasterKey(masterKey) {
   }
 }
 
+function deleteCloudE2EEMasterKey() {
+  try {
+    const keyPath = getCloudE2EEKeyPath();
+    if (fs.existsSync(keyPath)) fs.rmSync(keyPath, { force: true });
+    return true;
+  } catch (error) {
+    mainLogger.warn('[CLOUD] Unable to delete encrypted E2EE key', { error: error.message });
+    return false;
+  }
+}
+
 function createCloudSecureKeyStore() {
   return {
     saveMasterKey: saveCloudE2EEMasterKey,
-    loadMasterKey: loadCloudE2EEMasterKey
+    loadMasterKey: loadCloudE2EEMasterKey,
+    deleteMasterKey: deleteCloudE2EEMasterKey
   };
 }
 

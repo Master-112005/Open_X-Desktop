@@ -19,6 +19,7 @@ class CloudPairingManager extends EventEmitter {
     this.tokenTtlMs = Number(options.tokenTtlMs) || DEFAULT_TOKEN_TTL_MS;
     this.currentPairing = null;
     this.pendingRequests = new Map();
+    this.pendingSecureApprovals = new Map();
 
     this.boundPairingRequest = request => this.handlePairingRequest(request);
     this.boundPairingResult = result => this.handlePairingResult(result);
@@ -112,10 +113,7 @@ class CloudPairingManager extends EventEmitter {
       encryptedMasterKey: security.encryptedMasterKey
     } : null;
     const sent = this.connectionManager.approvePairingRequest(pairRequestId, approvalSecurity);
-    if (sent && masterKey) {
-      this.connectionManager.setE2EEMasterKey?.(masterKey);
-      this.secureKeyStore?.saveMasterKey?.(masterKey);
-    }
+    if (sent && masterKey) this.pendingSecureApprovals.set(pairRequestId, masterKey);
     if (sent) this.pendingRequests.delete(pairRequestId);
     return {
       success: sent,
@@ -153,7 +151,10 @@ class CloudPairingManager extends EventEmitter {
   rejectPairing(pairRequestId) {
     const request = this.pendingRequests.get(pairRequestId);
     const sent = this.connectionManager.rejectPairingRequest(pairRequestId);
-    if (sent) this.pendingRequests.delete(pairRequestId);
+    if (sent) {
+      this.pendingRequests.delete(pairRequestId);
+      this.pendingSecureApprovals.delete(pairRequestId);
+    }
     return {
       success: sent,
       request: request || null,
@@ -224,8 +225,28 @@ class CloudPairingManager extends EventEmitter {
     if (result.pairRequestId) {
       this.pendingRequests.delete(result.pairRequestId);
     }
+    this.applyConfirmedSecurity(result);
     this.clearPairing('pairing-complete');
     this.emit('result', result);
+  }
+
+  applyConfirmedSecurity(result = {}) {
+    const pairRequestId = String(result.pairRequestId || '').trim();
+    const pendingMasterKey = pairRequestId ? this.pendingSecureApprovals.get(pairRequestId) : '';
+    if (!pairRequestId || !pendingMasterKey) return false;
+    this.pendingSecureApprovals.delete(pairRequestId);
+    if (result.type === 'cloud-pair:paired' && result.security?.encryptedMasterKey) {
+      this.connectionManager.setE2EEMasterKey?.(pendingMasterKey);
+      this.secureKeyStore?.saveMasterKey?.(pendingMasterKey);
+      return true;
+    }
+    this.connectionManager.setE2EEMasterKey?.('');
+    this.secureKeyStore?.deleteMasterKey?.();
+    this.logger.warn('[CLOUD] Secure pairing was not confirmed by relay; continuing without E2EE', {
+      pairRequestId,
+      type: result.type || ''
+    });
+    return false;
   }
 
   validatePayload(payload) {
@@ -258,6 +279,7 @@ class CloudPairingManager extends EventEmitter {
   clearPairing(reason = 'clear') {
     this.currentPairing = null;
     this.pendingRequests.clear();
+    if (reason !== 'pairing-complete') this.pendingSecureApprovals.clear();
     this.emit('status', this.getStatus({ reason }));
   }
 
