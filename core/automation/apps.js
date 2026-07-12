@@ -40,13 +40,6 @@ const KNOWN_APPS = {
   'outlook': { cmd: 'outlook' },
   'spotify': { cmd: 'spotify' },
   'discord': { cmd: 'discord', processName: 'Discord' },
-  'whatsapp': {
-    processName: 'WhatsApp',
-    closeStrategy: 'window',
-    windowQuery: 'whatsapp',
-    preferredTitleTokens: ['whatsapp'],
-    preferredProcessNames: ['WhatsApp', 'ApplicationFrameHost']
-  },
   'slack': { cmd: 'slack' },
   'zoom': { cmd: 'zoom' },
   'teams': { cmd: 'teams', processName: 'Teams' },
@@ -60,6 +53,12 @@ const KNOWN_APPS = {
     preferredProcessNames: ['chrome', 'msedge', 'firefox'],
     preferredTitleTokens: ['youtube']
   },
+  'instagram': {
+    closeStrategy: 'window',
+    windowQuery: 'instagram',
+    preferredTitleTokens: ['instagram'],
+    preferredProcessNames: ['Instagram', 'ApplicationFrameHost', 'chrome', 'msedge', 'firefox']
+  },
   'antigravity': { processName: 'Antigravity IDE' }
 };
 
@@ -71,8 +70,8 @@ const SPECIAL_LAUNCHERS = {
   'recycle bin': { target: 'C:\\Windows\\explorer.exe', args: ['shell:RecycleBinFolder'] },
   'microsoft store': { target: 'ms-windows-store:' },
   'photos': { target: 'ms-photos:' },
-  'google chat': { target: 'https://chat.google.com' },
-  'youtube': { target: 'https://www.youtube.com' }
+  'google chat': { target: 'https://chat.google.com', webFallback: true },
+  'youtube': { target: 'https://www.youtube.com', webFallback: true }
 };
 
 const BROWSER_APP_NAMES = new Set(['chrome', 'msedge', 'edge', 'firefox']);
@@ -90,8 +89,11 @@ const APP_ALIASES = new Map([
   ['vscode', 'code'],
   ['calculator', 'calc'],
   ['paint', 'mspaint'],
+  ['instagram', 'instagram'],
   ['instagram app', 'instagram'],
-  ['instgram', 'instagram']
+  ['instgram', 'instagram'],
+  ['instagran', 'instagram'],
+  ['insta', 'instagram']
 ]);
 
 const PROTECTED_HOST_PROCESSES = new Set([
@@ -151,7 +153,9 @@ class AppController {
         }
       }
 
-      const specialLaunch = this._launchSpecialApp(name);
+      const specialLaunch = this._isWebFallbackLauncher(name)
+        ? { success: false }
+        : this._launchSpecialApp(name);
       if (specialLaunch.success) {
         return this._completeAppOpen(name, specialLaunch, {
           forceNewWindow,
@@ -191,6 +195,10 @@ class AppController {
           success: true,
           data: { app: name, launchMethod: 'command' }
         }, { forceNewWindow, requestedOperation, beforeWindowCount, launchArgs, displayName });
+      }
+
+      if (this._isWebFallbackLauncher(name)) {
+        return { success: false, error: `Could not find app: ${displayName}` };
       }
 
       return { success: false, error: `Could not find app: ${displayName}` };
@@ -537,6 +545,10 @@ class AppController {
       this.logger.error(`Failed to launch special app: ${name}`, err);
       return { success: false, error: `Could not open: ${name}` };
     }
+  }
+
+  _isWebFallbackLauncher(name) {
+    return SPECIAL_LAUNCHERS[name]?.webFallback === true;
   }
 
   _commandExists(command) {

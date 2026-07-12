@@ -68,36 +68,16 @@ describe('Electron Security Boundary', function() {
       /exceeds/
     );
     assert.throws(() => IPC_VALIDATORS['settings:get']({}), /does not accept/);
+    assert.throws(() => IPC_VALIDATORS['security:verifyAccess']({}), /does not accept/);
   });
 
-  it('should validate phone device permission mutations', function() {
+  it('should validate cloud device mutations', function() {
     assert.deepEqual(
-      IPC_VALIDATORS['phone:device:permissions:update']({
-        deviceId: 'phone001',
-        permissions: { remoteCommands: false, powerActions: true, clipboard: true }
-      }),
-      {
-        deviceId: 'phone001',
-        permissions: { remoteCommands: false, powerActions: true, clipboard: true }
-      }
-    );
-    assert.deepEqual(
-      IPC_VALIDATORS['phone:device:rename']({ deviceId: 'phone001', deviceName: '  Rakesh   Phone  ' }),
+      IPC_VALIDATORS['cloud:device:rename']({ deviceId: 'phone001', deviceName: '  Rakesh   Phone  ' }),
       { deviceId: 'phone001', deviceName: 'Rakesh Phone' }
     );
-    assert.deepEqual(
-      IPC_VALIDATORS['phone:device:trust:update']({ deviceId: 'phone001', trusted: false }),
-      { deviceId: 'phone001', trusted: false }
-    );
     assert.throws(
-      () => IPC_VALIDATORS['phone:device:permissions:update']({
-        deviceId: 'phone001',
-        permissions: { administrator: true }
-      }),
-      /permissions are invalid/
-    );
-    assert.throws(
-      () => IPC_VALIDATORS['phone:device:remove']({ deviceId: '..\\bad' }),
+      () => IPC_VALIDATORS['cloud:device:remove']({ deviceId: '..\\bad' }),
       /deviceId is invalid/
     );
   });
@@ -147,16 +127,56 @@ describe('Electron Security Boundary', function() {
     );
   });
 
+  it('should validate update presentation IPC payloads', function() {
+    assert.deepEqual(
+      IPC_VALIDATORS['update:getPresentation']({ source: 'Settings', view: 'Overview' }),
+      { source: 'settings', view: 'overview' }
+    );
+    assert.deepEqual(
+      IPC_VALIDATORS['update:executeAction']({ actionId: 'check', payload: { source: 'settings' } }),
+      { actionId: 'check', payload: { source: 'settings' } }
+    );
+    assert.deepEqual(IPC_VALIDATORS['update:getReleaseNotes'](), undefined);
+    assert.deepEqual(IPC_VALIDATORS['update:install']({ source: 'Settings' }), { source: 'settings' });
+    assert.deepEqual(IPC_VALIDATORS['update:selfUpdate']({ source: 'Settings' }), { source: 'settings' });
+    assert.deepEqual(IPC_VALIDATORS['update:cancelInstallation']({ reason: ' Later ' }), { reason: 'Later' });
+    assert.deepEqual(IPC_VALIDATORS['update:getInstallationStatus'](), undefined);
+    assert.deepEqual(IPC_VALIDATORS['update:selfUpdateStatus'](), undefined);
+    assert.deepEqual(IPC_VALIDATORS['update:selfUpdateDiagnostics'](), undefined);
+    assert.deepEqual(IPC_VALIDATORS['update:recoveryStatus'](), undefined);
+    assert.deepEqual(IPC_VALIDATORS['update:recoveryDiagnostics'](), undefined);
+    assert.deepEqual(IPC_VALIDATORS['update:rollbackHistory'](), undefined);
+    assert.throws(
+      () => IPC_VALIDATORS['update:executeAction']({ actionId: '../bad' }),
+      /actionId is invalid/
+    );
+    assert.throws(
+      () => IPC_VALIDATORS['update:getProgress']({}),
+      /does not accept/
+    );
+  });
+
   it('should provide a validator for every registered IPC channel', function() {
     const expectedChannels = [
       'command:process', 'command:confirm', 'assistant:status', 'tts:speak', 'tts:stop', 'voice:start',
       'voiceOverlay:collapse',
       'window:openChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
-      'config:get', 'settings:get', 'cloud:status', 'cloud:connect', 'cloud:disconnect',
+      'config:get', 'settings:get',
+      'update:status', 'update:version', 'update:diagnostics',
+      'update:checkVersion', 'update:getVersionStatus', 'update:getVersionDiagnostics',
+      'update:download:start', 'update:download:pause', 'update:download:resume',
+      'update:download:cancel', 'update:download:status', 'update:download:diagnostics',
+      'update:verify', 'update:verification:status', 'update:verification:diagnostics',
+      'update:getPresentation', 'update:getReleaseNotes', 'update:getProgress',
+      'update:getActions', 'update:executeAction', 'update:getStatus',
+      'update:install', 'update:cancelInstallation',
+      'update:getInstallationStatus', 'update:getInstallationDiagnostics',
+      'update:selfUpdate', 'update:selfUpdateStatus', 'update:selfUpdateDiagnostics',
+      'update:recoveryStatus', 'update:recoveryDiagnostics', 'update:rollbackHistory',
+      'security:verifyAccess',
+      'cloud:status', 'cloud:connect', 'cloud:disconnect',
       'cloud:pairingQR:create', 'cloud:pairing:status', 'cloud:pairing:approve', 'cloud:pairing:reject',
-      'phone:pairingQR:create', 'phone:server:status', 'phone:devices:list',
-      'phone:device:rename', 'phone:device:trust:update', 'phone:device:permissions:update',
-      'phone:device:remove', 'phone:device:disconnect',
+      'cloud:devices:list', 'cloud:device:rename', 'cloud:device:remove',
       'settings:save', 'settings:reset',
       'schedule:alertAction', 'timerWidget:getState', 'timerWidget:close',
       'timerWidget:stopStopwatch', 'timerWidget:resumeStopwatch',

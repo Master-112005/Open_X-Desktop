@@ -55,6 +55,10 @@ class VoiceSessionManager {
     this.currentSession = null;
     this.currentState = this.stateMachine.getInitialState();
     this.activeTimers = new Map();
+    // Voice stays resident for the lifetime of the desktop app, so retain only
+    // enough lifecycle detail for useful diagnostics instead of every session.
+    this.maxSessionHistory = Math.max(1, Number(dependencies.maxSessionHistory) || 100);
+    this.maxTransitionLog = Math.max(1, Number(dependencies.maxTransitionLog) || 500);
     this.transitionLog = [];
     this.sessionHistory = [];
     this.recognitionCycleSequence = 0;
@@ -688,7 +692,7 @@ class VoiceSessionManager {
     this._clearAllTimeouts();
     this._releaseSessionResources();
     if (snapshot) {
-      this.sessionHistory.push(snapshot);
+      this._recordSessionSnapshot(snapshot);
     }
     this.currentSession = null;
     this._transitionTo(VoiceStateMachine.STATES.IDLE, { reason: 'cleanup-complete', sessionSnapshot: snapshot });
@@ -704,7 +708,7 @@ class VoiceSessionManager {
     this._clearAllTimeouts();
     this._releaseSessionResources();
     if (this.currentSession) {
-      this.sessionHistory.push(this.currentSession.toJSON());
+      this._recordSessionSnapshot(this.currentSession.toJSON());
     }
     this.currentSession = null;
     this.recognitionCycle = this._createRecognitionCycle('manager-reset');
@@ -713,6 +717,33 @@ class VoiceSessionManager {
     this.currentState = this.stateMachine.getInitialState();
     this._log('Reset', { state: this.currentState });
     return { success: true, state: this.currentState };
+  }
+
+  /**
+   * Destroy all manager-owned voice resources and detach event listeners.
+   * This is used by settings reloads, crash cleanup, and update shutdowns so
+   * STT models, audio handles, timers, and renderer listeners are not kept
+   * alive after the assistant lifecycle has been replaced.
+   * @param {string} reason Destruction reason for diagnostics.
+   * @returns {{destroyed: boolean, state: string}}
+   */
+  destroy(reason = 'destroy') {
+    this._clearAllTimeouts();
+    if (this.currentSession) {
+      try {
+        this._recordSessionSnapshot(this.currentSession.toJSON());
+      } catch (_) {}
+    }
+    this.currentSession = null;
+    this._stopRecognitionCycle(`manager-${reason}`);
+    this._detachResourceListeners();
+    this._releaseSessionResources({ destroy: true });
+    this.speechPrerollFrames = [];
+    this.transitionLog = [];
+    this.events.removeAllListeners();
+    this.currentState = this.stateMachine.getInitialState();
+    this._log('Destroyed', { reason, state: this.currentState });
+    return { destroyed: true, state: this.currentState };
   }
 
   /**
@@ -784,6 +815,7 @@ class VoiceSessionManager {
       reason: details.reason || ''
     };
     this.transitionLog.push(transition);
+    this._trimHistory(this.transitionLog, this.maxTransitionLog);
     if (this.currentSession) {
       this.currentSession.setState(nextState, { at: now, reason: details.reason });
     }
@@ -792,6 +824,17 @@ class VoiceSessionManager {
     this._log('State Changed', transition);
     this._publish(SESSION_EVENTS.VOICE_STATE_CHANGED, this._buildEventPayload(details.sessionSnapshot, { transition }));
     return this.currentState;
+  }
+
+  _recordSessionSnapshot(snapshot) {
+    this.sessionHistory.push(snapshot);
+    this._trimHistory(this.sessionHistory, this.maxSessionHistory);
+  }
+
+  _trimHistory(history, limit) {
+    if (history.length > limit) {
+      history.splice(0, history.length - limit);
+    }
   }
 
   /**
@@ -899,13 +942,26 @@ class VoiceSessionManager {
    * @returns {void}
    * @private
    */
-  _releaseSessionResources() {
+  _releaseSessionResources(options = {}) {
+    const destroy = options.destroy === true;
     for (const key of Object.keys(this.resources)) {
       const resource = this.resources[key];
       if (!resource) continue;
       try {
-        if (key === 'audioCapture' && typeof resource.close === 'function') {
+        if (destroy && key === 'sttEngine' && typeof resource.destroy === 'function') {
+          resource.destroy();
+          this.resources[key] = null;
+        } else if (destroy && key === 'audioProcessor' && typeof resource.close === 'function') {
           resource.close();
+          this.resources[key] = null;
+        } else if (destroy && key === 'transcriptProcessor') {
+          this.resources[key] = null;
+        } else if (destroy && key === 'speechSourceClassifier') {
+          if (typeof resource.reset === 'function') resource.reset();
+          this.resources[key] = null;
+        } else if (key === 'audioCapture' && typeof resource.close === 'function') {
+          resource.close();
+          if (destroy) this.resources[key] = null;
         } else if (key === 'audioProcessor' && typeof resource.reset === 'function') {
           resource.reset();
         } else if (key === 'speechSourceClassifier' && typeof resource.reset === 'function') {
@@ -924,6 +980,25 @@ class VoiceSessionManager {
           this._log(`Resource cleanup failed: ${key}`, { error: error.message });
         }
       }
+    }
+  }
+
+  _detachResourceListeners() {
+    this._detach(this.resources.audioCapture, AUDIO_EVENTS.AUDIO_FRAME, this._audioFrameListener);
+    this._detach(this.resources.audioProcessor, AUDIO_PROCESSING_EVENTS.FRAME_PROCESSED, this._processedFrameListener);
+    this._detach(this.resources.sttEngine, STT_EVENTS.PARTIAL_RESULT, this._partialTranscriptListener);
+    this._detach(this.resources.sttEngine, STT_EVENTS.FINAL_RESULT, this._finalTranscriptListener);
+    this._detach(this.resources.transcriptProcessor, NORMALIZATION_EVENTS.NORMALIZED_TRANSCRIPT_READY, this._normalizedTranscriptListener);
+  }
+
+  _detach(resource, eventName, listener) {
+    if (!resource || !eventName || !listener) return;
+    if (typeof resource.off === 'function') {
+      resource.off(eventName, listener);
+      return;
+    }
+    if (typeof resource.removeListener === 'function') {
+      resource.removeListener(eventName, listener);
     }
   }
 

@@ -1,54 +1,58 @@
 # Architecture Overview
 
+OpenX follows a deterministic, local-first desktop assistant architecture. The permanent target architecture is defined in [production-finalization.md](production-finalization.md).
+
 ## System Architecture
 
-OpenX follows a layered, event-driven architecture with clear separation of concerns:
+Current command flow:
 
-```
-Wake Word / Chat Input
-  -> Shared Event Bus
-  -> Voice State Machine
-  -> Listener / VAD / Buffering
-  -> Speech To Text
-  -> Parser / NLP / Intent Matching
-  -> Entity Extraction
-  -> Permission Validation
-  -> Action Router
-  -> Automation Engine
-  -> Response Generator / TTS
-  -> UI State Synchronization
+```text
+Chat / phone / voice / cloud / plugin input
+  -> Assistant.processCommand()
+  -> AssistantEngine
+  -> InputSourceManager
+  -> Assistant intelligence pipeline
+  -> legacy-compatible router boundary
+  -> automation or plugin action
+  -> verification
+  -> response
+  -> context and learning
 ```
 
-## Stable module entry points
+The public assistant API remains stable while the internal implementation migrates toward the production pipeline architecture.
 
-The assistant architecture is implemented through flat, role-based modules in `core/assistant/`:
+## Assistant Runtime Ownership
 
-- `nlp/nlp.js` normalizes input and repairs language.
-- `nlu.js` builds semantic context.
-- `parser.js` creates command frames and entities.
-- `router.js` selects intents and routes actions.
-- `nle.js` delegates resolved actions to the automation engine.
-- `context.js`, `contest.js`, `entities.js`, and `intents.js` provide command understanding state.
-- `Active-learning.js`, `personality.js`, `responses.js`, and `Data.js` provide learning, presentation, and persistence boundaries.
+`AssistantEngine` is the command-processing owner. It coordinates input acquisition, pipeline execution, diagnostics, and the compatibility bridge into the current execution path. It must not own stage-specific business logic.
 
-System-side capabilities are implemented directly by the flat modules in `core/automation/`. Validation, verification, and confirmation are separated under `core/automation/common/`.
+`PipelineEngine` owns orchestration only: stage ordering, diagnostics, timing, cancellation, errors, and lifecycle.
 
-Desktop integration is exposed through `apps/desktop/preload.js`, `settings.js`, `permissions.js`, and `voice/tts.js`. External integrations continue through `plugins/plugin-controller.js` and isolated plugin packages.
+## Target Pipeline Contract
 
-## Command execution contract
+The assistant pipeline communicates through immutable contracts:
 
-Every command follows the same deterministic pipeline:
+```text
+RawUserInput
+  -> NormalizedInput
+  -> LinguisticGraph
+  -> SemanticRepresentation
+  -> StructuredEntities
+  -> ResolvedContext
+  -> ReasoningResult
+  -> ExecutionBlueprint
+  -> AutomationResult
+  -> VerificationResult
+  -> AssistantResponse
+  -> LearningResult
+```
 
-`NLP correction -> NLU/context -> parser/entities -> intent -> validation -> permission -> NLE -> automation -> verification -> confirmation -> response/personality -> context/learning/Data`
+Each layer has one responsibility and must not mutate outputs from previous layers.
 
-- Required information is validated before NLE. Missing values produce `needsClarification: true` and never execute an action.
-- NLE is the only assistant layer that delegates a resolved action to automation.
-- Automation attaches postcondition validation and verification evidence.
-- The confirmation layer records whether execution completed successfully.
-- Active learning records routing outcomes and adapts future entity resolution without bypassing validation or permissions.
-- Commands describing an unconnected operation are classified as `assistant.capability`; the response states that the operation is understood but not connected instead of claiming false execution.
+## Current Compatibility Boundary
 
-`commands.md` is the authoritative natural-language regression corpus. Its test executes all commands against a sandbox automation engine, so coverage cannot trigger real desktop side effects.
+The repository still retains legacy modules such as `router.js`, `parser.js`, `entities.js`, `responses.js`, `language.js`, `nlu.js`, and `nlp/` because production code and regression tests still depend on them. They are compatibility dependencies during migration, not the final architecture.
+
+No legacy file should be deleted until all direct consumers are migrated and the full regression suite remains green.
 
 ## External plugins
 
@@ -56,35 +60,32 @@ Forms, YouTube, Chrome, Discord, and communication-specific adapters live under 
 
 ## Layer Definitions
 
-### 1. Input Layer
-- Voice output (`apps/desktop/voice/tts.js`)
-- Chat input (`apps/desktop/renderer/chat/`)
+### 1. Input and Acquisition
+- Chat, phone, voice, cloud, plugin, API, OCR, and clipboard inputs
+- Standard `RawUserInput` contract
 
-### 2. Processing Layer (`core/assistant/`)
-- **Parser**: normalizes input and strips lead-ins
-- **Intent Matcher**: deterministically maps commands to intents
-- **Entity Extractor**: extracts structured values, names, paths, and targets
+### 2. Intelligence Pipeline
+- Normalization
+- Linguistic analysis
+- Semantic analysis
+- Entity understanding
+- Memory/context
+- Reasoning
+- Planning
+- Decision and validation
 
-### 3. Security Layer (`apps/desktop/permissions.js`)
-- Validates permission levels
-- Requires confirmation for dangerous actions
-
-### 4. Routing Layer (`core/assistant/router.js`)
-- Maps intents to actions
-- Orchestrates the shared command pipeline
-
-### 5. Automation Layer (`core/automation/`)
+### 3. Automation Layer (`core/automation/`)
 - File operations
 - Application control
 - System monitoring
 - Windows OS commands
 
-### 6. Response Layer (`core/assistant/responses.js`)
-- Template-based responses
-- Personality integration
+### 4. Verification, Response, and Learning
+- Execution verification
 - Deterministic response generation
+- Responsible local learning
 
-### 7. Data and Event Layer (`core/assistant/Data.js`)
+### 5. Data and Event Layer (`core/assistant/Data.js`)
 - Shared event bus for voice, assistant, and UI modules
 - Standard lifecycle events including:
   - `wakeword.detected`
@@ -97,7 +98,7 @@ Forms, YouTube, Chrome, Discord, and communication-specific adapters live under 
   - `response.generated`
   - `ui.state.changed`
 
-### 8. Desktop UI Layer (`apps/desktop/renderer/`)
+### 6. Desktop UI Layer (`apps/desktop/renderer/`)
 - Electron renderer surfaces own chat, settings, notifications, and schedule alerts
 - UI never executes automation directly
 - Voice and chat stay as presentation surfaces over the same backend
@@ -105,7 +106,7 @@ Forms, YouTube, Chrome, Discord, and communication-specific adapters live under 
 ## Key Design Rules
 
 - **UI never executes automation directly**: all commands go through the router
-- **Voice and chat share the same pipeline**: identical backend execution path
+- **Voice and chat share the same assistant boundary**: identical backend execution path
 - **No LLM dependencies**: purely deterministic pattern matching and routing
 - **Modular automation**: each capability is isolated in its own module
 - **Event-driven coordination**: voice, assistant, and UI communicate through lifecycle events

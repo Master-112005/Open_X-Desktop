@@ -6,14 +6,14 @@ const os = require('os');
 const path = require('path');
 
 const Assistant = require('../../core/assistant');
-const ActiveLearningStore = require('../../core/assistant/Active-learning');
-const IntentRegistry = require('../../core/assistant/intents').IntentRegistry;
-const InputParser = require('../../core/assistant/parser');
-const { CommandFrameParser } = require('../../core/assistant/parser');
-const NlpProcessor = require('../../core/assistant/nlp/nlp');
-const NaturalLanguageRouter = require('../../core/assistant/nlu');
-const NaturalLanguageExecution = require('../../core/assistant/nle');
-const ActionRouter = require('../../core/assistant/router');
+const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
+const IntentRegistry = require('../../core/assistant/reasoning/IntentRegistry').IntentRegistry;
+const InputParser = require('../../core/assistant/linguistic/InputParser');
+const { CommandFrameParser } = require('../../core/assistant/linguistic/InputParser');
+const NlpProcessor = require('../../core/assistant/linguistic/NlpProcessor');
+const NaturalLanguageRouter = require('../../core/assistant/semantic/NaturalLanguageRouter');
+const NaturalLanguageExecution = require('../../core/assistant/automation/NaturalLanguageExecution');
+const ActionRouter = require('../../core/assistant/automation/ActionRouter');
 
 describe('Incorrect learning repair', function() {
   function createAssistant() {

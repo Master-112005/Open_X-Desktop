@@ -22,15 +22,25 @@ describe('Dynamic Island Schedule Alerts', function() {
     assert.match(main, /persistUntilAction: true/);
     assert.match(main, /autoHideMs: 0/);
     assert.match(main, /function isTrustedVoiceOverlayIpcSender\(event, channel\)/);
-    assert.match(main, /\['schedule:alertAction', 'voiceOverlay:collapse'\]\.includes\(channel\)/);
-    assert.match(main, /event\?\.sender !== overlayContents/);
+    assert.doesNotMatch(main, /function cleanCommunicationContactTitle/);
+    assert.doesNotMatch(main, /function presentCommunicationContactChoicesInDynamicIsland/);
+    assert.doesNotMatch(main, /'communication:selectContact'/);
+    assert.doesNotMatch(main, /'communication:sendPrepared'/);
+    assert.doesNotMatch(main, /'communication:cancelPrepared'/);
+    assert.doesNotMatch(main, /data:\s*\{\s*choices,\s*actions: choices\.slice/s);
+    assert.match(main, /event\?\.sender\?\.id !== overlayContents\.id/);
+    assert.match(main, /trustedVoiceOverlaySender: isTrustedVoiceOverlayIpcSender\(event, channel\)/);
     assert.doesNotMatch(main, /new BrowserWindow\(\{\s*width:\s*420,\s*height:\s*440/s);
     assert.doesNotMatch(main, /windowType: 'schedule-alert'/);
     assert.doesNotMatch(main, /alertWindow/);
 
     assert.match(voiceOverlay, /actions: this\._normalizeActions\(result\)/);
+    assert.match(voiceOverlay, /draftId: String\(action\?\.draftId \|\| ''\)/);
+    assert.match(voiceOverlay, /provider: String\(action\?\.provider \|\| ''\)/);
+    assert.match(voiceOverlay, /choiceIndex: Math\.max\(0, Math\.min\(8, Number\(action\?\.choiceIndex\) \|\| 0\)\)/);
     assert.match(voiceOverlay, /\['snooze', 'stop'\]\.includes\(action\.kind \|\| action\.id\)/);
     assert.match(preload, /function appendVoiceActions\(fragment, payload = \{\}\)/);
+    assert.doesNotMatch(preload, /ipcRenderer\.invoke\('communication:/);
     assert.match(preload, /ipcRenderer\.invoke\('schedule:alertAction'/);
     assert.match(preload, /ipcRenderer\.invoke\('voiceOverlay:collapse', options\)/);
     assert.match(preload, /hideAfterMs: 5000/);

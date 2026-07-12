@@ -4,7 +4,7 @@ const EventEmitter = require('events');
 const VoiceIntegrationConfiguration = require('./VoiceIntegrationConfiguration');
 const EVENTS = require('./VoiceIntegrationEvents');
 const { SESSION_EVENTS } = require('../session/SessionEvents');
-const ResponseGenerator = require('../../../../core/assistant/responses');
+const ResponseGenerator = require('../../../../core/assistant/response/ResponseGenerator');
 
 /**
  * Purpose: Coordinates voice execution lifecycle around assistant dispatch.

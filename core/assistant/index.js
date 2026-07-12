@@ -5,17 +5,25 @@ const {
   Logger,
   Normalizer
 } = require('./Data');
-const ActionRouter = require('./router');
+const ActionRouter = require('./automation/ActionRouter');
 const AutomationEngine = require('../automation/index');
-const ContextManager = require('./context');
-const ActiveLearningStore = require('./Active-learning');
-const Personality = require('./personality');
-const ResponseGenerator = require('./responses');
+const ContextManager = require('./context/ContextManager');
+const ActiveLearningStore = require('./learning/ActiveLearningStore');
+const Personality = require('./response/Personality');
+const ResponseGenerator = require('./response/ResponseGenerator');
 const PluginManager = require('../../plugins/plugin-controller');
 const {
   extractReplacement,
   parseLearningDirective
-} = require('./active-learning/LearningLanguage');
+} = require('./learning/LearningLanguage');
+const AssistantEngine = require('./AssistantEngine');
+const { PipelineManager } = require('./pipeline');
+const { createDefaultInputSourceManager } = require('./acquisition');
+const {
+  abortController,
+  createCancellationError,
+  linkAbortSignal
+} = require('./utils/Cancellation');
 
 const CONFIRM_PHRASES = [
   'approve',
@@ -150,9 +158,29 @@ class Assistant extends EventEmitter {
     this.commandTimeoutMs = Number.isFinite(config?.assistant?.commandTimeoutMs)
       ? Math.max(25, config.assistant.commandTimeoutMs)
       : DEFAULT_COMMAND_TIMEOUT_MS;
+    this.intelligencePipeline = dependencies.intelligencePipeline || new PipelineManager({
+      configuration: config?.assistantIntelligence?.pipeline || config?.assistant?.pipeline || {},
+      normalization: config?.assistantIntelligence?.normalization || config?.assistant?.normalization || {},
+      linguistic: config?.assistantIntelligence?.linguistic || config?.assistant?.linguistic || {},
+      semantic: config?.assistantIntelligence?.semantic || config?.assistant?.semantic || {},
+      commandExecutor: (nextInput, nextSource, nextOptions) => this._processCommandDirect(nextInput, nextSource, nextOptions),
+      logger: this.logger
+    });
+    this.inputSourceManager = dependencies.inputSourceManager || createDefaultInputSourceManager({
+      logger: this.logger
+    });
+    this.engine = dependencies.engine || new AssistantEngine({
+      inputSourceManager: this.inputSourceManager,
+      pipeline: this.intelligencePipeline,
+      logger: this.logger
+    });
   }
 
   async processCommand(input, source = 'chat', options = {}) {
+    return this.engine.processCommand(input, source, options);
+  }
+
+  async _processCommandDirect(input, source = 'chat', options = {}) {
     if (!input || typeof input !== 'string' || input.trim().length === 0) {
       return this._finalizeAssistantResult({
         success: false,
@@ -207,12 +235,14 @@ class Assistant extends EventEmitter {
       }
 
       const routedInput = this._buildRoutedInput(input);
-      const result = await this._runWithCommandTimeout(this.router.process(routedInput, source, {
+      const result = await this._runWithCommandTimeout(({ signal, executionContext }) => this.router.process(routedInput, source, {
         contextualRewrite: this._lastContextualRewrite,
         conversation: this.context.buildConversationDigest({ limit: 4 }),
         permissionGuard: options.permissionGuard,
-        phoneContext: options.phoneContext || null
-      }), { input, routedInput, source, stage: 'router.process' });
+        phoneContext: options.phoneContext || null,
+        signal,
+        executionContext
+      }), { input, routedInput, source, stage: 'router.process', signal: options.signal });
       this.context.record(input, result.entities || {}, result);
       this._recordLearningOutcome(input, routedInput, result);
 
@@ -352,14 +382,17 @@ class Assistant extends EventEmitter {
     }
 
     this.pendingConfirmation = null;
-    const result = await this._runWithCommandTimeout(this.router.confirmAndExecute(
+    const result = await this._runWithCommandTimeout(({ signal, executionContext }) => this.router.confirmAndExecute(
       pending.commandId,
       pending.intentId,
       pending.entities,
       {
         source: pending.source || 'confirmation',
         originalInput: pending.multiCommand?.confirmedInput || pending.originalInput,
-        permissionGuard: pending.permissionGuard
+        permissionGuard: pending.permissionGuard,
+        phoneContext: pending.phoneContext || null,
+        signal,
+        executionContext
       }
     ), {
       input: pending.originalInput || '',
@@ -441,6 +474,12 @@ class Assistant extends EventEmitter {
       await this.automation?.destroy?.();
     } catch (error) {
       this.logger.warn('Failed to destroy automation engine', error.message);
+    }
+
+    try {
+      this.engine?.destroy?.();
+    } catch (error) {
+      this.logger.warn('Failed to destroy assistant engine during shutdown', error.message);
     }
 
     try {
@@ -929,6 +968,10 @@ class Assistant extends EventEmitter {
       return chatMemory;
     }
 
+    if (this._looksLikeScheduledMemoryRequest(raw)) {
+      return null;
+    }
+
     const explicitLearning = this.learning.learnFromText(raw);
     if (explicitLearning) {
       if (explicitLearning.type === 'rejected-sensitive' || explicitLearning.sensitive) {
@@ -949,6 +992,15 @@ class Assistant extends EventEmitter {
     }
 
     return null;
+  }
+
+  _looksLikeScheduledMemoryRequest(input) {
+    const raw = String(input || '').trim();
+    if (!/^(?:remember|note|save)\b/i.test(raw)) {
+      return false;
+    }
+    const parts = this.router?.entityExtractor?.extractReminderParts?.(raw);
+    return Boolean(parts?.timeExpression || parts?.duration);
   }
 
   _appendLearningPrompt(response, input, routedInput, result) {
@@ -1177,7 +1229,7 @@ class Assistant extends EventEmitter {
     if (this._isConfirmPhrase(normalized)) {
       const pending = this.pendingConfirmation;
       this.pendingConfirmation = null;
-      const result = await this._runWithCommandTimeout(this.router.confirmAndExecute(
+      const result = await this._runWithCommandTimeout(({ signal, executionContext }) => this.router.confirmAndExecute(
         pending.commandId,
         pending.intentId,
         pending.entities,
@@ -1185,7 +1237,9 @@ class Assistant extends EventEmitter {
           source,
           originalInput: pending.multiCommand?.confirmedInput || pending.originalInput,
           permissionGuard: pending.permissionGuard,
-          phoneContext: pending.phoneContext || null
+          phoneContext: pending.phoneContext || null,
+          signal,
+          executionContext
         }
       ), {
         input,
@@ -1265,10 +1319,12 @@ class Assistant extends EventEmitter {
     const remaining = Array.isArray(multi.remainingCommands) ? multi.remainingCommands : [];
     for (let index = 0; index < remaining.length; index += 1) {
       const clause = remaining[index];
-      const result = await this._runWithCommandTimeout(this.router.process(clause, source, {
+      const result = await this._runWithCommandTimeout(({ signal, executionContext }) => this.router.process(clause, source, {
         allowMulti: false,
         permissionGuard: pending.permissionGuard,
-        phoneContext: pending.phoneContext || null
+        phoneContext: pending.phoneContext || null,
+        signal,
+        executionContext
       }), {
         input: pending.originalInput || clause,
         routedInput: clause,
@@ -1385,7 +1441,7 @@ class Assistant extends EventEmitter {
       normalized === 'ya';
     if (pending.data?.confirmEntities && (this._isConfirmPhrase(normalized) || confirmsBlankTab)) {
       this.pendingClarification = null;
-      const result = await this._runWithCommandTimeout(this.router.confirmAndExecute(
+      const result = await this._runWithCommandTimeout(({ signal, executionContext }) => this.router.confirmAndExecute(
         pending.commandId,
         pending.intentId,
         {
@@ -1395,7 +1451,9 @@ class Assistant extends EventEmitter {
         {
           source,
           permissionGuard: pending.permissionGuard,
-          phoneContext: pending.phoneContext || null
+          phoneContext: pending.phoneContext || null,
+          signal,
+          executionContext
         }
       ), {
         input,
@@ -1431,7 +1489,7 @@ class Assistant extends EventEmitter {
 
     this.pendingClarification = null;
     const clarifiedEntities = this._buildClarifiedEntities(pending.entities, choice);
-    const result = await this._runWithCommandTimeout(this.router.confirmAndExecute(
+    const result = await this._runWithCommandTimeout(({ signal, executionContext }) => this.router.confirmAndExecute(
       pending.commandId,
       pending.intentId,
       clarifiedEntities,
@@ -1439,7 +1497,9 @@ class Assistant extends EventEmitter {
         source,
         originalInput: pending.originalInput || input,
         permissionGuard: pending.permissionGuard,
-        phoneContext: pending.phoneContext || null
+        phoneContext: pending.phoneContext || null,
+        signal,
+        executionContext
       }
     ), {
       input,
@@ -1880,21 +1940,60 @@ class Assistant extends EventEmitter {
     return '';
   }
 
-  async _runWithCommandTimeout(promise, context = {}) {
+  async _runWithCommandTimeout(work, context = {}) {
+    const controller = new AbortController();
+    const signal = controller.signal;
+    const unlinkParentAbort = linkAbortSignal(context.signal, controller);
+    const startedAt = Date.now();
+    const deadlineAt = startedAt + this.commandTimeoutMs;
+    const operationId = context.operationId || `assistant_${startedAt}_${Math.random().toString(16).slice(2)}`;
+    const executionContext = {
+      ...(context.executionContext || {}),
+      operationId,
+      input: context.input || '',
+      routedInput: context.routedInput || context.input || '',
+      source: context.source || 'chat',
+      stage: context.stage || 'command',
+      owner: 'assistant',
+      startedAt,
+      deadlineAt,
+      timeoutMs: this.commandTimeoutMs,
+      signal
+    };
     let timer = null;
+    const workPromise = Promise.resolve().then(() => (
+      typeof work === 'function'
+        ? work({ signal, executionContext })
+        : work
+    ));
+    let abortHandler = null;
+    const abortPromise = new Promise((_, reject) => {
+      abortHandler = () => reject(createCancellationError(signal));
+      signal.addEventListener?.('abort', abortHandler, { once: true });
+    });
     try {
       return await Promise.race([
-        Promise.resolve(promise),
+        workPromise,
+        abortPromise,
         new Promise((_, reject) => {
           timer = setTimeout(() => {
             const error = new Error('Command timed out');
             error.code = 'command_timeout';
+            error.stage = context.stage || 'command';
+            abortController(controller, error);
             reject(error);
           }, this.commandTimeoutMs);
         })
       ]);
+    } catch (error) {
+      if (signal.aborted && error?.code !== 'command_timeout') {
+        throw createCancellationError(signal);
+      }
+      throw error;
     } finally {
       if (timer) clearTimeout(timer);
+      if (abortHandler) signal.removeEventListener?.('abort', abortHandler);
+      unlinkParentAbort();
     }
   }
 

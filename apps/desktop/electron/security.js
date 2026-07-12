@@ -3,17 +3,6 @@ const { fileURLToPath } = require('url');
 
 const FORBIDDEN_OBJECT_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const ALLOWED_COMMAND_SOURCES = new Set(['chat', 'voice']);
-const PHONE_PERMISSION_NAMES = new Set([
-  'remoteCommands',
-  'fileTransfer',
-  'receiveFiles',
-  'sendFiles',
-  'powerActions',
-  'clipboard',
-  'screenSharing',
-  'camera',
-  'microphone'
-]);
 const UNSAFE_TEXT_CONTROL_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 const UNSAFE_DIRECTIONAL_PATTERN = /[\u202A-\u202E\u2066-\u2069]/;
 
@@ -187,6 +176,107 @@ function validateVoiceOverlayCollapse(payload) {
   return normalized;
 }
 
+function validateDownloadStart(payload) {
+  requirePlainObject(payload);
+  const assetUrl = requireString(payload.assetUrl || payload.url, 'assetUrl', { maxLength: 4096 });
+  const parsed = new URL(assetUrl);
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new TypeError('assetUrl protocol is not supported');
+  if (parsed.username || parsed.password) throw new TypeError('assetUrl must not include credentials');
+  const source = requireString(payload.source || 'relay', 'source', { maxLength: 20 }).toLowerCase();
+  if (source !== 'relay' && payload.relayProvided !== true) {
+    throw new TypeError('download asset must be relay-provided');
+  }
+  const normalized = {
+    assetUrl: parsed.toString(),
+    url: parsed.toString(),
+    source: 'relay',
+    relayProvided: true
+  };
+  if (payload.fileName !== undefined) {
+    normalized.fileName = requireString(payload.fileName, 'fileName', { maxLength: 180 });
+  }
+  if (payload.assetType !== undefined) {
+    normalized.assetType = requireString(payload.assetType, 'assetType', { maxLength: 40 });
+  }
+  if (payload.resume !== undefined) normalized.resume = payload.resume === true;
+  return normalized;
+}
+
+function validateDownloadTask(payload) {
+  requirePlainObject(payload);
+  const taskId = requireString(payload.taskId || payload.id, 'taskId', { maxLength: 160 });
+  if (!/^[A-Za-z0-9._:-]+$/.test(taskId)) throw new TypeError('taskId is invalid');
+  return { taskId };
+}
+
+function validateDownloadStatus(payload) {
+  if (payload === undefined) return {};
+  return validateDownloadTask(payload);
+}
+
+function validateUpdateVerify(payload) {
+  requirePlainObject(payload);
+  const filePath = requireString(payload.filePath, 'filePath', { maxLength: 4096 });
+  const normalized = { filePath };
+  if (payload.manifest !== undefined) normalized.manifest = validateStructuredPayload(payload.manifest, 'manifest', 64 * 1024);
+  if (payload.policy !== undefined) normalized.policy = validateStructuredPayload(payload.policy, 'policy', 32 * 1024);
+  if (payload.currentVersion !== undefined) normalized.currentVersion = requireString(payload.currentVersion, 'currentVersion', { maxLength: 80 });
+  return normalized;
+}
+
+function validateUpdatePresentationContext(payload) {
+  if (payload === undefined) return {};
+  requirePlainObject(payload);
+  const normalized = {};
+  if (payload.source !== undefined) {
+    normalized.source = requireString(payload.source, 'source', { maxLength: 40 }).replace(/[^a-z0-9._:-]/gi, '').toLowerCase();
+  }
+  if (payload.view !== undefined) {
+    normalized.view = requireString(payload.view, 'view', { maxLength: 40 }).replace(/[^a-z0-9._:-]/gi, '').toLowerCase();
+  }
+  return normalized;
+}
+
+function validateUpdatePresentationAction(payload) {
+  requirePlainObject(payload);
+  const actionId = requireString(payload.actionId || payload.id, 'actionId', { maxLength: 80 });
+  if (!/^[A-Za-z0-9._:-]+$/.test(actionId)) throw new TypeError('actionId is invalid');
+  const actionPayload = payload.payload === undefined
+    ? {}
+    : validateStructuredPayload(payload.payload, 'payload', 64 * 1024);
+  return { actionId, payload: actionPayload };
+}
+
+function validateUpdateInstall(payload) {
+  if (payload === undefined) return {};
+  requirePlainObject(payload);
+  const normalized = {};
+  if (payload.source !== undefined) {
+    normalized.source = requireString(payload.source, 'source', { maxLength: 40 }).replace(/[^a-z0-9._:-]/gi, '').toLowerCase();
+  }
+  return normalized;
+}
+
+function validateUpdateSelfUpdate(payload) {
+  if (payload === undefined) return {};
+  requirePlainObject(payload);
+  const normalized = {};
+  if (payload.source !== undefined) {
+    normalized.source = requireString(payload.source, 'source', { maxLength: 40 }).replace(/[^a-z0-9._:-]/gi, '').toLowerCase();
+  }
+  return normalized;
+}
+
+function validateUpdateCancelInstallation(payload) {
+  if (payload === undefined) return { reason: 'cancelled' };
+  requirePlainObject(payload);
+  return {
+    reason: payload.reason === undefined
+      ? 'cancelled'
+      : requireString(payload.reason, 'reason', { maxLength: 120 })
+  };
+}
+
 function validateTimerWidgetClose(payload) {
   if (payload !== undefined) requirePlainObject(payload);
   return {};
@@ -225,39 +315,18 @@ function validatePlannerDelete(payload) {
   return { id: requireString(payload.id, 'id', { maxLength: 128 }) };
 }
 
-function validatePhoneDevice(payload) {
+function validateCloudDevice(payload) {
   requirePlainObject(payload);
   const deviceId = requireString(payload.deviceId, 'deviceId', { maxLength: 128 });
   if (!/^[A-Za-z0-9._:-]+$/.test(deviceId)) throw new TypeError('deviceId is invalid');
   return { deviceId };
 }
 
-function validatePhonePermissions(payload) {
-  const { deviceId } = validatePhoneDevice(payload);
-  const permissions = requirePlainObject(payload.permissions, 'permissions');
-  const entries = Object.entries(permissions);
-  if (entries.length === 0) throw new TypeError('permissions must not be empty');
-  const normalized = {};
-  for (const [name, value] of entries) {
-    if (!PHONE_PERMISSION_NAMES.has(name) || typeof value !== 'boolean') {
-      throw new TypeError('permissions are invalid');
-    }
-    normalized[name] = value;
-  }
-  return { deviceId, permissions: normalized };
-}
-
-function validatePhoneDeviceRename(payload) {
-  const { deviceId } = validatePhoneDevice(payload);
+function validateCloudDeviceRename(payload) {
+  const { deviceId } = validateCloudDevice(payload);
   const deviceName = requireString(payload.deviceName, 'deviceName', { maxLength: 100 }).replace(/\s+/g, ' ').trim();
   if (!deviceName) throw new TypeError('deviceName is required');
   return { deviceId, deviceName };
-}
-
-function validatePhoneDeviceTrust(payload) {
-  const { deviceId } = validatePhoneDevice(payload);
-  if (typeof payload.trusted !== 'boolean') throw new TypeError('trusted is required');
-  return { deviceId, trusted: payload.trusted };
 }
 
 function validateEmpty(payload) {
@@ -279,6 +348,38 @@ const IPC_VALIDATORS = Object.freeze({
   'window:closePlanner': validateEmpty,
   'config:get': validateEmpty,
   'settings:get': validateEmpty,
+  'update:status': validateEmpty,
+  'update:version': validateEmpty,
+  'update:diagnostics': validateEmpty,
+  'update:checkVersion': validateEmpty,
+  'update:getVersionStatus': validateEmpty,
+  'update:getVersionDiagnostics': validateEmpty,
+  'update:download:start': validateDownloadStart,
+  'update:download:pause': validateDownloadTask,
+  'update:download:resume': validateDownloadTask,
+  'update:download:cancel': validateDownloadTask,
+  'update:download:status': validateDownloadStatus,
+  'update:download:diagnostics': validateEmpty,
+  'update:verify': validateUpdateVerify,
+  'update:verification:status': validateEmpty,
+  'update:verification:diagnostics': validateEmpty,
+  'update:getPresentation': validateUpdatePresentationContext,
+  'update:getReleaseNotes': validateEmpty,
+  'update:getProgress': validateEmpty,
+  'update:getActions': validateEmpty,
+  'update:executeAction': validateUpdatePresentationAction,
+  'update:getStatus': validateEmpty,
+  'update:install': validateUpdateInstall,
+  'update:cancelInstallation': validateUpdateCancelInstallation,
+  'update:getInstallationStatus': validateEmpty,
+  'update:getInstallationDiagnostics': validateEmpty,
+  'update:selfUpdate': validateUpdateSelfUpdate,
+  'update:selfUpdateStatus': validateEmpty,
+  'update:selfUpdateDiagnostics': validateEmpty,
+  'update:recoveryStatus': validateEmpty,
+  'update:recoveryDiagnostics': validateEmpty,
+  'update:rollbackHistory': validateEmpty,
+  'security:verifyAccess': validateEmpty,
   'cloud:status': validateEmpty,
   'cloud:connect': validateCloudConnect,
   'cloud:disconnect': validateEmpty,
@@ -286,14 +387,9 @@ const IPC_VALIDATORS = Object.freeze({
   'cloud:pairing:status': validateEmpty,
   'cloud:pairing:approve': validateCloudPairRequest,
   'cloud:pairing:reject': validateCloudPairRequest,
-  'phone:pairingQR:create': validateEmpty,
-  'phone:server:status': validateEmpty,
-  'phone:devices:list': validateEmpty,
-  'phone:device:rename': validatePhoneDeviceRename,
-  'phone:device:trust:update': validatePhoneDeviceTrust,
-  'phone:device:permissions:update': validatePhonePermissions,
-  'phone:device:remove': validatePhoneDevice,
-  'phone:device:disconnect': validatePhoneDevice,
+  'cloud:devices:list': validateEmpty,
+  'cloud:device:rename': validateCloudDeviceRename,
+  'cloud:device:remove': validateCloudDevice,
   'settings:save': validateSettings,
   'settings:reset': validateEmpty,
   'schedule:alertAction': validateScheduleAction,

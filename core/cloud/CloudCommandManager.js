@@ -1,5 +1,5 @@
 const EventEmitter = require('events');
-const { PhoneCommandRouter } = require('../phone');
+const CloudCommandRouter = require('./CloudCommandRouter');
 const CloudRequestQueue = require('./CloudRequestQueue');
 const CloudResponseSerializer = require('./CloudResponseSerializer');
 
@@ -10,7 +10,7 @@ class CloudCommandManager extends EventEmitter {
   constructor(options = {}) {
     super();
     this.connectionManager = options.connectionManager;
-    this.commandRouter = options.commandRouter || new PhoneCommandRouter(options.assistantProvider);
+    this.commandRouter = options.commandRouter || new CloudCommandRouter(options.assistantProvider);
     this.queue = options.queue || new CloudRequestQueue({
       mode: options.queueMode,
       maxQueueSize: options.maxQueueSize
@@ -54,6 +54,9 @@ class CloudCommandManager extends EventEmitter {
 
   handleRelayPacket(message) {
     const packet = message?.packet || null;
+    if (packet?.payload?.type === 'profile-sync') {
+      return { accepted: false, code: 'ignored-profile-sync' };
+    }
     const validation = this.validatePacket(packet);
     if (!validation.valid) {
       this.log('warn', 'Validation Failed', {
@@ -193,7 +196,7 @@ class CloudCommandManager extends EventEmitter {
     if (this.processing) return;
     this.processing = true;
     try {
-      while (true) {
+      for (;;) {
         const request = this.queue.next();
         if (!request) break;
         await this.executeRequest(request);

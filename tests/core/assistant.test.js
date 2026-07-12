@@ -10,6 +10,39 @@ describe('Assistant Confirmation Flow', function() {
     Assistant = require('../../core/assistant/index');
   });
 
+  it('aborts routed execution when the assistant command timeout fires', async function() {
+    let observedSignal = null;
+    let abortObserved = false;
+    const router = {
+      process: async (input, source, options = {}) => {
+        observedSignal = options.signal;
+        await new Promise(resolve => {
+          options.signal.addEventListener('abort', () => {
+            abortObserved = true;
+            resolve();
+          }, { once: true });
+        });
+        throw options.signal.reason;
+      }
+    };
+
+    const assistant = new Assistant({
+      assistant: { commandTimeoutMs: 25 }
+    }, {
+      router,
+      automation: {},
+      eventBus: { publish() {} }
+    });
+
+    const result = await assistant.processCommand('send hi to mohit');
+
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'Command timed out');
+    assert.equal(abortObserved, true);
+    assert.equal(observedSignal?.aborted, true);
+    assert.equal(observedSignal?.reason?.code, 'command_timeout');
+  });
+
   it('should keep a pending confirmation and execute it on voice confirmation', async function() {
     const router = {
       process: async () => ({
@@ -320,7 +353,9 @@ describe('Assistant Confirmation Flow', function() {
         throw new Error(`Unexpected routed input: ${input}`);
       }
     };
-    const assistant = new Assistant({}, { router, automation: {}, eventBus: { publish() {} } });
+    const assistant = new Assistant({
+      activeLearning: { enabled: false }
+    }, { router, automation: {}, eventBus: { publish() {} } });
 
     const clarification = await assistant.processCommand('create reminder');
     const unrelated = await assistant.processCommand('what is my name');
@@ -740,8 +775,8 @@ describe('Assistant Confirmation Flow', function() {
         success: true,
         requiresConfirmation: true,
         intent: 'app.close',
-        entities: { appName: 'whatsapp' },
-        response: 'Please confirm: close whatsapp.'
+        entities: { appName: 'chrome' },
+        response: 'Please confirm: close chrome.'
       }),
       confirmAndExecute: async () => {
         throw new Error('should not execute');
@@ -754,11 +789,11 @@ describe('Assistant Confirmation Flow', function() {
       eventBus: { publish() {} }
     });
 
-    await assistant.processCommand('close whatsapp', 'chat');
+    await assistant.processCommand('close chrome', 'chat');
     const followUp = await assistant.processCommand('what?', 'chat');
 
     assert.equal(followUp.requiresConfirmation, true);
-    assert.match(followUp.response, /close whatsapp/i);
+    assert.match(followUp.response, /close chrome/i);
     assert.match(followUp.response, /yes/i);
     assert.match(followUp.response, /no/i);
   });
@@ -1845,7 +1880,7 @@ describe('Assistant Confirmation Flow', function() {
   });
 
   it('should not ask for feedback repeatedly after the same confident action', async function() {
-    const ActiveLearningStore = require('../../core/assistant/Active-learning');
+    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-learning-'));
     const learning = new ActiveLearningStore({
       app: { dataDir: tempDir },
@@ -2002,7 +2037,7 @@ describe('Assistant Confirmation Flow', function() {
   });
 
   it('should answer remembered personal facts without web search', async function() {
-    const ActiveLearningStore = require('../../core/assistant/Active-learning');
+    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-learning-'));
     const learning = new ActiveLearningStore({
       app: { dataDir: tempDir },
@@ -2040,8 +2075,48 @@ describe('Assistant Confirmation Flow', function() {
     assert.deepEqual(routedInputs, []);
   });
 
+  it('should route scheduled remember phrases as reminders instead of memory', async function() {
+    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
+    const EntityExtractor = require('../../core/assistant/entities/EntityExtractor');
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-learning-'));
+    const learning = new ActiveLearningStore({
+      app: { dataDir: tempDir },
+      activeLearning: { enabled: true, askForFeedback: false }
+    });
+    const entityExtractor = new EntityExtractor({});
+    let routed = false;
+    const router = {
+      entityExtractor,
+      process: async input => {
+        routed = true;
+        const parts = entityExtractor.extractReminderParts(input);
+        return {
+          commandId: 'cmd-reminder',
+          success: true,
+          intent: 'reminder.set',
+          entities: parts,
+          response: 'Reminder added.'
+        };
+      }
+    };
+    const assistant = new Assistant({}, {
+      router,
+      learning,
+      automation: {},
+      eventBus: { publish() {} }
+    });
+
+    const result = await assistant.processCommand('remember i have lcass on mondy morning 9');
+
+    assert.equal(result.learned, undefined);
+    assert.equal(result.intent, 'reminder.set');
+    assert.equal(result.entities.timeExpression, 'monday 9');
+    assert.equal(result.entities.reminderText, 'class');
+    assert.equal(routed, true);
+  });
+
   it('should reject password memory while still learning safe personal context before routing', async function() {
-    const ActiveLearningStore = require('../../core/assistant/Active-learning');
+    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-learning-'));
     const learning = new ActiveLearningStore({
       app: { dataDir: tempDir },
@@ -2082,7 +2157,7 @@ describe('Assistant Confirmation Flow', function() {
   });
 
   it('should answer broader personal context before routing', async function() {
-    const ActiveLearningStore = require('../../core/assistant/Active-learning');
+    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-learning-'));
     const learning = new ActiveLearningStore({
       app: { dataDir: tempDir },
@@ -2125,7 +2200,7 @@ describe('Assistant Confirmation Flow', function() {
   });
 
   it('should save an explicit compact chat summary for later recall', async function() {
-    const ActiveLearningStore = require('../../core/assistant/Active-learning');
+    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-chat-memory-'));
     const learning = new ActiveLearningStore({
       app: { dataDir: tempDir },

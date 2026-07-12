@@ -122,6 +122,30 @@ describe('CloudConnectionManager', () => {
             }
           }));
         }
+        if (message.type === 'device:list') {
+          socket.send(JSON.stringify({
+            type: 'device:list',
+            requestId: message.requestId,
+            success: true,
+            devices: [{
+              deviceId: 'desktop-test',
+              friendlyName: 'Laptop',
+              ownerId: 'owner-test',
+              connectionState: 'connected',
+              pairBoxCode: 'BOX-ABC123'
+            }, {
+              deviceId: 'phone:002',
+              friendlyName: 'Phone',
+              ownerId: 'owner-test',
+              connectionState: 'offline',
+              pairBoxCode: 'BOX-ABC123'
+            }],
+            pairs: [{
+              boxCode: 'BOX-ABC123',
+              deviceIds: ['desktop-test', 'phone:002']
+            }]
+          }));
+        }
       });
     });
     const manager = new CloudConnectionManager({
@@ -140,6 +164,10 @@ describe('CloudConnectionManager', () => {
     const removed = await manager.removeDevice('phone:001');
     expect(removed.success).to.equal(true);
     expect(manager.getStatus().pairedDevices).to.deep.equal([]);
+
+    const listed = await manager.listDevices();
+    expect(listed.devices).to.have.length(2);
+    expect(manager.getStatus().pairedDevices.map(device => device.pairBoxCode)).to.deep.equal(['BOX-ABC123', 'BOX-ABC123']);
 
     await manager.disconnect('test-finished');
   });
@@ -203,6 +231,64 @@ describe('CloudConnectionManager', () => {
     expect(presence[0].state).to.equal('online');
     expect(notification.priority).to.equal('high');
     expect(manager.getStatus().notifications).to.have.length(1);
+
+    await manager.disconnect('test-finished');
+  });
+
+  it('emits pushed update availability events and sends acknowledgements', async () => {
+    const relayUrl = await startRelayStub();
+    const receivedMessages = [];
+    server.on('connection', socket => {
+      socket.on('message', data => {
+        const message = JSON.parse(data.toString('utf8'));
+        receivedMessages.push(message);
+        if (message.type === 'device:register') {
+          socket.send(JSON.stringify({
+            type: 'device:registered',
+            requestId: message.requestId,
+            owner: { id: 'owner-test' },
+            device: { deviceId: message.deviceId, ownerId: 'owner-test', friendlyName: 'Desktop' }
+          }));
+          socket.send(JSON.stringify({
+            type: 'update:available',
+            protocolVersion: '1',
+            eventId: 'evt-cloud-update',
+            timestamp: new Date().toISOString(),
+            latestVersion: '6.1.0',
+            minimumVersion: '6.0.0',
+            channel: 'stable',
+            priority: 'recommended',
+            mandatory: false,
+            releaseNotes: 'Relay-pushed update.',
+            publishedAt: new Date().toISOString()
+          }));
+        }
+      });
+    });
+    const manager = new CloudConnectionManager({
+      logger: createSilentLogger(),
+      settings: {
+        deviceId: 'desktop-test',
+        ownerId: 'owner-test',
+        reconnectEnabled: false,
+        heartbeatEnabled: false
+      },
+      version: 'test'
+    });
+
+    const updatePromise = waitForEvent(manager, 'update-available', event => event.eventId === 'evt-cloud-update');
+    await manager.connect({ relayUrl });
+    const event = await updatePromise;
+    const ackSent = manager.acknowledgeUpdateEvent(event.eventId, 'displayed', 'ok', { source: 'test' });
+    await new Promise(resolve => setTimeout(resolve, 25));
+
+    expect(event.latestVersion).to.equal('6.1.0');
+    expect(ackSent).to.equal(true);
+    expect(receivedMessages.some(message => (
+      message.type === 'update:available:ack' &&
+      message.eventId === 'evt-cloud-update' &&
+      message.stage === 'displayed'
+    ))).to.equal(true);
 
     await manager.disconnect('test-finished');
   });

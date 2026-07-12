@@ -17,11 +17,16 @@ const PlannerController = require('./planner');
 const ScreenshotController = require('./screenshot-recording');
 const FormAutomation = require('../../plugins/forms');
 const ActionVerifier = require('./common/action-verification');
+const { resolveTrustedWebTarget } = require('../assistant/semantic/WebTargets');
 const {
   cleanEntityName,
   requireSafeUserPath,
   resolveDirectory
 } = require('./common/path-utils');
+const {
+  isCancellationError,
+  throwIfAborted
+} = require('../assistant/utils/Cancellation');
 
 class AutomationEngine {
   constructor(config) {
@@ -80,6 +85,14 @@ class AutomationEngine {
         const appResult = await this.apps.open(entities.appName, entities);
         if (appResult?.success) {
           return appResult;
+        }
+        if (appResult?.needsClarification) {
+          return appResult;
+        }
+
+        const webFallback = await this._openWebAppFallback(entities, appResult);
+        if (webFallback) {
+          return webFallback;
         }
 
         const folderResult = this.folders.open(entities.appName, entities);
@@ -145,10 +158,15 @@ class AutomationEngine {
       'media.like': () => this.media.like(),
       'media.subscribe': () => this.media.subscribe(),
       'media.status': () => this.media.status(),
-      'message.compose': (entities) => this.communications.composeMessage(
+      'message.compose': (entities, context) => this.communications.composeMessage(
         entities.contactName,
         entities.messageText,
-        entities.platform
+        entities.platform,
+        {
+          contactId: entities.contactId,
+          signal: context?.signal || context?.executionContext?.signal || null,
+          operationContext: context?.executionContext || context?.operationContext || null
+        }
       ),
       'email.compose': (entities) => this.communications.composeEmail(
         entities.contactName,
@@ -225,6 +243,31 @@ class AutomationEngine {
           rawCommand: entities.rawCommand || ''
         }
       }),
+      'update.presentation': async (entities, context) => {
+        if (typeof this.config?.updatePresentationHandler !== 'function') {
+          return { success: false, error: 'Update presentation is not available.' };
+        }
+        const result = await this.config.updatePresentationHandler({
+          command: entities.rawCommand || context?.input || '',
+          operation: entities.operation || 'status',
+          source: context?.source === 'voice' ? 'voice' : 'assistant'
+        });
+        const data = result?.data?.presentation?.model
+          ? result.data.presentation.model
+          : result?.data?.model
+            ? result.data.model
+            : result?.data || result || {};
+        return {
+          success: result?.success !== false,
+          error: result?.error?.message || result?.error || null,
+          data: {
+            action: 'update.presentation',
+            operation: entities.operation || 'status',
+            presentation: data,
+            raw: result
+          }
+        };
+      },
       'window.minimize': (entities) => this.windows.minimizeWindow(entities.windowName),
       'window.maximize': (entities) => this.windows.maximizeWindow(entities.windowName),
       'window.close': (entities) => this.windows.closeWindow(entities.windowName),
@@ -235,6 +278,8 @@ class AutomationEngine {
   }
 
   async execute(actionId, entities, context = {}) {
+    const signal = context?.signal || context?.executionContext?.signal || null;
+    throwIfAborted(signal);
     const handler = this._actionMap[actionId];
     if (!handler) {
       this.logger.error(`Unknown action: ${actionId}`);
@@ -253,14 +298,49 @@ class AutomationEngine {
       }
       this.logger.info(`Executing: ${actionId}`, entities);
       const result = await handler(entities || {}, context || {});
+      throwIfAborted(signal);
       return this.verifier.verify(actionId, entities || {}, result);
     } catch (err) {
+      if (isCancellationError(err)) {
+        throw err;
+      }
       this.logger.error(`Action execution failed: ${actionId}`, err);
       return this.verifier.verify(actionId, entities || {}, {
         success: false,
         error: err.message
       });
     }
+  }
+
+  async _openWebAppFallback(entities = {}, localResult = {}) {
+    const appName = String(entities.appName || '').trim();
+    const trusted = resolveTrustedWebTarget(appName);
+    const url = String(entities.webFallbackUrl || trusted?.url || '').trim();
+    if (!url) {
+      return null;
+    }
+
+    if (!(await this.browser.checkInternetConnection())) {
+      return this.browser.offlineResponse();
+    }
+
+    const opened = this.browser.open(url, {
+      browserName: entities.webFallbackBrowser || 'chrome',
+      newTab: entities.newTab === true
+    });
+    return opened?.success
+      ? {
+          success: true,
+          data: {
+            ...opened.data,
+            app: appName,
+            appId: appName.toLowerCase(),
+            url,
+            launchMethod: 'chrome-web-app-fallback',
+            localLaunchError: localResult?.error || null
+          }
+        }
+      : opened;
   }
 
   async _sendFileToPhone(entities = {}, context = {}) {
@@ -1298,7 +1378,6 @@ class AutomationEngine {
       'notepad',
       'paint',
       'calculator',
-      'whatsapp',
       'discord',
       'spotify',
       'youtube',

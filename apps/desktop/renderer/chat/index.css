@@ -786,8 +786,50 @@
 .phone-device-list {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   margin-top: 12px;
+}
+
+.phone-device-box {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.phone-device-box-header {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.phone-device-box-header strong {
+  color: var(--text-color);
+  font-size: 12px;
+}
+
+.phone-device-box-header span,
+.phone-device-box-code {
+  background: color-mix(in srgb, var(--accent-color) 18%, rgba(255, 255, 255, 0.06));
+  border: 1px solid color-mix(in srgb, var(--accent-color) 28%, rgba(255, 255, 255, 0.1));
+  border-radius: 999px;
+  color: var(--text-color);
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding: 6px 8px;
+}
+
+.phone-device-box-list {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
 }
 
 .phone-device-card,
@@ -822,6 +864,13 @@
   display: flex;
   gap: 14px;
   justify-content: space-between;
+}
+
+.phone-device-heading-right {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
 }
 
 .phone-device-identity {
@@ -894,10 +943,20 @@
 }
 
 .phone-device-actions {
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: auto;
+}
+
+.phone-device-current {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: var(--muted-color);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 7px 10px;
 }
 
 @media (max-width: 860px) {
@@ -3549,6 +3608,7 @@ body.settings-only #settings-panel { height: calc(100vh - 36px); width: calc(100
 }
 .system-options.open { display: flex; }
 .system-options::-webkit-scrollbar { display: none; }
+
 .system-option {
   align-items: center;
   background: rgba(255,255,255,.045);
@@ -3854,8 +3914,17 @@ html[data-glass-contrast] #send-btn {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
-#workspace,#messages,.settings-content,#schedule-list,#notification-list { contain: layout paint style; }
+#workspace,#messages,.settings-content,#schedule-list,#notification-list,#input-area,.composer-field { contain: layout paint style; }
 #messages { scroll-behavior: smooth; }
+.composer-field,
+.composer-field:focus-within {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transition: background-color 0.12s ease, border-color 0.12s ease !important;
+}
+#input-box {
+  transform: translateZ(0);
+}
 .message {
   backface-visibility: hidden;
   contain: layout paint;
@@ -4078,6 +4147,178 @@ html[data-glass-contrast] #send-btn {
   gap: 8px;
 }
 
+.communication-provider-card {
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+}
+
+.communication-provider-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.communication-provider-header strong,
+.communication-provider-header span {
+  display: block;
+}
+
+.communication-provider-header span {
+  color: var(--muted-color);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.communication-status {
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 999px;
+  color: var(--muted-color);
+  flex: 0 0 auto;
+  font-size: 12px;
+  padding: 6px 10px;
+  text-transform: capitalize;
+}
+
+.communication-status.connected {
+  border-color: rgba(82, 211, 132, .4);
+  color: var(--success-color);
+}
+
+.communication-status.qr-required {
+  border-color: rgba(255, 202, 87, .42);
+  color: var(--warning-color);
+}
+
+.communication-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.about-btn {
+  color: var(--text-color);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 15px;
+  font-style: italic;
+  font-weight: 700;
+  -webkit-app-region: no-drag;
+}
+
+#about-overlay {
+  inset: 0;
+  pointer-events: auto;
+  position: absolute;
+  z-index: 45;
+}
+
+#about-overlay:not([hidden]) {
+  display: block;
+}
+
+#about-panel {
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.09), transparent 46%),
+    rgba(12, 17, 28, 0.98);
+  border: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  color: var(--text-color);
+  height: 100%;
+  left: 0;
+  max-height: none;
+  max-width: none;
+  overflow: auto;
+  padding: 18px;
+  pointer-events: auto;
+  position: absolute;
+  top: 0;
+  width: 100%;
+  -webkit-app-region: no-drag;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+#about-panel::-webkit-scrollbar {
+  height: 0;
+  width: 0;
+}
+
+.about-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.about-eyebrow {
+  color: var(--accent-color);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#about-title {
+  font-size: 18px;
+  letter-spacing: 0;
+  line-height: 1.2;
+  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.about-close-btn {
+  flex: 0 0 32px;
+}
+
+.about-summary {
+  color: var(--muted-color);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 12px 0 14px;
+}
+
+.about-details {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.about-details div {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 10px;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.about-details dt {
+  color: var(--muted-color);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.about-details dd {
+  color: var(--text-color);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 460px) {
   .phone-section-header {
     align-items: stretch;
@@ -4091,4 +4332,20 @@ html[data-glass-contrast] #send-btn {
   .phone-section-tab {
     flex: 1 1 0;
   }
+
+  #about-panel {
+    padding: 14px;
+  }
+}
+
+* {
+  scrollbar-gutter: auto !important;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
 }

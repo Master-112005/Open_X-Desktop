@@ -10,18 +10,17 @@ const REQUIRED_ENTRY_POINTS = [
   'apps/desktop/settings.js',
   'apps/desktop/permissions.js',
   'apps/desktop/voice/tts.js',
-  'core/assistant/context.js',
-  'core/assistant/entities.js',
-  'core/assistant/intents.js',
-  'core/assistant/Active-learning.js',
-  'core/assistant/nlp/nlp.js',
-  'core/assistant/nlu.js',
-  'core/assistant/nle.js',
-  'core/assistant/parser.js',
-  'core/assistant/personality.js',
-  'core/assistant/responses.js',
-  'core/assistant/router.js',
-  'core/assistant/contest.js',
+  'core/assistant/context/ContextManager.js',
+  'core/assistant/entities/EntityExtractor.js',
+  'core/assistant/reasoning/IntentRegistry.js',
+  'core/assistant/learning/ActiveLearningStore.js',
+  'core/assistant/linguistic/NlpProcessor.js',
+  'core/assistant/semantic/NaturalLanguageRouter.js',
+  'core/assistant/automation/NaturalLanguageExecution.js',
+  'core/assistant/linguistic/InputParser.js',
+  'core/assistant/response/Personality.js',
+  'core/assistant/response/ResponseGenerator.js',
+  'core/assistant/automation/ActionRouter.js',
   'core/assistant/Data.js',
   'core/automation/apps.js',
   'core/automation/brightness.js',
@@ -49,10 +48,7 @@ const SUPERSEDED_DIRECTORIES = [
   'core/permissions',
   'core/voice',
   'core/media-handling',
-  'core/assistant/context',
-  'core/assistant/entities',
   'core/assistant/intents',
-  'core/assistant/learning',
   'core/assistant/nlu',
   'core/assistant/parser',
   'core/assistant/personality',
@@ -89,7 +85,7 @@ describe('Requested architecture structure', () => {
   });
 
   it('keeps NLE as a behavior-neutral automation delegate', async () => {
-    const NaturalLanguageExecution = require('../../core/assistant/nle');
+    const NaturalLanguageExecution = require('../../core/assistant/automation/NaturalLanguageExecution');
     const calls = [];
     const nle = new NaturalLanguageExecution({
       execute(actionId, entities, context) {

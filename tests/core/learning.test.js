@@ -7,7 +7,7 @@ describe('Active Learning Store', function() {
   let ActiveLearningStore;
 
   before(function() {
-    ActiveLearningStore = require('../../core/assistant/Active-learning');
+    ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
   });
 
   function createStore() {
@@ -257,7 +257,7 @@ describe('Active Learning Store', function() {
       success: false
     }), null);
     assert.equal(store.learnFromMultiCommand(
-      'open whatsapp and call daddy',
+      'open paint and call daddy',
       ['app.open', 'call.start']
     ), null);
 
