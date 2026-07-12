@@ -943,3 +943,15 @@ html[data-glass-contrast="dark-text"] .panel-close-button:hover {
     transform: translateX(0) scale(1);
   }
 }
+
+* {
+  scrollbar-gutter: auto !important;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
+}

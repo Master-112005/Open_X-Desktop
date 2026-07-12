@@ -322,3 +322,15 @@ body.reduced-motion *::before,
 body.reduced-motion *::after {
   transition-duration: 0.01ms !important;
 }
+
+* {
+  scrollbar-gutter: auto !important;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
+}

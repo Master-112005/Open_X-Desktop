@@ -4337,3 +4337,15 @@ html[data-glass-contrast] #send-btn {
     padding: 14px;
   }
 }
+
+* {
+  scrollbar-gutter: auto !important;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
+}
