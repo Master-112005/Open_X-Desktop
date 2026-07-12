@@ -284,6 +284,10 @@ class CloudConnectionManager extends EventEmitter {
     return this.sendDeviceMutation('device:remove', { deviceId });
   }
 
+  listDevices() {
+    return this.sendDeviceMutation('device:list');
+  }
+
   updatePresence(state, metadata = {}) {
     return this.send({
       type: 'presence:update',
@@ -546,6 +550,12 @@ class CloudConnectionManager extends EventEmitter {
         if (this.device?.deviceId === removedId) this.device = null;
         this.emitStatus({ device: this.device, pairedDevices: this.pairedDevices });
       }
+      this.resolvePendingRequest(payload.requestId, payload);
+      return;
+    }
+    if (payload?.type === 'device:list') {
+      this.pairedDevices = Array.isArray(payload.devices) ? payload.devices : [];
+      this.emitStatus({ pairedDevices: this.pairedDevices });
       this.resolvePendingRequest(payload.requestId, payload);
       return;
     }

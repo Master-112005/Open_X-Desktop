@@ -1582,47 +1582,89 @@ function normalizePhoneNotification(notification = {}, metadata = {}) {
   ).replace(/\s+/g, ' ').trim().slice(0, 80);
   const title = String(notification.title || appName || 'Notification').replace(/\s+/g, ' ').trim().slice(0, 140);
   const message = String(notification.message || notification.text || notification.body || '').replace(/\s+/g, ' ').trim().slice(0, 360);
+  const packageName = String(notification.packageName || notification.details?.packageName || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const repeatCount = Math.max(1, Math.round(Number(notification.repeatCount || notification.details?.repeatCount) || 1));
   return {
     notificationId: String(notification.notificationId || notification.id || `phone_notification_${Date.now()}`).trim(),
     sourceName,
     appName,
+    packageName,
     title,
     message,
     receivedAt: notification.createdAt || notification.timestamp || Date.now(),
-    priority: String(notification.priority || 'normal').toLowerCase()
+    priority: String(notification.priority || 'normal').toLowerCase(),
+    repeatCount,
+    groupKey: String(notification.details?.groupKey || packageName || appName || sourceName).toLowerCase()
   };
 }
 
-function presentPhoneNotificationInDynamicIsland(notification = {}, metadata = {}) {
+const PHONE_NOTIFICATION_BURST_WINDOW_MS = 900;
+const PHONE_NOTIFICATION_MAX_GROUP_ITEMS = 5;
+const phoneNotificationGroups = new Map();
+
+function phoneNotificationInitials(appName) {
+  const words = String(appName || 'Phone').replace(/[^A-Za-z0-9 ]/g, ' ').trim().split(/\s+/).filter(Boolean);
+  return (words.length > 1 ? `${words[0][0]}${words[1][0]}` : String(words[0] || 'PH').slice(0, 2)).toUpperCase();
+}
+
+function phoneNotificationGroupKey(notification) {
+  return [
+    notification.sourceName,
+    notification.groupKey || notification.packageName || notification.appName
+  ].map(value => String(value || '').toLowerCase()).join('|');
+}
+
+function displayPhoneNotificationGroup(groupKey) {
+  const group = phoneNotificationGroups.get(groupKey);
+  if (!group) return false;
+  phoneNotificationGroups.delete(groupKey);
+  if (group.timer) clearTimeout(group.timer);
   if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
-  const normalized = normalizePhoneNotification(notification, metadata);
-  const line = normalized.message || normalized.title;
+
+  const notifications = [...group.notifications.values()]
+    .sort((left, right) => Number(right.receivedAt || 0) - Number(left.receivedAt || 0));
+  if (!notifications.length) return false;
+  const primary = notifications[0];
+  const totalCount = notifications.reduce((count, item) => count + Math.max(1, Number(item.repeatCount) || 1), 0);
+  const grouped = totalCount > 1 || notifications.length > 1;
+  const response = grouped
+    ? `${totalCount} ${primary.appName} notifications from ${primary.sourceName}`
+    : (primary.message || primary.title);
+  const maxPriority = notifications.some(item => item.priority === 'critical')
+    ? 'critical'
+    : notifications.some(item => item.priority === 'high') ? 'high' : primary.priority;
+
   try {
     voiceOverlay.displayAssistantResult({
       success: true,
       intent: 'phone.notification',
-      response: line,
+      response,
       data: {
-        notification: normalized,
+        notification: primary,
+        notificationCount: totalCount,
+        grouped,
         actions: [{
           id: 'ok',
           label: 'OK',
           kind: 'dismiss',
           primary: true
         }],
-        resultEntries: [{
-          index: 1,
-          name: normalized.title,
-          type: normalized.appName,
-          location: normalized.sourceName,
-          snippet: normalized.message || 'Received from OpenX Mobile.'
-        }]
+        resultEntries: notifications.slice(0, PHONE_NOTIFICATION_MAX_GROUP_ITEMS).map((item, index) => ({
+          index: index + 1,
+          name: item.title,
+          type: item.appName,
+          location: item.repeatCount > 1 ? `${item.sourceName} (${item.repeatCount})` : item.sourceName,
+          snippet: item.message || 'Received from OpenX Mobile.'
+        }))
       },
       ui: {
-        icon: 'PH',
-        previewStatus: `${normalized.appName} from ${normalized.sourceName}`,
-        preExpandDelayMs: 650,
-        autoHideMs: normalized.priority === 'high' ? 20000 : 14000
+        icon: phoneNotificationInitials(primary.appName),
+        previewStatus: grouped
+          ? `${primary.appName} • ${totalCount} notifications`
+          : `${primary.appName} from ${primary.sourceName}`,
+        preExpandDelayMs: grouped ? 350 : 650,
+        autoHideMs: maxPriority === 'critical' ? 0 : maxPriority === 'high' ? 20000 : 14000,
+        persistUntilAction: maxPriority === 'critical'
       }
     });
     return true;
@@ -1630,6 +1672,23 @@ function presentPhoneNotificationInDynamicIsland(notification = {}, metadata = {
     mainLogger.warn('Dynamic Island phone notification failed', { error: error.message });
     return false;
   }
+}
+
+function presentPhoneNotificationInDynamicIsland(notification = {}, metadata = {}) {
+  const normalized = normalizePhoneNotification(notification, metadata);
+  const key = phoneNotificationGroupKey(normalized);
+  const group = phoneNotificationGroups.get(key) || { notifications: new Map(), timer: null };
+  group.notifications.set(normalized.notificationId, normalized);
+  if (group.timer) clearTimeout(group.timer);
+  group.timer = setTimeout(() => displayPhoneNotificationGroup(key), PHONE_NOTIFICATION_BURST_WINDOW_MS);
+  group.timer.unref?.();
+  phoneNotificationGroups.set(key, group);
+  if (normalized.priority === 'critical') {
+    clearTimeout(group.timer);
+    group.timer = null;
+    return displayPhoneNotificationGroup(key);
+  }
+  return true;
 }
 
 function presentCloudPhoneCommandInDynamicIsland(event = {}) {
@@ -2068,10 +2127,25 @@ function currentCloudSettings() {
   return { ...settings };
 }
 
-function buildManagedDeviceList() {
+function coerceCloudTimestamp(value, fallback = Date.now()) {
+  if (Number.isFinite(Number(value)) && Number(value) > 0) return Number(value);
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+async function buildManagedDeviceList() {
+  const manager = cloudConnectionManager || initializeCloudConnection();
+  if (manager?.isConnected?.()) {
+    try {
+      await manager.listDevices();
+    } catch (error) {
+      mainLogger.warn('Cloud device list refresh failed; using cached devices', { error: error.message });
+    }
+  }
   const cloudStatus = cloudConnectionManager?.getStatus?.() || {};
   const cloudById = new Map((cloudStatus.pairedDevices || []).map(device => [device.deviceId, device]));
   const output = [];
+  const currentDeviceId = cloudStatus.device?.deviceId || runtimeConfig?.cloud?.deviceId || '';
 
   for (const cloud of cloudById.values()) {
     output.push({
@@ -2081,8 +2155,8 @@ function buildManagedDeviceList() {
       deviceType: cloud.deviceType || 'future',
       platform: cloud.platform || '',
       softwareVersion: cloud.softwareVersion || '',
-      pairedAt: cloud.createdAt ? Date.parse(cloud.createdAt) : Date.now(),
-      lastSeen: cloud.lastSeen || Date.now(),
+      pairedAt: coerceCloudTimestamp(cloud.createdAt),
+      lastSeen: coerceCloudTimestamp(cloud.lastSeen || cloud.updatedAt),
       trusted: true,
       trustStatus: 'trusted',
       permissions: {},
@@ -2092,6 +2166,11 @@ function buildManagedDeviceList() {
       connectionDurationMs: 0,
       sessionStatus: 'cloud',
       session: null,
+      isCurrentDevice: cloud.deviceId === currentDeviceId,
+      pairBoxCode: cloud.pairBoxCode || cloud.pairBoxes?.[0]?.boxCode || '',
+      pairBoxId: cloud.pairBoxId || cloud.pairBoxes?.[0]?.id || '',
+      pairDeviceIds: Array.isArray(cloud.pairDeviceIds) ? cloud.pairDeviceIds : (cloud.pairBoxes?.[0]?.deviceIds || []),
+      pairBoxes: Array.isArray(cloud.pairBoxes) ? cloud.pairBoxes : [],
       cloud
     });
   }
