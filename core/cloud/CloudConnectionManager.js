@@ -269,6 +269,7 @@ class CloudConnectionManager extends EventEmitter {
   approvePairingRequest(pairRequestId, security = null) {
     return this.send({
       type: 'cloud-pair:approve',
+      requestId: pairRequestId,
       pairRequestId,
       ...(security ? { security } : {})
     });
@@ -277,6 +278,7 @@ class CloudConnectionManager extends EventEmitter {
   rejectPairingRequest(pairRequestId) {
     return this.send({
       type: 'cloud-pair:reject',
+      requestId: pairRequestId,
       pairRequestId
     });
   }
