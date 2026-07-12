@@ -1627,10 +1627,7 @@ function renderCloudStatus(status) {
   if (cloudPingEl) cloudPingEl.textContent = Number.isFinite(Number(safeStatus.pingMs)) ? `${Math.round(Number(safeStatus.pingMs))} ms` : 'Pending';
   if (cloudReconnectAttemptsEl) cloudReconnectAttemptsEl.textContent = String(Number(safeStatus.reconnectAttempts) || 0);
   if (cloudVersionEl) {
-    const versions = [safeStatus.version, safeStatus.serverVersion ? `server ${safeStatus.serverVersion}` : '']
-      .filter(Boolean)
-      .join(' / ');
-    cloudVersionEl.textContent = versions || '--';
+    cloudVersionEl.textContent = safeStatus.serverVersion || '--';
   }
   if (cloudFriendlyStatusEl) {
     cloudFriendlyStatusEl.textContent = safeStatus.friendlyMessage || 'Cloud mode is disconnected. Local mode is active.';

@@ -187,6 +187,12 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(script, /window\.confirm\(/);
   });
 
+  it('should render relay server version separately from the local app version', function() {
+    assert.match(html, /Server Version/);
+    assert.match(script, /cloudVersionEl\.textContent = safeStatus\.serverVersion \|\| '--'/);
+    assert.doesNotMatch(script, /\[safeStatus\.version,\s*safeStatus\.serverVersion/);
+  });
+
   it('should bound long-session rendering and coalesce glass tint updates', function() {
     assert.match(script, /MAX_RENDERED_MESSAGES\s*=\s*100/);
     assert.match(script, /renderedMessages\[index\]\.remove\(\)/);
