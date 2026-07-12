@@ -6,6 +6,7 @@ const CloudFileTransferProtocol = require('./CloudFileTransferProtocol');
 const CloudLogger = require('./CloudLogger');
 const CloudPairingManager = require('./CloudPairingManager');
 const CloudTransferIntegrity = require('./CloudTransferIntegrity');
+const CloudE2EE = require('./CloudE2EE');
 
 module.exports = {
   CloudConnectionManager,
@@ -15,5 +16,6 @@ module.exports = {
   CloudFileTransferProtocol,
   CloudLogger,
   CloudPairingManager,
-  CloudTransferIntegrity
+  CloudTransferIntegrity,
+  CloudE2EE
 };

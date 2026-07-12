@@ -1,5 +1,6 @@
 const EventEmitter = require('events');
 const QRCode = require('qrcode');
+const { generateSecret, encryptJson } = require('./CloudE2EE');
 
 const CLOUD_PAIR_VERSION = 1;
 const DEFAULT_TOKEN_TTL_MS = 5 * 60 * 1000;
@@ -12,6 +13,7 @@ class CloudPairingManager extends EventEmitter {
     }
     this.connectionManager = options.connectionManager;
     this.qrCode = options.qrCode || QRCode;
+    this.secureKeyStore = options.secureKeyStore || null;
     this.logger = options.logger || console;
     this.now = options.now || (() => Date.now());
     this.tokenTtlMs = Number(options.tokenTtlMs) || DEFAULT_TOKEN_TTL_MS;
@@ -42,18 +44,25 @@ class CloudPairingManager extends EventEmitter {
       ttlMs: options.ttlMs || this.tokenTtlMs
     });
     const relayUrl = this.connectionManager.getStatus().relayUrl;
+    const pairingSecret = generateSecret();
+    const masterKey = generateSecret();
     const payload = {
       version: CLOUD_PAIR_VERSION,
       relayUrl,
       pairToken: token.token,
-      expiresAt: token.expiresAt
+      expiresAt: token.expiresAt,
+      security: {
+        scheme: 'openx-e2ee-v1',
+        enabled: true
+      }
     };
     this.validatePayload(payload);
     const qrPayload = {
       v: CLOUD_PAIR_VERSION,
       u: relayUrl,
       t: token.token,
-      e: token.expiresAt
+      e: token.expiresAt,
+      s: pairingSecret
     };
     const qrDataUrl = await this.qrCode.toDataURL(JSON.stringify(qrPayload), {
       errorCorrectionLevel: 'M',
@@ -64,7 +73,9 @@ class CloudPairingManager extends EventEmitter {
       payload,
       qrDataUrl,
       tokenId: token.tokenId,
-      createdAt: token.createdAt
+      createdAt: token.createdAt,
+      pairingSecret,
+      masterKey
     };
     this.logger.info('[CLOUD] Cloud pairing QR generated', {
       tokenId: token.tokenId,
@@ -80,12 +91,62 @@ class CloudPairingManager extends EventEmitter {
 
   approvePairing(pairRequestId) {
     const request = this.pendingRequests.get(pairRequestId);
-    const sent = this.connectionManager.approvePairingRequest(pairRequestId);
+    let security = null;
+    try {
+      security = this.createApprovalSecurity(pairRequestId);
+    } catch (error) {
+      this.logger.warn('[CLOUD] Secure pairing approval failed', {
+        pairRequestId,
+        error: error.message
+      });
+      return {
+        success: false,
+        request: request || null,
+        message: 'Secure pairing approval failed.'
+      };
+    }
+    const masterKey = security?.masterKey || '';
+    const approvalSecurity = security ? {
+      scheme: security.scheme,
+      e2ee: security.e2ee,
+      encryptedMasterKey: security.encryptedMasterKey
+    } : null;
+    const sent = this.connectionManager.approvePairingRequest(pairRequestId, approvalSecurity);
+    if (sent && masterKey) {
+      this.connectionManager.setE2EEMasterKey?.(masterKey);
+      this.secureKeyStore?.saveMasterKey?.(masterKey);
+    }
     if (sent) this.pendingRequests.delete(pairRequestId);
     return {
       success: sent,
       request: request || null,
       message: sent ? 'Pairing approved.' : 'Unable to approve pairing.'
+    };
+  }
+
+  createApprovalSecurity(pairRequestId) {
+    const current = this.currentPairing || null;
+    if (!current?.pairingSecret || !current?.masterKey) return null;
+    const encryptedMasterKey = encryptJson(current.pairingSecret, {
+      masterKey: current.masterKey,
+      createdAt: this.now(),
+      pairRequestId
+    }, {
+      domain: 'pairing-master-key',
+      context: {
+        pairRequestId,
+        tokenId: current.tokenId || ''
+      },
+      aad: {
+        pairRequestId,
+        tokenId: current.tokenId || ''
+      }
+    });
+    return {
+      scheme: 'openx-e2ee-v1',
+      e2ee: true,
+      encryptedMasterKey,
+      masterKey: current.masterKey
     };
   }
 
@@ -169,7 +230,7 @@ class CloudPairingManager extends EventEmitter {
 
   validatePayload(payload) {
     const keys = Object.keys(payload).sort();
-    const required = ['expiresAt', 'pairToken', 'relayUrl', 'version'];
+    const required = ['expiresAt', 'pairToken', 'relayUrl', 'security', 'version'];
     if (keys.length !== required.length || keys.some((key, index) => key !== required[index])) {
       throw new TypeError('Invalid cloud pairing payload fields');
     }
@@ -185,6 +246,12 @@ class CloudPairingManager extends EventEmitter {
     }
     if (!Number.isFinite(payload.expiresAt) || payload.expiresAt <= this.now()) {
       throw new TypeError('Invalid cloud pair expiration');
+    }
+    if (
+      payload.security?.scheme !== 'openx-e2ee-v1' ||
+      payload.security?.enabled !== true
+    ) {
+      throw new TypeError('Invalid cloud pairing security payload');
     }
   }
 
