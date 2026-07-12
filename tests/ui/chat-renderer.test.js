@@ -107,16 +107,23 @@ describe('Chat Renderer UI', function() {
     assert.match(glassCss, /Tint-aware foreground contrast/);
   });
 
-  it('should expose identity-protected cloud mobile pairing controls', function() {
+  it('should expose OpenX-lock-protected cloud mobile pairing controls', function() {
     assert.match(html, /data-section-target="phone"/);
     assert.match(html, /data-phone-panel-target="connect"/);
     assert.match(html, /data-phone-panel-target="devices"/);
     assert.match(html, /data-phone-panel="connect"/);
     assert.match(html, /data-phone-panel="devices"/);
     assert.match(html, /id="cloud-generate-qr-btn"/);
+    assert.match(html, /id="security-unlock-dialog"/);
+    assert.match(html, /id="security-unlock-password"/);
+    assert.doesNotMatch(html, /id="cloud-pairing-password"/);
     assert.match(html, /id="cloud-pairing-qr"/);
-    assert.match(script, /window\.openx\.generateCloudPairingQR\(\)/);
-    assert.match(script, /Waiting for Windows identity verification/);
+    assert.match(script, /requestSecurityPasswordForPairing/);
+    assert.match(script, /openSecurityUnlockDialog/);
+    assert.match(script, /closeSecurityUnlockDialog/);
+    assert.match(script, /window\.openx\.generateCloudPairingQR\(unlock\.password\)/);
+    assert.doesNotMatch(script, /window\.prompt/);
+    assert.match(script, /Waiting for OpenX security unlock/);
     assert.match(script, /Generate New QR/);
     assert.match(script, /function formatPairingCountdown\(/);
     assert.match(script, /Expires in \$\{formatPairingCountdown\(remaining\)\}/);
@@ -138,21 +145,24 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(script, /disconnectCommunicationProvider/);
   });
 
-  it('should group identity and theme under System while keeping Phone separate', function() {
+  it('should group identity, theme, and security under System while keeping Phone separate', function() {
     assert.match(html, /data-section-target="system"/);
     assert.match(html, /id="system-options"/);
     assert.match(html, /data-system-block-target="identity"/);
     assert.match(html, /data-system-block-target="theme"/);
-    assert.doesNotMatch(html, /data-system-block-target="security"/);
+    assert.match(html, /data-system-block-target="security"/);
     assert.doesNotMatch(html, /data-section-target="identity"/);
     assert.doesNotMatch(html, /data-section-target="theme"/);
     assert.doesNotMatch(html, /data-section-target="access"/);
     assert.match(html, /id="settings-section-identity"[^>]*data-settings-section="system"|data-settings-section="system"[^>]*id="settings-section-identity"/);
     assert.match(html, /id="settings-section-theme"[^>]*data-settings-section="system"|data-settings-section="system"[^>]*id="settings-section-theme"/);
-    assert.doesNotMatch(html, /id="settings-section-security"/);
+    assert.match(html, /id="settings-section-security"/);
     assert.match(html, /data-system-block="identity"/);
     assert.match(html, /data-system-block="theme"/);
-    assert.doesNotMatch(html, /data-system-block="security"/);
+    assert.match(html, /data-system-block="security"/);
+    assert.match(html, /id="security-new-password"/);
+    assert.match(script, /function saveSecurityPassword/);
+    assert.match(script, /setSecurityPassword/);
     assert.match(html, /id="settings-section-phone"[^>]*data-settings-section="phone"|data-settings-section="phone"[^>]*id="settings-section-phone"/);
     assert.doesNotMatch(html, /id="assistant-title"|Assistant Title/);
     assert.doesNotMatch(html, /id="assistant-activation-shortcut"|Chat Shortcut|Alt\+Space to show/);
@@ -160,6 +170,21 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /function setActiveSystemBlock/);
     assert.match(script, /activeSettingsSection !== 'system' \|\| section\.dataset\.systemBlock === activeSystemBlock/);
     assert.doesNotMatch(script, /getActivationShortcut|assistantActivationShortcut/);
+  });
+
+  it('should show profile details as read-only rows before opening the editor', function() {
+    assert.match(html, /id="settings-section-profile"/);
+    assert.match(html, /id="profile-edit-btn"/);
+    assert.match(html, /id="profile-summary-list"/);
+    assert.match(html, /class="profile-editor" id="profile-editor" aria-hidden="true"/);
+    assert.match(script, /PROFILE_SUMMARY_FIELDS/);
+    assert.match(script, /function renderProfileSummary/);
+    assert.match(script, /function setProfileEditorOpen/);
+    assert.match(script, /profileEditBtn\?\.addEventListener\('click'/);
+    assert.match(css, /\.profile-summary-row/);
+    assert.match(css, /\.profile-summary-list\s*\{[^}]*overflow-y:\s*auto;/s);
+    assert.match(css, /\.profile-editor\.open/);
+    assert.match(css, /\.profile-editor\.open\s*\{[^}]*overflow-y:\s*auto;/s);
   });
 
   it('should render compact trusted device cards and device actions', function() {
@@ -197,7 +222,8 @@ describe('Chat Renderer UI', function() {
   });
 
   it('should bound long-session rendering and coalesce glass tint updates', function() {
-    assert.match(script, /MAX_RENDERED_MESSAGES\s*=\s*100/);
+    assert.match(script, /CHAT_HISTORY_LIMIT\s*=\s*250/);
+    assert.match(script, /MAX_RENDERED_MESSAGES\s*=\s*CHAT_HISTORY_LIMIT/);
     assert.match(script, /renderedMessages\[index\]\.remove\(\)/);
     assert.match(script, /function scheduleGlassTintUpdate\(/);
     assert.match(script, /requestAnimationFrame\(/);

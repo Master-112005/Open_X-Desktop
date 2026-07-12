@@ -23,6 +23,7 @@ const entryTimeEl = document.getElementById('entry-time');
 const entryNotesEl = document.getElementById('entry-notes');
 const prevMonthEl = document.getElementById('prev-month');
 const nextMonthEl = document.getElementById('next-month');
+const todayButtonEl = document.getElementById('today-button');
 const timetableDateEl = document.getElementById('timetable-date');
 const timeGridEl = document.getElementById('time-grid');
 
@@ -116,6 +117,16 @@ function setVisibleMonthPart(month, year) {
   const nextMonth = Number.isFinite(month) ? month : visibleMonth.getMonth();
   const nextYear = Number.isFinite(year) ? year : visibleMonth.getFullYear();
   visibleMonth = new Date(nextYear, nextMonth, 1);
+  syncDatePickerControls();
+  scheduleRender();
+}
+
+function goToToday() {
+  const today = new Date();
+  visibleMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  setSelectedDateKey(localDateKey(today));
+  shellEl.classList.add('date-selected');
+  setPickerOpen('');
   syncDatePickerControls();
   scheduleRender();
 }
@@ -465,6 +476,7 @@ nextMonthEl.addEventListener('click', () => {
   syncDatePickerControls();
   scheduleRender();
 });
+todayButtonEl?.addEventListener('click', goToToday);
 timetableDateEl?.addEventListener('change', () => {
   setSelectedDateKey(timetableDateEl.value);
   shellEl.classList.add('date-selected');

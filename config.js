@@ -1,6 +1,7 @@
 const path = require('path');
 const os = require('os');
 const { buildDataPaths } = require('./core/assistant/Data');
+const packageJson = require('./package.json');
 
 const DATA_PATHS = buildDataPaths();
 const LEGACY_DATA_DIR = path.join(os.homedir(), '.jarvis');
@@ -8,7 +9,7 @@ const LEGACY_DATA_DIR = path.join(os.homedir(), '.jarvis');
 const CONFIG = {
   app: {
     name: 'OpenX',
-    version: '2.5.0',
+    version: packageJson.version,
     dataDir: DATA_PATHS.root,
     dataPaths: DATA_PATHS,
     legacyDataDir: LEGACY_DATA_DIR,
@@ -66,8 +67,8 @@ const CONFIG = {
   chat: {
     activationShortcut: 'Control+Space',
     activationFallbackShortcuts: [],
-    maxHistory: 500,
-    maxDisplayMessages: 100,
+    maxHistory: 250,
+    maxDisplayMessages: 250,
     fontSize: 14,
     fontFamily: 'Segoe UI, sans-serif',
     activeTheme: 'graphite',

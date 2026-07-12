@@ -3962,6 +3962,119 @@ html[data-glass-contrast] #send-btn {
   margin-bottom: 0;
 }
 
+.profile-section-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.profile-section-header > div {
+  min-width: 0;
+}
+
+.profile-edit-btn {
+  align-items: center;
+  background: var(--adaptive-control, rgba(255,255,255,.09));
+  border: 1px solid var(--adaptive-border, rgba(255,255,255,.16));
+  border-radius: 12px;
+  color: var(--adaptive-text, #f8f8fa);
+  cursor: pointer;
+  display: inline-grid;
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 900;
+  height: 34px;
+  min-width: 34px;
+  padding: 0 8px;
+  place-items: center;
+  transition: background-color .22s ease, border-color .22s ease, color .22s ease, transform .22s ease;
+}
+
+.profile-edit-btn:hover {
+  background: var(--adaptive-control-strong, rgba(255,255,255,.16));
+  transform: translateY(-1px);
+}
+
+.profile-edit-btn[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(255, 255, 255, 0.98);
+  color: #050505;
+}
+
+.profile-summary-list {
+  display: grid;
+  gap: 5px;
+  margin-top: 14px;
+  max-height: 320px;
+  opacity: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  transform: translateY(0);
+  transition: max-height .28s ease, opacity .2s ease, transform .28s ease, margin-top .28s ease;
+}
+
+.profile-summary-list::-webkit-scrollbar {
+  display: none;
+}
+
+.profile-summary-list.editing {
+  margin-top: 0;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateY(-8px);
+}
+
+.profile-summary-row {
+  border-bottom: 1px solid var(--adaptive-border, rgba(255,255,255,.1));
+  color: var(--adaptive-text, #f8f8fa);
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.4;
+  min-height: 30px;
+  overflow-wrap: anywhere;
+  padding: 6px 0;
+}
+
+.profile-summary-label,
+.profile-summary-separator {
+  color: var(--adaptive-muted, rgba(255,255,255,.68));
+  font-weight: 900;
+}
+
+.profile-summary-value {
+  color: var(--adaptive-text, #f8f8fa);
+}
+
+.profile-editor {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateY(-8px);
+  transition: max-height .28s ease, opacity .22s ease, transform .28s ease, padding-top .28s ease;
+}
+
+.profile-editor.open {
+  max-height: 430px;
+  opacity: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-top: 16px;
+  pointer-events: auto;
+  scrollbar-width: none;
+  transform: translateY(0);
+}
+
+.profile-editor.open::-webkit-scrollbar {
+  display: none;
+}
+
 .phone-section-header {
   align-items: center;
   display: flex;
@@ -4145,6 +4258,29 @@ html[data-glass-contrast] #send-btn {
 .cloud-pairing-request-actions {
   display: flex;
   gap: 8px;
+}
+
+.security-status-card {
+  align-items: center;
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+}
+
+.security-status-card strong,
+.security-status-card span {
+  display: block;
+}
+
+.security-status-card span,
+#security-password-message {
+  color: var(--muted-color);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .communication-provider-card {

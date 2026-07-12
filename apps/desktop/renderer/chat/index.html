@@ -180,7 +180,7 @@
             </button>
             <button class="settings-nav-chip" data-section-target="phone" type="button">
               <span class="nav-label">Mobile</span>
-              <span class="nav-hint">Verify your Windows identity and connect a trusted mobile device.</span>
+              <span class="nav-hint">Unlock with OpenX security and connect a trusted mobile device.</span>
             </button>
             <button class="settings-nav-chip" data-section-target="modes" type="button">
               <span class="nav-label">Modes</span>
@@ -198,6 +198,10 @@
             <button class="system-option" data-system-block-target="theme" type="button" role="tab" aria-selected="false">
               <span class="nav-label">Theme</span>
               <span class="nav-hint">Glass tint and colors.</span>
+            </button>
+            <button class="system-option" data-system-block-target="security" type="button" role="tab" aria-selected="false">
+              <span class="nav-label">Security</span>
+              <span class="nav-hint">Assistant lock password.</span>
             </button>
           </div>
 
@@ -240,63 +244,73 @@
           </section>
 
           <section class="settings-section" data-settings-section="profile" id="settings-section-profile">
-            <div class="section-heading">User Profile</div>
-            <div class="section-note">These details are stored locally so the assistant can reuse them when form-filling features are added or expanded.</div>
-            <div class="field-grid">
-              <label class="field-wrap">
-                <span class="field-label">Full Name</span>
-                <input class="field" id="profile-full-name" type="text">
-              </label>
-              <label class="field-wrap">
-                <span class="field-label">Email</span>
-                <input class="field" id="profile-email" type="email">
-              </label>
+            <div class="profile-section-header">
+              <div>
+                <div class="section-heading">User Profile</div>
+                <div class="section-note">These details are stored locally so the assistant can reuse them when form-filling features are added or expanded.</div>
+              </div>
+              <button class="profile-edit-btn" id="profile-edit-btn" type="button" aria-label="Edit user profile" aria-expanded="false">
+                <span aria-hidden="true">&#9998;</span>
+              </button>
             </div>
-            <div class="field-grid">
-              <label class="field-wrap">
-                <span class="field-label">Phone</span>
-                <input class="field" id="profile-phone" type="text">
-              </label>
-              <label class="field-wrap">
-                <span class="field-label">Company</span>
-                <input class="field" id="profile-company" type="text">
-              </label>
-            </div>
-            <div class="field-grid">
-              <label class="field-wrap">
-                <span class="field-label">Role</span>
-                <input class="field" id="profile-role" type="text">
-              </label>
-              <label class="field-wrap">
-                <span class="field-label">Country</span>
-                <input class="field" id="profile-country" type="text">
-              </label>
-            </div>
-            <div class="field-grid single">
-              <label class="field-wrap">
-                <span class="field-label">Address Line</span>
-                <input class="field" id="profile-address-line1" type="text">
-              </label>
-            </div>
-            <div class="field-grid">
-              <label class="field-wrap">
-                <span class="field-label">City</span>
-                <input class="field" id="profile-city" type="text">
-              </label>
-              <label class="field-wrap">
-                <span class="field-label">State</span>
-                <input class="field" id="profile-state" type="text">
-              </label>
-            </div>
-            <div class="field-grid">
-              <label class="field-wrap">
-                <span class="field-label">Postal Code</span>
-                <input class="field" id="profile-postal-code" type="text">
-              </label>
-              <label class="field-wrap">
-                <span class="field-label">Chat History Limit</span>
-                <input class="field" id="chat-max-history" type="number" min="50" max="2000">
-              </label>
+            <div class="profile-summary-list" id="profile-summary-list" aria-live="polite"></div>
+            <div class="profile-editor" id="profile-editor" aria-hidden="true">
+              <div class="field-grid">
+                <label class="field-wrap">
+                  <span class="field-label">Full Name</span>
+                  <input class="field" id="profile-full-name" type="text">
+                </label>
+                <label class="field-wrap">
+                  <span class="field-label">Email</span>
+                  <input class="field" id="profile-email" type="email">
+                </label>
+              </div>
+              <div class="field-grid">
+                <label class="field-wrap">
+                  <span class="field-label">Phone</span>
+                  <input class="field" id="profile-phone" type="text">
+                </label>
+                <label class="field-wrap">
+                  <span class="field-label">Company</span>
+                  <input class="field" id="profile-company" type="text">
+                </label>
+              </div>
+              <div class="field-grid">
+                <label class="field-wrap">
+                  <span class="field-label">Role</span>
+                  <input class="field" id="profile-role" type="text">
+                </label>
+                <label class="field-wrap">
+                  <span class="field-label">Country</span>
+                  <input class="field" id="profile-country" type="text">
+                </label>
+              </div>
+              <div class="field-grid single">
+                <label class="field-wrap">
+                  <span class="field-label">Address Line</span>
+                  <input class="field" id="profile-address-line1" type="text">
+                </label>
+              </div>
+              <div class="field-grid">
+                <label class="field-wrap">
+                  <span class="field-label">City</span>
+                  <input class="field" id="profile-city" type="text">
+                </label>
+                <label class="field-wrap">
+                  <span class="field-label">State</span>
+                  <input class="field" id="profile-state" type="text">
+                </label>
+              </div>
+              <div class="field-grid">
+                <label class="field-wrap">
+                  <span class="field-label">Postal Code</span>
+                  <input class="field" id="profile-postal-code" type="text">
+                </label>
+                <label class="field-wrap">
+                  <span class="field-label">Chat History Limit</span>
+                  <input class="field" id="chat-max-history" type="number" min="50" max="250">
+                </label>
+              </div>
             </div>
           </section>
 
@@ -310,6 +324,38 @@
             <div class="theme-grid" id="theme-grid"></div>
           </section>
 
+          <section class="settings-section" data-settings-section="system" data-system-block="security" id="settings-section-security">
+            <div class="section-heading">OpenX Security</div>
+            <div class="section-note">This password protects pairing and sensitive OpenX actions. It is stored as a salted hash on this device, not as plaintext.</div>
+            <div class="security-status-card">
+              <div>
+                <strong>Assistant Lock</strong>
+                <span id="security-lock-status">Not configured</span>
+              </div>
+              <button class="secondary-btn" id="security-refresh-btn" type="button">Refresh</button>
+            </div>
+            <div class="field-grid">
+              <label class="field-wrap">
+                <span class="field-label">Current Password</span>
+                <input class="field" id="security-current-password" type="password" autocomplete="current-password">
+              </label>
+              <label class="field-wrap">
+                <span class="field-label">New Password</span>
+                <input class="field" id="security-new-password" type="password" autocomplete="new-password">
+              </label>
+            </div>
+            <div class="field-grid single">
+              <label class="field-wrap">
+                <span class="field-label">Confirm New Password</span>
+                <input class="field" id="security-confirm-password" type="password" autocomplete="new-password">
+              </label>
+            </div>
+            <div class="cloud-action-row">
+              <button class="primary-btn" id="security-save-password-btn" type="button">Save Security Password</button>
+              <span id="security-password-message">Use at least 8 characters.</span>
+            </div>
+          </section>
+
           <section class="settings-section" data-settings-section="phone" id="settings-section-phone">
             <div class="phone-section-header">
               <div class="phone-section-tabs" role="tablist" aria-label="Mobile connection settings">
@@ -318,7 +364,7 @@
               </div>
             </div>
             <div class="phone-panel active" data-phone-panel="connect">
-              <div class="section-note">Windows will verify your identity before OpenX creates cloud pairing QR codes. OpenX never receives or stores your Windows credentials.</div>
+              <div class="section-note">OpenX will ask for your assistant security password before creating cloud pairing QR codes.</div>
               <div class="phone-connect-view active" data-phone-connect-view="cloud">
                 <div class="section-note">Use the OpenX relay to connect the mobile app and transfer files through your cloud-paired devices.</div>
                 <div class="cloud-action-row cloud-action-row-top">
@@ -441,6 +487,24 @@
         <div class="device-confirm-actions">
           <button class="secondary-btn" id="phone-device-remove-cancel" type="button">Cancel</button>
           <button class="danger-btn" id="phone-device-remove-confirm" type="button">Remove</button>
+        </div>
+      </div>
+    </div>
+    <div class="device-confirm-overlay" id="security-unlock-dialog" hidden>
+      <div class="device-confirm-card" role="dialog" aria-modal="true" aria-labelledby="security-unlock-title">
+        <div class="device-confirm-icon">!</div>
+        <div>
+          <div class="device-confirm-kicker">OpenX security</div>
+          <h3 id="security-unlock-title">Unlock pairing?</h3>
+          <p id="security-unlock-message">Enter your OpenX security password to generate a mobile pairing QR.</p>
+        </div>
+        <label class="field-wrap">
+          <span class="field-label">Security Password</span>
+          <input class="field" id="security-unlock-password" type="password" autocomplete="current-password">
+        </label>
+        <div class="device-confirm-actions">
+          <button class="secondary-btn" id="security-unlock-cancel" type="button">Cancel</button>
+          <button class="primary-btn" id="security-unlock-confirm" type="button">Unlock</button>
         </div>
       </div>
     </div>

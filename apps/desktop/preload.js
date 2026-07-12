@@ -443,8 +443,14 @@ const openxApi = {
   getSettings: () =>
     ipcRenderer.invoke('settings:get'),
 
-  verifySecurityAccess: () =>
-    ipcRenderer.invoke('security:verifyAccess'),
+  getSecurityStatus: () =>
+    ipcRenderer.invoke('security:status'),
+
+  verifySecurityAccess: (password) =>
+    ipcRenderer.invoke('security:verifyAccess', { password }),
+
+  setSecurityPassword: (currentPassword, newPassword) =>
+    ipcRenderer.invoke('security:setPassword', { currentPassword, newPassword }),
 
   getCloudStatus: () =>
     ipcRenderer.invoke('cloud:status'),
@@ -455,8 +461,8 @@ const openxApi = {
   disconnectCloud: () =>
     ipcRenderer.invoke('cloud:disconnect'),
 
-  generateCloudPairingQR: () =>
-    ipcRenderer.invoke('cloud:pairingQR:create'),
+  generateCloudPairingQR: (password) =>
+    ipcRenderer.invoke('cloud:pairingQR:create', { password }),
 
   getCloudPairingStatus: () =>
     ipcRenderer.invoke('cloud:pairing:status'),
