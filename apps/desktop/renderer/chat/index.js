@@ -23,6 +23,9 @@ const settingsStatusEl = document.getElementById('settings-status');
 const modeGridEl = document.getElementById('mode-grid');
 const modeUsageEl = document.getElementById('mode-usage');
 const modeAddBtn = document.getElementById('mode-add-btn');
+const profileEditBtn = document.getElementById('profile-edit-btn');
+const profileEditorEl = document.getElementById('profile-editor');
+const profileSummaryListEl = document.getElementById('profile-summary-list');
 const cloudConnectionStateEl = document.getElementById('cloud-connection-state');
 const cloudRelayUrlEl = document.getElementById('cloud-relay-url');
 const cloudAutoConnectEl = document.getElementById('cloud-auto-connect');
@@ -42,6 +45,13 @@ const cloudPairingQrEl = document.getElementById('cloud-pairing-qr');
 const cloudPairingExpiryEl = document.getElementById('cloud-pairing-expiry');
 const cloudPairingCountdownEl = document.getElementById('cloud-pairing-countdown');
 const cloudPairingRequestsEl = document.getElementById('cloud-pairing-requests');
+const securityLockStatusEl = document.getElementById('security-lock-status');
+const securityRefreshBtn = document.getElementById('security-refresh-btn');
+const securityCurrentPasswordEl = document.getElementById('security-current-password');
+const securityNewPasswordEl = document.getElementById('security-new-password');
+const securityConfirmPasswordEl = document.getElementById('security-confirm-password');
+const securitySavePasswordBtn = document.getElementById('security-save-password-btn');
+const securityPasswordMessageEl = document.getElementById('security-password-message');
 const phoneDeviceListEl = document.getElementById('phone-device-list');
 const deviceSearchEl = document.getElementById('device-search');
 const deviceFilterEl = document.getElementById('device-filter');
@@ -53,6 +63,11 @@ const phoneDeviceRemoveDialog = document.getElementById('phone-device-remove-dia
 const phoneDeviceRemoveMessage = document.getElementById('phone-device-remove-message');
 const phoneDeviceRemoveCancel = document.getElementById('phone-device-remove-cancel');
 const phoneDeviceRemoveConfirm = document.getElementById('phone-device-remove-confirm');
+const securityUnlockDialog = document.getElementById('security-unlock-dialog');
+const securityUnlockMessage = document.getElementById('security-unlock-message');
+const securityUnlockPasswordEl = document.getElementById('security-unlock-password');
+const securityUnlockCancel = document.getElementById('security-unlock-cancel');
+const securityUnlockConfirm = document.getElementById('security-unlock-confirm');
 const chatViewBtn = document.getElementById('chat-view-btn');
 const activityViewBtn = document.getElementById('activity-view-btn');
 const activityCalendarBtn = document.getElementById('activity-calendar-btn');
@@ -68,9 +83,11 @@ const MODE_LIMIT = 5;
 const MODE_APP_LIMIT = 5;
 const SCHEDULE_STORAGE_KEY = 'openx-ui-schedules-v1';
 const NOTIFICATION_STORAGE_KEY = 'openx-ui-notifications-v1';
+const CHAT_HISTORY_STORAGE_KEY = 'openx-ui-chat-history-v2';
 const MAX_NOTIFICATION_HISTORY = 30;
 const ACTIVITY_SCHEDULE_WINDOW_MS = 24 * 60 * 60 * 1000;
-const MAX_RENDERED_MESSAGES = 100;
+const CHAT_HISTORY_LIMIT = 250;
+const MAX_RENDERED_MESSAGES = CHAT_HISTORY_LIMIT;
 const ASSISTANT_MUTED_STORAGE_KEY = 'openx-assistant-voice-muted-v1';
 
 let isProcessing = false;
@@ -80,6 +97,7 @@ let selectedThemeId = 'graphite';
 let activeSettingsSection = null;
 let activeSystemBlock = 'identity';
 let activePhonePanel = 'connect';
+let profileEditorOpen = false;
 let hasRenderedWelcome = false;
 let modeDrafts = [];
 let selectedModeIndex = 0;
@@ -87,9 +105,11 @@ const selectedModeApps = new Map();
 let activeWorkspaceView = 'chat';
 let scheduleItems = loadStoredList(SCHEDULE_STORAGE_KEY);
 let notificationHistory = loadStoredList(NOTIFICATION_STORAGE_KEY);
+let conversationHistory = [];
 let isAssistantMuted = localStorage.getItem(ASSISTANT_MUTED_STORAGE_KEY) === 'true';
 let glassTintAnimationFrame = null;
 let pendingPhoneDeviceRemoval = null;
+let pendingSecurityUnlock = null;
 let pendingGlassTintValue = 42;
 let latestManagedDevices = [];
 let messageScrollAnimationFrame = null;
@@ -124,6 +144,19 @@ const fieldIds = {
   cloudHeartbeatEnabled: 'cloud-heartbeat-enabled',
   cloudConnectionTimeout: 'cloud-connection-timeout'
 };
+
+const PROFILE_SUMMARY_FIELDS = [
+  { key: 'fullName', label: 'Name', fieldId: fieldIds.profileFullName },
+  { key: 'email', label: 'Email', fieldId: fieldIds.profileEmail },
+  { key: 'phone', label: 'Phone', fieldId: fieldIds.profilePhone },
+  { key: 'company', label: 'Company', fieldId: fieldIds.profileCompany },
+  { key: 'role', label: 'Role', fieldId: fieldIds.profileRole },
+  { key: 'country', label: 'Country', fieldId: fieldIds.profileCountry },
+  { key: 'addressLine1', label: 'Address', fieldId: fieldIds.profileAddressLine1 },
+  { key: 'city', label: 'City', fieldId: fieldIds.profileCity },
+  { key: 'state', label: 'State', fieldId: fieldIds.profileState },
+  { key: 'postalCode', label: 'Postal Code', fieldId: fieldIds.profilePostalCode }
+];
 
 function getAssistantDisplayName() {
   return settingsSnapshot?.settings?.assistant?.displayName || 'OpenX';
@@ -183,6 +216,65 @@ function saveStoredList(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch (error) {}
+}
+
+function chatHistoryLimit() {
+  const configured = Number(settingsSnapshot?.settings?.chat?.maxHistory);
+  if (!Number.isFinite(configured) || configured <= 0) return CHAT_HISTORY_LIMIT;
+  return Math.max(1, Math.min(CHAT_HISTORY_LIMIT, Math.round(configured)));
+}
+
+function redactSensitiveText(value) {
+  return String(value || '')
+    .replace(/\b(password|passcode|token|api\s*key|secret|authorization|bearer)\s*[:=]\s*[^\s,;]+/gi, '$1: [redacted]')
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[email redacted]')
+    .slice(0, 4000);
+}
+
+function normalizeChatHistoryItem(item = {}) {
+  const type = ['user', 'assistant', 'system'].includes(item.type) ? item.type : 'system';
+  const text = redactSensitiveText(item.text);
+  if (!text) return null;
+  return {
+    text,
+    type,
+    meta: redactSensitiveText(item.meta).slice(0, 120),
+    createdAt: Number(item.createdAt) || Date.now()
+  };
+}
+
+function loadConversationHistory() {
+  return loadStoredList(CHAT_HISTORY_STORAGE_KEY)
+    .map(normalizeChatHistoryItem)
+    .filter(Boolean)
+    .slice(-CHAT_HISTORY_LIMIT);
+}
+
+function saveConversationHistory() {
+  conversationHistory = conversationHistory
+    .map(normalizeChatHistoryItem)
+    .filter(Boolean)
+    .slice(-chatHistoryLimit());
+  saveStoredList(CHAT_HISTORY_STORAGE_KEY, conversationHistory);
+}
+
+function rememberConversationMessage(text, type, meta) {
+  const item = normalizeChatHistoryItem({ text, type, meta, createdAt: Date.now() });
+  if (!item) return;
+  conversationHistory.push(item);
+  saveConversationHistory();
+}
+
+function restoreConversationHistory() {
+  if (!messagesEl) return 0;
+  conversationHistory = loadConversationHistory().slice(-chatHistoryLimit());
+  messagesEl.replaceChildren();
+  renderedMessageCount = 0;
+  conversationHistory.forEach(item => {
+    addMessage(item.text, item.type, item.meta, { persist: false });
+  });
+  hasRenderedWelcome = conversationHistory.length > 0;
+  return conversationHistory.length;
 }
 
 function normalizeResultEntries(result) {
@@ -260,6 +352,8 @@ function addResultCards(bubble, resultEntries) {
 }
 
 function addMessage(text, type, meta, options = {}) {
+  const safeText = redactSensitiveText(text);
+  const safeMeta = redactSensitiveText(meta).slice(0, 120);
   const msg = document.createElement('article');
   msg.className = `message ${type}`;
   const avatar = document.createElement('div');
@@ -271,7 +365,7 @@ function addMessage(text, type, meta, options = {}) {
   stack.className = 'message-stack';
   const bubble = document.createElement('div');
   bubble.className = 'message-bubble';
-  bubble.textContent = String(text || '');
+  bubble.textContent = safeText;
   const resultEntries = Array.isArray(options.resultEntries) ? options.resultEntries : [];
   if (type === 'assistant' && resultEntries.length > 0) {
     addResultCards(bubble, resultEntries);
@@ -319,12 +413,15 @@ function addMessage(text, type, meta, options = {}) {
   if (meta) {
     const metaElement = document.createElement('div');
     metaElement.className = 'meta';
-    metaElement.textContent = meta;
+    metaElement.textContent = safeMeta;
     stack.appendChild(metaElement);
   }
   msg.append(avatar, stack);
   messagesEl.appendChild(msg);
   renderedMessageCount += 1;
+  if (options.persist !== false) {
+    rememberConversationMessage(safeText, type, safeMeta);
+  }
   pruneRenderedMessages();
   scheduleMessagesScroll();
   return msg;
@@ -1015,6 +1112,58 @@ function updateTtsSliderLabels() {
   }
 }
 
+function getProfileValue(field) {
+  const inputValue = field.fieldId ? document.getElementById(field.fieldId)?.value : '';
+  const savedValue = settingsSnapshot?.settings?.userProfile?.[field.key];
+  return String(profileEditorOpen ? inputValue : savedValue || inputValue || '').trim();
+}
+
+function renderProfileSummary() {
+  if (!profileSummaryListEl) return;
+  profileSummaryListEl.replaceChildren();
+  PROFILE_SUMMARY_FIELDS.forEach(field => {
+    const row = document.createElement('div');
+    row.className = 'profile-summary-row';
+    const label = document.createElement('span');
+    label.className = 'profile-summary-label';
+    label.textContent = field.label;
+    const separator = document.createElement('span');
+    separator.className = 'profile-summary-separator';
+    separator.textContent = ' :- ';
+    const value = document.createElement('span');
+    value.className = 'profile-summary-value';
+    value.textContent = getProfileValue(field) || '--';
+    row.append(label, separator, value);
+    profileSummaryListEl.appendChild(row);
+  });
+}
+
+function setProfileEditorOpen(open) {
+  profileEditorOpen = open === true;
+  if (profileEditorEl) {
+    profileEditorEl.classList.toggle('open', profileEditorOpen);
+    profileEditorEl.setAttribute('aria-hidden', String(!profileEditorOpen));
+    profileEditorEl.querySelectorAll('input, select, textarea, button').forEach(element => {
+      element.tabIndex = profileEditorOpen ? 0 : -1;
+    });
+  }
+  if (profileSummaryListEl) {
+    profileSummaryListEl.classList.toggle('editing', profileEditorOpen);
+    profileSummaryListEl.setAttribute('aria-hidden', String(profileEditorOpen));
+  }
+  if (profileEditBtn) {
+    profileEditBtn.setAttribute('aria-expanded', String(profileEditorOpen));
+    profileEditBtn.setAttribute('aria-label', profileEditorOpen ? 'Close user profile editor' : 'Edit user profile');
+    const label = profileEditBtn.querySelector('span');
+    if (label) label.innerHTML = profileEditorOpen ? 'x' : '&#9998;';
+  }
+  if (profileEditorOpen) {
+    window.setTimeout(() => document.getElementById(fieldIds.profileFullName)?.focus?.(), 80);
+  } else {
+    renderProfileSummary();
+  }
+}
+
 function populateSettingsForm() {
   const settings = settingsSnapshot?.settings;
   if (!settings) {
@@ -1050,6 +1199,7 @@ function populateSettingsForm() {
 
   renderThemeCards();
   applyTheme(settings.chat.themeId);
+  renderProfileSummary();
 
   const selectedThemeInput = document.querySelector(`input[name="theme-choice"][value="${settings.chat.themeId}"]`);
   if (selectedThemeInput) {
@@ -1067,7 +1217,7 @@ function updatePermissionScale() {
 }
 
 function setActiveSystemBlock(blockName) {
-  const allowedBlocks = new Set(['identity', 'theme']);
+  const allowedBlocks = new Set(['identity', 'theme', 'security']);
   activeSystemBlock = allowedBlocks.has(blockName) ? blockName : 'identity';
 
   systemOptionButtons.forEach(button => {
@@ -1386,7 +1536,7 @@ function collectSettingsPayload() {
     chat: {
       themeId: selectedThemeId,
       glassTint: Number(document.getElementById(fieldIds.glassTint).value || 42),
-      maxHistory: Number(document.getElementById(fieldIds.chatMaxHistory).value || 500)
+      maxHistory: Math.max(50, Math.min(250, Number(document.getElementById(fieldIds.chatMaxHistory).value || 250)))
     },
     userProfile: {
       fullName: document.getElementById(fieldIds.profileFullName).value.trim(),
@@ -1462,6 +1612,11 @@ function ensureWelcomeMessage() {
   hasRenderedWelcome = true;
 }
 
+function ensureConversationReady() {
+  const restored = restoreConversationHistory();
+  if (restored === 0) ensureWelcomeMessage();
+}
+
 function setSettingsStatus(message, tone = 'info') {
   const palette = {
     info: 'var(--muted-color)',
@@ -1477,20 +1632,19 @@ function applySnapshot(snapshot) {
   updateBranding();
   populateSettingsForm();
   updateSettingsSummary();
+  renderSecurityStatus(snapshot?.securityStatus);
   if (snapshot?.cloudStatus) {
     renderCloudStatus(snapshot.cloudStatus);
   }
   if (snapshot?.cloudPairingStatus) {
     renderCloudPairingStatus(snapshot.cloudPairingStatus);
   }
-  ensureWelcomeMessage();
 }
 
 function openSettingsPanel() {
   setActiveSettingsSection(activeSettingsSection || 'system');
   settingsOverlay.classList.add('open');
   setSettingsStatus('Settings are stored locally on this machine.', 'info');
-  loadPhoneDevices();
   refreshSettingsStatus();
   if (!settingsStatusPollHandle) {
     settingsStatusPollHandle = setInterval(refreshSettingsStatus, 5000);
@@ -1502,10 +1656,18 @@ async function refreshSettingsStatus() {
   if (settingsStatusPollInFlight) return;
   settingsStatusPollInFlight = true;
   try {
-    await Promise.all([
-      loadCloudStatus(),
-      loadCloudPairingStatus()
-    ]);
+    const tasks = [];
+    if (activeSettingsSection === 'phone') {
+      if (activePhonePanel === 'devices') {
+        tasks.push(loadPhoneDevices());
+      } else {
+        tasks.push(loadCloudStatus(), loadCloudPairingStatus());
+      }
+    }
+    if (activeSettingsSection === 'system' && activeSystemBlock === 'security') {
+      tasks.push(refreshSecurityStatus());
+    }
+    await Promise.all(tasks);
   } finally {
     settingsStatusPollInFlight = false;
   }
@@ -1546,6 +1708,7 @@ async function saveSettings() {
     setSettingsStatus('Saving settings...', 'info');
     const snapshot = await window.openx.saveSettings(collectSettingsPayload());
     applySnapshot(snapshot);
+    setProfileEditorOpen(false);
     setSettingsStatus('Settings saved successfully.', 'success');
     addMessage(`Settings updated. ${getAssistantDisplayName()} is ready, ${getHonorific()}.`, 'system', assistantMeta('settings'));
   } catch (err) {
@@ -1559,6 +1722,7 @@ async function resetSettings() {
     const snapshot = await window.openx.resetSettings();
     setActiveSettingsSection(null);
     applySnapshot(snapshot);
+    setProfileEditorOpen(false);
     setSettingsStatus('Settings reset to defaults.', 'success');
   } catch (err) {
     setSettingsStatus('Unable to reset settings.', 'error');
@@ -1608,9 +1772,14 @@ async function generateCloudPairingQR() {
     cloudPairingQrEl.removeAttribute('src');
     cloudPairingQrEl.classList.remove('expired');
   }
-  if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'Waiting for Windows identity verification...';
+  if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'Waiting for OpenX security unlock...';
   try {
-    const result = await window.openx.generateCloudPairingQR();
+    const unlock = await requestSecurityPasswordForPairing();
+    if (unlock.success !== true) {
+      if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = unlock.message || 'OpenX security password required.';
+      return;
+    }
+    const result = await window.openx.generateCloudPairingQR(unlock.password);
     if (result?.success !== true) {
       if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = result?.message || 'Connect to Relay Server first.';
       return;
@@ -1619,7 +1788,7 @@ async function generateCloudPairingQR() {
       cloudPairingQrEl.src = result.qrDataUrl;
       cloudPairingQrEl.hidden = false;
     }
-    if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'Identity verified. Scan this QR code with the mobile app.';
+    if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'OpenX security unlocked. Scan this QR code with the mobile app.';
     if (cloudPairingExpiryEl) {
       cloudPairingExpiryEl.textContent = `Expires at ${new Date(result.payload.expiresAt).toLocaleTimeString()}.`;
     }
@@ -1808,6 +1977,99 @@ async function loadCloudPairingStatus() {
       pendingRequests: []
     });
   }
+}
+
+function renderSecurityStatus(status = settingsSnapshot?.securityStatus || {}) {
+  const configured = status?.configured === true;
+  const locked = status?.locked === true;
+  if (securityLockStatusEl) {
+    securityLockStatusEl.textContent = locked
+      ? 'Temporarily locked'
+      : configured
+        ? 'Configured'
+        : 'Password required';
+  }
+  if (securityPasswordMessageEl && !securityPasswordMessageEl.dataset.busy) {
+    securityPasswordMessageEl.textContent = configured
+      ? 'Enter current password to change it.'
+      : 'Create a password before pairing mobile devices.';
+  }
+  if (securityCurrentPasswordEl) {
+    securityCurrentPasswordEl.disabled = !configured;
+    securityCurrentPasswordEl.placeholder = configured ? '' : 'Not needed for first setup';
+  }
+}
+
+async function refreshSecurityStatus() {
+  if (!window.openx?.getSecurityStatus) return null;
+  try {
+    const status = await window.openx.getSecurityStatus();
+    settingsSnapshot = { ...(settingsSnapshot || {}), securityStatus: status };
+    renderSecurityStatus(status);
+    return status;
+  } catch (_) {
+    if (securityPasswordMessageEl) securityPasswordMessageEl.textContent = 'Unable to load security status.';
+    return null;
+  }
+}
+
+function clearSecurityPasswordFields() {
+  if (securityCurrentPasswordEl) securityCurrentPasswordEl.value = '';
+  if (securityNewPasswordEl) securityNewPasswordEl.value = '';
+  if (securityConfirmPasswordEl) securityConfirmPasswordEl.value = '';
+}
+
+async function saveSecurityPassword() {
+  if (!window.openx?.setSecurityPassword || !securitySavePasswordBtn) return;
+  const currentPassword = securityCurrentPasswordEl?.value || '';
+  const newPassword = securityNewPasswordEl?.value || '';
+  const confirmPassword = securityConfirmPasswordEl?.value || '';
+  if (newPassword.length < 8) {
+    if (securityPasswordMessageEl) securityPasswordMessageEl.textContent = 'Use at least 8 characters.';
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    if (securityPasswordMessageEl) securityPasswordMessageEl.textContent = 'New passwords do not match.';
+    return;
+  }
+  securitySavePasswordBtn.disabled = true;
+  if (securityPasswordMessageEl) {
+    securityPasswordMessageEl.dataset.busy = 'true';
+    securityPasswordMessageEl.textContent = 'Saving security password...';
+  }
+  try {
+    const result = await window.openx.setSecurityPassword(currentPassword, newPassword);
+    clearSecurityPasswordFields();
+    if (result?.success === true) {
+      settingsSnapshot = { ...(settingsSnapshot || {}), securityStatus: result.status };
+      renderSecurityStatus(result.status);
+      if (securityPasswordMessageEl) securityPasswordMessageEl.textContent = 'Security password updated.';
+      setSettingsStatus('OpenX security password updated.', 'success');
+      return;
+    }
+    if (securityPasswordMessageEl) securityPasswordMessageEl.textContent = result?.message || 'Unable to update security password.';
+  } catch (_) {
+    clearSecurityPasswordFields();
+    if (securityPasswordMessageEl) securityPasswordMessageEl.textContent = 'Unable to update security password.';
+  } finally {
+    if (securityPasswordMessageEl) delete securityPasswordMessageEl.dataset.busy;
+    securitySavePasswordBtn.disabled = false;
+    refreshSecurityStatus();
+  }
+}
+
+async function requestSecurityPasswordForPairing() {
+  const status = await refreshSecurityStatus();
+  if (status?.configured !== true) {
+    setActiveSettingsSection('system');
+    setActiveSystemBlock('security');
+    return { success: false, message: 'Set an OpenX security password first.' };
+  }
+  const password = await openSecurityUnlockDialog();
+  if (!password) {
+    return { success: false, message: 'Enter your OpenX security password.' };
+  }
+  return { success: true, password };
 }
 
 async function toggleCloudConnection() {
@@ -2025,6 +2287,43 @@ function closePhoneDeviceRemoveDialog() {
   if (phoneDeviceRemoveDialog) phoneDeviceRemoveDialog.hidden = true;
 }
 
+function openSecurityUnlockDialog() {
+  if (!securityUnlockDialog || !securityUnlockPasswordEl) {
+    return Promise.resolve('');
+  }
+  if (pendingSecurityUnlock) {
+    pendingSecurityUnlock('');
+    pendingSecurityUnlock = null;
+  }
+  securityUnlockPasswordEl.value = '';
+  if (securityUnlockMessage) {
+    securityUnlockMessage.textContent = 'Enter your OpenX security password to generate a mobile pairing QR.';
+  }
+  securityUnlockDialog.hidden = false;
+  window.setTimeout(() => securityUnlockPasswordEl.focus?.(), 0);
+  return new Promise(resolve => {
+    pendingSecurityUnlock = resolve;
+  });
+}
+
+function closeSecurityUnlockDialog(password = '') {
+  if (securityUnlockDialog) securityUnlockDialog.hidden = true;
+  if (securityUnlockPasswordEl) securityUnlockPasswordEl.value = '';
+  const resolve = pendingSecurityUnlock;
+  pendingSecurityUnlock = null;
+  if (resolve) resolve(password);
+}
+
+function confirmSecurityUnlockDialog() {
+  const password = securityUnlockPasswordEl?.value || '';
+  if (!password) {
+    if (securityUnlockMessage) securityUnlockMessage.textContent = 'Enter your OpenX security password.';
+    securityUnlockPasswordEl?.focus?.();
+    return;
+  }
+  closeSecurityUnlockDialog(password);
+}
+
 async function confirmPhoneDeviceRemoval() {
   if (!pendingPhoneDeviceRemoval?.deviceId || !window.openx?.removePhoneDevice) {
     closePhoneDeviceRemoveDialog();
@@ -2065,6 +2364,10 @@ inputBox.addEventListener('keydown', (event) => {
 document.getElementById(fieldIds.assistantTtsVolume).addEventListener('input', updateTtsSliderLabels);
 document.getElementById(fieldIds.assistantTtsRate).addEventListener('input', updateTtsSliderLabels);
 document.getElementById(fieldIds.glassTint).addEventListener('input', event => scheduleGlassTintUpdate(event.target.value));
+profileEditBtn?.addEventListener('click', () => setProfileEditorOpen(!profileEditorOpen));
+PROFILE_SUMMARY_FIELDS.forEach(field => {
+  document.getElementById(field.fieldId)?.addEventListener('input', renderProfileSummary);
+});
 document.querySelectorAll('.permission-option').forEach(button => {
   button.addEventListener('click', () => {
     document.getElementById(fieldIds.systemPermissionLevel).value = button.dataset.permission;
@@ -2118,10 +2421,8 @@ settingsNavButtons.forEach(button => {
   button.addEventListener('click', () => {
     const sectionName = button.dataset.sectionTarget;
     setActiveSettingsSection(sectionName);
-    if (sectionName === 'phone') {
-      loadPhoneDevices();
-      loadCloudStatus();
-      loadCloudPairingStatus();
+    if (sectionName === 'system' && activeSystemBlock === 'security') {
+      refreshSecurityStatus();
     }
   });
 });
@@ -2129,10 +2430,13 @@ systemOptionButtons.forEach(button => {
   button.addEventListener('click', () => {
     const targetBlock = button.dataset.systemBlockTarget;
     setActiveSystemBlock(targetBlock);
+    if (targetBlock === 'security') refreshSecurityStatus();
     const settingsContent = document.querySelector('.settings-content');
     if (settingsContent) settingsContent.scrollTop = 0;
   });
 });
+securityRefreshBtn?.addEventListener('click', refreshSecurityStatus);
+securitySavePasswordBtn?.addEventListener('click', saveSecurityPassword);
 phoneSectionTabs.forEach(button => {
   button.addEventListener('click', () => {
     setActivePhonePanel(button.dataset.phonePanelTarget);
@@ -2167,14 +2471,29 @@ aboutOverlay?.addEventListener('click', (event) => {
 });
 phoneDeviceRemoveCancel?.addEventListener('click', closePhoneDeviceRemoveDialog);
 phoneDeviceRemoveConfirm?.addEventListener('click', confirmPhoneDeviceRemoval);
+securityUnlockCancel?.addEventListener('click', () => closeSecurityUnlockDialog(''));
+securityUnlockConfirm?.addEventListener('click', confirmSecurityUnlockDialog);
+securityUnlockPasswordEl?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    confirmSecurityUnlockDialog();
+  }
+});
 cloudConnectBtn?.addEventListener('click', toggleCloudConnection);
 cloudGenerateQrBtn?.addEventListener('click', generateCloudPairingQR);
 phoneDeviceRemoveDialog?.addEventListener('click', (event) => {
   if (event.target === phoneDeviceRemoveDialog) closePhoneDeviceRemoveDialog();
 });
+securityUnlockDialog?.addEventListener('click', (event) => {
+  if (event.target === securityUnlockDialog) closeSecurityUnlockDialog('');
+});
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && aboutOverlay && !aboutOverlay.hidden) {
     closeAboutPanel();
+    return;
+  }
+  if (event.key === 'Escape' && securityUnlockDialog && !securityUnlockDialog.hidden) {
+    closeSecurityUnlockDialog('');
     return;
   }
   if (event.key === 'Escape' && phoneDeviceRemoveDialog && !phoneDeviceRemoveDialog.hidden) {
@@ -2192,6 +2511,7 @@ if (window.openx) {
 }
 
 async function initialize() {
+  setProfileEditorOpen(false);
   initializeCompactSettingsLayout();
   updateAssistantMuteButton();
   const settingsOnly = new URLSearchParams(window.location.search).get('settings') === '1';
@@ -2203,7 +2523,7 @@ async function initialize() {
     settingsSnapshot = {
       settings: {
         assistant: { displayName: 'Jaanu', title: 'Desktop Assistant', honorific: 'sir' },
-        chat: { activationShortcut: 'Control+Space', themeId: 'graphite', glassTint: 42, maxHistory: 500 },
+        chat: { activationShortcut: 'Control+Space', themeId: 'graphite', glassTint: 42, maxHistory: 250 },
         system: { permissionLevel: 'medium' },
         user: { profile: {} },
         modes: []
@@ -2211,7 +2531,7 @@ async function initialize() {
       availableThemes: []
     };
     updateBranding();
-    ensureWelcomeMessage();
+    ensureConversationReady();
     renderActivity();
     setWorkspaceView('chat');
     if (settingsOnly) openSettingsPanel();
@@ -2224,6 +2544,7 @@ async function initialize() {
       if (item.status === 'scheduled') armSchedule(item);
     });
   }
+  ensureConversationReady();
   renderActivity();
   setWorkspaceView('chat');
   if (settingsOnly) {

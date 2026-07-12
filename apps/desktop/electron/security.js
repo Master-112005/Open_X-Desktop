@@ -151,6 +151,23 @@ function validateCloudPairRequest(payload) {
   return { pairRequestId };
 }
 
+function validateSecurityPasswordPayload(payload) {
+  requirePlainObject(payload);
+  return {
+    password: requireString(payload.password, 'password', { maxLength: 256 })
+  };
+}
+
+function validateSecurityPasswordUpdate(payload) {
+  requirePlainObject(payload);
+  return {
+    currentPassword: payload.currentPassword === undefined
+      ? ''
+      : requireString(payload.currentPassword, 'currentPassword', { maxLength: 256, allowEmpty: true }),
+    newPassword: requireString(payload.newPassword, 'newPassword', { maxLength: 256 })
+  };
+}
+
 function validateScheduleAction(payload) {
   requirePlainObject(payload);
   const id = requireString(payload.id, 'id', { maxLength: 200 });
@@ -247,11 +264,13 @@ const IPC_VALIDATORS = Object.freeze({
   'window:closePlanner': validateEmpty,
   'config:get': validateEmpty,
   'settings:get': validateEmpty,
-  'security:verifyAccess': validateEmpty,
+  'security:status': validateEmpty,
+  'security:verifyAccess': validateSecurityPasswordPayload,
+  'security:setPassword': validateSecurityPasswordUpdate,
   'cloud:status': validateEmpty,
   'cloud:connect': validateCloudConnect,
   'cloud:disconnect': validateEmpty,
-  'cloud:pairingQR:create': validateEmpty,
+  'cloud:pairingQR:create': validateSecurityPasswordPayload,
   'cloud:pairing:status': validateEmpty,
   'cloud:pairing:approve': validateCloudPairRequest,
   'cloud:pairing:reject': validateCloudPairRequest,

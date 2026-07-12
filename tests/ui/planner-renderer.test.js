@@ -14,7 +14,7 @@ describe('Planner Renderer', function() {
     assert.doesNotMatch(html, /id="calendar-tab"/);
     assert.doesNotMatch(html, /id="timetable-tab"/);
     assert.doesNotMatch(html, /id="timetable-date"/);
-    assert.doesNotMatch(html, /id="today-button"/);
+    assert.match(html, /id="prev-month"[\s\S]*id="today-button"[\s\S]*id="next-month"/);
     assert.match(html, /id="month-picker-button"/);
     assert.match(html, /id="year-picker-button"/);
     assert.match(html, /id="month-picker-popover"[^>]*hidden/);
@@ -44,6 +44,7 @@ describe('Planner Renderer', function() {
     assert.match(css, /@keyframes timetable-reveal/);
     assert.match(css, /\.day-cell\.selected/);
     assert.match(css, /\.month-title-button/);
+    assert.match(css, /\.today-button/);
     assert.match(css, /\.date-picker-popover/);
     assert.match(css, /\.month-picker-popover/);
     assert.match(css, /\.year-picker-popover/);
@@ -75,7 +76,9 @@ describe('Planner Renderer', function() {
     assert.match(script, /setQuickAddOpen/);
     assert.match(script, /quickAddCloseEl\.addEventListener\('click'/);
     assert.match(script, /quickAddSubmitEl\.disabled = true/);
-    assert.doesNotMatch(script, /todayButtonEl/);
+    assert.match(script, /todayButtonEl/);
+    assert.match(script, /function goToToday\(\)/);
+    assert.match(script, /todayButtonEl\?\.addEventListener\('click', goToToday\)/);
     assert.match(script, /function setPickerOpen\(kind\)/);
     assert.match(script, /function renderMonthPicker\(\)/);
     assert.match(script, /function renderYearPicker\(\)/);

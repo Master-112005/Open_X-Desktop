@@ -27,7 +27,7 @@ const { AssistantEventBus, EVENTS, Logger } = require('../../../core/assistant/D
 const { ensureDataRoot, migrateLegacyData } = require('../../../core/assistant/Data');
 const { CloudCommandManager, CloudConnectionManager, CloudFileTransferManager, CloudLogger, CloudPairingManager } = require('../../../core/cloud');
 const CrashRecoveryPolicy = require('./crash-recovery');
-const WindowsIdentityVerifier = require('../identity-verification');
+const OpenXSecurityLock = require('../security-lock');
 const {
   IPC_VALIDATORS,
   assertTrustedIpcSender,
@@ -192,7 +192,7 @@ let fatalErrorHandling = false;
 let signalHandling = false;
 let stableRuntimeHandle = null;
 let chatLoweredForPlanner = false;
-let identityVerificationService = null;
+let securityLockService = null;
 let cloudConnectionManager = null;
 let cloudPairingManager = null;
 let cloudCommandManager = null;
@@ -765,7 +765,20 @@ function scheduleVoiceResourceWarmup(reason = 'post-startup', delayMs = VOICE_ID
 }
 
 function buildSettingsSnapshot() {
-  return settingsService.getSnapshot();
+  return {
+    ...settingsService.getSnapshot(),
+    securityStatus: initializeSecurityLock().getStatus()
+  };
+}
+
+function initializeSecurityLock() {
+  if (securityLockService) return securityLockService;
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG?.app?.dataPaths || {};
+  securityLockService = new OpenXSecurityLock({
+    securityDir: dataPaths.securityDir,
+    dataRoot: dataPaths.root
+  });
+  return securityLockService;
 }
 
 function clearVoiceResumeRecoveryTimer() {
@@ -1417,26 +1430,28 @@ function presentScheduleInDynamicIsland(schedule = {}) {
 }
 
 function normalizePhoneNotification(notification = {}, metadata = {}) {
+  const details = notification.details && typeof notification.details === 'object' ? notification.details : {};
   const sourceName = String(
     notification.sourceDeviceName ||
     notification.deviceName ||
     metadata.deviceName ||
-    notification.details?.deviceName ||
+    details.deviceName ||
     'Mobile'
   ).replace(/\s+/g, ' ').trim().slice(0, 80);
   const appName = String(
     notification.appName ||
     notification.packageName ||
-    notification.details?.appName ||
+    details.appName ||
     notification.category ||
     'Notification'
   ).replace(/\s+/g, ' ').trim().slice(0, 80);
   const title = String(notification.title || appName || 'Notification').replace(/\s+/g, ' ').trim().slice(0, 140);
   const message = String(notification.message || notification.text || notification.body || '').replace(/\s+/g, ' ').trim().slice(0, 360);
-  const packageName = String(notification.packageName || notification.details?.packageName || '').replace(/\s+/g, ' ').trim().slice(0, 120);
-  const repeatCount = Math.max(1, Math.round(Number(notification.repeatCount || notification.details?.repeatCount) || 1));
+  const packageName = String(notification.packageName || details.packageName || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const repeatCount = Math.max(1, Math.round(Number(notification.repeatCount || details.repeatCount) || 1));
+  const notificationKey = String(details.notificationKey || notification.notificationKey || '').replace(/\s+/g, ' ').trim().slice(0, 220);
   return {
-    notificationId: String(notification.notificationId || notification.id || `phone_notification_${Date.now()}`).trim(),
+    notificationId: String(notification.notificationId || notification.id || notificationKey || `phone_notification_${Date.now()}`).trim(),
     sourceName,
     appName,
     packageName,
@@ -1445,12 +1460,14 @@ function normalizePhoneNotification(notification = {}, metadata = {}) {
     receivedAt: notification.createdAt || notification.timestamp || Date.now(),
     priority: String(notification.priority || 'normal').toLowerCase(),
     repeatCount,
-    groupKey: String(notification.details?.groupKey || packageName || appName || sourceName).toLowerCase()
+    notificationKey,
+    groupKey: String(details.groupKey || packageName || appName || sourceName).toLowerCase()
   };
 }
 
-const PHONE_NOTIFICATION_BURST_WINDOW_MS = 900;
-const PHONE_NOTIFICATION_MAX_GROUP_ITEMS = 5;
+const PHONE_NOTIFICATION_BURST_WINDOW_MS = 650;
+const PHONE_NOTIFICATION_MAX_GROUP_ITEMS = 6;
+const PHONE_NOTIFICATION_MAX_GROUPS = 16;
 const phoneNotificationGroups = new Map();
 
 function phoneNotificationInitials(appName) {
@@ -1511,7 +1528,7 @@ function displayPhoneNotificationGroup(groupKey) {
       ui: {
         icon: phoneNotificationInitials(primary.appName),
         previewStatus: grouped
-          ? `${primary.appName} • ${totalCount} notifications`
+          ? `${primary.appName} - ${totalCount} notifications`
           : `${primary.appName} from ${primary.sourceName}`,
         preExpandDelayMs: grouped ? 350 : 650,
         autoHideMs: maxPriority === 'critical' ? 0 : maxPriority === 'high' ? 20000 : 14000,
@@ -1525,15 +1542,47 @@ function displayPhoneNotificationGroup(groupKey) {
   }
 }
 
+function trimPhoneNotificationGroup(group) {
+  const overflow = group.notifications.size - PHONE_NOTIFICATION_MAX_GROUP_ITEMS;
+  if (overflow <= 0) return;
+  const oldest = [...group.notifications.entries()]
+    .sort((left, right) => Number(left[1].receivedAt || 0) - Number(right[1].receivedAt || 0))
+    .slice(0, overflow);
+  for (const [notificationId] of oldest) group.notifications.delete(notificationId);
+}
+
+function enforcePhoneNotificationGroupLimit() {
+  while (phoneNotificationGroups.size > PHONE_NOTIFICATION_MAX_GROUPS) {
+    const oldest = [...phoneNotificationGroups.entries()]
+      .sort((left, right) => Number(left[1].lastUpdatedAt || 0) - Number(right[1].lastUpdatedAt || 0))[0];
+    if (!oldest) return;
+    displayPhoneNotificationGroup(oldest[0]);
+  }
+}
+
 function presentPhoneNotificationInDynamicIsland(notification = {}, metadata = {}) {
   const normalized = normalizePhoneNotification(notification, metadata);
   const key = phoneNotificationGroupKey(normalized);
-  const group = phoneNotificationGroups.get(key) || { notifications: new Map(), timer: null };
-  group.notifications.set(normalized.notificationId, normalized);
+  const group = phoneNotificationGroups.get(key) || { notifications: new Map(), timer: null, lastUpdatedAt: 0 };
+  const existing = group.notifications.get(normalized.notificationId);
+  group.notifications.set(normalized.notificationId, existing
+    ? {
+        ...existing,
+        ...normalized,
+        repeatCount: Math.max(
+          Math.max(1, Number(existing.repeatCount) || 1),
+          Math.max(1, Number(normalized.repeatCount) || 1)
+        ),
+        receivedAt: Math.max(Number(existing.receivedAt) || 0, Number(normalized.receivedAt) || 0) || Date.now()
+      }
+    : normalized);
+  trimPhoneNotificationGroup(group);
   if (group.timer) clearTimeout(group.timer);
   group.timer = setTimeout(() => displayPhoneNotificationGroup(key), PHONE_NOTIFICATION_BURST_WINDOW_MS);
   group.timer.unref?.();
+  group.lastUpdatedAt = Date.now();
   phoneNotificationGroups.set(key, group);
+  enforcePhoneNotificationGroupLimit();
   if (normalized.priority === 'critical') {
     clearTimeout(group.timer);
     group.timer = null;
@@ -2244,12 +2293,16 @@ function setupIPC() {
     };
   });
 
-  registerIpcHandler('security:verifyAccess', async () => {
-    const verification = await identityVerificationService?.verifyIdentity?.();
-    if (verification?.success !== true) {
-      return { success: false, message: 'Windows identity verification required.' };
-    }
-    return { success: true };
+  registerIpcHandler('security:status', async () => {
+    return initializeSecurityLock().getStatus();
+  });
+
+  registerIpcHandler('security:verifyAccess', async (_event, { password }) => {
+    return initializeSecurityLock().verify(password);
+  });
+
+  registerIpcHandler('security:setPassword', async (_event, payload) => {
+    return initializeSecurityLock().setPassword(payload);
   });
 
   registerIpcHandler('cloud:status', async () => {
@@ -2308,11 +2361,9 @@ function setupIPC() {
     return status;
   });
 
-  registerIpcHandler('cloud:pairingQR:create', async () => {
-    const verification = await identityVerificationService?.verifyIdentity?.();
-    if (verification?.success !== true) {
-      return { success: false, message: 'Windows identity verification required.' };
-    }
+  registerIpcHandler('cloud:pairingQR:create', async (_event, { password }) => {
+    const verification = initializeSecurityLock().verify(password);
+    if (verification.success !== true) return verification;
     const manager = initializeCloudPairing();
     const result = await manager.generatePairingQR({
       ttlMs: runtimeConfig?.cloud?.pairTokenTtlMs || 5 * 60 * 1000
@@ -2562,7 +2613,7 @@ async function cleanupRuntime() {
     globalShortcut.unregisterAll();
     childProcessRegistry.killAll();
     teardownIPC();
-    identityVerificationService = null;
+    securityLockService = null;
     if (cloudFileTransferManager) {
       try {
         cloudFileTransferManager.destroy();
@@ -2953,12 +3004,7 @@ async function initializeAssistant() {
 }
 
 function initializeCloudMobileRuntime() {
-  if (!identityVerificationService) {
-    const verifier = new WindowsIdentityVerifier();
-    identityVerificationService = {
-      verifyIdentity: () => verifier.verifyIdentity()
-    };
-  }
+  initializeSecurityLock();
   const cloudTransfers = initializeCloudFileTransfers();
   const manager = initializeCloudConnection();
   if (!cloudProfileSyncRegistered) {

@@ -343,7 +343,7 @@ class SettingsService {
         activationShortcut: normalizeActivationShortcut(this.baseConfig?.chat?.activationShortcut, 'Control+Space'),
         themeId: CHAT_THEMES[this.baseConfig?.chat?.activeTheme] ? this.baseConfig.chat.activeTheme : 'graphite',
         glassTint: clampNumber(this.baseConfig?.chat?.glassTint, 0, 100, 42),
-        maxHistory: clampNumber(this.baseConfig?.chat?.maxHistory, 50, 2000, 500)
+        maxHistory: clampNumber(this.baseConfig?.chat?.maxHistory, 50, 250, 250)
       },
       cloud: {
         enabled: false,
@@ -519,7 +519,7 @@ class SettingsService {
         activationShortcut: this._normalizeChatActivationShortcut(source.chat?.activationShortcut),
         themeId,
         glassTint: clampNumber(source.chat?.glassTint, 0, 100, this.defaults.chat.glassTint),
-        maxHistory: clampNumber(source.chat?.maxHistory, 50, 2000, this.defaults.chat.maxHistory)
+        maxHistory: clampNumber(source.chat?.maxHistory, 50, 250, this.defaults.chat.maxHistory)
       },
       cloud: {
         enabled: source.cloud?.enabled === true,

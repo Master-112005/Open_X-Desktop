@@ -1,6 +1,6 @@
 const Logger = require('../Data').Logger;
 
-const MAX_HISTORY = 100;
+const MAX_HISTORY = 250;
 const MAX_CONTEXT_AGE_MS = 2 * 60 * 60 * 1000;
 const MAX_TOPIC_MEMORY = 40;
 const MAX_USER_PREFERENCES = 50;
@@ -46,7 +46,7 @@ class ContextManager {
     this.logger = new Logger(config?.logging || { level: 'info' });
     this.history = [];
     this.sessionData = new Map();
-    this.maxHistory = config?.chat?.maxHistory || MAX_HISTORY;
+    this.maxHistory = Math.max(1, Math.min(MAX_HISTORY, Number(config?.chat?.maxHistory) || MAX_HISTORY));
     this.maxContextAgeMs = Number(config?.chat?.maxContextAgeMs || MAX_CONTEXT_AGE_MS);
     this.maxTopicMemory = Number(config?.chat?.maxTopicMemory || MAX_TOPIC_MEMORY);
     this.maxUserPreferences = Number(config?.chat?.maxUserPreferences || MAX_USER_PREFERENCES);
