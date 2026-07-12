@@ -2,7 +2,6 @@ const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
 const { ensureDataRoot, migrateLegacyData, readJsonFile, writeJsonAtomic } = require('../../core/assistant/Data');
-const { UpdateConfiguration } = require('../../core/update');
 
 const DEFAULT_CLOUD_RELAY_URL = 'wss://openx-server.onrender.com/ws';
 const LEGACY_DEFAULT_CLOUD_RELAY_URLS = new Set([
@@ -371,7 +370,6 @@ class SettingsService {
         debug: this.baseConfig?.communication?.debug === true,
         operationTimeoutMs: clampNumber(this.baseConfig?.communication?.operationTimeoutMs, 5000, 60000, 8000)
       },
-      update: new UpdateConfiguration(this.baseConfig?.update || {}).toJSON(),
       modes: []
     };
   }
@@ -466,7 +464,6 @@ class SettingsService {
     runtimeConfig.modes = deepClone(settings.modes);
     runtimeConfig.cloud = deepClone(settings.cloud);
     runtimeConfig.communication = deepClone(settings.communication);
-    runtimeConfig.update = deepClone(settings.update);
 
     return runtimeConfig;
   }
@@ -549,7 +546,6 @@ class SettingsService {
         debug: source.communication?.debug === true,
         operationTimeoutMs: clampNumber(source.communication?.operationTimeoutMs, 5000, 60000, this.defaults.communication.operationTimeoutMs)
       },
-      update: new UpdateConfiguration(deepMerge(this.defaults.update, source.update || {})).toJSON(),
       modes: sanitizeModes(source.modes)
     };
   }

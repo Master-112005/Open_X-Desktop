@@ -243,31 +243,6 @@ class AutomationEngine {
           rawCommand: entities.rawCommand || ''
         }
       }),
-      'update.presentation': async (entities, context) => {
-        if (typeof this.config?.updatePresentationHandler !== 'function') {
-          return { success: false, error: 'Update presentation is not available.' };
-        }
-        const result = await this.config.updatePresentationHandler({
-          command: entities.rawCommand || context?.input || '',
-          operation: entities.operation || 'status',
-          source: context?.source === 'voice' ? 'voice' : 'assistant'
-        });
-        const data = result?.data?.presentation?.model
-          ? result.data.presentation.model
-          : result?.data?.model
-            ? result.data.model
-            : result?.data || result || {};
-        return {
-          success: result?.success !== false,
-          error: result?.error?.message || result?.error || null,
-          data: {
-            action: 'update.presentation',
-            operation: entities.operation || 'status',
-            presentation: data,
-            raw: result
-          }
-        };
-      },
       'window.minimize': (entities) => this.windows.minimizeWindow(entities.windowName),
       'window.maximize': (entities) => this.windows.maximizeWindow(entities.windowName),
       'window.close': (entities) => this.windows.closeWindow(entities.windowName),

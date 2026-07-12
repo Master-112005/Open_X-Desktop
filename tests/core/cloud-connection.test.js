@@ -319,64 +319,6 @@ describe('CloudConnectionManager', () => {
     await manager.disconnect('test-finished');
   });
 
-  it('emits pushed update availability events and sends acknowledgements', async () => {
-    const relayUrl = await startRelayStub();
-    const receivedMessages = [];
-    server.on('connection', socket => {
-      socket.on('message', data => {
-        const message = JSON.parse(data.toString('utf8'));
-        receivedMessages.push(message);
-        if (message.type === 'device:register') {
-          socket.send(JSON.stringify({
-            type: 'device:registered',
-            requestId: message.requestId,
-            owner: { id: 'owner-test' },
-            device: { deviceId: message.deviceId, ownerId: 'owner-test', friendlyName: 'Desktop' }
-          }));
-          socket.send(JSON.stringify({
-            type: 'update:available',
-            protocolVersion: '1',
-            eventId: 'evt-cloud-update',
-            timestamp: new Date().toISOString(),
-            latestVersion: '6.1.0',
-            minimumVersion: '6.0.0',
-            channel: 'stable',
-            priority: 'recommended',
-            mandatory: false,
-            releaseNotes: 'Relay-pushed update.',
-            publishedAt: new Date().toISOString()
-          }));
-        }
-      });
-    });
-    const manager = new CloudConnectionManager({
-      logger: createSilentLogger(),
-      settings: {
-        deviceId: 'desktop-test',
-        ownerId: 'owner-test',
-        reconnectEnabled: false,
-        heartbeatEnabled: false
-      },
-      version: 'test'
-    });
-
-    const updatePromise = waitForEvent(manager, 'update-available', event => event.eventId === 'evt-cloud-update');
-    await manager.connect({ relayUrl });
-    const event = await updatePromise;
-    const ackSent = manager.acknowledgeUpdateEvent(event.eventId, 'displayed', 'ok', { source: 'test' });
-    await new Promise(resolve => setTimeout(resolve, 25));
-
-    expect(event.latestVersion).to.equal('6.1.0');
-    expect(ackSent).to.equal(true);
-    expect(receivedMessages.some(message => (
-      message.type === 'update:available:ack' &&
-      message.eventId === 'evt-cloud-update' &&
-      message.stage === 'displayed'
-    ))).to.equal(true);
-
-    await manager.disconnect('test-finished');
-  });
-
   it('does not replace desktop auth with a paired phone token', () => {
     const manager = new CloudConnectionManager({
       logger: createSilentLogger(),

@@ -144,22 +144,12 @@ function aboutCloudLabel() {
 }
 
 async function readAboutVersion() {
-  if (!window.openx?.getUpdateVersion) return null;
+  if (!window.openx?.getConfig) return null;
   try {
-    const result = await window.openx.getUpdateVersion();
-    return result?.data?.version || result?.version || null;
+    const config = await window.openx.getConfig();
+    return config?.app?.version || null;
   } catch (_) {
     return null;
-  }
-}
-
-async function readAboutUpdateChannel() {
-  if (!window.openx?.getUpdateVersionStatus) return 'stable';
-  try {
-    const result = await window.openx.getUpdateVersionStatus();
-    return result?.configuration?.channel || result?.data?.configuration?.channel || result?.channel || 'stable';
-  } catch (_) {
-    return 'stable';
   }
 }
 
@@ -172,12 +162,8 @@ async function refreshAboutPanel() {
   setAboutText('about-platform', window.navigator?.platform || 'Desktop');
   setAboutText('about-version', 'Loading...');
 
-  const [version, channel] = await Promise.all([
-    readAboutVersion(),
-    readAboutUpdateChannel()
-  ]);
+  const version = await readAboutVersion();
   setAboutText('about-version', version || '--');
-  setAboutText('about-channel', channel || 'stable');
 }
 
 function assistantMeta(label = 'just now') {
@@ -684,7 +670,7 @@ function renderNotifications() {
   if (notificationHistory.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.textContent = 'Important assistant updates will appear here.';
+    empty.textContent = 'Important assistant notifications will appear here.';
     notificationListEl.appendChild(empty);
     return;
   }

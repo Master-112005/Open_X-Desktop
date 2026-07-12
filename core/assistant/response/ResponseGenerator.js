@@ -1042,28 +1042,6 @@ const RESPONSE_BUILDERS = {
       const capability = valueFromContext(context, 'capability', 'that');
       return `I understood this as a ${capability} request, but this capability is not connected to an automation controller yet.`;
     },
-    'update.presentation': context => {
-      const operation = valueFromContext(context, 'operation', 'status');
-      const presentation = context?.result?.data?.presentation || {};
-      const status = presentation.status || {};
-      const version = presentation.version || {};
-      if (operation === 'install') {
-        return 'Update installation is reserved for a future phase. I can show status, release notes, and download progress.';
-      }
-      if (operation === 'version') {
-        return `Current OpenX version is ${version.currentVersionLabel || version.currentVersion || 'unknown'}. Latest version is ${version.latestVersionLabel || version.latestVersion || 'unknown'}.`;
-      }
-      if (operation === 'releaseNotes') {
-        return presentation.releaseNotes?.summary || 'No release notes are available yet.';
-      }
-      if (operation === 'progress') {
-        const progress = presentation.progress || {};
-        return progress.percent > 0
-          ? `Update download is ${progress.percent}% complete${progress.etaLabel ? `, ${progress.etaLabel}` : ''}.`
-          : 'No update download is currently active.';
-      }
-      return status.message || status.label || 'Update status is available.';
-    },
     'assistant.learningRepair': context => {
       const correction = valueFromContext(context, 'correction', '');
       return correction

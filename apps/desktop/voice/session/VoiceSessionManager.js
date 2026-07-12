@@ -721,7 +721,7 @@ class VoiceSessionManager {
 
   /**
    * Destroy all manager-owned voice resources and detach event listeners.
-   * This is used by settings reloads, crash cleanup, and update shutdowns so
+   * This is used by settings reloads, crash cleanup, and runtime shutdowns so
    * STT models, audio handles, timers, and renderer listeners are not kept
    * alive after the assistant lifecycle has been replaced.
    * @param {string} reason Destruction reason for diagnostics.
