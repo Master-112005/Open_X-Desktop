@@ -122,6 +122,30 @@ describe('CloudConnectionManager', () => {
             }
           }));
         }
+        if (message.type === 'device:list') {
+          socket.send(JSON.stringify({
+            type: 'device:list',
+            requestId: message.requestId,
+            success: true,
+            devices: [{
+              deviceId: 'desktop-test',
+              friendlyName: 'Laptop',
+              ownerId: 'owner-test',
+              connectionState: 'connected',
+              pairBoxCode: 'BOX-ABC123'
+            }, {
+              deviceId: 'phone:002',
+              friendlyName: 'Phone',
+              ownerId: 'owner-test',
+              connectionState: 'offline',
+              pairBoxCode: 'BOX-ABC123'
+            }],
+            pairs: [{
+              boxCode: 'BOX-ABC123',
+              deviceIds: ['desktop-test', 'phone:002']
+            }]
+          }));
+        }
       });
     });
     const manager = new CloudConnectionManager({
@@ -140,6 +164,10 @@ describe('CloudConnectionManager', () => {
     const removed = await manager.removeDevice('phone:001');
     expect(removed.success).to.equal(true);
     expect(manager.getStatus().pairedDevices).to.deep.equal([]);
+
+    const listed = await manager.listDevices();
+    expect(listed.devices).to.have.length(2);
+    expect(manager.getStatus().pairedDevices.map(device => device.pairBoxCode)).to.deep.equal(['BOX-ABC123', 'BOX-ABC123']);
 
     await manager.disconnect('test-finished');
   });

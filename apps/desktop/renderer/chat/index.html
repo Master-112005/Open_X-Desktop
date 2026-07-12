@@ -12,6 +12,7 @@
   <div id="chat-shell">
     <div id="header">
       <div id="header-info">
+        <button class="window-btn about-btn" id="about-btn" type="button" title="About OpenX" aria-label="About OpenX" aria-expanded="false" aria-controls="about-panel">i</button>
         <div class="brand-mark" aria-hidden="true"><span></span></div>
         <div class="brand-copy">
           <div id="header-title">Assistant</div>
@@ -33,6 +34,45 @@
         <button class="window-btn" id="settings-btn" title="Settings" aria-label="Settings">&#9881;</button>
         <button class="window-btn close" id="close-btn" title="Close" aria-label="Close">&#10005;</button>
       </div>
+    </div>
+
+    <div id="about-overlay" hidden>
+      <section id="about-panel" role="dialog" aria-modal="true" aria-labelledby="about-title" tabindex="-1">
+        <div class="about-header">
+          <div>
+            <div class="about-eyebrow">About</div>
+            <h2 id="about-title">OpenX</h2>
+          </div>
+          <button class="window-btn about-close-btn" id="about-close-btn" type="button" title="Close about" aria-label="Close about">&#10005;</button>
+        </div>
+        <p class="about-summary" id="about-summary">Local-first desktop assistant for automation, voice, updates, and cloud mobile connection.</p>
+        <dl class="about-details">
+          <div>
+            <dt>Version</dt>
+            <dd id="about-version">--</dd>
+          </div>
+          <div>
+            <dt>Assistant</dt>
+            <dd id="about-assistant">OpenX</dd>
+          </div>
+          <div>
+            <dt>Cloud</dt>
+            <dd id="about-cloud">--</dd>
+          </div>
+          <div>
+            <dt>Relay</dt>
+            <dd id="about-relay">--</dd>
+          </div>
+          <div>
+            <dt>Update Channel</dt>
+            <dd id="about-channel">stable</dd>
+          </div>
+          <div>
+            <dt>Platform</dt>
+            <dd id="about-platform">Desktop</dd>
+          </div>
+        </dl>
+      </section>
     </div>
 
     <main id="workspace">

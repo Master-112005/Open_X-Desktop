@@ -167,6 +167,9 @@ describe('Chat Renderer UI', function() {
     assert.match(html, /<button class="phone-section-tab"[^>]*>Connected Devices<\/button>[\s\S]*<div class="phone-panel" data-phone-panel="devices" hidden>/);
     assert.match(script, /phone-device-status-dot/);
     assert.match(script, /phone-device-essentials/);
+    assert.match(script, /getDeviceBoxCode/);
+    assert.match(script, /phone-device-box-code/);
+    assert.match(script, /phone-device-box-list/);
     assert.match(script, /Status/);
     assert.match(script, /Trust/);
     assert.match(script, /Version/);

@@ -3,6 +3,10 @@ const inputBox = document.getElementById('input-box');
 const sendBtn = document.getElementById('send-btn');
 const closeBtn = document.getElementById('close-btn');
 const settingsBtn = document.getElementById('settings-btn');
+const aboutBtn = document.getElementById('about-btn');
+const aboutOverlay = document.getElementById('about-overlay');
+const aboutPanel = document.getElementById('about-panel');
+const aboutCloseBtn = document.getElementById('about-close-btn');
 const voiceStartBtn = document.getElementById('voice-start-btn');
 const assistantMuteBtn = document.getElementById('assistant-mute-btn');
 const settingsOverlay = document.getElementById('settings-overlay');
@@ -127,6 +131,53 @@ function getAssistantDisplayName() {
 
 function getHonorific() {
   return settingsSnapshot?.settings?.assistant?.honorific || 'sir';
+}
+
+function setAboutText(id, value) {
+  const element = document.getElementById(id);
+  if (element) element.textContent = value || '--';
+}
+
+function aboutCloudLabel() {
+  if (!latestCloudStatus) return 'Not loaded';
+  return latestCloudStatus.connected ? 'Connected' : 'Disconnected';
+}
+
+async function readAboutVersion() {
+  if (!window.openx?.getUpdateVersion) return null;
+  try {
+    const result = await window.openx.getUpdateVersion();
+    return result?.data?.version || result?.version || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function readAboutUpdateChannel() {
+  if (!window.openx?.getUpdateVersionStatus) return 'stable';
+  try {
+    const result = await window.openx.getUpdateVersionStatus();
+    return result?.configuration?.channel || result?.data?.configuration?.channel || result?.channel || 'stable';
+  } catch (_) {
+    return 'stable';
+  }
+}
+
+async function refreshAboutPanel() {
+  const assistantName = getAssistantDisplayName();
+  const cloudSettings = settingsSnapshot?.settings?.cloud || {};
+  setAboutText('about-assistant', assistantName);
+  setAboutText('about-cloud', aboutCloudLabel());
+  setAboutText('about-relay', latestCloudStatus?.relayUrl || cloudSettings.relayUrl || '--');
+  setAboutText('about-platform', window.navigator?.platform || 'Desktop');
+  setAboutText('about-version', 'Loading...');
+
+  const [version, channel] = await Promise.all([
+    readAboutVersion(),
+    readAboutUpdateChannel()
+  ]);
+  setAboutText('about-version', version || '--');
+  setAboutText('about-channel', channel || 'stable');
 }
 
 function assistantMeta(label = 'just now') {
@@ -1397,6 +1448,21 @@ function updateSettingsSummary() {
   document.getElementById('settings-hero-learning').textContent = settingsSnapshot?.settings?.activeLearning?.enabled === false ? 'Disabled' : 'Enabled';
 }
 
+async function openAboutPanel() {
+  if (!aboutOverlay || !aboutBtn) return;
+  aboutOverlay.hidden = false;
+  aboutBtn.setAttribute('aria-expanded', 'true');
+  aboutPanel?.focus?.({ preventScroll: true });
+  await refreshAboutPanel();
+}
+
+function closeAboutPanel() {
+  if (!aboutOverlay || aboutOverlay.hidden) return;
+  aboutOverlay.hidden = true;
+  aboutBtn?.setAttribute('aria-expanded', 'false');
+  aboutBtn?.focus?.({ preventScroll: true });
+}
+
 function ensureWelcomeMessage() {
   if (hasRenderedWelcome) {
     return;
@@ -1640,6 +1706,9 @@ function renderCloudStatus(status) {
   if (cloudGenerateQrBtn) {
     cloudGenerateQrBtn.disabled = safeStatus.connected !== true;
   }
+  if (aboutOverlay && !aboutOverlay.hidden) {
+    refreshAboutPanel();
+  }
   if (safeStatus.connected !== true && cloudPairingStatusEl) {
     cloudPairingStatusEl.textContent = 'Connect to Relay Server first.';
   }
@@ -1826,6 +1895,78 @@ function formatCompactDeviceDate(timestamp) {
     : date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+function getDeviceBoxCode(device) {
+  return String(device.pairBoxCode || device.pairBoxes?.[0]?.boxCode || '').trim();
+}
+
+function createManagedPhoneDeviceCard(device) {
+  const isConnected = device.connected === true || device.connectionStatus === 'connected';
+  const boxCode = getDeviceBoxCode(device);
+  const card = document.createElement('article');
+  card.className = `phone-device-card${isConnected ? ' connected' : ''}${device.trusted !== true ? ' untrusted' : ''}`;
+  card.dataset.deviceId = device.deviceId;
+
+  const heading = document.createElement('div');
+  heading.className = 'phone-device-card-heading';
+  const identity = document.createElement('div');
+  identity.className = 'phone-device-identity';
+  const name = document.createElement('strong');
+  name.textContent = device.friendlyName || device.deviceName || 'Unknown Device';
+  identity.append(name);
+
+  const headingRight = document.createElement('div');
+  headingRight.className = 'phone-device-heading-right';
+  if (boxCode) {
+    const boxBadge = document.createElement('span');
+    boxBadge.className = 'phone-device-box-code';
+    boxBadge.textContent = boxCode;
+    boxBadge.title = 'Pair box code';
+    headingRight.appendChild(boxBadge);
+  }
+  const statusDot = document.createElement('span');
+  statusDot.className = `phone-device-status-dot${isConnected ? ' connected' : ' offline'}`;
+  statusDot.title = isConnected ? 'Connected' : 'Offline';
+  headingRight.appendChild(statusDot);
+  heading.append(identity, headingRight);
+
+  const essentials = document.createElement('div');
+  essentials.className = 'phone-device-essentials';
+  [
+    ['Status', isConnected ? 'Connected' : 'Offline'],
+    ['Trust', device.trusted === true ? 'Trusted' : 'Untrusted'],
+    ['Version', device.softwareVersion || 'Unknown'],
+    ['Last seen', formatCompactDeviceDate(device.lastSeen)]
+  ].forEach(([label, value]) => {
+    const item = document.createElement('div');
+    item.className = 'phone-device-essential';
+    const labelEl = document.createElement('span');
+    labelEl.textContent = label;
+    const valueEl = document.createElement('strong');
+    valueEl.textContent = value;
+    item.append(labelEl, valueEl);
+    essentials.appendChild(item);
+  });
+
+  const actions = document.createElement('div');
+  actions.className = 'phone-device-actions';
+  if (device.isCurrentDevice === true) {
+    const current = document.createElement('span');
+    current.className = 'phone-device-current';
+    current.textContent = 'This device';
+    actions.append(current);
+  } else {
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'danger-btn';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', () => openPhoneDeviceRemoveDialog(device));
+    actions.append(remove);
+  }
+
+  card.append(heading, essentials, actions);
+  return card;
+}
+
 function renderManagedPhoneDevices(devices) {
   latestManagedDevices = Array.isArray(devices) ? devices.slice() : [];
   phoneDeviceListEl.replaceChildren();
@@ -1845,55 +1986,35 @@ function renderManagedPhoneDevices(devices) {
     return;
   }
 
+  const groups = new Map();
   filteredDevices.forEach(device => {
-    const isConnected = device.connected === true || device.connectionStatus === 'connected';
-    const card = document.createElement('article');
-    card.className = `phone-device-card${isConnected ? ' connected' : ''}${device.trusted !== true ? ' untrusted' : ''}`;
-    card.dataset.deviceId = device.deviceId;
-
-    const heading = document.createElement('div');
-    heading.className = 'phone-device-card-heading';
-    const identity = document.createElement('div');
-    identity.className = 'phone-device-identity';
-    const name = document.createElement('strong');
-    name.textContent = device.friendlyName || device.deviceName || 'Unknown Device';
-    identity.append(name);
-    const statusDot = document.createElement('span');
-    statusDot.className = `phone-device-status-dot${isConnected ? ' connected' : ' offline'}`;
-    statusDot.title = isConnected ? 'Connected' : 'Offline';
-    heading.append(identity, statusDot);
-
-    const essentials = document.createElement('div');
-    essentials.className = 'phone-device-essentials';
-    [
-      ['Status', isConnected ? 'Connected' : 'Offline'],
-      ['Trust', device.trusted === true ? 'Trusted' : 'Untrusted'],
-      ['Version', device.softwareVersion || 'Unknown'],
-      ['Last seen', formatCompactDeviceDate(device.lastSeen)]
-    ].forEach(([label, value]) => {
-      const item = document.createElement('div');
-      item.className = 'phone-device-essential';
-      const labelEl = document.createElement('span');
-      labelEl.textContent = label;
-      const valueEl = document.createElement('strong');
-      valueEl.textContent = value;
-      item.append(labelEl, valueEl);
-      essentials.appendChild(item);
-    });
-
-    const actions = document.createElement('div');
-    actions.className = 'phone-device-actions';
-
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'danger-btn';
-    remove.textContent = 'Remove';
-    remove.addEventListener('click', () => openPhoneDeviceRemoveDialog(device));
-
-    actions.append(remove);
-    card.append(heading, essentials, actions);
-    phoneDeviceListEl.appendChild(card);
+    const boxCode = getDeviceBoxCode(device);
+    const key = boxCode || `device:${device.deviceId}`;
+    if (!groups.has(key)) groups.set(key, { boxCode, devices: [] });
+    groups.get(key).devices.push(device);
   });
+
+  for (const group of groups.values()) {
+    if (!group.boxCode || group.devices.length === 1) {
+      phoneDeviceListEl.appendChild(createManagedPhoneDeviceCard(group.devices[0]));
+      continue;
+    }
+    const box = document.createElement('section');
+    box.className = 'phone-device-box';
+    box.dataset.boxCode = group.boxCode;
+    const header = document.createElement('div');
+    header.className = 'phone-device-box-header';
+    const title = document.createElement('strong');
+    title.textContent = 'Device Box';
+    const code = document.createElement('span');
+    code.textContent = group.boxCode;
+    header.append(title, code);
+    const list = document.createElement('div');
+    list.className = 'phone-device-box-list';
+    group.devices.forEach(device => list.appendChild(createManagedPhoneDeviceCard(device)));
+    box.append(header, list);
+    phoneDeviceListEl.appendChild(box);
+  }
 }
 
 function renderPhoneDevices(devices) {
@@ -1904,7 +2025,7 @@ function openPhoneDeviceRemoveDialog(device) {
   if (!phoneDeviceRemoveDialog || !device?.deviceId) return;
   pendingPhoneDeviceRemoval = {
     deviceId: device.deviceId,
-    deviceName: device.deviceName || 'this mobile device'
+    deviceName: device.friendlyName || device.deviceName || 'this device'
   };
   if (phoneDeviceRemoveMessage) {
     phoneDeviceRemoveMessage.textContent = `Remove ${pendingPhoneDeviceRemoval.deviceName} from paired devices? It will lose OpenX access until paired again.`;
@@ -1996,6 +2117,14 @@ quickBtns.forEach(button => {
 
 closeBtn.addEventListener('click', () => window.close());
 settingsBtn.addEventListener('click', openSettingsPanel);
+aboutBtn?.addEventListener('click', () => {
+  if (aboutOverlay && !aboutOverlay.hidden) {
+    closeAboutPanel();
+  } else {
+    openAboutPanel();
+  }
+});
+aboutCloseBtn?.addEventListener('click', closeAboutPanel);
 voiceStartBtn.addEventListener('click', startVoiceFromChat);
 assistantMuteBtn.addEventListener('click', toggleAssistantMute);
 settingsCloseBtn.addEventListener('click', closeSettingsPanel);
@@ -2045,6 +2174,11 @@ settingsOverlay.addEventListener('click', (event) => {
     closeSettingsPanel();
   }
 });
+aboutOverlay?.addEventListener('click', (event) => {
+  if (event.target === aboutOverlay) {
+    closeAboutPanel();
+  }
+});
 phoneDeviceRemoveCancel?.addEventListener('click', closePhoneDeviceRemoveDialog);
 phoneDeviceRemoveConfirm?.addEventListener('click', confirmPhoneDeviceRemoval);
 cloudConnectBtn?.addEventListener('click', toggleCloudConnection);
@@ -2053,6 +2187,10 @@ phoneDeviceRemoveDialog?.addEventListener('click', (event) => {
   if (event.target === phoneDeviceRemoveDialog) closePhoneDeviceRemoveDialog();
 });
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && aboutOverlay && !aboutOverlay.hidden) {
+    closeAboutPanel();
+    return;
+  }
   if (event.key === 'Escape' && phoneDeviceRemoveDialog && !phoneDeviceRemoveDialog.hidden) {
     closePhoneDeviceRemoveDialog();
   }
