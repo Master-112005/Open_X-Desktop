@@ -67,7 +67,13 @@ class ActiveWindowMonitor {
         this.currentWindow = nextWindow;
         this.logger.info(`[Context] Active window changed -> ${nextWindow.app || 'unknown'}`);
         this.signals.emit(signals.SIGNAL_EVENTS.ACTIVE_WINDOW_CHANGED, nextWindow);
-        this.subscribers.forEach(callback => callback(nextWindow));
+        this.subscribers.forEach(callback => {
+          try {
+            callback(nextWindow);
+          } catch (error) {
+            this.logger.warn('[Context] Active window subscriber failed', error.message);
+          }
+        });
       }
     } catch (err) {
       this.logger.warn('[Context] Active window detection failed', err.message);
@@ -85,6 +91,7 @@ class ActiveWindowMonitor {
     this.timer = setInterval(() => {
       this.pollOnce();
     }, this.intervalMs);
+    this.timer.unref?.();
   }
 
   stop() {

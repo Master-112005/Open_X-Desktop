@@ -15,8 +15,11 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(html, /id="alarm-overlay"/);
     assert.doesNotMatch(script, /alarmOverlay|alarm-dismiss-btn|alarm-snooze-btn/);
     assert.match(html, /id="activity-view-btn"[\s\S]*id="activity-calendar-btn"[\s\S]*id="assistant-mute-btn"/);
+    assert.match(html, /Next 24 hours/);
     assert.doesNotMatch(html, /Upcoming alarms, timers, reminders, and recent assistant notices\./);
     assert.match(script, /openPlanner\?\.\('calendar'\)/);
+    assert.match(script, /ACTIVITY_SCHEDULE_WINDOW_MS\s*=\s*24 \* 60 \* 60 \* 1000/);
+    assert.match(script, /function isActivityScheduleVisible\(item, now = Date\.now\(\)\)/);
     assert.match(script, /classList\.add\('opening'\)/);
     assert.match(script, /aria-busy/);
     assert.match(css, /\.activity-calendar-btn/);
@@ -91,9 +94,9 @@ describe('Chat Renderer UI', function() {
     assert.match(glassCss, /#settings-overlay\.open/);
   });
 
-  it('should expose adaptive glass, bounded access, and horizontal mode controls', function() {
+  it('should expose adaptive glass and horizontal mode controls', function() {
     assert.match(html, /id="glass-tint"/);
-    assert.match(html, /data-permission="critical"/);
+    assert.doesNotMatch(script, /securitySettingsUnlocked/);
     assert.match(script, /function applyGlassTint/);
     assert.match(script, /mode-tabs/);
     assert.match(script, /mode-app-tabs/);
@@ -104,43 +107,52 @@ describe('Chat Renderer UI', function() {
     assert.match(glassCss, /Tint-aware foreground contrast/);
   });
 
-  it('should expose identity-protected phone pairing controls', function() {
+  it('should expose identity-protected cloud mobile pairing controls', function() {
     assert.match(html, /data-section-target="phone"/);
     assert.match(html, /data-phone-panel-target="connect"/);
     assert.match(html, /data-phone-panel-target="devices"/);
     assert.match(html, /data-phone-panel="connect"/);
     assert.match(html, /data-phone-panel="devices"/);
-    assert.match(html, /id="phone-generate-token-btn"/);
-    assert.match(html, /id="phone-pairing-qr"/);
-    assert.match(html, /id="phone-pairing-token"/);
-    assert.match(script, /window\.openx\.generatePairingQR\(\)/);
-    assert.match(script, /Identity verification required\./);
+    assert.match(html, /id="cloud-generate-qr-btn"/);
+    assert.match(html, /id="cloud-pairing-qr"/);
+    assert.match(script, /window\.openx\.generateCloudPairingQR\(\)/);
+    assert.match(script, /Waiting for Windows identity verification/);
     assert.match(script, /Generate New QR/);
     assert.match(script, /function formatPairingCountdown\(/);
     assert.match(script, /Expires in \$\{formatPairingCountdown\(remaining\)\}/);
     assert.match(script, /setInterval\(update, 1000\)/);
-    assert.match(script, /Pairing code expired\./);
+    assert.match(script, /Cloud pairing QR expired\./);
     assert.match(script, /function setActivePhonePanel/);
     assert.match(script, /phoneSectionTabs\.forEach/);
     assert.match(css, /\.phone-section-tabs/);
     assert.match(css, /\.phone-panel\.active/);
+    assert.doesNotMatch(html, /Local QR|Local Details|data-phone-connect-mode/);
+    assert.doesNotMatch(script, /generatePairingQR|getPhoneServerStatus|loadPhoneServerStatus/);
   });
 
-  it('should group identity, theme, and access under System while keeping Phone separate', function() {
+  it('should not expose chat-provider communication connection controls', function() {
+    assert.doesNotMatch(html, /data-section-target="communication"/);
+    assert.doesNotMatch(html, /id="settings-section-communication"/);
+    assert.doesNotMatch(script, /loadCommunicationStatus/);
+    assert.doesNotMatch(script, /connectCommunicationProvider/);
+    assert.doesNotMatch(script, /disconnectCommunicationProvider/);
+  });
+
+  it('should group identity and theme under System while keeping Phone separate', function() {
     assert.match(html, /data-section-target="system"/);
     assert.match(html, /id="system-options"/);
     assert.match(html, /data-system-block-target="identity"/);
     assert.match(html, /data-system-block-target="theme"/);
-    assert.match(html, /data-system-block-target="access"/);
+    assert.doesNotMatch(html, /data-system-block-target="security"/);
     assert.doesNotMatch(html, /data-section-target="identity"/);
     assert.doesNotMatch(html, /data-section-target="theme"/);
     assert.doesNotMatch(html, /data-section-target="access"/);
     assert.match(html, /id="settings-section-identity"[^>]*data-settings-section="system"|data-settings-section="system"[^>]*id="settings-section-identity"/);
     assert.match(html, /id="settings-section-theme"[^>]*data-settings-section="system"|data-settings-section="system"[^>]*id="settings-section-theme"/);
-    assert.match(html, /id="settings-section-access"[^>]*data-settings-section="system"|data-settings-section="system"[^>]*id="settings-section-access"/);
+    assert.doesNotMatch(html, /id="settings-section-security"/);
     assert.match(html, /data-system-block="identity"/);
     assert.match(html, /data-system-block="theme"/);
-    assert.match(html, /data-system-block="access"/);
+    assert.doesNotMatch(html, /data-system-block="security"/);
     assert.match(html, /id="settings-section-phone"[^>]*data-settings-section="phone"|data-settings-section="phone"[^>]*id="settings-section-phone"/);
     assert.doesNotMatch(html, /id="assistant-title"|Assistant Title/);
     assert.doesNotMatch(html, /id="assistant-activation-shortcut"|Chat Shortcut|Alt\+Space to show/);
@@ -155,6 +167,9 @@ describe('Chat Renderer UI', function() {
     assert.match(html, /<button class="phone-section-tab"[^>]*>Connected Devices<\/button>[\s\S]*<div class="phone-panel" data-phone-panel="devices" hidden>/);
     assert.match(script, /phone-device-status-dot/);
     assert.match(script, /phone-device-essentials/);
+    assert.match(script, /getDeviceBoxCode/);
+    assert.match(script, /phone-device-box-code/);
+    assert.match(script, /phone-device-box-list/);
     assert.match(script, /Status/);
     assert.match(script, /Trust/);
     assert.match(script, /Version/);
@@ -162,17 +177,23 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(script, /Assistant Access|File Transfer|Receive Files|Send Files|Desktop Control|Clipboard|Future Screen Sharing|Future Camera|Future Microphone/);
     assert.doesNotMatch(script, /Save Permissions|updatePhonePermissions/);
     assert.match(script, /Remove/);
-    assert.match(script, /Disconnect/);
+    assert.doesNotMatch(script, /disconnectPhoneDevice/);
     assert.doesNotMatch(script, /Rename/);
     assert.match(script, /Trust/);
     assert.doesNotMatch(script, /renamePhoneDevice/);
-    assert.match(script, /updatePhoneTrust/);
+    assert.doesNotMatch(script, /updatePhoneTrust/);
     assert.doesNotMatch(html, /All devices|<option value="status">Status<\/option>/);
     assert.doesNotMatch(script, /device-meta-item|device-type-icon|permissionSummary|\['Type'|\['Platform'/);
     assert.match(html, /id="phone-device-remove-dialog"/);
     assert.match(script, /openPhoneDeviceRemoveDialog/);
     assert.match(script, /confirmPhoneDeviceRemoval/);
     assert.doesNotMatch(script, /window\.confirm\(/);
+  });
+
+  it('should render relay server version separately from the local app version', function() {
+    assert.match(html, /Server Version/);
+    assert.match(script, /cloudVersionEl\.textContent = safeStatus\.serverVersion \|\| '--'/);
+    assert.doesNotMatch(script, /\[safeStatus\.version,\s*safeStatus\.serverVersion/);
   });
 
   it('should bound long-session rendering and coalesce glass tint updates', function() {

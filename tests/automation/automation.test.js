@@ -146,6 +146,48 @@ describe('Automation Engine', function() {
     assert.equal(result.verification.status, 'unknown');
   });
 
+  it('should open recognized web apps in Chrome only after local app lookup fails', async function() {
+    const engine = new AutomationEngine({});
+    let opened = null;
+
+    engine.apps.open = appName => ({ success: false, error: `Could not find app: ${appName}` });
+    engine.folders.open = () => ({ success: false, error: 'not a folder' });
+    engine.browser.checkInternetConnection = async () => true;
+    engine.browser.open = (url, options) => {
+      opened = { url, options };
+      return { success: true, data: { url, browserName: options.browserName } };
+    };
+    engine.verifier.controllers.apps.waitForVisibleApp = () => null;
+
+    const result = await engine.execute('app.open', {
+      appName: 'instagram',
+      webFallbackUrl: 'https://www.instagram.com/',
+      webFallbackBrowser: 'chrome'
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.launchMethod, 'chrome-web-app-fallback');
+    assert.equal(opened.options.browserName, 'chrome');
+    assert.equal(opened.url, 'https://www.instagram.com/');
+  });
+
+  it('should not open unknown app requests in Chrome', async function() {
+    const engine = new AutomationEngine({});
+    let browserOpened = false;
+
+    engine.apps.open = appName => ({ success: false, error: `Could not find app: ${appName}` });
+    engine.folders.open = () => ({ success: false, error: 'not a folder' });
+    engine.browser.open = () => {
+      browserOpened = true;
+      return { success: true };
+    };
+
+    const result = await engine.execute('app.open', { appName: 'totally unknown app' });
+
+    assert.equal(result.success, false);
+    assert.equal(browserOpened, false);
+  });
+
   it('should send a resolved local file to the requesting phone device', async function() {
     const tempDir = fs.mkdtempSync(path.join(path.join(os.homedir(), 'Documents'), 'openx-phone-send-'));
     const source = path.join(tempDir, 'report.pdf');
@@ -1027,12 +1069,18 @@ describe('Automation Engine', function() {
     const nextSunday = scheduler._parseTimeExpression('next sunday');
     const thisMonthDay = scheduler._parseTimeExpression('12 of this month');
     const nextMonthDay = scheduler._parseTimeExpression('12 next month');
+    const nextMonthDayLeading = scheduler._parseTimeExpression('next month 7');
+    const slashDate = scheduler._parseTimeExpression('01/12/26 at five pm');
+    const monthName = scheduler._parseTimeExpression('december 1 of this year');
 
     assert.ok(tomorrow instanceof Date);
     assert.ok(tomorrowDefault instanceof Date);
     assert.ok(nextSunday instanceof Date);
     assert.ok(thisMonthDay instanceof Date);
     assert.ok(nextMonthDay instanceof Date);
+    assert.ok(nextMonthDayLeading instanceof Date);
+    assert.ok(slashDate instanceof Date);
+    assert.ok(monthName instanceof Date);
     assert.ok(tomorrow.getTime() > Date.now());
     assert.ok(tomorrowDefault.getTime() > Date.now());
     assert.equal(tomorrowDefault.getHours(), 9);
@@ -1042,6 +1090,9 @@ describe('Automation Engine', function() {
     assert.equal(thisMonthDay.getHours(), 9);
     assert.equal(nextMonthDay.getDate(), 12);
     assert.equal(nextMonthDay.getHours(), 9);
+    assert.equal(nextMonthDayLeading.getDate(), 7);
+    assert.equal(slashDate.getHours(), 17);
+    assert.equal(monthName.getMonth(), 11);
   });
 
   it('should preserve and reschedule recurring alarms', function() {

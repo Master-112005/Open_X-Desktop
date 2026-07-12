@@ -24,13 +24,10 @@ describe('Assistant Data Root', function() {
     assert.equal(paths.mediaProfileDir, path.join(paths.root, 'runtime', 'chrome-media-profile'));
     assert.equal(paths.voiceDir, path.join(paths.root, 'voice'));
     assert.equal(paths.voiceDiagnosticsDir, path.join(paths.voiceDir, 'diagnostics'));
-    assert.equal(paths.phoneDir, path.join(paths.root, 'phone'));
-    assert.equal(paths.phoneReceivedDir, path.join(os.homedir(), 'Downloads', 'OpenX Received'));
-    assert.equal(paths.phoneTempDir, path.join(paths.root, 'runtime', 'phone-transfer'));
-    assert.equal(paths.phoneDevicesPath, path.join(paths.phoneDir, 'devices.json'));
-    assert.equal(paths.phonePairingPath, path.join(paths.phoneDir, 'pairing.json'));
-    assert.equal(paths.phonePermissionsPath, path.join(paths.phoneDir, 'permissions.json'));
-    assert.equal(paths.phoneTransferHistoryPath, path.join(paths.phoneDir, 'transfer-history.json'));
+    assert.equal(paths.cloudDir, path.join(paths.root, 'cloud'));
+    assert.equal(paths.cloudReceivedDir, path.join(os.homedir(), 'Downloads', 'OpenX Cloud Received'));
+    assert.equal(paths.cloudTempDir, path.join(paths.root, 'runtime', 'cloud-transfer'));
+    assert.equal(paths.legacyPhoneDir, undefined);
   });
 
   it('should keep managed paths under a configured data root', function() {
@@ -46,9 +43,10 @@ describe('Assistant Data Root', function() {
     assert.ok(fs.existsSync(paths.mediaProfileDir));
     assert.ok(fs.existsSync(paths.screenshotsDir));
     assert.ok(fs.existsSync(paths.voiceDiagnosticsDir));
-    assert.ok(fs.existsSync(paths.phoneDir));
-    assert.ok(fs.existsSync(paths.phoneReceivedDir));
-    assert.ok(fs.existsSync(paths.phoneTempDir));
+    assert.ok(fs.existsSync(paths.cloudDir));
+    assert.ok(fs.existsSync(paths.cloudReceivedDir));
+    assert.ok(fs.existsSync(paths.cloudTempDir));
+    assert.equal(fs.existsSync(path.join(paths.root, 'phone')), false);
   });
 
   it('should purge deprecated contact-store files from managed data', function() {

@@ -284,6 +284,10 @@ class CloudConnectionManager extends EventEmitter {
     return this.sendDeviceMutation('device:remove', { deviceId });
   }
 
+  listDevices(options = {}) {
+    return this.sendDeviceMutation('device:list', {}, options);
+  }
+
   updatePresence(state, metadata = {}) {
     return this.send({
       type: 'presence:update',
@@ -323,6 +327,46 @@ class CloudConnectionManager extends EventEmitter {
     });
   }
 
+  requestVersionCheck(request = {}, options = {}) {
+    if (!this.isConnected()) {
+      return Promise.reject(new Error('Cloud relay is not connected.'));
+    }
+    const requestId = `update-version-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const timeoutMs = this.clamp(options.timeoutMs, 1000, 60000, DEFAULT_TIMEOUT_MS);
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error('Version check request timed out.'));
+      }, timeoutMs);
+      timeout.unref?.();
+      this.pendingRequests.set(requestId, { resolve, reject, timeout });
+      const sent = this.send({
+        type: 'update:versionCheck',
+        requestId,
+        request
+      });
+      if (!sent) {
+        clearTimeout(timeout);
+        this.pendingRequests.delete(requestId);
+        reject(new Error('Cloud relay is not connected.'));
+      }
+    });
+  }
+
+  acknowledgeUpdateEvent(eventId, stage = 'received', status = 'ok', details = {}) {
+    const normalizedEventId = String(eventId || '').trim();
+    if (!normalizedEventId) return false;
+    return this.send({
+      type: 'update:available:ack',
+      requestId: `update-available-ack-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      eventId: normalizedEventId,
+      stage: String(stage || 'received').trim() || 'received',
+      status: String(status || 'ok').trim() || 'ok',
+      timestamp: nowIso(),
+      details: details && typeof details === 'object' && !Array.isArray(details) ? details : {}
+    });
+  }
+
   markNotificationRead(notificationId) {
     return this.send({
       type: 'notification:read',
@@ -346,16 +390,17 @@ class CloudConnectionManager extends EventEmitter {
     });
   }
 
-  sendDeviceMutation(type, payload = {}) {
+  sendDeviceMutation(type, payload = {}, options = {}) {
     if (!this.isConnected()) {
       return Promise.reject(new Error('Connect to Relay Server first.'));
     }
     const requestId = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const timeoutMs = this.clamp(options.timeoutMs, 1000, 60000, DEFAULT_TIMEOUT_MS);
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(requestId);
         reject(new Error('Cloud device request timed out.'));
-      }, DEFAULT_TIMEOUT_MS);
+      }, timeoutMs);
       timeout.unref?.();
       this.pendingRequests.set(requestId, { resolve, reject, timeout });
       const sent = this.send({
@@ -509,6 +554,12 @@ class CloudConnectionManager extends EventEmitter {
       this.resolvePendingRequest(payload.requestId, payload);
       return;
     }
+    if (payload?.type === 'device:list') {
+      this.pairedDevices = Array.isArray(payload.devices) ? payload.devices : [];
+      this.emitStatus({ pairedDevices: this.pairedDevices });
+      this.resolvePendingRequest(payload.requestId, payload);
+      return;
+    }
     if (payload?.type === 'device:error') {
       this.logger.warn('Device registration error', {
         code: payload.code,
@@ -581,6 +632,30 @@ class CloudConnectionManager extends EventEmitter {
       if (payload.notification) this.upsertNotification(payload.notification);
       this.emit('notifications', this.notifications.slice());
       this.emitStatus({ notifications: this.notifications.slice() });
+      return;
+    }
+    if (payload?.type === 'update:versionResult') {
+      this.resolvePendingRequest(payload.requestId, payload);
+      this.emit('update-version-result', payload);
+      return;
+    }
+    if (payload?.type === 'update:versionError') {
+      const error = new Error(payload.message || 'Version check failed.');
+      error.code = payload.errorCode || 'VERSION_CHECK_FAILED';
+      this.rejectPendingRequest(payload.requestId, error);
+      this.emit('update-version-error', payload);
+      return;
+    }
+    if (payload?.type === 'update:available') {
+      this.emit('update-available', payload);
+      return;
+    }
+    if (payload?.type === 'update:available:ack:recorded') {
+      this.emit('update-available-ack-recorded', payload);
+      return;
+    }
+    if (payload?.type === 'update:available:ack:error') {
+      this.emit('update-available-ack-error', payload);
       return;
     }
     if (payload?.type === 'notification:deleted') {

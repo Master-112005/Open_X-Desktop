@@ -1,6 +1,6 @@
 {
   "name": "openx",
-  "version": "5.5.1",
+  "version": "6.5.3",
   "private": true,
   "productName": "OpenX",
   "description": "Deterministic, local-first Windows desktop assistant",
@@ -41,6 +41,7 @@
     "active-win": "8.2.1",
     "archiver": "^8.0.0",
     "fuse.js": "7.4.1",
+    "playwright": "^1.61.1",
     "qrcode": "^1.5.4",
     "sherpa-onnx-node": "^1.13.3",
     "ws": "^8.21.0"
@@ -60,7 +61,9 @@
     "copyright": "Copyright (c) 2024-2026 RAKESH",
     "asar": true,
     "asarUnpack": [
-      "node_modules/sherpa-onnx-node/**/*"
+      "node_modules/sherpa-onnx-node/**/*",
+      "node_modules/playwright/**/*",
+      "node_modules/playwright-core/**/*"
     ],
     "compression": "maximum",
     "directories": {

@@ -23,6 +23,21 @@ const REMINDER_PRESENTATIONS = Object.freeze({
   general: { symbol: '\u{1F4DD}', label: 'Reminder' }
 });
 
+const MONTH_INDEX = Object.freeze({
+  jan: 0, january: 0,
+  feb: 1, february: 1,
+  mar: 2, march: 2,
+  apr: 3, april: 3,
+  may: 4,
+  jun: 5, june: 5,
+  jul: 6, july: 6,
+  aug: 7, august: 7,
+  sep: 8, sept: 8, september: 8,
+  oct: 9, october: 9,
+  nov: 10, november: 10,
+  dec: 11, december: 11
+});
+
 function inferReminderCategory(message, preferredCategory = '') {
   const preferred = String(preferredCategory || '').trim().toLowerCase();
   if (REMINDER_PRESENTATIONS[preferred]) return preferred;
@@ -212,9 +227,15 @@ class SchedulerController {
       .replace(/\s+/g, ' ');
     if (!value) return null;
 
-    const durationMatch = value.match(/(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)/i);
+    const durationMatch = value.match(/(\d+|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty(?:\s*five)?|sixty)\s*(seconds?|secs?|minutes?|mins?|minits?|hours?|hrs?)/i);
     if (durationMatch) {
-      const amount = parseInt(durationMatch[1], 10);
+      const durationWords = {
+        one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+        ten: 10, fifteen: 15, twenty: 20, thirty: 30, fortyfive: 45, sixty: 60
+      };
+      const amountText = durationMatch[1].toLowerCase().replace(/\s+/g, '');
+      const amount = /^\d+$/.test(amountText) ? parseInt(amountText, 10) : durationWords[amountText];
+      if (!amount) return null;
       const unit = durationMatch[2].toLowerCase();
       let minutes = amount;
       if (unit.startsWith('hour') || unit.startsWith('hr')) {
@@ -224,6 +245,11 @@ class SchedulerController {
       }
 
       return new Date(Date.now() + (minutes * 60 * 1000));
+    }
+
+    const calendarDate = this._parseCalendarDateExpression(value);
+    if (calendarDate) {
+      return calendarDate;
     }
 
     const morningEveningNightMatch = value.match(/^(in\s+(?:the\s+)?)?(morning|afternoon|evening|night)(?:\s+at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?$/i);
@@ -423,6 +449,94 @@ class SchedulerController {
     return dueAt;
   }
 
+  _parseCalendarDateExpression(value) {
+    let dateText = String(value || '').trim().replace(/,/g, '').replace(/\s+/g, ' ');
+    if (!dateText) return null;
+
+    let timeText = '9 am';
+    const timeMatch = dateText.match(/\s+at\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)$/i) ||
+      dateText.match(/\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))$/i);
+    if (timeMatch?.[1]) {
+      timeText = timeMatch[1];
+      dateText = dateText.slice(0, timeMatch.index).trim();
+    }
+    const timeParts = this._parseClockParts(timeText);
+    if (!timeParts) return null;
+
+    const numericDateMatch = dateText.match(/^(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?$/);
+    if (numericDateMatch) {
+      const now = new Date();
+      const year = numericDateMatch[3]
+        ? this._normalizeYear(numericDateMatch[3])
+        : now.getFullYear();
+      const day = parseInt(numericDateMatch[1], 10);
+      const month = parseInt(numericDateMatch[2], 10) - 1;
+      return this._buildCalendarDate(year, month, day, timeParts, !numericDateMatch[3]);
+    }
+
+    const relativeMonthMatch = dateText.match(/^(?:(this|next)\s+month\s+(\d{1,2})(?:st|nd|rd|th)?|(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?(?:\s+(?:of\s+)?(this|next)\s+month|\s+(this|next)\s+month))$/i);
+    if (relativeMonthMatch) {
+      const now = new Date();
+      const directive = String(relativeMonthMatch[1] || relativeMonthMatch[4] || relativeMonthMatch[5] || 'this').toLowerCase();
+      const day = parseInt(relativeMonthMatch[2] || relativeMonthMatch[3], 10);
+      const month = now.getMonth() + (directive === 'next' ? 1 : 0);
+      return this._buildCalendarDate(now.getFullYear(), month, day, timeParts, true, 'month');
+    }
+
+    const monthName = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+    const monthFirst = dateText.match(new RegExp(`^${monthName}\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s+(?:of\\s+)?(this|next)\\s+year|\\s+(\\d{2,4}))?$`, 'i'));
+    const dayFirst = dateText.match(new RegExp(`^(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?${monthName}(?:\\s+(?:of\\s+)?(this|next)\\s+year|\\s+(\\d{2,4}))?$`, 'i'));
+    const named = monthFirst
+      ? { monthName: monthFirst[1], day: monthFirst[2], yearDirective: monthFirst[3], year: monthFirst[4] }
+      : dayFirst
+      ? { monthName: dayFirst[2], day: dayFirst[1], yearDirective: dayFirst[3], year: dayFirst[4] }
+      : null;
+    if (named) {
+      const now = new Date();
+      const month = MONTH_INDEX[String(named.monthName).toLowerCase()];
+      if (!Number.isInteger(month)) return null;
+      const explicitYear = named.year ? this._normalizeYear(named.year) : null;
+      const directive = String(named.yearDirective || '').toLowerCase();
+      const year = explicitYear || now.getFullYear() + (directive === 'next' ? 1 : 0);
+      return this._buildCalendarDate(year, month, parseInt(named.day, 10), timeParts, !explicitYear && directive !== 'this');
+    }
+
+    return null;
+  }
+
+  _normalizeYear(value) {
+    const year = parseInt(value, 10);
+    return year < 100 ? 2000 + year : year;
+  }
+
+  _buildCalendarDate(year, month, day, timeParts, rollForward = false, rollUnit = 'year') {
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day) || day < 1 || day > 31) {
+      return null;
+    }
+    const target = new Date();
+    target.setFullYear(year, month, 1);
+    const targetYear = target.getFullYear();
+    const targetMonth = target.getMonth();
+    const dueAt = new Date();
+    dueAt.setSeconds(0, 0);
+    dueAt.setFullYear(year, month, day);
+    dueAt.setHours(timeParts.hours, timeParts.minutes, 0, 0);
+    if (dueAt.getFullYear() !== targetYear || dueAt.getMonth() !== targetMonth || dueAt.getDate() !== day) {
+      return null;
+    }
+    if (rollForward && dueAt.getTime() <= Date.now()) {
+      if (rollUnit === 'month') {
+        dueAt.setMonth(dueAt.getMonth() + 1, 1);
+        const targetMonth = dueAt.getMonth();
+        dueAt.setDate(day);
+        if (dueAt.getMonth() !== targetMonth) return null;
+      } else {
+        dueAt.setFullYear(dueAt.getFullYear() + 1);
+      }
+    }
+    return dueAt.getTime() > Date.now() ? dueAt : null;
+  }
+
   _normalizeSpokenTime(input) {
     const numbers = {
       one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
@@ -438,6 +552,7 @@ class SchedulerController {
       (_, hour) => `${numbers[hour] === 1 ? 12 : numbers[hour] - 1}:45`);
     value = value.replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b(?=\s*(?:am|pm|today|tomorrow|$))/g,
       (_, hour) => String(numbers[hour]));
+    value = value.replace(/\b(\d{1,2})\s+(\d{2})\s*(am|pm)\b/g, '$1:$2 $3');
     return value.replace(/\bo['’]?clock\b/g, '').replace(/\s+/g, ' ').trim();
   }
 

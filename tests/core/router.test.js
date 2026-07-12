@@ -5,7 +5,7 @@ describe('Action Router', function() {
   let ActionRouter, AutomationEngine;
 
   before(function() {
-    ActionRouter = require('../../core/assistant/router');
+    ActionRouter = require('../../core/assistant/automation/ActionRouter');
     AutomationEngine = require('../../core/automation/index');
   });
 
@@ -29,6 +29,82 @@ describe('Action Router', function() {
     const result = await router.process('open chrome', 'chat');
     assert.equal(result.intent, 'app.open');
     assert.ok(result.entities.appName);
+  });
+
+  it('should route assistant update commands to the shared update presentation action', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const router = new ActionRouter(config, {
+      execute(actionId, entities, context) {
+        executed.push({ actionId, entities, context });
+        return {
+          success: true,
+          data: {
+            operation: entities.operation,
+            presentation: {
+              status: { message: 'Update status is available.' },
+              version: { currentVersionLabel: 'Version 6.0.1', latestVersionLabel: 'Version 6.1.0' }
+            }
+          }
+        };
+      }
+    });
+
+    const result = await router.process('show update progress', 'voice');
+
+    assert.equal(result.success, true);
+    assert.equal(result.intent, 'update.presentation');
+    assert.equal(result.entities.operation, 'progress');
+    assert.equal(executed[0].actionId, 'update.presentation');
+    assert.equal(executed[0].context.source, 'voice');
+  });
+
+  it('should preserve and route multi-word rename commands', async function() {
+    const executed = [];
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const router = new ActionRouter(config, {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    });
+
+    const result = await router.process('Rename Project Notes to Meeting Notes.', 'chat');
+
+    assert.equal(result.success, true);
+    assert.equal(result.intent, 'file.rename');
+    assert.equal(executed[0].actionId, 'file.rename');
+    assert.equal(executed[0].entities.oldName, 'Project Notes');
+    assert.equal(executed[0].entities.newName, 'Meeting Notes');
+  });
+
+  it('should require confirmation for scheduled power actions', async function() {
+    const config = {
+      auth: { preAuthenticated: true },
+      permissions: {
+        userLevel: 'critical',
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false },
+          medium: { requiresConfirmation: true, requiresAuth: false },
+          high: { requiresConfirmation: true, requiresAuth: false },
+          critical: { requiresConfirmation: true, requiresAuth: false }
+        }
+      }
+    };
+    const router = new ActionRouter(config, {
+      execute() {
+        throw new Error('Power action must not execute before confirmation.');
+      }
+    });
+
+    const result = await router.process('Save my work and schedule a restart tonight.', 'chat');
+
+    assert.equal(result.intent, 'system.restart');
+    assert.equal(result.requiresConfirmation, true);
   });
 
   it('should route natural condition commands to executable controllers', async function() {
@@ -405,11 +481,11 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('clouse chrome and open whatsapp and clock', 'chat');
+    const result = await router.process('clouse chrome and open paint and clock', 'chat');
 
     assert.equal(result.intent, 'multi.command');
     assert.deepEqual(executed.map(step => step.actionId), ['app.close', 'app.open', 'app.open']);
-    assert.deepEqual(executed.map(step => step.entities.appName), ['chrome', 'whatsapp', 'clock']);
+    assert.deepEqual(executed.map(step => step.entities.appName), ['chrome', 'mspaint', 'clock']);
   });
 
   it('should tolerate misordered close app phrasing', async function() {
@@ -1345,7 +1421,7 @@ describe('Action Router', function() {
     assert.equal(result.entities.query, 'chatgpt');
   });
 
-  it('should route known web app opens to the first browser result', async function() {
+  it('should route plain known web app opens through local app resolution first', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -1360,12 +1436,14 @@ describe('Action Router', function() {
 
     const result = await router.process('open chatgpt', 'chat');
 
-    assert.equal(result.intent, 'browser.openFirstResult');
-    assert.equal(result.entities.query, 'chatgpt');
-    assert.deepEqual(executed.map(step => step.actionId), ['browser.openFirstResult']);
+    assert.equal(result.intent, 'app.open');
+    assert.equal(result.entities.appName, 'chatgpt');
+    assert.equal(result.entities.webFallbackUrl, 'https://chatgpt.com/');
+    assert.equal(result.entities.webFallbackBrowser, 'chrome');
+    assert.deepEqual(executed.map(step => step.actionId), ['app.open']);
   });
 
-  it('should route trusted Google web product opens without treating them as desktop apps', async function() {
+  it('should route trusted Google web product opens as apps with Chrome fallback', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -1380,12 +1458,13 @@ describe('Action Router', function() {
     const colab = await router.process('open collab', 'chat');
     const googleColab = await router.process('open google collab', 'chat');
 
-    assert.equal(photos.intent, 'browser.openFirstResult');
-    assert.equal(photos.entities.query, 'google photos');
-    assert.equal(colab.intent, 'browser.openFirstResult');
-    assert.equal(colab.entities.query, 'google colab');
-    assert.equal(googleColab.intent, 'browser.openFirstResult');
-    assert.equal(googleColab.entities.query, 'google colab');
+    assert.equal(photos.intent, 'app.open');
+    assert.equal(photos.entities.appName, 'google photos');
+    assert.equal(photos.entities.webFallbackUrl, 'https://photos.google.com/');
+    assert.equal(colab.intent, 'app.open');
+    assert.equal(colab.entities.appName, 'google colab');
+    assert.equal(googleColab.intent, 'app.open');
+    assert.equal(googleColab.entities.appName, 'google colab');
   });
 
   it('should route natural web-app open phrasing through trusted web targets', async function() {
@@ -1484,7 +1563,56 @@ describe('Action Router', function() {
     assert.deepEqual(executed.map(step => step.actionId), ['browser.openFirstResult']);
   });
 
-  it('should route whatsapp message commands to message.send', async function() {
+  it('should route messaging utterances to message.compose', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+    const cases = [
+      ['send hi to charan', 'charan', 'hi', null],
+      ['telegram charan hi', 'charan', 'hi', 'telegram'],
+      ['say hi to charan on telegram', 'charan', 'hi', 'telegram'],
+      ['send hello to mohit', 'mohit', 'hello', null],
+      ['say hi to daddy on signal', 'daddy', 'hi', 'signal']
+    ];
+
+    for (const [command, contactName, messageText, platform] of cases) {
+      executed.length = 0;
+      const result = await router.process(command, 'chat');
+      assert.equal(result.intent, 'message.send', command);
+      assert.equal(result.entities.contactName, contactName, command);
+      assert.equal(result.entities.messageText, messageText, command);
+      assert.equal(result.entities.platform, platform, command);
+      assert.equal(executed[0]?.actionId, 'message.compose', command);
+    }
+  });
+
+  it('should keep incomplete message commands in the messaging domain', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const router = new ActionRouter(config, {
+      execute() {
+        throw new Error('should not execute incomplete messages');
+      }
+    });
+    const result = await router.process('message charan', 'chat');
+
+    assert.equal(result.intent, 'message.send');
+    assert.equal(result.needsClarification, true);
+    assert.equal(result.entities.contactName, 'charan');
+    assert.equal(result.entities.messageText, null);
+    assert.notEqual(result.intent, 'assistant.capability');
+  });
+
+  it('should not let greeting lead-ins swallow message commands with platform wording', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -1494,11 +1622,11 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('say hi to daddy on whatsapp', 'chat');
+    const result = await router.process('hi jaanu send hi to mohit on telegram', 'chat');
     assert.equal(result.intent, 'message.send');
-    assert.equal(result.entities.contactName, 'daddy');
+    assert.equal(result.entities.contactName, 'mohit');
     assert.equal(result.entities.messageText, 'hi');
-    assert.equal(result.entities.platform, 'whatsapp');
+    assert.equal(result.entities.platform, 'telegram');
   });
 
   it('should route call commands to call.start', async function() {
@@ -2411,7 +2539,7 @@ describe('Action Router', function() {
     const app = await router.process('do one thing open chrome only', 'chat');
     const search = await router.process('tell about indian cricket team', 'chat');
     const wifi = await router.process('put net off', 'chat');
-    const message = await router.process('send on whatsapp to Rahul hello bro', 'chat');
+    const message = await router.process('send on telegram to Rahul hello bro', 'chat');
 
     assert.equal(app.intent, 'app.open');
     assert.equal(app.entities.appName, 'chrome');
@@ -2422,7 +2550,7 @@ describe('Action Router', function() {
     assert.equal(message.intent, 'message.send');
     assert.equal(message.entities.contactName, 'Rahul');
     assert.equal(message.entities.messageText, 'hello bro');
-    assert.equal(message.entities.platform, 'whatsapp');
+    assert.equal(message.entities.platform, 'telegram');
     assert.deepEqual(executed.map(step => step.actionId), [
       'app.open',
       'browser.search',
@@ -2669,7 +2797,7 @@ describe('Action Router', function() {
   });
 
   it('should apply learned personal photo library preference during routing', async function() {
-    const ActiveLearningStore = require('../../core/assistant/Active-learning');
+    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -2846,6 +2974,35 @@ describe('Action Router', function() {
     assert.equal(afterHourWords.entities.reminderText, 'call daddy');
     assert.equal(afterHourCompact.entities.duration, 60);
     assert.equal(afterHourCompact.entities.reminderText, 'call daddy');
+  });
+
+  it('should route flexible reminder dates and ask when reminder text is missing', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities, dueAt: new Date().toISOString(), kind: 'Reminder' } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const nextMonth = await router.process('remind me next month 7 say wishes to mohit', 'chat');
+    const slashDate = await router.process('remind me on 01/12/26 at five pm to call mummy', 'chat');
+    const missingText = await router.process('remind me in 5 min', 'chat');
+
+    assert.equal(nextMonth.intent, 'reminder.set');
+    assert.equal(nextMonth.entities.timeExpression, 'next month 7');
+    assert.equal(nextMonth.entities.reminderText, 'wishes to mohit');
+    assert.equal(slashDate.intent, 'reminder.set');
+    assert.equal(slashDate.entities.timeExpression, '01/12/26 at five pm');
+    assert.equal(slashDate.entities.reminderText, 'call mummy');
+    assert.equal(missingText.intent, 'reminder.set');
+    assert.equal(missingText.needsClarification, true);
+    assert.equal(missingText.entities.reminderText, null);
+    assert.equal(executed.length, 2);
   });
 
   it('should not accept bare remind me as a valid reminder', async function() {

@@ -4,25 +4,111 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'none'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
-  <title>Assistant Settings</title>
+  <title>OpenX Updates</title>
   <link rel="stylesheet" href="./index.css">
 </head>
 <body>
-  <div class="ambient ambient-one" aria-hidden="true"></div>
-  <div class="ambient ambient-two" aria-hidden="true"></div>
-  <div class="card">
-    <div class="app-icon" aria-hidden="true"><span></span></div>
-    <h1 id="title">Assistant Settings</h1>
-    <div class="meta" id="meta">Preferences are available in your assistant workspace.</div>
-    <p>
-      Open the assistant to manage identity, profile, appearance, access, app modes,
-      and voice preferences in one place.
-    </p>
-    <div class="btn-row">
-      <button id="open-chat-settings">Open Assistant</button>
-      <button class="secondary" id="close-window">Close</button>
-    </div>
-  </div>
+  <a class="skip-link" href="#update-actions">Skip to update actions</a>
+  <main class="shell" aria-labelledby="page-title">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Settings</p>
+        <h1 id="page-title">Updates</h1>
+        <p class="summary" id="status-summary" aria-live="polite">Loading update status...</p>
+      </div>
+      <div class="hero-actions">
+        <button id="open-assistant" class="ghost" type="button">Open Assistant</button>
+        <button id="close-window" class="ghost" type="button">Close</button>
+      </div>
+    </header>
+
+    <section class="status-grid" aria-label="Update status">
+      <article class="panel primary-panel">
+        <div class="panel-title">Current state</div>
+        <div class="status-pill" id="state-pill">Loading</div>
+        <h2 id="status-label">Checking presentation</h2>
+        <p id="status-message">OpenX is preparing the shared update model.</p>
+        <div class="progress-wrap" aria-label="Download progress">
+          <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+          <div class="progress-meta">
+            <span id="progress-percent">0%</span>
+            <span id="progress-detail">No active download</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel facts-panel">
+        <div class="panel-title">Version details</div>
+        <dl class="facts">
+          <div><dt>Current</dt><dd id="current-version">Unknown</dd></div>
+          <div><dt>Latest</dt><dd id="latest-version">Unknown</dd></div>
+          <div><dt>Channel</dt><dd id="channel">stable</dd></div>
+          <div><dt>Release date</dt><dd id="release-date">Not available</dd></div>
+          <div><dt>Last checked</dt><dd id="last-checked">Not checked</dd></div>
+          <div><dt>Verification</dt><dd id="verification-state">Ready</dd></div>
+          <div><dt>Package</dt><dd id="package-state">Idle</dd></div>
+          <div><dt>Health</dt><dd id="health-state">Unknown</dd></div>
+        </dl>
+      </article>
+    </section>
+
+    <section class="panel actions-panel" aria-labelledby="actions-title">
+      <div class="section-header">
+        <div>
+          <div class="panel-title">Actions</div>
+          <h2 id="actions-title">Update controls</h2>
+        </div>
+        <button id="refresh-presentation" class="ghost" type="button">Refresh UI</button>
+      </div>
+      <div id="update-actions" class="action-row" role="group" aria-label="Update actions"></div>
+    </section>
+
+    <section class="panel" aria-labelledby="preferences-title">
+      <div class="section-header">
+        <div>
+          <div class="panel-title">Preferences</div>
+          <h2 id="preferences-title">Presentation and automation</h2>
+        </div>
+        <span id="settings-save-state" class="save-state" aria-live="polite"></span>
+      </div>
+      <div class="toggle-grid">
+        <label class="toggle"><input id="pref-check-startup" type="checkbox"> <span>Check on startup</span></label>
+        <label class="toggle"><input id="pref-auto-download" type="checkbox"> <span>Auto download</span></label>
+        <label class="toggle"><input id="pref-auto-install" type="checkbox"> <span>Auto install when future installer is enabled</span></label>
+        <label class="toggle"><input id="pref-install-enabled" type="checkbox"> <span>Allow verified installer execution</span></label>
+        <label class="toggle"><input id="pref-install-confirm" type="checkbox"> <span>Always ask before installing</span></label>
+        <label class="toggle"><input id="pref-self-update-enabled" type="checkbox"> <span>Enable silent self update</span></label>
+        <label class="toggle"><input id="pref-self-update-restart" type="checkbox"> <span>Restart after silent installation</span></label>
+        <label class="toggle"><input id="pref-self-update-preserve" type="checkbox"> <span>Preserve session before restart</span></label>
+        <label class="toggle"><input id="pref-self-update-future-auto" type="checkbox"> <span>Allow future automatic restart</span></label>
+        <label class="toggle"><input id="pref-recovery-enabled" type="checkbox"> <span>Automatic rollback recovery</span></label>
+        <label class="toggle"><input id="pref-recovery-startup-validation" type="checkbox"> <span>Validate startup after update</span></label>
+        <label class="toggle"><input id="pref-recovery-logging" type="checkbox"> <span>Recovery logging</span></label>
+        <label class="toggle"><input id="pref-recovery-diagnostics" type="checkbox"> <span>Recovery diagnostics</span></label>
+        <label class="toggle"><span>Startup timeout (seconds)</span> <input id="pref-recovery-startup-timeout" class="recovery-input" type="number" min="5" max="600" step="5"></label>
+        <label class="toggle"><span>Health timeout (seconds)</span> <input id="pref-recovery-health-timeout" class="recovery-input" type="number" min="5" max="300" step="5"></label>
+        <label class="toggle"><input id="pref-notify" type="checkbox"> <span>Show update notifications</span></label>
+        <label class="toggle"><input id="pref-island" type="checkbox"> <span>Use Dynamic Island update cards</span></label>
+        <label class="toggle"><input id="pref-assistant" type="checkbox"> <span>Allow assistant update commands</span></label>
+        <label class="toggle"><input id="pref-voice" type="checkbox"> <span>Allow voice update commands</span></label>
+        <label class="toggle"><input id="pref-high-contrast" type="checkbox"> <span>High contrast update UI</span></label>
+        <label class="toggle"><input id="pref-reduced-motion" type="checkbox"> <span>Reduced motion</span></label>
+        <label class="toggle"><input id="pref-update-logging" type="checkbox"> <span>Update logging</span></label>
+        <label class="toggle"><input id="pref-diagnostics" type="checkbox"> <span>Update diagnostics</span></label>
+      </div>
+    </section>
+
+    <section class="panel release-panel" aria-labelledby="release-title">
+      <div class="section-header">
+        <div>
+          <div class="panel-title">Release notes</div>
+          <h2 id="release-title">What changed</h2>
+        </div>
+      </div>
+      <p id="release-summary" class="release-summary">No release notes loaded.</p>
+      <div id="release-sections" class="release-sections"></div>
+    </section>
+  </main>
 
   <script src="./index.js"></script>
 </body>

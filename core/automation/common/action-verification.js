@@ -313,6 +313,20 @@ class ActionVerifier {
         : fail('folder-fallback-target', { path: result.data.path, message: 'Folder fallback target does not exist' });
     }
 
+    if (result.data?.launchMethod === 'chrome-web-app-fallback' && result.data?.url) {
+      return this._looksLikeUrl(result.data.url)
+        ? ok('app-web-fallback', {
+            app: appName,
+            url: result.data.url,
+            browserName: result.data.browserName || 'chrome'
+          })
+        : fail('app-web-fallback', {
+            app: appName,
+            url: result.data.url,
+            message: 'Invalid web app fallback URL'
+          });
+    }
+
     if (wantsNewWindow) {
       if (result.data?.newWindowVerified === true) {
         return ok('app-new-window', {

@@ -1,8 +1,5 @@
 const { Logger } = require('../assistant/Data');
-const BrowserController = require('./browser');
-const FileController = require('./files');
 const { launchTarget } = require('./common/launcher');
-const WhatsAppDesktopController = require('../../plugins/communications/whatsapp-desktop');
 
 function normalizePhoneNumber(value) {
   const source = String(value || '').trim();
@@ -19,9 +16,6 @@ class CommunicationsController {
   constructor(config) {
     this.config = config;
     this.logger = new Logger(config?.logging || { level: 'info' });
-    this.browser = new BrowserController(config);
-    this.files = new FileController(config);
-    this.whatsAppDesktop = new WhatsAppDesktopController(config);
   }
 
   async composeMessage(contactName, messageText, platform) {
@@ -33,44 +27,12 @@ class CommunicationsController {
       return { success: false, error: 'No message text provided' };
     }
 
-    const preparedMessageText = this._prepareOutgoingMessageText(messageText);
     const messagePlatform = this._resolveMessagingPlatform(platform);
-    if (messagePlatform !== 'whatsapp') {
-      return {
-        success: false,
-        error: `Messaging platform not supported: ${messagePlatform}`
-      };
-    }
-
-    const phone = normalizePhoneNumber(contactName);
-    const desktopMessageResult = await this._composeWhatsAppDesktopMessage(contactName, preparedMessageText, platform);
-    if (desktopMessageResult?.success) {
-      return desktopMessageResult;
-    }
-
-    if (!phone) {
-      return desktopMessageResult || {
-        success: false,
-        error: `WhatsApp could not open the chat for ${contactName}`
-      };
-    }
-
-    const url = this._buildWhatsAppComposeUrl(phone, preparedMessageText);
-    const result = this.browser.open(url);
-    if (!result.success) {
-      return result;
-    }
-
     return {
-      success: true,
-      data: {
-        contactName: String(contactName).trim(),
-        messageText: preparedMessageText,
-        platform: 'whatsapp',
-        phone,
-        url,
-        delivery: 'draft'
-      }
+      success: false,
+      error: messagePlatform
+        ? `Messaging platform not supported: ${messagePlatform}`
+        : 'Messaging is not supported by this assistant'
     };
   }
 
@@ -81,10 +43,7 @@ class CommunicationsController {
 
     const requestedPlatform = String(platform || '').trim().toLowerCase();
     const phone = normalizePhoneNumber(contactName);
-    const callPlatform = requestedPlatform || (phone ? 'phone' : 'whatsapp');
-    if (callPlatform === 'whatsapp') {
-      return this._startWhatsAppDesktopCall(contactName, 'whatsapp');
-    }
+    const callPlatform = requestedPlatform || 'phone';
 
     if (callPlatform !== 'phone') {
       return {
@@ -156,12 +115,7 @@ class CommunicationsController {
       return requestedPlatform;
     }
 
-    return 'whatsapp';
-  }
-
-  _buildWhatsAppComposeUrl(phoneNumber, messageText) {
-    const digits = String(phoneNumber || '').replace(/[^\d]/g, '');
-    return `https://wa.me/${digits}?text=${encodeURIComponent(messageText)}`;
+    return '';
   }
 
   _buildMailtoUrl(email, subject, body) {
@@ -171,48 +125,14 @@ class CommunicationsController {
     return `mailto:${encodeURIComponent(email)}?${params.toString()}`;
   }
 
-  _prepareOutgoingMessageText(messageText) {
-    const source = String(messageText || '').trim();
-    const fileMatch = source.match(/^file\s+(.+)$/i);
-    if (!fileMatch?.[1]) {
-      return source;
-    }
-
-    const fileName = fileMatch[1].trim();
-    const searchResult = this.files.search(fileName);
-    const firstPath = Array.isArray(searchResult?.data?.results)
-      ? searchResult.data.results[0]
-      : null;
-    return firstPath
-      ? `File path: ${firstPath}`
-      : `File requested: ${fileName}`;
-  }
-
   _launchUri(uri) {
     launchTarget(uri);
   }
 
-  async _composeWhatsAppDesktopMessage(contactName, messageText, platform) {
-    const requestedPlatform = String(platform || '').trim().toLowerCase();
-    if (requestedPlatform && requestedPlatform !== 'whatsapp') {
-      return null;
-    }
-
-    return this.whatsAppDesktop.sendMessage(contactName, messageText);
+  async destroy() {
+    return true;
   }
 
-  async _startWhatsAppDesktopCall(contactName, platform) {
-    const requestedPlatform = String(platform || '').trim().toLowerCase();
-    if (requestedPlatform && requestedPlatform !== 'whatsapp') {
-      return null;
-    }
-
-    return this.whatsAppDesktop.startVoiceCall(contactName);
-  }
-
-  destroy() {
-    this.whatsAppDesktop?.destroy?.();
-  }
 }
 
 module.exports = CommunicationsController;

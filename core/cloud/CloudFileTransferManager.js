@@ -2,8 +2,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const EventEmitter = require('events');
-const FileTransferProtocol = require('../phone/FileTransferProtocol');
-const TransferIntegrity = require('../phone/TransferIntegrity');
+const CloudFileTransferProtocol = require('./CloudFileTransferProtocol');
+const CloudTransferIntegrity = require('./CloudTransferIntegrity');
 
 const PROTOCOL_VERSION = 1;
 const DEFAULT_CHUNK_BYTES = 12 * 1024;
@@ -21,9 +21,10 @@ class CloudFileTransferManager extends EventEmitter {
   constructor(options = {}) {
     super();
     this.connectionManager = options.connectionManager;
-    this.localFileTransferManager = options.localFileTransferManager || null;
-    this.protocol = options.protocol || new FileTransferProtocol();
-    this.integrity = options.integrity || new TransferIntegrity();
+    this.protocol = options.protocol || new CloudFileTransferProtocol();
+    this.integrity = options.integrity || new CloudTransferIntegrity();
+    this.receiveDirectory = options.receiveDirectory || null;
+    this.tempDirectory = options.tempDirectory || null;
     this.logger = options.logger || console;
     this.chunkBytes = Number.isFinite(options.chunkBytes)
       ? Math.max(1024, Math.round(options.chunkBytes))
@@ -86,10 +87,10 @@ class CloudFileTransferManager extends EventEmitter {
     if (!stats.isFile()) throw new Error('Cloud transfer source must be a file.');
     const fileName = this.protocol.validateFileName(safeBaseName(resolvedPath));
     const fileSize = this.protocol.validateFileSize(stats.size);
-    const data = await fs.promises.readFile(resolvedPath);
-    const sha256 = this.integrity.createHash(data);
+    const sha256 = await this.hashFile(resolvedPath);
     const transferId = createId('cloud_transfer');
-    const chunkCount = Math.max(1, Math.ceil(data.length / this.chunkBytes));
+    const chunkCount = Math.max(1, Math.ceil(fileSize / this.chunkBytes));
+    const fileHandle = await fs.promises.open(resolvedPath, 'r');
     const transfer = {
       transferId,
       direction: 'desktop-to-phone',
@@ -99,7 +100,8 @@ class CloudFileTransferManager extends EventEmitter {
       fileName,
       fileSize,
       sha256,
-      data,
+      sourcePath: resolvedPath,
+      fileHandle,
       chunkCount,
       nextChunkIndex: 0,
       state: 'pending',
@@ -108,7 +110,7 @@ class CloudFileTransferManager extends EventEmitter {
     this.outgoing.set(transferId, transfer);
     transfer.timeout = this.createTimeout(transferId, 'outgoing');
 
-    this.sendControl(transfer, 'metadata', {
+    const metadataSent = this.sendControl(transfer, 'metadata', {
       transferId,
       fileName,
       fileSize,
@@ -120,6 +122,10 @@ class CloudFileTransferManager extends EventEmitter {
       protocolVersion: PROTOCOL_VERSION,
       createdAt: transfer.startedAt
     });
+    if (!metadataSent) {
+      this.cleanupOutgoing(transfer, 'relay-send-failed');
+      throw new Error('Cloud relay could not send the transfer metadata.');
+    }
     this.log('info', 'Transfer Started', { transferId, fileName, fileSize, direction: transfer.direction });
     return new Promise((resolve, reject) => {
       transfer.resolve = resolve;
@@ -246,7 +252,7 @@ class CloudFileTransferManager extends EventEmitter {
     transfer.state = 'uploading';
     transfer.nextChunkIndex = Number(payload.nextChunkIndex) || 0;
     this.log('info', 'Transfer Accepted', { transferId: transfer.transferId });
-    this.sendNextChunk(transfer);
+    void this.sendNextChunk(transfer);
   }
 
   handleReject(payload) {
@@ -292,7 +298,7 @@ class CloudFileTransferManager extends EventEmitter {
     if (!transfer || transfer.paused) return;
     transfer.nextChunkIndex = Math.max(transfer.nextChunkIndex, Number(payload.nextChunkIndex) || transfer.nextChunkIndex);
     this.emitProgress(transfer);
-    this.sendNextChunk(transfer);
+    void this.sendNextChunk(transfer);
   }
 
   async handleComplete(payload) {
@@ -353,13 +359,14 @@ class CloudFileTransferManager extends EventEmitter {
     transfer.state = 'resuming';
     if (this.outgoing.has(payload.transferId)) {
       transfer.nextChunkIndex = Number(payload.nextChunkIndex) || transfer.nextChunkIndex || 0;
-      this.sendNextChunk(transfer);
+      void this.sendNextChunk(transfer);
     }
     this.emitProgress(transfer);
   }
 
-  sendNextChunk(transfer) {
-    if (!transfer || transfer.paused || transfer.nextChunkIndex >= transfer.chunkCount) {
+  async sendNextChunk(transfer) {
+    if (!transfer || transfer.paused || transfer.sending || !this.outgoing.has(transfer.transferId)) return;
+    if (transfer.nextChunkIndex >= transfer.chunkCount) {
       if (transfer && transfer.nextChunkIndex >= transfer.chunkCount) {
         this.sendControl(transfer, 'complete', {
           transferId: transfer.transferId,
@@ -372,21 +379,42 @@ class CloudFileTransferManager extends EventEmitter {
       }
       return;
     }
-    const start = transfer.nextChunkIndex * this.chunkBytes;
-    const chunk = transfer.data.slice(start, Math.min(start + this.chunkBytes, transfer.data.length));
-    const chunkHash = this.integrity.createHash(chunk);
-    this.sendControl(transfer, 'chunk', {
-      transferId: transfer.transferId,
-      chunkIndex: transfer.nextChunkIndex,
-      sequenceNumber: transfer.nextChunkIndex,
-      chunkSize: chunk.length,
-      totalChunks: transfer.chunkCount,
-      data: chunk.toString('base64'),
-      sha256: chunkHash,
-      checksum: chunkHash,
-      state: 'uploading'
-    });
-    this.refreshTimeout(transfer);
+    transfer.sending = true;
+    try {
+      const chunkIndex = transfer.nextChunkIndex;
+      const start = chunkIndex * this.chunkBytes;
+      const bytesToRead = Math.min(this.chunkBytes, Math.max(0, transfer.fileSize - start));
+      const buffer = Buffer.alloc(bytesToRead);
+      const { bytesRead } = bytesToRead > 0
+        ? await transfer.fileHandle.read(buffer, 0, bytesToRead, start)
+        : { bytesRead: 0 };
+      const chunk = bytesRead === buffer.length ? buffer : buffer.subarray(0, bytesRead);
+      const chunkHash = this.integrity.createHash(chunk);
+      const chunkSent = this.sendControl(transfer, 'chunk', {
+        transferId: transfer.transferId,
+        chunkIndex,
+        sequenceNumber: chunkIndex,
+        chunkSize: chunk.length,
+        totalChunks: transfer.chunkCount,
+        data: chunk.toString('base64'),
+        sha256: chunkHash,
+        checksum: chunkHash,
+        state: 'uploading'
+      });
+      if (!chunkSent) {
+        this.cancelTransfer(transfer.transferId, 'relay-send-failed');
+        return;
+      }
+      this.refreshTimeout(transfer);
+    } catch (error) {
+      this.log('warn', 'Chunk Read Failure', {
+        transferId: transfer.transferId,
+        error: error.message
+      });
+      this.cancelTransfer(transfer.transferId, 'chunk-read-failed');
+    } finally {
+      transfer.sending = false;
+    }
   }
 
   sendControl(transfer, action, payload) {
@@ -402,7 +430,7 @@ class CloudFileTransferManager extends EventEmitter {
         : transfer.destinationDeviceId,
       ownerId: transfer.ownerId,
       timestamp: Date.now(),
-      requestId: `${transfer.transferId}:${action}:${payload.chunkIndex ?? ''}`,
+      requestId: `${transfer.transferId}:${action}:${payload.chunkIndex ?? payload.nextChunkIndex ?? 'control'}:${createId('request')}`,
       responseId: null,
       metadata: { feature: 'cloud-file-transfer', action },
       checksum: null,
@@ -441,11 +469,11 @@ class CloudFileTransferManager extends EventEmitter {
   }
 
   getReceiveDirectory() {
-    return this.localFileTransferManager?.receiveDirectory || path.join(process.cwd(), 'openx_data', 'phone', 'received');
+    return this.receiveDirectory || path.join(process.cwd(), 'openx_data', 'cloud', 'received');
   }
 
   getTempDirectory() {
-    return this.localFileTransferManager?.tempDirectory || path.join(process.cwd(), 'openx_data', 'runtime', 'phone-transfer');
+    return this.tempDirectory || path.join(process.cwd(), 'openx_data', 'runtime', 'cloud-transfer');
   }
 
   getLocalDeviceId() {
@@ -478,19 +506,27 @@ class CloudFileTransferManager extends EventEmitter {
   cleanupOutgoing(transfer, reason, options = {}) {
     if (transfer.timeout) clearTimeout(transfer.timeout);
     this.outgoing.delete(transfer.transferId);
+    if (transfer.fileHandle) {
+      transfer.fileHandle.close().catch(() => {});
+      transfer.fileHandle = null;
+    }
     if (!options.keepRecord && reason !== 'rejected') this.recordTransfer(transfer, 'failed');
     if (reason !== 'completed' && reason !== 'rejected') transfer.reject?.(new Error(reason || 'Transfer failed.'));
   }
 
+  async hashFile(filePath) {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    await new Promise((resolve, reject) => {
+      stream.on('data', chunk => hash.update(chunk));
+      stream.on('error', reject);
+      stream.on('end', resolve);
+    });
+    return hash.digest('hex');
+  }
+
   recordTransfer(transfer, status) {
-    return this.localFileTransferManager?.history?.add?.({
-      deviceId: transfer.destinationDeviceId || transfer.sourceDeviceId,
-      fileName: transfer.fileName,
-      direction: transfer.direction,
-      size: transfer.fileSize,
-      timestamp: Date.now(),
-      status
-    }) || {
+    return {
       fileName: transfer.fileName,
       size: transfer.fileSize,
       status

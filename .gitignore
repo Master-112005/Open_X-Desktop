@@ -8,6 +8,8 @@ dist/
 build/
 .playwright-mcp/
 models/
+!core/assistant/models/
+!core/assistant/models/**
 AGENTS.md
 commands.md
 RULES.md

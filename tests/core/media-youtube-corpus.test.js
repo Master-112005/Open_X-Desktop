@@ -1,5 +1,5 @@
 const assert = require('assert');
-const ActionRouter = require('../../core/assistant/router');
+const ActionRouter = require('../../core/assistant/automation/ActionRouter');
 
 const MEDIA_YOUTUBE_COMMANDS = [
   'Open YouTube',

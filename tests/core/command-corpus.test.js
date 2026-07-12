@@ -1,7 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const ActionRouter = require('../../core/assistant/router');
+const ActionRouter = require('../../core/assistant/automation/ActionRouter');
 
 const ATTACHED_COMMAND_CORPORA = [
   'C:\\Users\\rakes\\.codex\\attachments\\b7ab965c-7b91-4fc0-be09-30c18913bd9c\\pasted-text.txt',

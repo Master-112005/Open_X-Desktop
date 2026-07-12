@@ -12,7 +12,7 @@
   <div id="chat-shell">
     <div id="header">
       <div id="header-info">
-        <div class="brand-mark" aria-hidden="true"><span></span></div>
+        <button class="window-btn about-btn" id="about-btn" type="button" title="About OpenX" aria-label="About OpenX" aria-expanded="false" aria-controls="about-panel">i</button>
         <div class="brand-copy">
           <div id="header-title">Assistant</div>
           <div id="header-subtitle"><span class="presence-dot"></span>Ready for local commands</div>
@@ -33,6 +33,45 @@
         <button class="window-btn" id="settings-btn" title="Settings" aria-label="Settings">&#9881;</button>
         <button class="window-btn close" id="close-btn" title="Close" aria-label="Close">&#10005;</button>
       </div>
+    </div>
+
+    <div id="about-overlay" hidden>
+      <section id="about-panel" role="dialog" aria-modal="true" aria-labelledby="about-title" tabindex="-1">
+        <div class="about-header">
+          <div>
+            <div class="about-eyebrow">About</div>
+            <h2 id="about-title">OpenX</h2>
+          </div>
+          <button class="window-btn about-close-btn" id="about-close-btn" type="button" title="Close about" aria-label="Close about">&#10005;</button>
+        </div>
+        <p class="about-summary" id="about-summary">Local-first desktop assistant for automation, voice, updates, and cloud mobile connection.</p>
+        <dl class="about-details">
+          <div>
+            <dt>Version</dt>
+            <dd id="about-version">--</dd>
+          </div>
+          <div>
+            <dt>Assistant</dt>
+            <dd id="about-assistant">OpenX</dd>
+          </div>
+          <div>
+            <dt>Cloud</dt>
+            <dd id="about-cloud">--</dd>
+          </div>
+          <div>
+            <dt>Relay</dt>
+            <dd id="about-relay">--</dd>
+          </div>
+          <div>
+            <dt>Update Channel</dt>
+            <dd id="about-channel">stable</dd>
+          </div>
+          <div>
+            <dt>Platform</dt>
+            <dd id="about-platform">Desktop</dd>
+          </div>
+        </dl>
+      </section>
     </div>
 
     <main id="workspace">
@@ -73,7 +112,7 @@
           <section class="activity-section" aria-labelledby="upcoming-title">
             <div class="activity-section-heading">
               <div>
-                <span class="section-kicker">Schedule</span>
+                <span class="section-kicker">Next 24 hours</span>
                 <h2 id="upcoming-title">Upcoming</h2>
               </div>
               <span class="count-pill" id="schedule-count">0</span>
@@ -131,17 +170,13 @@
                 <div class="hero-stat-label">Learning</div>
                 <div class="hero-stat-value" id="settings-hero-learning">Enabled</div>
               </div>
-              <div class="hero-stat">
-                <div class="hero-stat-label">Access</div>
-                <div class="hero-stat-value" id="settings-hero-permission">Medium</div>
-              </div>
             </div>
           </section>
 
           <div class="settings-nav">
             <button class="settings-nav-chip" data-section-target="system" type="button">
               <span class="nav-label">System</span>
-              <span class="nav-hint">Identity, theme, and access controls.</span>
+              <span class="nav-hint">Identity, voice, and theme.</span>
             </button>
             <button class="settings-nav-chip" data-section-target="profile" type="button">
               <span class="nav-label">Profile</span>
@@ -168,14 +203,13 @@
               <span class="nav-label">Theme</span>
               <span class="nav-hint">Glass tint and colors.</span>
             </button>
-            <button class="system-option" data-system-block-target="access" type="button" role="tab" aria-selected="false">
-              <span class="nav-label">Access</span>
-              <span class="nav-hint">Automation permission level.</span>
-            </button>
           </div>
 
           <section class="settings-section" data-settings-section="system" data-system-block="identity" id="settings-section-identity">
             <div class="section-heading">Assistant Identity</div>
+            <select class="visually-hidden" id="system-permission-level" aria-hidden="true" tabindex="-1">
+              <option value="low">Safe</option><option value="medium">Balanced</option><option value="high">Advanced</option><option value="critical">Full</option>
+            </select>
             <div class="field-grid">
               <label class="field-wrap">
                 <span class="field-label">Assistant Name</span>
@@ -280,20 +314,6 @@
             <div class="theme-grid" id="theme-grid"></div>
           </section>
 
-          <section class="settings-section" data-settings-section="system" data-system-block="access" id="settings-section-access">
-            <div class="section-heading">Permission Scale</div>
-            <div class="section-note">Lower levels block more risky actions. Critical is full access and skips confirmation for allowed actions.</div>
-            <div class="permission-scale" role="radiogroup" aria-label="Automation permission">
-              <button class="permission-option" type="button" role="radio" data-permission="low"><strong>Safe</strong><span>Basic actions</span></button>
-              <button class="permission-option" type="button" role="radio" data-permission="medium"><strong>Balanced</strong><span>Confirm risk</span></button>
-              <button class="permission-option" type="button" role="radio" data-permission="high"><strong>Advanced</strong><span>More control</span></button>
-              <button class="permission-option" type="button" role="radio" data-permission="critical"><strong>Full</strong><span>No prompts</span></button>
-            </div>
-            <select class="visually-hidden" id="system-permission-level" aria-hidden="true" tabindex="-1">
-              <option value="low">Safe</option><option value="medium">Balanced</option><option value="high">Advanced</option><option value="critical">Full</option>
-            </select>
-          </section>
-
           <section class="settings-section" data-settings-section="phone" id="settings-section-phone">
             <div class="phone-section-header">
               <div class="phone-section-tabs" role="tablist" aria-label="Mobile connection settings">
@@ -302,55 +322,12 @@
               </div>
             </div>
             <div class="phone-panel active" data-phone-panel="connect">
-              <div class="section-note">Windows will verify your identity before OpenX creates local or cloud pairing QR codes. OpenX never receives or stores your Windows credentials.</div>
-              <div class="phone-connect-mode-tabs" role="tablist" aria-label="Connection mode">
-                <button class="phone-connect-mode-tab active" data-phone-connect-mode="local" type="button" role="tab" aria-selected="true">Local</button>
-                <button class="phone-connect-mode-tab" data-phone-connect-mode="cloud" type="button" role="tab" aria-selected="false">Cloud</button>
-              </div>
-              <div class="phone-connect-view active" data-phone-connect-view="local">
-                <div class="phone-pairing-card">
-                  <div class="phone-pairing-copy">
-                    <strong>Local QR</strong>
-                    <span id="phone-pairing-status">Generate a code when your mobile app is ready to pair.</span>
-                  </div>
-                  <button class="primary-btn" id="phone-generate-token-btn" type="button">Generate Local QR</button>
-                  <div class="phone-pairing-qr-wrap">
-                    <img id="phone-pairing-qr" alt="OpenX mobile pairing QR code" hidden>
-                  </div>
-                  <output class="phone-pairing-token" id="phone-pairing-token" aria-live="polite">--------</output>
-                  <div class="section-note" id="phone-pairing-expiry"></div>
-                  <div class="phone-pairing-countdown" id="phone-pairing-countdown" aria-live="polite"></div>
-                </div>
-                <div class="phone-server-card">
-                  <div class="phone-server-heading">
-                    <strong>Local Details</strong>
-                    <span id="phone-server-status">Checking...</span>
-                  </div>
-                  <div class="phone-server-grid">
-                    <div class="phone-server-item">
-                      <span>Listening Address</span>
-                      <strong id="phone-server-address">--</strong>
-                    </div>
-                    <div class="phone-server-item">
-                      <span>Port</span>
-                      <strong id="phone-server-port">--</strong>
-                    </div>
-                    <div class="phone-server-item">
-                      <span>Connected Devices</span>
-                      <strong id="phone-server-devices">0</strong>
-                    </div>
-                    <div class="phone-server-item">
-                      <span>Protocol Version</span>
-                      <strong id="phone-server-version">1</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="phone-connect-view" data-phone-connect-view="cloud" hidden>
-                <div class="section-note">Use the OpenX relay when your mobile app is not on the same local network. Cloud mode keeps local pairing and local file transfer unchanged.</div>
+              <div class="section-note">Windows will verify your identity before OpenX creates cloud pairing QR codes. OpenX never receives or stores your Windows credentials.</div>
+              <div class="phone-connect-view active" data-phone-connect-view="cloud">
+                <div class="section-note">Use the OpenX relay to connect the mobile app and transfer files through your cloud-paired devices.</div>
                 <div class="cloud-action-row cloud-action-row-top">
                   <button class="primary-btn" id="cloud-connect-btn" type="button">Connect to Cloud</button>
-                  <span id="cloud-friendly-status">Cloud mode is disconnected. Local mode is active.</span>
+                  <span id="cloud-friendly-status">Cloud mode is disconnected.</span>
                 </div>
                 <div class="cloud-pairing-card">
                   <div class="phone-server-heading">
@@ -410,7 +387,7 @@
                       <strong id="cloud-reconnect-attempts">0</strong>
                     </div>
                     <div class="phone-server-item">
-                      <span>Version</span>
+                      <span>Server Version</span>
                       <strong id="cloud-version">--</strong>
                     </div>
                   </div>
@@ -421,7 +398,7 @@
               <div class="device-center-heading">
                 <div>
                   <strong>Connected Devices</strong>
-                  <div class="section-note">Connected mobile devices appear here.</div>
+                  <div class="section-note">Cloud-paired mobile devices appear here.</div>
                 </div>
                 <button class="secondary-btn" id="device-refresh-btn" type="button">Refresh</button>
               </div>

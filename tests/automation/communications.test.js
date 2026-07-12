@@ -11,71 +11,31 @@ describe('Communications Controller', function() {
     return new CommunicationsController({});
   }
 
-  it('should send a WhatsApp desktop message using the supplied chat name', async function() {
+  it('should reject unsupported chat-provider message composition', async function() {
     const controller = createController();
-    let captured = null;
-    controller.whatsAppDesktop.sendMessage = async (contactName, messageText) => {
-      captured = { contactName, messageText };
-      return { success: true, data: { contactName, messageText, platform: 'whatsapp', delivery: 'sent' } };
-    };
 
-    const result = await controller.composeMessage('daddy', 'call me', 'whatsapp');
-
-    assert.equal(result.success, true);
-    assert.deepEqual(captured, { contactName: 'daddy', messageText: 'call me' });
-  });
-
-  it('should fall back to a wa.me draft when a phone number is supplied directly', async function() {
-    const controller = createController();
-    controller.whatsAppDesktop.sendMessage = async () => ({ success: false, error: 'desktop unavailable' });
-    controller.browser.open = url => ({ success: true, data: { url } });
-
-    const result = await controller.composeMessage('+91 98765 43210', 'hi', 'whatsapp');
-
-    assert.equal(result.success, true);
-    assert.equal(result.data.phone, '+919876543210');
-    assert.equal(result.data.url, 'https://wa.me/919876543210?text=hi');
-  });
-
-  it('should return the desktop failure for an unavailable named chat', async function() {
-    const controller = createController();
-    controller.whatsAppDesktop.sendMessage = async () => ({ success: false, error: 'desktop unavailable' });
-
-    const result = await controller.composeMessage('unknown', 'hello', 'whatsapp');
+    const result = await controller.composeMessage('daddy', 'call me', 'signal');
 
     assert.equal(result.success, false);
-    assert.equal(result.error, 'desktop unavailable');
+    assert.equal(result.error, 'Messaging platform not supported: signal');
   });
 
-  it('should clean file-send phrases into a shareable file path message', async function() {
+  it('should reject generic message composition when no messaging provider exists', async function() {
     const controller = createController();
-    controller.files.search = () => ({ success: true, data: { results: ['C:\\Users\\rakes\\Desktop\\report.pdf'] } });
-    let captured = null;
-    controller.whatsAppDesktop.sendMessage = async (contactName, messageText) => {
-      captured = { contactName, messageText };
-      return { success: true, data: { contactName, messageText } };
-    };
 
-    await controller.composeMessage('mummy', 'file report.pdf', 'whatsapp');
+    const result = await controller.composeMessage('daddy', 'call me');
 
-    assert.deepEqual(captured, {
-      contactName: 'mummy',
-      messageText: 'File path: C:\\Users\\rakes\\Desktop\\report.pdf'
-    });
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'Messaging is not supported by this assistant');
   });
 
-  it('should start a WhatsApp desktop call using the supplied chat name', async function() {
+  it('should reject unsupported chat-provider calls', async function() {
     const controller = createController();
-    let captured = null;
-    controller.whatsAppDesktop.startVoiceCall = async contactName => {
-      captured = contactName;
-      return { success: true, data: { contactName, platform: 'whatsapp' } };
-    };
 
-    const result = await controller.startCall('daddy');
+    const result = await controller.startCall('daddy', 'signal');
 
-    assert.equal(result.success, true);
-    assert.equal(captured, 'daddy');
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'Calling platform not supported: signal');
   });
 
   it('should start a standard call when a phone number is supplied directly', async function() {
