@@ -430,7 +430,7 @@ class CloudFileTransferManager extends EventEmitter {
         : transfer.destinationDeviceId,
       ownerId: transfer.ownerId,
       timestamp: Date.now(),
-      requestId: `${transfer.transferId}:${action}:${payload.chunkIndex ?? ''}`,
+      requestId: `${transfer.transferId}:${action}:${payload.chunkIndex ?? payload.nextChunkIndex ?? 'control'}:${createId('request')}`,
       responseId: null,
       metadata: { feature: 'cloud-file-transfer', action },
       checksum: null,
