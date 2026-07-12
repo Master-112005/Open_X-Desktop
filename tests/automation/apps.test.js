@@ -7,27 +7,6 @@ describe('App Controller', function() {
     AppController = require('../../core/automation/apps');
   });
 
-  it('should match packaged WhatsApp process names when closing apps', function() {
-    const controller = new AppController({});
-    const processes = [
-      {
-        ProcessName: 'WhatsApp.Root',
-        MainWindowTitle: 'WhatsApp',
-        Path: 'C:\\Program Files\\WindowsApps\\5319275A.WhatsAppDesktop_2.2616.100.0_x64__cv1g1gvanyjgm\\WhatsApp.exe'
-      },
-      {
-        ProcessName: 'chrome',
-        MainWindowTitle: 'Google Chrome',
-        Path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
-      }
-    ];
-
-    controller._getRunningProcessDetails = () => processes;
-    const resolvedMatches = controller._findRunningProcesses('whatsapp', ['WhatsApp', 'whatsapp']);
-    assert.equal(resolvedMatches.length, 1);
-    assert.equal(resolvedMatches[0].ProcessName, 'WhatsApp.Root');
-  });
-
   it('should prefer Start menu apps over command fallback when opening apps', function() {
     const controller = new AppController({});
     let launched = null;
@@ -437,13 +416,13 @@ describe('App Controller', function() {
     }
   });
 
-  it('should close WhatsApp by visible window before process fallback', function() {
+  it('should close window-targeted apps by visible window before process fallback', function() {
     const controller = new AppController({});
     let windowCloseAttempted = false;
     let processCloseAttempted = false;
 
     controller._closeAppWindow = (name) => {
-      windowCloseAttempted = name === 'whatsapp';
+      windowCloseAttempted = name === 'instagram';
       return { success: true, data: { app: name, closeMethod: 'window' } };
     };
     controller._closeProcessesGracefully = () => {
@@ -451,7 +430,7 @@ describe('App Controller', function() {
       return true;
     };
 
-    const result = controller.close('whatsapp');
+    const result = controller.close('instagram');
 
     assert.equal(result.success, true);
     assert.equal(result.data.closeMethod, 'window');

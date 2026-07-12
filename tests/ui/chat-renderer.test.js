@@ -107,38 +107,35 @@ describe('Chat Renderer UI', function() {
     assert.match(glassCss, /Tint-aware foreground contrast/);
   });
 
-  it('should expose identity-protected phone pairing controls', function() {
+  it('should expose identity-protected cloud mobile pairing controls', function() {
     assert.match(html, /data-section-target="phone"/);
     assert.match(html, /data-phone-panel-target="connect"/);
     assert.match(html, /data-phone-panel-target="devices"/);
     assert.match(html, /data-phone-panel="connect"/);
     assert.match(html, /data-phone-panel="devices"/);
-    assert.match(html, /id="phone-generate-token-btn"/);
-    assert.match(html, /id="phone-pairing-qr"/);
-    assert.match(html, /id="phone-pairing-token"/);
-    assert.match(script, /window\.openx\.generatePairingQR\(\)/);
-    assert.match(script, /Identity verification required\./);
+    assert.match(html, /id="cloud-generate-qr-btn"/);
+    assert.match(html, /id="cloud-pairing-qr"/);
+    assert.match(script, /window\.openx\.generateCloudPairingQR\(\)/);
+    assert.match(script, /Waiting for Windows identity verification/);
     assert.match(script, /Generate New QR/);
     assert.match(script, /function formatPairingCountdown\(/);
     assert.match(script, /Expires in \$\{formatPairingCountdown\(remaining\)\}/);
     assert.match(script, /setInterval\(update, 1000\)/);
-    assert.match(script, /Pairing code expired\./);
+    assert.match(script, /Cloud pairing QR expired\./);
     assert.match(script, /function setActivePhonePanel/);
     assert.match(script, /phoneSectionTabs\.forEach/);
     assert.match(css, /\.phone-section-tabs/);
     assert.match(css, /\.phone-panel\.active/);
+    assert.doesNotMatch(html, /Local QR|Local Details|data-phone-connect-mode/);
+    assert.doesNotMatch(script, /generatePairingQR|getPhoneServerStatus|loadPhoneServerStatus/);
   });
 
-  it('should expose WhatsApp communication connection controls', function() {
-    assert.match(html, /data-section-target="communication"/);
-    assert.match(html, /id="settings-section-communication"/);
-    assert.match(html, /id="whatsapp-connect-btn"/);
-    assert.match(html, /id="whatsapp-disconnect-btn"/);
-    assert.match(script, /loadCommunicationStatus/);
-    assert.match(script, /connectCommunicationProvider\('whatsapp'\)/);
-    assert.match(script, /disconnectCommunicationProvider\('whatsapp'\)/);
-    assert.match(css, /\.communication-provider-card/);
-    assert.match(css, /\.communication-status\.connected/);
+  it('should not expose chat-provider communication connection controls', function() {
+    assert.doesNotMatch(html, /data-section-target="communication"/);
+    assert.doesNotMatch(html, /id="settings-section-communication"/);
+    assert.doesNotMatch(script, /loadCommunicationStatus/);
+    assert.doesNotMatch(script, /connectCommunicationProvider/);
+    assert.doesNotMatch(script, /disconnectCommunicationProvider/);
   });
 
   it('should group identity and theme under System while keeping Phone separate', function() {
@@ -177,11 +174,11 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(script, /Assistant Access|File Transfer|Receive Files|Send Files|Desktop Control|Clipboard|Future Screen Sharing|Future Camera|Future Microphone/);
     assert.doesNotMatch(script, /Save Permissions|updatePhonePermissions/);
     assert.match(script, /Remove/);
-    assert.match(script, /Disconnect/);
+    assert.doesNotMatch(script, /disconnectPhoneDevice/);
     assert.doesNotMatch(script, /Rename/);
     assert.match(script, /Trust/);
     assert.doesNotMatch(script, /renamePhoneDevice/);
-    assert.match(script, /updatePhoneTrust/);
+    assert.doesNotMatch(script, /updatePhoneTrust/);
     assert.doesNotMatch(html, /All devices|<option value="status">Status<\/option>/);
     assert.doesNotMatch(script, /device-meta-item|device-type-icon|permissionSummary|\['Type'|\['Platform'/);
     assert.match(html, /id="phone-device-remove-dialog"/);

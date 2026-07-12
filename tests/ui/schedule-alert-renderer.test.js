@@ -22,13 +22,11 @@ describe('Dynamic Island Schedule Alerts', function() {
     assert.match(main, /persistUntilAction: true/);
     assert.match(main, /autoHideMs: 0/);
     assert.match(main, /function isTrustedVoiceOverlayIpcSender\(event, channel\)/);
-    assert.match(main, /function cleanCommunicationContactTitle\(value, fallbackIndex = 1\)/);
-    assert.match(main, /function presentCommunicationContactChoicesInDynamicIsland\(result = \{\}\)/);
-    assert.match(main, /response: 'Multiple matching contacts found'/);
-    assert.match(main, /label: `\$\{choice\.index \|\| index \+ 1\}\. \$\{choice\.title\}`/);
-    assert.match(main, /'communication:selectContact'/);
-    assert.match(main, /'communication:sendPrepared'/);
-    assert.match(main, /'communication:cancelPrepared'/);
+    assert.doesNotMatch(main, /function cleanCommunicationContactTitle/);
+    assert.doesNotMatch(main, /function presentCommunicationContactChoicesInDynamicIsland/);
+    assert.doesNotMatch(main, /'communication:selectContact'/);
+    assert.doesNotMatch(main, /'communication:sendPrepared'/);
+    assert.doesNotMatch(main, /'communication:cancelPrepared'/);
     assert.doesNotMatch(main, /data:\s*\{\s*choices,\s*actions: choices\.slice/s);
     assert.match(main, /event\?\.sender\?\.id !== overlayContents\.id/);
     assert.match(main, /trustedVoiceOverlaySender: isTrustedVoiceOverlayIpcSender\(event, channel\)/);
@@ -42,7 +40,7 @@ describe('Dynamic Island Schedule Alerts', function() {
     assert.match(voiceOverlay, /choiceIndex: Math\.max\(0, Math\.min\(8, Number\(action\?\.choiceIndex\) \|\| 0\)\)/);
     assert.match(voiceOverlay, /\['snooze', 'stop'\]\.includes\(action\.kind \|\| action\.id\)/);
     assert.match(preload, /function appendVoiceActions\(fragment, payload = \{\}\)/);
-    assert.match(preload, /ipcRenderer\.invoke\('communication:selectContact'/);
+    assert.doesNotMatch(preload, /ipcRenderer\.invoke\('communication:/);
     assert.match(preload, /ipcRenderer\.invoke\('schedule:alertAction'/);
     assert.match(preload, /ipcRenderer\.invoke\('voiceOverlay:collapse', options\)/);
     assert.match(preload, /hideAfterMs: 5000/);

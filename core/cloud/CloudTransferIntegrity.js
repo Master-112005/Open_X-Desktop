@@ -2,7 +2,7 @@ const crypto = require('crypto');
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
 
-class TransferIntegrity {
+class CloudTransferIntegrity {
   createHash(data) {
     if (!Buffer.isBuffer(data)) throw new TypeError('File data must be a buffer');
     return crypto.createHash('sha256').update(data).digest('hex');
@@ -24,4 +24,4 @@ class TransferIntegrity {
   }
 }
 
-module.exports = TransferIntegrity;
+module.exports = CloudTransferIntegrity;

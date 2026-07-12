@@ -15,6 +15,10 @@ const { CommandFrameParser } = require('../linguistic/InputParser');
 const NaturalLanguageRouter = require('../semantic/NaturalLanguageRouter');
 const { AppCommandLanguage, BrowserCommandLanguage } = NaturalLanguageRouter;
 const ResponseGenerator = require('../response/ResponseGenerator');
+const {
+  isCancellationError,
+  throwIfAborted
+} = require('../utils/Cancellation');
 
 const CONFIDENCE_THRESHOLD = 0.5;
 const PHONE_TRANSFER_ACTION_PATTERN = /^(?:(?:please|can\s+you|could\s+you|would\s+you|can\s+u)\s+)?(?:send|share|transfer|copy|export|push|move|give|get|bring|send\s+over|send\s+across)\b/i;
@@ -585,14 +589,6 @@ class ActionRouter {
 
     if (/\b(?:deleted|recycle\s+bin|recover\s+what\s+i\s+just\s+deleted|accidentally\s+deleted|restore\s+deleted)\b/.test(input)) {
       return openApp('shell:RecycleBinFolder', 0.95);
-    }
-
-    if (/\b(?:talk\s+to\s+my\s+friends|open\s+my\s+messages|message\s+friends|chat\s+with\s+friends)\b/.test(input)) {
-      return openApp('whatsapp', 0.95);
-    }
-
-    if (/\b(?:specific\s+conversation|search\s+my\s+chats|who\s+texted|message\s+me\s+today|texted\s+me\s+recently)\b/.test(input)) {
-      return openApp('whatsapp', 0.93);
     }
 
     if (/\b(?:meeting|join\s+call|video\s+call|conference)\b/.test(input) &&
@@ -1591,7 +1587,7 @@ class ActionRouter {
       messageEntities?.contactName ||
       messageEntities?.messageText ||
       messageEntities?.platform ||
-      /\b(?:send|message|text|msg|whatsapp|telegram|signal|discord|messenger|instagram|say|ask|tell)\b/i.test(rawCommandText)
+      /\b(?:send|message|text|msg|telegram|signal|discord|messenger|instagram|say|ask|tell)\b/i.test(rawCommandText)
     );
 
     const helpWonReason = intent?.id === 'help' && messageCandidate
@@ -1606,7 +1602,7 @@ class ActionRouter {
       extractedEntities: intentResult?.entities || {},
       chosenAction: intent?.action || null,
       selectedCommunicationProvider: intent?.id === 'message.send'
-        ? (intentResult?.entities?.platform || this.config?.communication?.defaultProvider || 'whatsapp')
+        ? (intentResult?.entities?.platform || this.config?.communication?.defaultProvider || null)
         : null,
       helpWonReason
     });
@@ -1634,7 +1630,10 @@ class ActionRouter {
       const routedClause = this._applyBrowserContextToSearchClause(clause, browserContext, source);
       let result = await this.process(routedClause, source, {
         allowMulti: false,
-        permissionGuard: options.permissionGuard
+        permissionGuard: options.permissionGuard,
+        phoneContext: options.phoneContext || null,
+        signal: options.signal,
+        executionContext: options.executionContext || null
       });
       if (!result.success && !result.requiresConfirmation) {
         const fallbackResult = await this._executeBareWorkflowStep(clause, source, options);
@@ -1920,6 +1919,8 @@ class ActionRouter {
 
   async _execute(commandId, intentResult, entities, rawCommandText = '', source = 'chat', languageUnderstanding = null, executionOptions = {}) {
     try {
+      const signal = executionOptions.signal || executionOptions.executionContext?.signal || null;
+      throwIfAborted(signal);
       if (intentResult.intent.id === 'assistant.capability') {
         let capabilityData = { action: 'capability.recognized', ...entities };
         if (this.automationEngine && typeof this.automationEngine.execute === 'function') {
@@ -1930,10 +1931,13 @@ class ActionRouter {
               input: rawCommandText,
               source,
               languageUnderstanding,
+              signal,
+              executionContext: executionOptions.executionContext || null,
               capabilityMarkerOnly: true
             }));
             if (markerResult?.data) capabilityData = markerResult.data;
           } catch (error) {
+            if (isCancellationError(error)) throw error;
             this.logger.warn('Capability marker execution failed', { error: error.message, input: rawCommandText });
           }
         }
@@ -1977,8 +1981,11 @@ class ActionRouter {
         languageUnderstanding,
         contextualRewrite: languageUnderstanding?.contextualRewrite || null,
         conversation: executionOptions.conversation || null,
-        phoneContext: executionOptions.phoneContext || null
+        phoneContext: executionOptions.phoneContext || null,
+        signal,
+        executionContext: executionOptions.executionContext || null
       });
+      throwIfAborted(signal);
       const confirmation = this.actionConfirmation.confirm(result);
       this.logger.info(`Execution result: ${commandId}`, {
         success: result.success,
@@ -2003,7 +2010,12 @@ class ActionRouter {
       if (result.success && intentResult.intent.id === 'mode.start') {
         const modeCommands = this._extractModeCommandsFromData(result.data);
         for (const command of modeCommands) {
-          const stepResult = await this.process(command, source, { allowMulti: true });
+          throwIfAborted(signal);
+          const stepResult = await this.process(command, source, {
+            allowMulti: true,
+            signal,
+            executionContext: executionOptions.executionContext || null
+          });
           modeCommandSteps.push({
             input: command,
             success: stepResult.success,
@@ -2050,6 +2062,9 @@ class ActionRouter {
         data: responseData || result.data || null
       };
     } catch (err) {
+      if (isCancellationError(err)) {
+        throw err;
+      }
       this.logger.error(`Execution error: ${commandId}`, err);
       return {
         commandId,
@@ -3668,7 +3683,7 @@ class ActionRouter {
       if (entities.contactName && entities.messageText) {
         return { intent: messageIntent, confidence: 1, entities };
       }
-      if (/^(?:say|send|message|text|ask|tell|msg|massage|whatsapp|telegram|signal|discord|messenger|instagram)\b/i.test(lower) &&
+      if (/^(?:say|send|message|text|ask|tell|msg|massage|telegram|signal|discord|messenger|instagram)\b/i.test(lower) &&
         (entities.contactName || entities.messageText || entities.platform)) {
         return { intent: messageIntent, confidence: 0.98, entities };
       }

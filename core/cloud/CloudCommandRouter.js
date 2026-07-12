@@ -1,4 +1,4 @@
-class PhoneCommandRouter {
+class CloudCommandRouter {
   constructor(assistantProvider) {
     if (typeof assistantProvider === 'function') {
       this.getAssistant = assistantProvider;
@@ -18,11 +18,11 @@ class PhoneCommandRouter {
     }
 
     const commandOptions = {};
-    if (typeof options.permissionGuard === 'function') {
-      commandOptions.permissionGuard = options.permissionGuard;
-    }
     if (options.phoneContext && typeof options.phoneContext === 'object') {
-      commandOptions.phoneContext = options.phoneContext;
+      commandOptions.phoneContext = {
+        ...options.phoneContext,
+        cloud: true
+      };
     }
     if (Object.keys(commandOptions).length > 0) {
       return assistant.processCommand(command.trim(), 'phone', commandOptions);
@@ -31,4 +31,4 @@ class PhoneCommandRouter {
   }
 }
 
-module.exports = PhoneCommandRouter;
+module.exports = CloudCommandRouter;

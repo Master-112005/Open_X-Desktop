@@ -242,43 +242,6 @@ function appendVoiceActions(fragment, payload = {}) {
           return;
         }
       }
-      if (kind === 'contact-select' && action.choiceIndex) {
-        try {
-          const result = await ipcRenderer.invoke('communication:selectContact', {
-            choiceIndex: action.choiceIndex
-          });
-          if (!result?.success && !result?.needsClarification) {
-            throw new Error(result?.error || 'Action failed');
-          }
-          return;
-        } catch (_) {
-          button.textContent = originalLabel;
-          setVoiceActionRowResolving(row, button, false);
-          return;
-        }
-      }
-      if (['send', 'cancel'].includes(kind) && action.draftId) {
-        try {
-          const channel = kind === 'send' ? 'communication:sendPrepared' : 'communication:cancelPrepared';
-          const result = await ipcRenderer.invoke(channel, {
-            provider: action.provider || 'whatsapp',
-            draftId: action.draftId
-          });
-          if (!result?.success) {
-            throw new Error(result?.error || 'Action failed');
-          }
-          collapseVoiceIslandAfter(80, {
-            statusText: kind === 'send' ? 'Message sent' : 'Draft cancelled',
-            icon: 'WA',
-            hideAfterMs: 5000
-          });
-          return;
-        } catch (_) {
-          button.textContent = originalLabel;
-          setVoiceActionRowResolving(row, button, false);
-          return;
-        }
-      }
       try {
         const scheduleAction = kind === 'end' ? 'stop' : kind;
         const result = await ipcRenderer.invoke('schedule:alertAction', {
@@ -610,24 +573,6 @@ const openxApi = {
   disconnectCloud: () =>
     ipcRenderer.invoke('cloud:disconnect'),
 
-  getCommunicationStatus: () =>
-    ipcRenderer.invoke('communication:status'),
-
-  connectCommunicationProvider: (provider = 'whatsapp') =>
-    ipcRenderer.invoke('communication:connect', { provider }),
-
-  disconnectCommunicationProvider: (provider = 'whatsapp') =>
-    ipcRenderer.invoke('communication:disconnect', { provider }),
-
-  selectCommunicationContact: (choiceIndex) =>
-    ipcRenderer.invoke('communication:selectContact', { choiceIndex }),
-
-  sendPreparedCommunication: (provider, draftId) =>
-    ipcRenderer.invoke('communication:sendPrepared', { provider, draftId }),
-
-  cancelPreparedCommunication: (provider, draftId) =>
-    ipcRenderer.invoke('communication:cancelPrepared', { provider, draftId }),
-
   generateCloudPairingQR: () =>
     ipcRenderer.invoke('cloud:pairingQR:create'),
 
@@ -640,29 +585,14 @@ const openxApi = {
   rejectCloudPairing: (pairRequestId) =>
     ipcRenderer.invoke('cloud:pairing:reject', { pairRequestId }),
 
-  generatePairingQR: () =>
-    ipcRenderer.invoke('phone:pairingQR:create'),
-
-  getPhoneServerStatus: () =>
-    ipcRenderer.invoke('phone:server:status'),
-
   getPhoneDevices: () =>
-    ipcRenderer.invoke('phone:devices:list'),
+    ipcRenderer.invoke('cloud:devices:list'),
 
   renamePhoneDevice: (deviceId, deviceName) =>
-    ipcRenderer.invoke('phone:device:rename', { deviceId, deviceName }),
-
-  updatePhoneTrust: (deviceId, trusted) =>
-    ipcRenderer.invoke('phone:device:trust:update', { deviceId, trusted }),
-
-  updatePhonePermissions: (deviceId, permissions) =>
-    ipcRenderer.invoke('phone:device:permissions:update', { deviceId, permissions }),
+    ipcRenderer.invoke('cloud:device:rename', { deviceId, deviceName }),
 
   removePhoneDevice: (deviceId) =>
-    ipcRenderer.invoke('phone:device:remove', { deviceId }),
-
-  disconnectPhoneDevice: (deviceId) =>
-    ipcRenderer.invoke('phone:device:disconnect', { deviceId }),
+    ipcRenderer.invoke('cloud:device:remove', { deviceId }),
 
   saveSettings: (settings) =>
     ipcRenderer.invoke('settings:save', settings),

@@ -178,7 +178,7 @@ describe('Settings Service', function() {
       modes: [
         { name: 'gaming', apps: ['chrome', 'discord', 'chrome'], commands: ['play liked songs', 'play liked songs'] },
         { name: 'Gaming', apps: ['duplicate'] },
-        { name: 'dev', apps: 'code, chrome, terminal, youtube, whatsapp, paint' },
+        { name: 'dev', apps: 'code, chrome, terminal, youtube, paint, notepad' },
         { name: 'work', apps: ['outlook'] },
         { name: 'study', apps: ['notepad'] },
         { name: 'media', apps: ['youtube'] },

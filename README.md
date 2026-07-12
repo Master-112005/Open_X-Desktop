@@ -1,6 +1,6 @@
 # OpenX
 
-OpenX is a deterministic, local-first Windows desktop assistant built with Electron 28, Node.js, and CommonJS. It understands chat, voice, phone, and cloud-delivered text commands, then routes them through the same assistant pipeline for validation, automation, verification, response generation, context, and learning.
+OpenX is a deterministic Windows desktop assistant built with Electron 28, Node.js, and CommonJS. It understands chat, voice, and cloud-delivered mobile text commands, then routes them through the same assistant pipeline for validation, automation, verification, response generation, context, and learning.
 
 Current package version: `5.5.1`
 
@@ -10,8 +10,7 @@ Current package version: `5.5.1`
 - Handles reminders, alarms, timers, stopwatch, calendar entries, and timetable entries.
 - Understands flexible reminder language, including scheduled `remember`, `note`, and `save` phrases when a date, time, or duration is present.
 - Searches local files and folders with typo tolerance and clarification prompts for ambiguous matches.
-- Supports OpenX Mobile pairing, trusted-device permissions, phone command routing, and local/cloud file transfer.
-- Supports optional desktop cloud relay mode for command packets, pairing requests, presence, notifications, and file-transfer packets.
+- Supports OpenX Mobile through cloud relay pairing, command packets, presence, notifications, and file-transfer packets.
 - Runs local voice sessions with audio preprocessing, STT, transcript normalization, Dynamic Island voice UI, and TTS.
 - Stores runtime data locally under `%USERPROFILE%\OpenX_Data`.
 - Keeps plugins isolated behind the assistant command and automation boundaries.
@@ -19,7 +18,7 @@ Current package version: `5.5.1`
 ## Command Flow
 
 ```text
-chat / voice / phone / cloud text
+chat / voice / cloud mobile text
   -> input acquisition
   -> language normalization
   -> linguistic understanding
@@ -46,11 +45,10 @@ Assistant.processCommand(text, source, options)
 | Desktop app | `apps/desktop/` | Electron lifecycle, IPC, renderer UI, settings, crash recovery, identity verification |
 | Assistant core | `core/assistant/` | Input, normalization, language understanding, entities, memory, reasoning, planning, decisions, validation, automation bridge, verification, response, learning |
 | Automation | `core/automation/` | Apps, browser, files, folders, media, planner, scheduler, system, volume, brightness, windows |
-| Phone | `core/phone/` | Pairing, sessions, permissions, command routing, WebSocket server, file transfer |
-| Cloud | `core/cloud/` | Relay connection, pairing, command packets, file transfer, presence, notifications |
+| Cloud | `core/cloud/` | Relay connection, mobile pairing, command packets, file transfer, presence, notifications |
 | Voice | `apps/desktop/voice/` | Capture, preprocessing, STT, normalization, voice sessions, diagnostics, voice UI, TTS |
 | Plugins | `plugins/` | Chrome, YouTube, Discord, forms, communications, sample plugin |
-| Tests | `tests/` | Core, automation, context, phone, cloud, voice, renderer, planner, widgets |
+| Tests | `tests/` | Core, automation, context, cloud, voice, renderer, planner, widgets |
 
 ## Runtime Data
 
@@ -68,15 +66,14 @@ Important files and folders include:
 - `learning/`
 - `logs/`
 - `voice/diagnostics/`
-- `phone/`
 - `cloud/connection.log`
+- `runtime/cloud-transfer/`
 - `screenshots/`
-- `runtime/phone-transfer/`
-- `received/`
+- `%USERPROFILE%\Downloads\OpenX Cloud Received\`
 
 ## Optional Cloud Relay
 
-OpenX works offline for local automation, local voice, local schedules, and local phone pairing. Cloud relay mode is optional and is controlled from `Settings -> Phone -> Cloud`.
+OpenX works offline for local automation, local voice, and local schedules. Mobile connectivity uses the cloud relay and is controlled from `Settings -> Phone`.
 
 Cloud mode supports:
 

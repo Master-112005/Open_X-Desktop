@@ -1,5 +1,5 @@
 const EventEmitter = require('events');
-const { PhoneCommandRouter } = require('../phone');
+const CloudCommandRouter = require('./CloudCommandRouter');
 const CloudRequestQueue = require('./CloudRequestQueue');
 const CloudResponseSerializer = require('./CloudResponseSerializer');
 
@@ -10,7 +10,7 @@ class CloudCommandManager extends EventEmitter {
   constructor(options = {}) {
     super();
     this.connectionManager = options.connectionManager;
-    this.commandRouter = options.commandRouter || new PhoneCommandRouter(options.assistantProvider);
+    this.commandRouter = options.commandRouter || new CloudCommandRouter(options.assistantProvider);
     this.queue = options.queue || new CloudRequestQueue({
       mode: options.queueMode,
       maxQueueSize: options.maxQueueSize

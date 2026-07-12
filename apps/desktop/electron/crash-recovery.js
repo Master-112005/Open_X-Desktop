@@ -78,9 +78,13 @@ class CrashRecoveryPolicy {
     const state = readJsonFile(this.statePath, {});
     const crashRecords = this.readCrashRecords(now);
     const crashTimestamps = this.readCrashTimestamps(now);
+    const recoveredCrashRecords = Array.isArray(state.recoveredCrashRecords)
+      ? state.recoveredCrashRecords.slice(-this.maxRestarts)
+      : [];
     return {
       ...this.getState(now),
       crashRecords,
+      recoveredCrashRecords,
       lastCrash: state.lastCrash || crashRecords[crashRecords.length - 1] || null,
       blockedAt: Number.isFinite(state.blockedAt) ? state.blockedAt : null,
       stableAt: Number.isFinite(state.stableAt) ? state.stableAt : null,
@@ -91,15 +95,20 @@ class CrashRecoveryPolicy {
   }
 
   requestRestart(now = Date.now(), metadata = {}) {
+    const state = readJsonFile(this.statePath, {});
     const timestamps = this.readCrashTimestamps(now);
     const records = this.readCrashRecords(now);
     const crashMetadata = compactCrashMetadata(metadata);
     const nextRecord = { ...crashMetadata, timestamp: now };
+    const recoveredCrashRecords = Array.isArray(state.recoveredCrashRecords)
+      ? state.recoveredCrashRecords.slice(-this.maxRestarts)
+      : [];
 
     if (timestamps.length >= this.maxRestarts) {
       writeJsonAtomic(this.statePath, {
         crashTimestamps: timestamps,
         crashRecords: records,
+        recoveredCrashRecords,
         blockedAt: now,
         lastCrash: nextRecord
       });
@@ -111,6 +120,7 @@ class CrashRecoveryPolicy {
     writeJsonAtomic(this.statePath, {
       crashTimestamps: timestamps,
       crashRecords: records.slice(-this.maxRestarts),
+      recoveredCrashRecords,
       lastCrashAt: now,
       lastCrash: nextRecord
     });
@@ -118,7 +128,18 @@ class CrashRecoveryPolicy {
   }
 
   markStable(now = Date.now()) {
-    writeJsonAtomic(this.statePath, { crashTimestamps: [], crashRecords: [], stableAt: now });
+    const state = readJsonFile(this.statePath, {});
+    const records = this.readCrashRecords(now);
+    const recoveredCrashRecords = records.length > 0
+      ? records.slice(-this.maxRestarts)
+      : (Array.isArray(state.recoveredCrashRecords) ? state.recoveredCrashRecords.slice(-this.maxRestarts) : []);
+    writeJsonAtomic(this.statePath, {
+      crashTimestamps: [],
+      crashRecords: [],
+      recoveredCrashRecords,
+      lastCrash: state.lastCrash || recoveredCrashRecords[recoveredCrashRecords.length - 1] || null,
+      stableAt: now
+    });
   }
 }
 

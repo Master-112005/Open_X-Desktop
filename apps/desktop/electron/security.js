@@ -3,17 +3,6 @@ const { fileURLToPath } = require('url');
 
 const FORBIDDEN_OBJECT_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const ALLOWED_COMMAND_SOURCES = new Set(['chat', 'voice']);
-const PHONE_PERMISSION_NAMES = new Set([
-  'remoteCommands',
-  'fileTransfer',
-  'receiveFiles',
-  'sendFiles',
-  'powerActions',
-  'clipboard',
-  'screenSharing',
-  'camera',
-  'microphone'
-]);
 const UNSAFE_TEXT_CONTROL_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 const UNSAFE_DIRECTIONAL_PATTERN = /[\u202A-\u202E\u2066-\u2069]/;
 
@@ -160,29 +149,6 @@ function validateCloudPairRequest(payload) {
   const pairRequestId = requireString(payload.pairRequestId, 'pairRequestId', { maxLength: 128 });
   if (!/^[A-Za-z0-9._-]+$/.test(pairRequestId)) throw new TypeError('pairRequestId is invalid');
   return { pairRequestId };
-}
-
-function validateCommunicationProvider(payload) {
-  requirePlainObject(payload);
-  const provider = requireString(payload.provider || 'whatsapp', 'provider', { maxLength: 40 }).toLowerCase();
-  if (!/^[a-z0-9_-]+$/.test(provider)) throw new TypeError('provider is invalid');
-  return { provider };
-}
-
-function validateCommunicationDraftAction(payload) {
-  const { provider } = validateCommunicationProvider(payload);
-  const draftId = requireString(payload.draftId, 'draftId', { maxLength: 128 });
-  if (!/^[A-Za-z0-9._:-]+$/.test(draftId)) throw new TypeError('draftId is invalid');
-  return { provider, draftId };
-}
-
-function validateCommunicationContactSelection(payload) {
-  requirePlainObject(payload);
-  const choiceIndex = Number(payload.choiceIndex);
-  if (!Number.isInteger(choiceIndex) || choiceIndex < 1 || choiceIndex > 8) {
-    throw new TypeError('choiceIndex is invalid');
-  }
-  return { choiceIndex };
 }
 
 function validateScheduleAction(payload) {
@@ -349,39 +315,18 @@ function validatePlannerDelete(payload) {
   return { id: requireString(payload.id, 'id', { maxLength: 128 }) };
 }
 
-function validatePhoneDevice(payload) {
+function validateCloudDevice(payload) {
   requirePlainObject(payload);
   const deviceId = requireString(payload.deviceId, 'deviceId', { maxLength: 128 });
   if (!/^[A-Za-z0-9._:-]+$/.test(deviceId)) throw new TypeError('deviceId is invalid');
   return { deviceId };
 }
 
-function validatePhonePermissions(payload) {
-  const { deviceId } = validatePhoneDevice(payload);
-  const permissions = requirePlainObject(payload.permissions, 'permissions');
-  const entries = Object.entries(permissions);
-  if (entries.length === 0) throw new TypeError('permissions must not be empty');
-  const normalized = {};
-  for (const [name, value] of entries) {
-    if (!PHONE_PERMISSION_NAMES.has(name) || typeof value !== 'boolean') {
-      throw new TypeError('permissions are invalid');
-    }
-    normalized[name] = value;
-  }
-  return { deviceId, permissions: normalized };
-}
-
-function validatePhoneDeviceRename(payload) {
-  const { deviceId } = validatePhoneDevice(payload);
+function validateCloudDeviceRename(payload) {
+  const { deviceId } = validateCloudDevice(payload);
   const deviceName = requireString(payload.deviceName, 'deviceName', { maxLength: 100 }).replace(/\s+/g, ' ').trim();
   if (!deviceName) throw new TypeError('deviceName is required');
   return { deviceId, deviceName };
-}
-
-function validatePhoneDeviceTrust(payload) {
-  const { deviceId } = validatePhoneDevice(payload);
-  if (typeof payload.trusted !== 'boolean') throw new TypeError('trusted is required');
-  return { deviceId, trusted: payload.trusted };
 }
 
 function validateEmpty(payload) {
@@ -442,20 +387,9 @@ const IPC_VALIDATORS = Object.freeze({
   'cloud:pairing:status': validateEmpty,
   'cloud:pairing:approve': validateCloudPairRequest,
   'cloud:pairing:reject': validateCloudPairRequest,
-  'communication:status': validateEmpty,
-  'communication:connect': validateCommunicationProvider,
-  'communication:disconnect': validateCommunicationProvider,
-  'communication:selectContact': validateCommunicationContactSelection,
-  'communication:sendPrepared': validateCommunicationDraftAction,
-  'communication:cancelPrepared': validateCommunicationDraftAction,
-  'phone:pairingQR:create': validateEmpty,
-  'phone:server:status': validateEmpty,
-  'phone:devices:list': validateEmpty,
-  'phone:device:rename': validatePhoneDeviceRename,
-  'phone:device:trust:update': validatePhoneDeviceTrust,
-  'phone:device:permissions:update': validatePhonePermissions,
-  'phone:device:remove': validatePhoneDevice,
-  'phone:device:disconnect': validatePhoneDevice,
+  'cloud:devices:list': validateEmpty,
+  'cloud:device:rename': validateCloudDeviceRename,
+  'cloud:device:remove': validateCloudDevice,
   'settings:save': validateSettings,
   'settings:reset': validateEmpty,
   'schedule:alertAction': validateScheduleAction,

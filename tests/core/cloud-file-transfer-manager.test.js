@@ -4,8 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const EventEmitter = require('events');
-const { CloudFileTransferManager } = require('../../core/cloud');
-const FileTransferProtocol = require('../../core/phone/FileTransferProtocol');
+const { CloudFileTransferManager, CloudFileTransferProtocol } = require('../../core/cloud');
 
 function createConnection() {
   const sent = [];
@@ -22,6 +21,15 @@ function createConnection() {
   };
   connection.sent = sent;
   return connection;
+}
+
+async function waitFor(predicate, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  assert.ok(predicate(), 'condition was not met before timeout');
 }
 
 describe('CloudFileTransferManager', () => {
@@ -41,17 +49,12 @@ describe('CloudFileTransferManager', () => {
     const connection = createConnection();
     const manager = new CloudFileTransferManager({
       connectionManager: connection,
-      localFileTransferManager: {
-        receiveDirectory: path.join(tempDir, 'received'),
-        tempDirectory: path.join(tempDir, 'tmp'),
-        history: { add: record => record }
-      },
       chunkBytes: 8,
       logger: { info() {}, warn() {}, error() {} }
     });
 
     const pending = manager.sendFileToDevice('phone_1', source);
-    await new Promise(resolve => setTimeout(resolve, 20));
+    await waitFor(() => connection.sent.length === 1);
     assert.equal(connection.sent.length, 1);
     assert.equal(connection.sent[0].payload.action, 'metadata');
     assert.equal(connection.sent[0].payload.fileName, 'hello.txt');
@@ -67,22 +70,74 @@ describe('CloudFileTransferManager', () => {
       }
     });
 
+    await waitFor(() => connection.sent.length >= 2);
     assert.equal(connection.sent[1].payload.action, 'chunk');
     assert.equal(connection.sent[1].payload.chunkIndex, 0);
     manager.cancelTransfer(connection.sent[0].payload.transferId, 'test-finished');
     await assert.rejects(() => pending, /test-finished/);
   });
 
+  it('streams outgoing desktop chunks without retaining the whole file in memory', async () => {
+    const source = path.join(tempDir, 'large.bin');
+    fs.writeFileSync(source, Buffer.alloc(64 * 1024, 7));
+    const connection = createConnection();
+    const manager = new CloudFileTransferManager({
+      connectionManager: connection,
+      chunkBytes: 4096,
+      logger: { info() {}, warn() {}, error() {} }
+    });
+
+    const pending = manager.sendFileToDevice('phone_1', source);
+    await waitFor(() => connection.sent.length === 1);
+    const transferId = connection.sent[0].payload.transferId;
+    const transfer = manager.outgoing.get(transferId);
+    assert.equal(Buffer.isBuffer(transfer.data), false);
+    assert.equal(transfer.sourcePath, source);
+    assert.ok(transfer.fileHandle);
+
+    manager.handleRelayPacket({
+      packet: {
+        payload: {
+          type: 'cloud-file-transfer',
+          action: 'accept',
+          transferId,
+          nextChunkIndex: 0
+        }
+      }
+    });
+
+    await waitFor(() => connection.sent.length >= 2);
+    assert.equal(connection.sent[1].payload.action, 'chunk');
+    assert.equal(connection.sent[1].payload.chunkSize, 4096);
+    manager.cancelTransfer(transferId, 'test-finished');
+    await assert.rejects(() => pending, /test-finished/);
+  });
+
+  it('cleans up outgoing file handles when relay metadata send fails', async () => {
+    const source = path.join(tempDir, 'failed.bin');
+    fs.writeFileSync(source, Buffer.alloc(1024, 3));
+    const connection = createConnection();
+    connection.sendRelayPacket = () => false;
+    const manager = new CloudFileTransferManager({
+      connectionManager: connection,
+      chunkBytes: 512,
+      logger: { info() {}, warn() {}, error() {} }
+    });
+
+    await assert.rejects(
+      () => manager.sendFileToDevice('phone_1', source),
+      /could not send/
+    );
+    assert.equal(manager.outgoing.size, 0);
+  });
+
   it('receives chunks only after explicit acceptance and verifies final hash', async () => {
     const connection = createConnection();
     const manager = new CloudFileTransferManager({
       connectionManager: connection,
-      localFileTransferManager: {
-        receiveDirectory: path.join(tempDir, 'received'),
-        tempDirectory: path.join(tempDir, 'tmp'),
-        history: { add: record => record }
-      },
-      logger: { info() {}, warn() {}, error() {} }
+      logger: { info() {}, warn() {}, error() {} },
+      receiveDirectory: path.join(tempDir, 'received'),
+      tempDirectory: path.join(tempDir, 'tmp')
     });
     const data = Buffer.from('phone to desktop');
     const sha256 = crypto.createHash('sha256').update(data).digest('hex');
@@ -122,7 +177,7 @@ describe('CloudFileTransferManager', () => {
   });
 
   it('keeps relay packet chunks below the configured packet limit', async () => {
-    const protocol = new FileTransferProtocol();
+    const protocol = new CloudFileTransferProtocol();
     assert.ok(12 * 1024 < protocol.constructor.DEFAULT_CHUNK_BYTES);
   });
 });

@@ -40,13 +40,6 @@ const KNOWN_APPS = {
   'outlook': { cmd: 'outlook' },
   'spotify': { cmd: 'spotify' },
   'discord': { cmd: 'discord', processName: 'Discord' },
-  'whatsapp': {
-    processName: 'WhatsApp',
-    closeStrategy: 'window',
-    windowQuery: 'whatsapp',
-    preferredTitleTokens: ['whatsapp'],
-    preferredProcessNames: ['WhatsApp', 'ApplicationFrameHost']
-  },
   'slack': { cmd: 'slack' },
   'zoom': { cmd: 'zoom' },
   'teams': { cmd: 'teams', processName: 'Teams' },

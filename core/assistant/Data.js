@@ -27,11 +27,10 @@ function resolveLegacyDataRoot(config = {}) {
 function buildDataPaths(config = {}) {
   const root = resolveDataRoot(config);
   const runtimeDir = path.join(root, 'runtime');
-  const phoneDir = path.join(root, 'phone');
   const voiceDir = path.join(root, 'voice');
   const cloudDir = path.join(root, 'cloud');
   const securityDir = path.join(root, 'security');
-  const phoneReceivedDir = path.join(os.homedir(), 'Downloads', 'OpenX Received');
+  const cloudReceivedDir = path.join(os.homedir(), 'Downloads', 'OpenX Cloud Received');
 
   return {
     root,
@@ -54,14 +53,9 @@ function buildDataPaths(config = {}) {
     voiceDiagnosticsDir: path.join(voiceDir, 'diagnostics'),
     cloudDir,
     cloudLogPath: path.join(cloudDir, 'connection.log'),
-    securityDir,
-    phoneDir,
-    phoneReceivedDir,
-    phoneTempDir: path.join(runtimeDir, 'phone-transfer'),
-    phoneDevicesPath: path.join(phoneDir, 'devices.json'),
-    phonePairingPath: path.join(phoneDir, 'pairing.json'),
-    phonePermissionsPath: path.join(phoneDir, 'permissions.json'),
-    phoneTransferHistoryPath: path.join(phoneDir, 'transfer-history.json')
+    cloudReceivedDir,
+    cloudTempDir: path.join(runtimeDir, 'cloud-transfer'),
+    securityDir
   };
 }
 
@@ -223,10 +217,9 @@ function ensureDataRoot(config = {}) {
     paths.voiceDir,
     paths.voiceDiagnosticsDir,
     paths.cloudDir,
-    paths.securityDir,
-    paths.phoneDir,
-    paths.phoneReceivedDir,
-    paths.phoneTempDir
+    paths.cloudReceivedDir,
+    paths.cloudTempDir,
+    paths.securityDir
   ].forEach(ensureDirectory);
   purgeDeprecatedContactStorage(paths.root);
   return paths;
