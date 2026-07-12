@@ -5,6 +5,7 @@ let voiceAssistantActionCollapseTimer = null;
 let voiceAlertAudioContext = null;
 let voiceAlertSoundInterval = null;
 let voiceAlertActiveTones = [];
+let voiceLiveScheduleTimer = null;
 
 function voiceResultNameFromPath(pathValue, fallback) {
   return String(pathValue || '').split(/[\\/]/).filter(Boolean).pop() || fallback;
@@ -85,6 +86,82 @@ function appendVoiceScheduleDue(fragment, payload = {}) {
     }
     panel.appendChild(meta);
   }
+  fragment.appendChild(panel);
+}
+
+function formatVoiceDuration(ms) {
+  const totalSeconds = Math.max(0, Math.ceil(Number(ms) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function stopVoiceLiveScheduleTicker() {
+  if (voiceLiveScheduleTimer) {
+    clearInterval(voiceLiveScheduleTimer);
+    voiceLiveScheduleTimer = null;
+  }
+}
+
+function updateVoiceLiveScheduleDom(panel, schedule = {}) {
+  const dueAt = new Date(schedule.dueAt || 0).getTime();
+  const createdAt = new Date(schedule.createdAt || 0).getTime();
+  const remainingMs = Number.isFinite(dueAt) ? Math.max(0, dueAt - Date.now()) : 0;
+  const durationMs = Number(schedule.durationMs) > 0
+    ? Number(schedule.durationMs)
+    : (Number.isFinite(createdAt) && Number.isFinite(dueAt) ? Math.max(1000, dueAt - createdAt) : 0);
+  const value = panel.querySelector('.voice-live-value');
+  const subValue = panel.querySelector('.voice-live-subvalue');
+  const ring = panel.querySelector('.voice-live-ring');
+  if (value) value.textContent = formatVoiceDuration(remainingMs);
+  if (subValue) subValue.textContent = remainingMs <= 0 ? 'Due now' : `Ends ${String(schedule.dueLabel || '').trim() || 'soon'}`;
+  if (ring && durationMs > 0) {
+    const progress = Math.max(0, Math.min(1, remainingMs / durationMs));
+    ring.style.setProperty('--voice-live-progress', `${Math.round(progress * 360)}deg`);
+  }
+}
+
+function appendVoiceScheduleLive(fragment, payload = {}) {
+  const schedule = payload.schedule || {};
+  const kind = String(schedule.kind || payload.scheduleKind || 'Schedule').trim();
+  const message = String(schedule.message || payload.response || `${kind} running`).trim();
+  const panel = document.createElement('div');
+  panel.className = 'voice-schedule-live';
+
+  const ring = document.createElement('div');
+  ring.className = 'voice-live-ring';
+  const ringInner = document.createElement('div');
+  ringInner.className = 'voice-live-ring-inner';
+  const value = document.createElement('strong');
+  value.className = 'voice-live-value';
+  value.textContent = '0:00';
+  const subValue = document.createElement('span');
+  subValue.className = 'voice-live-subvalue';
+  subValue.textContent = 'Running';
+  ringInner.append(value, subValue);
+  ring.appendChild(ringInner);
+
+  const details = document.createElement('div');
+  details.className = 'voice-live-details';
+  const label = document.createElement('span');
+  label.className = 'voice-live-kind';
+  label.textContent = kind;
+  const title = document.createElement('strong');
+  title.className = 'voice-live-title';
+  title.textContent = message;
+  const meta = document.createElement('span');
+  meta.className = 'voice-live-meta';
+  meta.textContent = schedule.recurrenceLabel || schedule.category || 'Live activity';
+  details.append(label, title, meta);
+
+  panel.append(ring, details);
+  updateVoiceLiveScheduleDom(panel, schedule);
+  stopVoiceLiveScheduleTicker();
+  voiceLiveScheduleTimer = setInterval(() => updateVoiceLiveScheduleDom(panel, schedule), 1000);
   fragment.appendChild(panel);
 }
 
@@ -296,9 +373,10 @@ function renderVoiceAssistantResult(payload = {}) {
     (Array.isArray(payload.choices) && payload.choices.length > 0) ||
     (Array.isArray(payload.actions) && payload.actions.length > 0);
   if (!hasPayload) {
+    stopVoiceLiveScheduleTicker();
     stopVoiceAlertSound();
     clearVoiceActionCollapseTimer();
-    if (root) root.classList.remove('expanded', 'medium', 'large', 'schedule-due-result');
+    if (root) root.classList.remove('expanded', 'medium', 'large', 'schedule-due-result', 'schedule-live-result', 'schedule-live-compact');
     responseEl.classList.remove('visible');
     voiceAssistantResultClearTimer = setTimeout(() => {
       voiceAssistantResultClearTimer = null;
@@ -309,10 +387,13 @@ function renderVoiceAssistantResult(payload = {}) {
   if (root) {
     const displayMode = String(payload.displayMode || 'expanded').toLowerCase();
     const isScheduleDue = String(payload.intent || '') === 'schedule.due';
+    const isScheduleLive = String(payload.intent || '') === 'schedule.live';
     root.classList.add('expanded');
     root.classList.toggle('medium', displayMode === 'medium');
     root.classList.toggle('large', displayMode !== 'medium');
     root.classList.toggle('schedule-due-result', isScheduleDue);
+    root.classList.toggle('schedule-live-result', isScheduleLive);
+    root.classList.toggle('schedule-live-compact', false);
   }
   responseEl.replaceChildren();
   const fragment = document.createDocumentFragment();
@@ -324,8 +405,9 @@ function renderVoiceAssistantResult(payload = {}) {
     fragment.appendChild(headingEl);
   }
   const isScheduleDue = String(payload.intent || '') === 'schedule.due';
+  const isScheduleLive = String(payload.intent || '') === 'schedule.live';
   const response = String(payload.response || '').trim();
-  if (response && !isScheduleDue) {
+  if (response && !isScheduleDue && !isScheduleLive) {
     const text = document.createElement('div');
     text.className = 'voice-response-text';
     text.textContent = response;
@@ -333,6 +415,11 @@ function renderVoiceAssistantResult(payload = {}) {
   }
   if (isScheduleDue) {
     appendVoiceScheduleDue(fragment, payload);
+  }
+  if (isScheduleLive) {
+    appendVoiceScheduleLive(fragment, payload);
+  } else {
+    stopVoiceLiveScheduleTicker();
   }
   const entries = Array.isArray(payload.resultEntries) ? payload.resultEntries : [];
   const choices = Array.isArray(payload.choices) ? payload.choices : [];
@@ -385,12 +472,21 @@ function updateVoiceOverlayDom(message) {
   const keepExpandedResult = responseEl?.classList?.contains('visible');
   const wasMedium = root.classList.contains('medium');
   const wasLarge = root.classList.contains('large');
+  const wasScheduleDue = root.classList.contains('schedule-due-result');
+  const wasScheduleLive = root.classList.contains('schedule-live-result');
+  const wasScheduleCompact = root.classList.contains('schedule-live-compact');
   root.className = state;
   if (keepExpandedResult) {
     root.classList.add('expanded');
     root.classList.toggle('medium', wasMedium);
     root.classList.toggle('large', wasLarge || !wasMedium);
+    root.classList.toggle('schedule-due-result', wasScheduleDue);
+    root.classList.toggle('schedule-live-result', wasScheduleLive);
+    root.classList.toggle('schedule-live-compact', wasScheduleCompact);
   }
+  const presentationClass = String(view.presentationClass || '').trim();
+  if (presentationClass) root.classList.add(presentationClass);
+  root.tabIndex = root.classList.contains('schedule-live-compact') ? 0 : -1;
   root.setAttribute('aria-label', view.accessibility?.label || view.ariaLabel || view.statusText || 'Voice status');
   root.setAttribute('aria-live', view.accessibility?.live || 'polite');
   if (title) title.textContent = view.title || 'Voice';
@@ -449,6 +545,24 @@ contextBridge.exposeInMainWorld('openxVoiceCapture', {
     ipcRenderer.on('voiceCapture:stop', handler);
     return () => ipcRenderer.removeListener('voiceCapture:stop', handler);
   }
+});
+
+window.addEventListener('DOMContentLoaded', () => {
+  const root = document.getElementById('voice-overlay');
+  if (!root) return;
+  const expandLiveSchedule = () => {
+    if (!root.classList.contains('schedule-live-compact')) return;
+    ipcRenderer.invoke('voiceOverlay:expandLiveSchedule').catch(() => {});
+  };
+  root.addEventListener('click', event => {
+    if (event.target?.closest?.('button')) return;
+    expandLiveSchedule();
+  });
+  root.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    expandLiveSchedule();
+  });
 });
 
 const openxApi = {

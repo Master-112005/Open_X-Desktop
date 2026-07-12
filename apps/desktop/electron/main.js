@@ -166,6 +166,8 @@ let voiceCaptureFrameReceiver = null;
 let voiceCaptureWarmupTimer = null;
 let voiceResourceWarmupTimer = null;
 let voiceResumeRecoveryTimer = null;
+let liveScheduleCollapseTimer = null;
+let activeLiveSchedulePayload = null;
 let voiceStartInFlight = false;
 let voiceLastStartAt = 0;
 let voiceSpeakingStopTapAt = 0;
@@ -208,6 +210,7 @@ const VOICE_IDLE_RUNTIME_PREWARM_DELAY_MS = 15 * 1000;
 const VOICE_IDLE_RESOURCE_WARMUP_DELAY_MS = 45 * 1000;
 const VOICE_RESUME_RUNTIME_PREWARM_DELAY_MS = 1200;
 const VOICE_RESUME_RESOURCE_WARMUP_DELAY_MS = 2500;
+const LIVE_SCHEDULE_INITIAL_EXPAND_MS = 5000;
 const IPC_CHANNELS = [
   'command:process',
   'command:confirm',
@@ -216,6 +219,7 @@ const IPC_CHANNELS = [
   'tts:stop',
   'voice:start',
   'voiceOverlay:collapse',
+  'voiceOverlay:expandLiveSchedule',
   'window:openChat',
   'window:openSettings',
   'window:openPlanner',
@@ -1406,9 +1410,130 @@ function buildScheduleDynamicIslandActions(schedule = {}) {
   ];
 }
 
+function clearLiveScheduleCollapseTimer() {
+  if (liveScheduleCollapseTimer) {
+    clearTimeout(liveScheduleCollapseTimer);
+    liveScheduleCollapseTimer = null;
+  }
+}
+
+function liveScheduleCompactStatus(schedule = {}) {
+  const kind = String(schedule.kind || 'Schedule').trim() || 'Schedule';
+  if (String(kind).toLowerCase() === 'alarm') return `Alarm ${formatScheduleDueLabel(schedule)}`;
+  return `${kind} running`;
+}
+
+function buildLiveSchedulePayload(schedule = {}) {
+  const kind = String(schedule.kind || 'Schedule').trim() || 'Schedule';
+  const message = String(schedule.message || schedule.title || `${kind} is running`).trim();
+  return {
+    success: true,
+    intent: 'schedule.live',
+    response: message,
+    data: {
+      schedule: {
+        ...schedule,
+        dueLabel: formatScheduleDueLabel(schedule),
+        recurrenceLabel: formatScheduleRecurrenceLabel(schedule.recurrence)
+      },
+      actions: [],
+      resultEntries: []
+    },
+    ui: {
+      icon: kind.toLowerCase() === 'alarm' ? 'AL' : 'TM',
+      previewStatus: liveScheduleCompactStatus(schedule),
+      preExpandDelayMs: 80,
+      autoHideMs: 0,
+      persistUntilAction: true
+    }
+  };
+}
+
+function collapseLiveScheduleToCompact(schedule = activeLiveSchedulePayload?.data?.schedule || {}) {
+  clearLiveScheduleCollapseTimer();
+  if (!voiceOverlay?.windowController || typeof voiceOverlay.windowController.collapseAssistantResult !== 'function') return false;
+  const kind = String(schedule.kind || 'Schedule').toLowerCase();
+  voiceOverlay.windowController.collapseAssistantResult({
+    statusText: liveScheduleCompactStatus(schedule),
+    icon: kind === 'alarm' ? 'AL' : 'TM',
+    presentationClass: 'schedule-live-compact'
+  });
+  return true;
+}
+
+function presentLiveScheduleInDynamicIsland(schedule = {}, options = {}) {
+  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
+  const kind = String(schedule.kind || '').toLowerCase();
+  if (!['timer', 'alarm'].includes(kind)) return false;
+  if (kind === 'timer') hideTimerWidget();
+  const dueAt = new Date(schedule.dueAt || 0).getTime();
+  if (!Number.isFinite(dueAt) || dueAt <= Date.now()) return false;
+  activeLiveSchedulePayload = buildLiveSchedulePayload(schedule);
+  clearLiveScheduleCollapseTimer();
+  try {
+    voiceOverlay.displayAssistantResult(activeLiveSchedulePayload);
+    const expandMs = Math.max(0, Math.min(30000, Number(options.expandMs ?? LIVE_SCHEDULE_INITIAL_EXPAND_MS)));
+    if (expandMs > 0) {
+      liveScheduleCollapseTimer = setTimeout(() => collapseLiveScheduleToCompact(schedule), expandMs);
+      if (typeof liveScheduleCollapseTimer.unref === 'function') liveScheduleCollapseTimer.unref();
+    }
+    return true;
+  } catch (error) {
+    mainLogger.warn('Dynamic Island live schedule popup failed', { error: error.message });
+    return false;
+  }
+}
+
+function expandLiveScheduleInDynamicIsland() {
+  if (!activeLiveSchedulePayload) return { success: false, error: 'No active live schedule' };
+  const schedule = activeLiveSchedulePayload.data?.schedule || {};
+  const dueAt = new Date(schedule.dueAt || 0).getTime();
+  if (!Number.isFinite(dueAt) || dueAt <= Date.now()) {
+    activeLiveSchedulePayload = null;
+    clearLiveScheduleCollapseTimer();
+    return { success: false, error: 'Live schedule is no longer active' };
+  }
+  clearLiveScheduleCollapseTimer();
+  voiceOverlay?.displayAssistantResult?.(activeLiveSchedulePayload);
+  return { success: true };
+}
+
+function clearLiveScheduleActivity(schedule = null) {
+  clearLiveScheduleCollapseTimer();
+  if (!schedule || !activeLiveSchedulePayload) {
+    activeLiveSchedulePayload = null;
+    return;
+  }
+  const active = activeLiveSchedulePayload.data?.schedule || {};
+  const activeId = String(active.id || active.taskName || '');
+  const scheduleId = String(schedule.id || schedule.taskName || '');
+  if (!scheduleId || activeId === scheduleId) activeLiveSchedulePayload = null;
+}
+
+function latestActiveLiveSchedule() {
+  const items = Array.isArray(assistant?.automation?.scheduler?.scheduledItems)
+    ? assistant.automation.scheduler.scheduledItems
+    : [];
+  return items
+    .filter(item => ['timer', 'alarm'].includes(String(item.kind || '').toLowerCase()) && ['scheduled', 'paused'].includes(item.status))
+    .filter(item => {
+      const dueAt = new Date(item.dueAt || 0).getTime();
+      return Number.isFinite(dueAt) && (item.status === 'paused' || dueAt > Date.now());
+    })
+    .sort((left, right) => new Date(left.dueAt || 0).getTime() - new Date(right.dueAt || 0).getTime())[0] || null;
+}
+
+function restoreLiveScheduleInDynamicIsland() {
+  const schedule = latestActiveLiveSchedule();
+  if (!schedule) return false;
+  return presentLiveScheduleInDynamicIsland(schedule, { expandMs: 0 }) && collapseLiveScheduleToCompact(schedule);
+}
+
 function presentScheduleInDynamicIsland(schedule = {}) {
   if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
+  clearLiveScheduleActivity(schedule);
   const kind = String(schedule.kind || 'Schedule').trim() || 'Schedule';
+  if (kind.toLowerCase() === 'timer') hideTimerWidget();
   const message = String(schedule.message || schedule.title || `${kind} is due`).trim();
   const dueLabel = formatScheduleDueLabel(schedule);
   const recurrenceLabel = formatScheduleRecurrenceLabel(schedule.recurrence);
@@ -1756,13 +1881,13 @@ function showTimerWidget(preferredId = null, options = {}) {
 function handleTimerWidgetCommand(payload) {
   if (!payload?.success || !payload.intent) return;
   const intent = String(payload.intent);
-  if (!/^(?:timer|stopwatch)\./.test(intent)) return;
-  if (intent === 'timer.cancel' || intent === 'timer.clear' || intent === 'stopwatch.cancel') {
+  if (!/^stopwatch\./.test(intent)) return;
+  if (intent === 'stopwatch.cancel') {
     hideTimerWidget();
     return;
   }
   const preferredId = payload.data?.id || payload.data?.taskName || null;
-  if (intent === 'timer.set' || intent === 'timer.reset' || intent === 'stopwatch.start' || intent === 'stopwatch.reset') {
+  if (intent === 'stopwatch.start' || intent === 'stopwatch.reset') {
     showTimerWidget(preferredId, { includeStopwatch: intent.startsWith('stopwatch.') });
     return;
   }
@@ -1866,6 +1991,23 @@ function saveCloudE2EEMasterKey(masterKey) {
   } catch (error) {
     mainLogger.warn('[CLOUD] Unable to persist encrypted E2EE key', { error: error.message });
     return false;
+  }
+}
+
+function handleLiveScheduleCommand(payload) {
+  if (!payload?.success || !payload.intent) return;
+  const intent = String(payload.intent);
+  if (/^(?:timer|alarm)\.(?:cancel|clear)$/.test(intent)) {
+    clearLiveScheduleActivity(payload.data || null);
+    return;
+  }
+  if (/^(?:timer|alarm)\.(?:set|reset|snooze)$/.test(intent)) {
+    presentLiveScheduleInDynamicIsland(payload.data || {}, { expandMs: LIVE_SCHEDULE_INITIAL_EXPAND_MS });
+    return;
+  }
+  if (/^timer\.(?:pause|resume)$/.test(intent)) {
+    presentLiveScheduleInDynamicIsland(payload.data || latestActiveLiveSchedule() || {}, { expandMs: 0 });
+    collapseLiveScheduleToCompact(payload.data || latestActiveLiveSchedule() || {});
   }
 }
 
@@ -2457,8 +2599,8 @@ function setupIPC() {
       ? scheduler?.snooze(id, minutes)
       : scheduler?.complete(id);
     if (result?.success && String(result.data?.kind || '').toLowerCase() === 'timer') {
-      if (action === 'snooze') showTimerWidget(result.data.id || result.data.taskName || id);
-      if (action === 'stop') hideTimerWidget();
+      if (action === 'snooze') presentLiveScheduleInDynamicIsland(result.data, { expandMs: 0 });
+      if (action === 'stop') clearLiveScheduleActivity(result.data);
     }
     return result || { success: false, error: 'Scheduler unavailable' };
   });
@@ -2475,6 +2617,8 @@ function setupIPC() {
       return { success: false, error: error.message };
     }
   });
+
+  registerIpcHandler('voiceOverlay:expandLiveSchedule', async () => expandLiveScheduleInDynamicIsland());
 
   registerIpcHandler('timerWidget:getState', async () => {
     return getTimerWidgetState(null, { includeStopwatch: timerWidgetMode === 'stopwatch' });
@@ -3043,7 +3187,7 @@ async function reloadRuntimeServices() {
     chatWindow.webContents.send('settings:changed', buildSettingsSnapshot());
   }
 
-  showTimerWidget();
+  restoreLiveScheduleInDynamicIsland();
 }
 
 function registerPowerRecoveryHandlers() {
@@ -3069,7 +3213,8 @@ function registerPowerRecoveryHandlers() {
 function isTrustedVoiceOverlayIpcSender(event, channel) {
   if (![
     'schedule:alertAction',
-    'voiceOverlay:collapse'
+    'voiceOverlay:collapse',
+    'voiceOverlay:expandLiveSchedule'
   ].includes(channel)) return false;
   const overlayContents = voiceOverlay?.windowController?.window?.webContents;
   if (!overlayContents || event?.sender?.id !== overlayContents.id) return false;
@@ -3176,6 +3321,14 @@ app.on('child-process-gone', (_event, details) => {
   const error = new Error(`${details.type || 'Electron child'} process exited: ${details.reason}`);
   Logger.writeCrashSync(error, { type: 'child-process', details }, BASE_CONFIG.logging);
   mainLogger.error('Electron child process exited unexpectedly', { details });
+  if (activeLiveSchedulePayload && String(details.type || '').toLowerCase().includes('renderer')) {
+    const token = setTimeout(() => {
+      recoveryTimeouts.delete(token);
+      restoreLiveScheduleInDynamicIsland();
+    }, 1200);
+    recoveryTimeouts.add(token);
+    if (typeof token.unref === 'function') token.unref();
+  }
 });
 
 app.whenReady().then(async () => {
@@ -3185,7 +3338,9 @@ app.whenReady().then(async () => {
   runtimeConfig = settingsService.buildRuntimeConfig();
   eventBus = new AssistantEventBus();
   eventBus.subscribe(EVENTS.SCHEDULE_DUE, envelope => {
-    if (String(envelope.payload?.kind || '').toLowerCase() === 'timer') showTimerWidget();
+    if (['timer', 'alarm'].includes(String(envelope.payload?.kind || '').toLowerCase())) {
+      clearLiveScheduleActivity(envelope.payload);
+    }
     presentScheduleInDynamicIsland(envelope.payload);
     sendPlannerEntries('calendar');
   });
@@ -3194,6 +3349,7 @@ app.whenReady().then(async () => {
     broadcastScheduleSync(envelope.payload);
   });
   eventBus.subscribe(EVENTS.COMMAND_EXECUTED, envelope => handleTimerWidgetCommand(envelope.payload));
+  eventBus.subscribe(EVENTS.COMMAND_EXECUTED, envelope => handleLiveScheduleCommand(envelope.payload));
   eventBus.subscribe(EVENTS.COMMAND_EXECUTED, envelope => handlePlannerCommand(envelope.payload));
   setupIPC();
   registerPowerRecoveryHandlers();
@@ -3204,7 +3360,7 @@ app.whenReady().then(async () => {
   initializeCloudCommands();
   initializeCloudMobileRuntime();
   await maybeAutoConnectCloud('desktop-startup');
-  showTimerWidget();
+  restoreLiveScheduleInDynamicIsland();
   if (!app.isPackaged) {
     createChatWindow();
   }

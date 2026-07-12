@@ -190,6 +190,11 @@ function validateVoiceOverlayCollapse(payload) {
   if (payload.hideAfterMs !== undefined) {
     normalized.hideAfterMs = Math.max(0, Math.min(30000, Number(payload.hideAfterMs) || 0));
   }
+  if (payload.presentationClass !== undefined) {
+    const presentationClass = requireString(payload.presentationClass, 'presentationClass', { maxLength: 60, allowEmpty: true });
+    if (presentationClass && !/^[A-Za-z0-9_-]+$/.test(presentationClass)) throw new TypeError('presentationClass is invalid');
+    normalized.presentationClass = presentationClass;
+  }
   return normalized;
 }
 
@@ -258,6 +263,7 @@ const IPC_VALIDATORS = Object.freeze({
   'tts:stop': validateEmpty,
   'voice:start': validateEmpty,
   'voiceOverlay:collapse': validateVoiceOverlayCollapse,
+  'voiceOverlay:expandLiveSchedule': validateEmpty,
   'window:openChat': validateEmpty,
   'window:openSettings': validateEmpty,
   'window:openPlanner': validatePlannerView,
