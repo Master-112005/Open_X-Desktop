@@ -68,7 +68,7 @@ describe('Electron Security Boundary', function() {
       /exceeds/
     );
     assert.throws(() => IPC_VALIDATORS['settings:get']({}), /does not accept/);
-    assert.throws(() => IPC_VALIDATORS['security:verifyAccess']({}), /does not accept/);
+    assert.throws(() => IPC_VALIDATORS['security:verifyAccess']({}), /password must be a string/);
   });
 
   it('should validate cloud device mutations', function() {
@@ -113,6 +113,10 @@ describe('Electron Security Boundary', function() {
       IPC_VALIDATORS['voiceOverlay:collapse']({ statusText: ' Snoozed ', icon: 'ok', hideAfterMs: 5000 }),
       { statusText: 'Snoozed', icon: 'ok', hideAfterMs: 5000 }
     );
+    assert.deepEqual(
+      IPC_VALIDATORS['voiceOverlay:collapse']({ presentationClass: 'schedule-live-compact' }),
+      { presentationClass: 'schedule-live-compact' }
+    );
     assert.deepEqual(IPC_VALIDATORS['voiceOverlay:collapse'](), {});
     assert.throws(
       () => IPC_VALIDATORS['voiceOverlay:collapse']({ statusText: 'x'.repeat(81) }),
@@ -130,10 +134,10 @@ describe('Electron Security Boundary', function() {
   it('should provide a validator for every registered IPC channel', function() {
     const expectedChannels = [
       'command:process', 'command:confirm', 'assistant:status', 'tts:speak', 'tts:stop', 'voice:start',
-      'voiceOverlay:collapse',
+      'voiceOverlay:collapse', 'voiceOverlay:expandLiveSchedule',
       'window:openChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
       'config:get', 'settings:get',
-      'security:verifyAccess',
+      'security:status', 'security:verifyAccess', 'security:setPassword',
       'cloud:status', 'cloud:connect', 'cloud:disconnect',
       'cloud:pairingQR:create', 'cloud:pairing:status', 'cloud:pairing:approve', 'cloud:pairing:reject',
       'cloud:devices:list', 'cloud:device:rename', 'cloud:device:remove',

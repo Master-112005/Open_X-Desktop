@@ -55,7 +55,10 @@ describe('Electron Chat Shortcut', function() {
     assert.match(script, /voiceOverlay = createVoiceOverlayForManager\(voiceSessionManager\)/);
     assert.match(script, /new VoiceTheme\(\{ settings: settingsService\?\.getSnapshot\?\.\(\) \|\| \{\} \}\)/);
     assert.match(script, /function presentScheduleInDynamicIsland\(schedule = \{\}\)/);
+    assert.match(script, /function presentLiveScheduleInDynamicIsland\(schedule = \{\}, options = \{\}\)/);
     assert.match(script, /presentScheduleInDynamicIsland\(envelope\.payload\)/);
+    assert.match(script, /handleLiveScheduleCommand\(envelope\.payload\)/);
+    assert.match(script, /voiceOverlay:expandLiveSchedule/);
     assert.match(script, /preExpandDelayMs: 1000/);
     assert.doesNotMatch(script, /alertWindow/);
   });
@@ -135,12 +138,14 @@ describe('Electron Chat Shortcut', function() {
     assert.match(chatScript, /processCommand\(text, 'chat'\)/);
   });
 
-  it('should not show stale stopwatch widgets during startup restore', function() {
+  it('should keep stopwatch widgets scoped to stopwatch commands and restore timers in the island', function() {
     assert.match(script, /let timerWidgetMode = null/);
     assert.match(script, /includeStopwatch = options\.includeStopwatch === true \|\| timerWidgetMode === 'stopwatch'/);
     assert.match(script, /if \(!includeStopwatch && state\?\.mode === 'stopwatch'\) return \{ visible: false \}/);
     assert.match(script, /timerWidgetMode = nextState\?\.visible \? nextState\.mode : null/);
     assert.match(script, /showTimerWidget\(preferredId, \{ includeStopwatch: intent\.startsWith\('stopwatch\.'\) \}\)/);
+    assert.match(script, /restoreLiveScheduleInDynamicIsland\(\)/);
+    assert.match(script, /presentLiveScheduleInDynamicIsland\(payload\.data \|\| \{\}, \{ expandMs: LIVE_SCHEDULE_INITIAL_EXPAND_MS \}\)/);
   });
 
   it('should recover renderer failures without tight restart loops', function() {

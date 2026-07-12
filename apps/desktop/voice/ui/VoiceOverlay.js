@@ -300,7 +300,7 @@ class VoiceOverlay extends EventEmitter {
       choices: this._normalizeChoices(result?.data?.choices),
       resultEntries: this._normalizeResultEntries(result, intent),
       actions: this._normalizeActions(result),
-      schedule: this._normalizeScheduleDue(result, intent),
+      schedule: this._normalizeSchedule(result, intent),
       scheduleKind: String(result?.data?.schedule?.kind || '').slice(0, 40),
       icon: String(result?.ui?.icon || result?.data?.icon || '').slice(0, 3),
       previewStatus: String(result?.ui?.previewStatus || '').slice(0, 80),
@@ -326,6 +326,9 @@ class VoiceOverlay extends EventEmitter {
     if (/^file\./.test(intent)) return 'Files';
     if (intent === 'browser.search') return 'Search';
     if (intent === 'schedule.due') return 'Due now';
+    if (intent === 'schedule.live') {
+      return String(result?.data?.schedule?.kind || 'Schedule').slice(0, 40);
+    }
     if (intent === 'phone.notification') {
       return String(result?.data?.notification?.appName || 'Phone notification').slice(0, 40);
     }
@@ -377,7 +380,7 @@ class VoiceOverlay extends EventEmitter {
         matchScore: Number(entry?.matchScore || 0)
       }));
     }
-    if (intent === 'schedule.due') {
+    if (intent === 'schedule.due' || intent === 'schedule.live') {
       return [];
     }
     if (!['file.search', 'folder.search', 'file.smartFind', 'file.list'].includes(intent)) {
@@ -395,15 +398,20 @@ class VoiceOverlay extends EventEmitter {
     }));
   }
 
-  _normalizeScheduleDue(result = {}, intent = '') {
-    if (intent !== 'schedule.due') return null;
+  _normalizeSchedule(result = {}, intent = '') {
+    if (!['schedule.due', 'schedule.live'].includes(intent)) return null;
     const schedule = result?.data?.schedule || {};
     return Object.freeze({
+      id: String(schedule.id || schedule.taskName || '').slice(0, 140),
       kind: String(schedule.kind || 'Schedule').slice(0, 40),
       message: String(schedule.message || schedule.title || 'Scheduled item').replace(/\s+/g, ' ').trim().slice(0, 180),
+      dueAt: String(schedule.dueAt || '').slice(0, 80),
+      createdAt: String(schedule.createdAt || '').slice(0, 80),
       dueLabel: String(schedule.dueLabel || '').slice(0, 80),
       recurrenceLabel: String(schedule.recurrenceLabel || '').slice(0, 120),
-      category: String(schedule.category || '').slice(0, 80)
+      category: String(schedule.category || '').slice(0, 80),
+      status: String(schedule.status || '').slice(0, 40),
+      durationMs: Math.max(0, Number(schedule.durationMs || 0))
     });
   }
 
