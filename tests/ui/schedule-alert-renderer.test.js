@@ -84,6 +84,9 @@ describe('Dynamic Island Schedule Alerts', function() {
     assert.match(voiceWindow, /#voice-overlay\.schedule-live-compact/);
     assert.match(voiceWindow, /#voice-overlay\.schedule-due-result #assistant-response/);
     assert.match(voiceWindow, /#voice-overlay\.schedule-due-result \.voice-action-row/);
+    assert.match(voiceWindow, /#voice-overlay\.expanded\.large #assistant-response/);
+    assert.match(voiceWindow, /#voice-overlay\.expanded\.large \.voice-card-list/);
+    assert.match(voiceWindow, /#voice-overlay\.expanded\.large \.voice-response-text/);
     assert.match(voiceWindow, /payload\.intent === 'schedule\.due' \|\| payload\.intent === 'schedule\.live'/);
     assert.match(voiceWindow, /-webkit-line-clamp: 2/);
     assert.match(voiceWindow, /resultSticky/);

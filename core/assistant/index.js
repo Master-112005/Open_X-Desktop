@@ -247,6 +247,7 @@ class Assistant extends EventEmitter {
       this._recordLearningOutcome(input, routedInput, result);
 
       let response = result.response || '';
+      const duplicateReminderNote = this._duplicateReminderNote(result);
       const incompleteSchedulePrompt = this._captureIncompleteSchedule(input, result, source);
       if (incompleteSchedulePrompt) {
         response = incompleteSchedulePrompt;
@@ -257,6 +258,9 @@ class Assistant extends EventEmitter {
       }
       if (!contextAwareError && !incompleteSchedulePrompt) {
         response = this._appendLearningPrompt(response, input, routedInput, result);
+      }
+      if (duplicateReminderNote && !contextAwareError && !incompleteSchedulePrompt) {
+        response = `${response} ${duplicateReminderNote}`.trim();
       }
       response = this.personality.applyToResponse(response);
 
@@ -1183,6 +1187,41 @@ class Assistant extends EventEmitter {
 
   _looksLikeCorrectiveUtterance(input) {
     return /^(?:i\s+said|i\s+meant|you\s+should\s+have|not\s+that|wrong|incorrect|nope|no,?\s+(?:open|close|search|find|play|set|turn|start|launch|show|list|send|call))\b/i.test(String(input || '').trim());
+  }
+
+  _duplicateReminderNote(result = {}) {
+    if (!result?.success || result.intent !== 'reminder.set') return '';
+    const reminderText = this._normalizeReminderDuplicateText(result.entities?.reminderText || result.data?.message || '');
+    if (!reminderText) return '';
+    const currentId = String(result.data?.id || result.data?.taskName || '').trim();
+    const currentDueAt = new Date(result.data?.dueAt || 0).getTime();
+    const currentRecurrence = String(result.entities?.recurrence || result.data?.recurrence || '').trim().toLowerCase();
+    const schedules = Array.isArray(this.automation?.scheduler?.scheduledItems)
+      ? this.automation.scheduler.scheduledItems
+      : [];
+    const duplicate = schedules.find(item => {
+      if (String(item.kind || '').toLowerCase() !== 'reminder') return false;
+      if (!['scheduled', 'paused', 'due'].includes(String(item.status || '').toLowerCase())) return false;
+      const itemId = String(item.id || item.taskName || '').trim();
+      if (currentId && itemId === currentId) return false;
+      if (this._normalizeReminderDuplicateText(item.message || item.title || '') !== reminderText) return false;
+      const itemRecurrence = String(item.recurrence || '').trim().toLowerCase();
+      if (currentRecurrence || itemRecurrence) return currentRecurrence === itemRecurrence;
+      const itemDueAt = new Date(item.dueAt || 0).getTime();
+      return Number.isFinite(currentDueAt) && currentDueAt > 0 &&
+        Number.isFinite(itemDueAt) && itemDueAt > 0 &&
+        Math.abs(itemDueAt - currentDueAt) <= 60000;
+    });
+    if (!duplicate) return '';
+    return 'You already have an active matching reminder, sir.';
+  }
+
+  _normalizeReminderDuplicateText(value) {
+    return Normalizer.normalizeText(String(value || ''))
+      .replace(/^(?:reminder|openx reminder)\s*:?\s*/i, '')
+      .replace(/\b(?:please|sir)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   _looksLikeNegativeOutcomeReport(input) {

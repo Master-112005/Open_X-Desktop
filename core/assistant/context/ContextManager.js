@@ -326,6 +326,10 @@ class ContextManager {
   resolveEllipticalFollowUp(input) {
     const normalized = normalizeText(input);
     if (!normalized || /(?:19|20)\d{2}/.test(normalized)) return '';
+
+    const correctiveVolume = this.resolveCorrectiveFollowUp(input);
+    if (correctiveVolume) return correctiveVolume;
+
     const match = normalized.match(/^(?:and|also|then|what about|how about)\s+(.+)$/) ||
       normalized.match(/^(?:do (?:the )?same|same(?: thing)?)\s+(?:with|for)\s+(.+)$/);
     if (!match?.[1]) return '';
@@ -354,6 +358,26 @@ class ContextManager {
       return query ? `search for ${query} in ${replacement}` : '';
     }
     return `${verb} ${replacement}`;
+  }
+
+  resolveCorrectiveFollowUp(input) {
+    const normalized = normalizeText(input);
+    if (!normalized) return '';
+    const last = this.findRecent(entry =>
+      entry?.success &&
+      ['volume.set', 'volume.up', 'volume.down', 'volume.mute', 'volume.unmute'].includes(entry.intent)
+    , 6);
+    if (!last) return '';
+
+    const valueMatch = normalized.match(
+      /^(?:(?:no|nope|nah)(?:\s+no)?\s*)?(?:(?:please\s+)?(?:set|make|put|keep|change|turn)\s+(?:it|volume|vol|sound|audio)?\s*(?:to|at)?\s*)?(\d{1,3})(?:\s*%|\s+percent)?$/
+    ) || normalized.match(
+      /^(?:(?:no|nope|nah)(?:\s+no)?\s*)?(?:please\s+)?(?:set|make|put|keep|change|turn)\s+(?:the\s+)?(?:vol|volume|sound|audio)\s+(?:to|at)?\s*(\d{1,3})(?:\s*%|\s+percent)?$/
+    );
+    if (!valueMatch?.[1]) return '';
+    const value = Math.max(0, Math.min(100, Number(valueMatch[1])));
+    if (!Number.isFinite(value)) return '';
+    return `set volume to ${value}`;
   }
 
   getFileReference(entry) {
