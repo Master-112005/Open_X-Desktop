@@ -34,6 +34,31 @@ describe('Performance Memory Guards', function() {
     assert.deepEqual(entry.verification, { status: 'passed', check: 'file-exists' });
   });
 
+  it('should reuse compact conversation digests until context changes', function() {
+    const context = new ContextManager({ logging: { console: false, file: false } });
+    context.record('search for OpenX performance', {}, {
+      success: true,
+      intent: 'browser.search',
+      entities: { query: 'OpenX performance' },
+      response: 'I found results.'
+    });
+
+    const first = context.buildConversationDigest({ limit: 4 });
+    const second = context.buildConversationDigest({ limit: 4 });
+    assert.strictEqual(second, first);
+
+    context.record('open chrome', {}, {
+      success: true,
+      intent: 'app.open',
+      entities: { appName: 'chrome' },
+      response: 'Opened Chrome.'
+    });
+    const third = context.buildConversationDigest({ limit: 4 });
+
+    assert.notStrictEqual(third, first);
+    assert.match(third.summaryText, /open chrome/i);
+  });
+
   it('should bound diagnostic warning and error arrays', function() {
     const diagnostics = new ReasoningDiagnostics();
     for (let index = 0; index < 150; index += 1) {

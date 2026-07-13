@@ -56,6 +56,8 @@ class ContextManager {
     this.userFacts = new Map();
     this.pendingTasks = [];
     this.topicMemory = new Map();
+    this.contextRevision = 0;
+    this.conversationDigestCache = new Map();
   }
 
   record(input, parsed, result) {
@@ -87,6 +89,8 @@ class ContextManager {
     }
 
     this._cleanup();
+    this.contextRevision += 1;
+    this.conversationDigestCache.clear();
   }
 
   _extractUserPreferences(input, result) {
@@ -219,6 +223,8 @@ class ContextManager {
     this.pendingTasks = [];
     this.topicMemory.clear();
     this.lastInteraction = null;
+    this.contextRevision += 1;
+    this.conversationDigestCache.clear();
   }
 
   getLastInteractionTime() {
@@ -422,6 +428,11 @@ class ContextManager {
 
   buildConversationDigest(options = {}) {
     const limit = Number(options.limit || 8);
+    const cacheKey = `${this.contextRevision}:${limit}`;
+    const cached = this.conversationDigestCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
     const recent = this.history
       .slice(-limit)
       .filter(entry => entry?.input)
@@ -439,13 +450,15 @@ class ContextManager {
       const target = entry.target ? ` (${entry.target})` : '';
       return `${entry.input}${target}`;
     });
-    return {
+    const digest = {
       recent,
       topics,
       summaryText: lines.length
         ? `Recent chat: ${lines.join('; ')}. ${topics.length ? `Main topics: ${topics.join(', ')}.` : ''}`.trim()
         : ''
     };
+    this.conversationDigestCache.set(cacheKey, digest);
+    return digest;
   }
 
   getConversationSummary() {
