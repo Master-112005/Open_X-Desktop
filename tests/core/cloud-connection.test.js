@@ -346,6 +346,82 @@ describe('CloudConnectionManager', () => {
     await manager.disconnect('test-finished');
   });
 
+  it('decrypts protected phone notifications before emitting them', async () => {
+    const masterKey = CloudE2EE.generateSecret();
+    const manager = new CloudConnectionManager({
+      logger: createSilentLogger(),
+      e2eeMasterKey: masterKey,
+      settings: {
+        deviceId: 'desktop-test',
+        ownerId: 'owner-test',
+        reconnectEnabled: false,
+        heartbeatEnabled: false
+      },
+      version: 'test'
+    });
+    manager.device = { deviceId: 'desktop-test', ownerId: 'owner-test' };
+    manager.owner = { id: 'owner-test' };
+    const notificationId = 'phone-notice-1';
+    const envelope = CloudE2EE.encryptJson(masterKey, {
+      appName: 'WhatsApp',
+      packageName: 'com.whatsapp',
+      title: 'Rakesh',
+      message: 'Call me back',
+      details: {
+        appName: 'WhatsApp',
+        packageName: 'com.whatsapp',
+        groupKey: 'com.whatsapp'
+      },
+      category: 'phone',
+      priority: 'high',
+      timestamp: 2000,
+      repeatCount: 1
+    }, {
+      domain: 'phone-notification',
+      context: {
+        ownerId: 'owner-test',
+        sourceDeviceId: 'phone-test',
+        destinationDeviceId: 'desktop-test',
+        notificationId
+      },
+      aad: {
+        ownerId: 'owner-test',
+        sourceDeviceId: 'phone-test',
+        destinationDeviceId: 'desktop-test',
+        notificationId
+      }
+    });
+
+    const notificationPromise = waitForEvent(manager, 'notification', notification => notification.notificationId === notificationId);
+    manager.handleMessage(JSON.stringify({
+      type: 'notification:new',
+      notification: {
+        notificationId,
+        ownerId: 'owner-test',
+        sourceDeviceId: 'phone-test',
+        destinationDeviceId: 'desktop-test',
+        category: 'phone',
+        priority: 'normal',
+        title: 'Encrypted phone notification',
+        message: 'OpenX protected this notification.',
+        details: { encrypted: true },
+        encryptedContent: {
+          encrypted: true,
+          scheme: 'openx-e2ee-v1',
+          envelope
+        },
+        createdAt: 2000
+      }
+    }));
+    const notification = await notificationPromise;
+
+    expect(notification.appName).to.equal('WhatsApp');
+    expect(notification.title).to.equal('Rakesh');
+    expect(notification.message).to.equal('Call me back');
+    expect(notification.details.decrypted).to.equal(true);
+    expect(manager.getStatus().notifications[0].appName).to.equal('WhatsApp');
+  });
+
   it('does not replace desktop auth with a paired phone token', () => {
     const manager = new CloudConnectionManager({
       logger: createSilentLogger(),

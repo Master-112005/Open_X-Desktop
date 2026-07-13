@@ -1,6 +1,6 @@
 const EventEmitter = require('events');
 const { WebSocket } = require('ws');
-const { SecurePacketChannel } = require('./CloudE2EE');
+const { SecurePacketChannel, decryptJson } = require('./CloudE2EE');
 
 const STATES = Object.freeze({
   DISCONNECTED: 'Disconnected',
@@ -587,20 +587,23 @@ class CloudConnectionManager extends EventEmitter {
       return;
     }
     if (payload?.type === 'notification:new') {
-      this.upsertNotification(payload.notification);
-      this.emit('notification', payload.notification);
+      const notification = this.unprotectNotification(payload.notification);
+      this.upsertNotification(notification);
+      this.emit('notification', notification);
       this.emit('notifications', this.notifications.slice());
       this.emitStatus({ notifications: this.notifications.slice() });
       return;
     }
     if (payload?.type === 'notification:list') {
-      this.notifications = Array.isArray(payload.notifications) ? payload.notifications : [];
+      this.notifications = Array.isArray(payload.notifications)
+        ? payload.notifications.map(notification => this.unprotectNotification(notification)).filter(Boolean)
+        : [];
       this.emit('notifications', this.notifications.slice());
       this.emitStatus({ notifications: this.notifications.slice() });
       return;
     }
     if (['notification:read', 'notification:dismiss', 'notification:queued'].includes(payload?.type)) {
-      if (payload.notification) this.upsertNotification(payload.notification);
+      if (payload.notification) this.upsertNotification(this.unprotectNotification(payload.notification));
       this.emit('notifications', this.notifications.slice());
       this.emitStatus({ notifications: this.notifications.slice() });
       return;
@@ -638,6 +641,70 @@ class CloudConnectionManager extends EventEmitter {
     });
     this.notifications = this.notifications.slice(0, 100);
     return true;
+  }
+
+  unprotectNotification(notification = null) {
+    if (!notification || typeof notification !== 'object') return notification;
+    const protectedContent = notification.encryptedContent;
+    if (!protectedContent?.encrypted) return notification;
+    const notificationId = String(notification.notificationId || '').trim();
+    const ownerId = String(notification.ownerId || this.settings.ownerId || this.owner?.id || '').trim();
+    const sourceDeviceId = String(notification.sourceDeviceId || '').trim();
+    const destinationDeviceId = String(notification.destinationDeviceId || this.device?.deviceId || this.settings.deviceId || '').trim();
+    const baseDetails = notification.details && typeof notification.details === 'object' ? notification.details : {};
+    if (!this.secureChannel.hasKey() || !notificationId || !ownerId || !sourceDeviceId || !destinationDeviceId) {
+      return {
+        ...notification,
+        title: 'Encrypted phone notification',
+        message: 'OpenX could not unlock this notification on this device.',
+        details: {
+          ...baseDetails,
+          encrypted: true,
+          decryptionFailed: true
+        }
+      };
+    }
+    try {
+      const content = decryptJson(this.secureChannel.masterKey, protectedContent.envelope, {
+        domain: 'phone-notification',
+        context: { ownerId, sourceDeviceId, destinationDeviceId, notificationId },
+        aad: { ownerId, sourceDeviceId, destinationDeviceId, notificationId }
+      });
+      const contentDetails = content?.details && typeof content.details === 'object' ? content.details : {};
+      return {
+        ...notification,
+        category: content?.category || notification.category,
+        priority: content?.priority || notification.priority,
+        title: content?.title || notification.title,
+        message: content?.message || notification.message,
+        appName: content?.appName || contentDetails.appName || notification.appName,
+        packageName: content?.packageName || contentDetails.packageName || notification.packageName,
+        repeatCount: content?.repeatCount || notification.repeatCount,
+        timestamp: content?.timestamp || notification.timestamp,
+        details: {
+          ...baseDetails,
+          ...contentDetails,
+          encrypted: false,
+          decrypted: true
+        }
+      };
+    } catch (error) {
+      this.logger.warn('Notification E2EE decrypt failed', {
+        notificationId,
+        sourceDeviceId,
+        code: 'notification-e2ee-failed'
+      });
+      return {
+        ...notification,
+        title: 'Encrypted phone notification',
+        message: 'OpenX could not verify this notification.',
+        details: {
+          ...baseDetails,
+          encrypted: true,
+          decryptionFailed: true
+        }
+      };
+    }
   }
 
   resolvePendingRequest(requestId, payload) {

@@ -162,4 +162,34 @@ describe('CloudCommandManager', () => {
     assert.equal(connection.sent[0].packetType, 'error');
     assert.equal(connection.sent[0].payload.error.code, 'owner-violation');
   });
+
+  it('ignores cloud file transfer control packets instead of returning assistant errors', async () => {
+    const connection = createConnection();
+    let executed = false;
+    const manager = new CloudCommandManager({
+      connectionManager: connection,
+      commandRouter: {
+        async route() {
+          executed = true;
+          return { success: true };
+        }
+      },
+      logger: { info() {}, warn() {}, error() {} }
+    });
+    const packet = createPacket({
+      type: 'cloud-file-transfer',
+      action: 'chunk-ack',
+      transferId: 'cloud_transfer_1',
+      nextChunkIndex: 1
+    });
+    packet.packet.metadata = { feature: 'cloud-file-transfer', action: 'chunk-ack' };
+    packet.packet.requestId = 'cloud_transfer_1:chunk-ack:0:request_1';
+
+    const result = manager.handleRelayPacket(packet);
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.equal(result.code, 'ignored-file-transfer');
+    assert.equal(executed, false);
+    assert.equal(connection.sent.length, 0);
+  });
 });
