@@ -1423,6 +1423,10 @@ function liveScheduleCompactStatus(schedule = {}) {
   return `${kind} running`;
 }
 
+function liveScheduleIcon(schedule = {}) {
+  return String(schedule.kind || '').toLowerCase() === 'alarm' ? '\u23F0' : '\u23F1';
+}
+
 function buildLiveSchedulePayload(schedule = {}) {
   const kind = String(schedule.kind || 'Schedule').trim() || 'Schedule';
   const message = String(schedule.message || schedule.title || `${kind} is running`).trim();
@@ -1440,7 +1444,7 @@ function buildLiveSchedulePayload(schedule = {}) {
       resultEntries: []
     },
     ui: {
-      icon: kind.toLowerCase() === 'alarm' ? 'AL' : 'TM',
+      icon: liveScheduleIcon(schedule),
       previewStatus: liveScheduleCompactStatus(schedule),
       preExpandDelayMs: 80,
       autoHideMs: 0,
@@ -1455,7 +1459,7 @@ function collapseLiveScheduleToCompact(schedule = activeLiveSchedulePayload?.dat
   const kind = String(schedule.kind || 'Schedule').toLowerCase();
   voiceOverlay.windowController.collapseAssistantResult({
     statusText: liveScheduleCompactStatus(schedule),
-    icon: kind === 'alarm' ? 'AL' : 'TM',
+    icon: liveScheduleIcon({ kind }),
     presentationClass: 'schedule-live-compact'
   });
   return true;
@@ -1495,6 +1499,8 @@ function expandLiveScheduleInDynamicIsland() {
   }
   clearLiveScheduleCollapseTimer();
   voiceOverlay?.displayAssistantResult?.(activeLiveSchedulePayload);
+  liveScheduleCollapseTimer = setTimeout(() => collapseLiveScheduleToCompact(schedule), LIVE_SCHEDULE_INITIAL_EXPAND_MS);
+  if (typeof liveScheduleCollapseTimer.unref === 'function') liveScheduleCollapseTimer.unref();
   return { success: true };
 }
 

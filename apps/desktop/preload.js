@@ -100,6 +100,12 @@ function formatVoiceDuration(ms) {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
+function formatVoiceIcon(value, fallback = 'JA') {
+  const raw = String(value || fallback).trim() || fallback;
+  if (/[\u{2300}-\u{23FF}\u{1F300}-\u{1FAFF}]/u.test(raw)) return raw;
+  return Array.from(raw).slice(0, 2).join('').toUpperCase();
+}
+
 function stopVoiceLiveScheduleTicker() {
   if (voiceLiveScheduleTimer) {
     clearInterval(voiceLiveScheduleTimer);
@@ -498,7 +504,7 @@ function updateVoiceOverlayDom(message) {
       renderVoiceAssistantResult({});
     }
   }
-  if (icon) icon.textContent = String(view.icon || 'JA').slice(0, 2).toUpperCase();
+  if (icon) icon.textContent = formatVoiceIcon(view.icon || 'JA');
   if (operation === 'hideOverlay') {
     root.style.opacity = '0';
     renderVoiceAssistantResult({});
