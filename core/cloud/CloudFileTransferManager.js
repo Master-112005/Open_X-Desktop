@@ -76,6 +76,11 @@ class CloudFileTransferManager extends EventEmitter {
   }
 
   async sendFileToDevice(deviceId, sourcePath) {
+    const started = await this.startFileToDevice(deviceId, sourcePath);
+    return started.completion;
+  }
+
+  async startFileToDevice(deviceId, sourcePath) {
     const status = this.connectionManager?.getStatus?.() || {};
     if (!this.connectionManager?.isConnected?.()) throw new Error('Cloud relay is not connected.');
     if (!status.device?.deviceId || !status.owner?.id) throw new Error('Cloud device is not registered.');
@@ -126,11 +131,18 @@ class CloudFileTransferManager extends EventEmitter {
       this.cleanupOutgoing(transfer, 'relay-send-failed');
       throw new Error('Cloud relay could not send the transfer metadata.');
     }
-    this.log('info', 'Transfer Started', { transferId, fileName, fileSize, direction: transfer.direction });
-    return new Promise((resolve, reject) => {
+    transfer.completion = new Promise((resolve, reject) => {
       transfer.resolve = resolve;
       transfer.reject = reject;
     });
+    this.log('info', 'Transfer Started', { transferId, fileName, fileSize, direction: transfer.direction });
+    return {
+      ...this.publicTransfer(transfer),
+      fileName,
+      fileSize,
+      sourcePath: resolvedPath,
+      completion: transfer.completion
+    };
   }
 
   acceptTransfer(transferId) {

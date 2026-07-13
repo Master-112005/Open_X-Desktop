@@ -359,7 +359,10 @@ class AutomationEngine {
       return { success: false, error: 'Could not determine which file or folder to send' };
     }
 
-    const transfer = await this.fileTransferManager.sendFileToDevice(deviceId, resolved.path);
+    const transfer = typeof this.fileTransferManager.startFileToDevice === 'function'
+      ? await this.fileTransferManager.startFileToDevice(deviceId, resolved.path)
+      : await this.fileTransferManager.sendFileToDevice(deviceId, resolved.path);
+    transfer?.completion?.catch?.(() => {});
     return {
       success: true,
       data: {
@@ -367,7 +370,7 @@ class AutomationEngine {
         deviceName: deviceName || phoneContext.deviceName || 'your phone',
         path: resolved.path,
         transferKind: resolved.transferKind,
-        transferredName: transfer?.record?.fileName || path.basename(resolved.path),
+        transferredName: transfer?.record?.fileName || transfer?.fileName || path.basename(resolved.path),
         record: transfer?.record || null
       }
     };

@@ -54,6 +54,9 @@ class CloudCommandManager extends EventEmitter {
 
   handleRelayPacket(message) {
     const packet = message?.packet || null;
+    if (packet?.payload?.type === 'cloud-file-transfer' || packet?.metadata?.feature === 'cloud-file-transfer') {
+      return { accepted: false, code: 'ignored-file-transfer' };
+    }
     if (packet?.payload?.type === 'profile-sync') {
       return { accepted: false, code: 'ignored-profile-sync' };
     }

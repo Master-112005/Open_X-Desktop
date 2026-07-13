@@ -77,6 +77,28 @@ describe('CloudFileTransferManager', () => {
     await assert.rejects(() => pending, /test-finished/);
   });
 
+  it('can start a transfer without waiting for final receiver completion', async () => {
+    const source = path.join(tempDir, 'resume.docx');
+    fs.writeFileSync(source, 'resume file contents');
+    const connection = createConnection();
+    const manager = new CloudFileTransferManager({
+      connectionManager: connection,
+      chunkBytes: 8,
+      logger: { info() {}, warn() {}, error() {} }
+    });
+
+    const started = await manager.startFileToDevice('phone_1', source);
+
+    assert.equal(connection.sent.length, 1);
+    assert.equal(connection.sent[0].payload.action, 'metadata');
+    assert.equal(started.fileName, 'resume.docx');
+    assert.equal(started.state, 'pending');
+    assert.equal(typeof started.completion?.then, 'function');
+
+    manager.cancelTransfer(started.transferId, 'test-finished');
+    await assert.rejects(() => started.completion, /test-finished/);
+  });
+
   it('streams outgoing desktop chunks without retaining the whole file in memory', async () => {
     const source = path.join(tempDir, 'large.bin');
     fs.writeFileSync(source, Buffer.alloc(64 * 1024, 7));
