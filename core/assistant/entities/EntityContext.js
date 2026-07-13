@@ -65,20 +65,44 @@ class EntityContext {
     }
   }
 
-  addEntity(type, value, data = {}) {
+  _collectionForType(type) {
     const normalizedType = String(type || '').trim();
     const configured = this.configuration?.entityTypes?.[normalizedType] || this.registry?.entityTypes?.get?.(normalizedType) || {};
-    const collection = TYPE_TO_COLLECTION[normalizedType] || configured.collection;
+    return TYPE_TO_COLLECTION[normalizedType] || configured.collection;
+  }
+
+  _entityKey(type, value, canonical = null) {
+    return `${String(type || '').trim().toLowerCase()}:${String(canonical || value || '').trim().toLowerCase()}`;
+  }
+
+  addEntity(type, value, data = {}) {
+    const normalizedType = String(type || '').trim();
+    const collection = this._collectionForType(normalizedType);
     if (value === null || value === undefined || String(value).trim() === '') return null;
     const target = StructuredEntities.COLLECTIONS.includes(collection)
       ? this.entities[collection]
       : (customEntityStore(this)[normalizedType] ||= []);
+    const canonical = data.canonical ? String(data.canonical) : null;
+    const key = this._entityKey(normalizedType, value, canonical);
+    const existing = target.find(entity => this._entityKey(entity.type, entity.value, entity.canonical) === key);
+    if (existing) {
+      this.diagnostics.duplicateEntities.push({ type: normalizedType, value: String(value).trim(), source: data.source || '' });
+      const confidence = Math.max(0, Math.min(1, Number(data.confidence ?? 0.75)));
+      if (confidence > existing.confidence) {
+        existing.rawValue = String(data.rawValue || value).trim();
+        existing.canonical = canonical || existing.canonical;
+        existing.source = String(data.source || existing.source || '');
+        existing.confidence = confidence;
+        existing.metadata = { ...(existing.metadata || {}), ...(data.metadata || {}) };
+      }
+      return existing;
+    }
     const entity = {
       id: `${normalizedType}:${target.length + 1}`,
       type: normalizedType,
       value: String(value).trim(),
       rawValue: String(data.rawValue || value).trim(),
-      canonical: data.canonical ? String(data.canonical) : null,
+      canonical,
       source: String(data.source || ''),
       confidence: Math.max(0, Math.min(1, Number(data.confidence ?? 0.75))),
       resolved: data.resolved || null,
@@ -89,6 +113,25 @@ class EntityContext {
     this.diagnostics.discovered(normalizedType);
     this.diagnostics.confidenceDistribution.push(entity.confidence);
     return entity;
+  }
+
+  compactEntities() {
+    for (const collection of StructuredEntities.COLLECTIONS) {
+      this.entities[collection] = this._dedupeCollection(this.entities[collection]);
+    }
+    const custom = this.futureExtensions.customEntities || {};
+    for (const type of Object.keys(custom)) custom[type] = this._dedupeCollection(custom[type]);
+    return this;
+  }
+
+  _dedupeCollection(entities) {
+    const byKey = new Map();
+    for (const entity of entities || []) {
+      const key = this._entityKey(entity.type, entity.value, entity.canonical);
+      const current = byKey.get(key);
+      if (!current || entity.confidence > current.confidence) byKey.set(key, entity);
+    }
+    return [...byKey.values()].map((entity, index) => ({ ...entity, id: `${entity.type}:${index + 1}` }));
   }
 
   allEntities() {
@@ -114,6 +157,7 @@ class EntityContext {
   }
 
   toStructuredEntities() {
+    this.compactEntities();
     this.timing.finishedAt = this.timing.finishedAt || Date.now();
     this.timing.durationMs = Math.max(0, this.timing.finishedAt - this.timing.startedAt);
     return new StructuredEntities({

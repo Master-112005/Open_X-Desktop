@@ -35,6 +35,8 @@ class TaskPlanningStage extends PipelineStage {
       taskCount: executionBlueprint.tasks.length,
       workflow: executionBlueprint.workflow?.type || null,
       dependencyCount: executionBlueprint.dependencies.length,
+      ready: executionBlueprint.ready,
+      actionCounts: executionBlueprint.actionCounts,
       version: executionBlueprint.version
     });
   }

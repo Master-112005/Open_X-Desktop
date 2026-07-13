@@ -15,6 +15,14 @@ class LanguageDetector {
         script = 'devanagari';
         language = 'hi';
         confidence = 0.82;
+      } else if (/[\u0B80-\u0BFF]/.test(value)) {
+        script = 'tamil';
+        language = 'ta';
+        confidence = 0.82;
+      } else if (/[\u0C80-\u0CFF]/.test(value)) {
+        script = 'kannada';
+        language = 'kn';
+        confidence = 0.82;
       } else if (/[\u0C00-\u0C7F]/.test(value)) {
         script = 'telugu';
         language = 'te';
@@ -32,7 +40,8 @@ class LanguageDetector {
         confidence = value.trim() ? 0.78 : 0.4;
       }
 
-      return Object.freeze({ language, locale, script, confidence });
+      const mixedScript = /[a-z]/i.test(value) && script !== 'latin';
+      return Object.freeze({ language, locale, script, confidence: mixedScript ? Math.max(0.5, confidence - 0.08) : confidence, mixedScript });
     } catch (error) {
       throw new LanguageDetectionError(error.message, { cause: error });
     }

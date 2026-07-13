@@ -1,5 +1,7 @@
 'use strict';
 
+const { sanitizeAcquisitionData } = require('./AcquisitionSanitizer');
+
 class AcquisitionError extends Error {
   constructor(message, options = {}) {
     super(message || 'Input acquisition failed.');
@@ -7,9 +9,25 @@ class AcquisitionError extends Error {
     this.code = options.code || 'acquisition-error';
     this.source = options.source || null;
     this.adapterId = options.adapterId || null;
-    this.details = options.details || null;
+    this.details = sanitizeAcquisitionData(options.details || null);
     if (options.cause) this.cause = options.cause;
     if (Error.captureStackTrace) Error.captureStackTrace(this, this.constructor);
+  }
+
+  toJSON() {
+    return {
+      name: this.name,
+      code: this.code,
+      message: this.message,
+      source: this.source,
+      adapterId: this.adapterId,
+      details: this.details,
+      cause: this.cause ? {
+        name: this.cause.name || 'Error',
+        message: this.cause.message || String(this.cause),
+        code: this.cause.code || null
+      } : null
+    };
   }
 }
 

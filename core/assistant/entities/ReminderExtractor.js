@@ -9,16 +9,23 @@ class ReminderExtractor extends BaseEntityExtractor {
     const text = this.text(context);
     const match = text.match(/\b(?:remind|reminder|notify|alert)\b(?:.+?\b(?:to|say|about|that)\s+(.+))?/i);
     if (!match) return context;
+    const recurrence = text.match(/\bevery\s+((?:(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekday|weekend|day|morning|evening|night|hour|week|month)(?:\s*(?:,|and)?\s*)?)+)\b/i);
     const candidate = match[1] || text
       .replace(/^.*?\b(?:remind|reminder|notify|alert)(?:\s+me)?\b/i, '');
     const value = String(candidate || '')
+      .replace(/\bevery\s+((?:(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekday|weekend|day|morning|evening|night|hour|week|month)(?:\s*(?:,|and)?\s*)?)+)\b/gi, ' ')
       .replace(SCHEDULE_FRAGMENT, ' ')
       .replace(/\s+/g, ' ')
       .replace(/^(?:at|on|in|after|for|by|to|that|about|say)\b\s*/i, '')
-      .replace(/\s+\b(?:at|on|in|after|for|by|to|that|about|say)$/i, '')
+      .replace(/\s+(?:at|on|in|after|for|by|to|that|about|say)\s*$/i, '')
       .replace(/[.?!]+$/g, '')
       .trim();
-    if (value) context.addEntity('reminder', value, { source: this.id, confidence: match[1] ? 0.78 : 0.7 });
+    if (value) {
+      this.addEntity(context, 'reminder', value, {
+        confidence: match[1] ? 0.8 : 0.72,
+        metadata: recurrence?.[1] ? { recurrence: recurrence[1].replace(/\s+/g, ' ').trim() } : {}
+      });
+    }
     return context;
   }
 }

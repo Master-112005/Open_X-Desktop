@@ -4,7 +4,15 @@ const BaseInputAdapter = require('./BaseInputAdapter');
 
 class PhoneAdapter extends BaseInputAdapter {
   constructor(options = {}) {
-    super({ ...options, id: 'phone', source: 'phone', sourceType: 'mobile-phone', priority: options.priority ?? 90 });
+    super({
+      ...options,
+      id: 'phone',
+      source: 'phone',
+      aliases: ['mobile', 'android', 'ios'],
+      sourceType: 'mobile-phone',
+      priority: options.priority ?? 90,
+      capabilities: ['text', 'mobile-command', 'device-context']
+    });
   }
 
   acquire(payload = {}) {
@@ -17,7 +25,8 @@ class PhoneAdapter extends BaseInputAdapter {
       ...metadata,
       deviceType: metadata.deviceType || 'phone',
       phoneDeviceId: metadata.deviceId || metadata.phoneDeviceId || null,
-      sessionId: metadata.sessionId || null
+      sessionId: metadata.sessionId || null,
+      connected: metadata.connected !== false
     };
   }
 }

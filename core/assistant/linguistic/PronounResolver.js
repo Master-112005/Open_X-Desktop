@@ -2,7 +2,7 @@
 
 const BaseAnalyzer = require('./BaseAnalyzer');
 
-const PRONOUNS = new Set(['he', 'him', 'she', 'her', 'it', 'they', 'them', 'this', 'that', 'these', 'those']);
+const PRONOUNS = new Set(['he', 'him', 'she', 'her', 'it', 'they', 'them', 'this', 'that', 'these', 'those', 'same', 'one', 'ones', 'there']);
 
 class PronounResolver extends BaseAnalyzer {
   analyze(context) {
@@ -21,6 +21,7 @@ class PronounResolver extends BaseAnalyzer {
           tokenId: tag.tokenId,
           index: tag.index,
           value: tag.value,
+          kind: this._kind(lower),
           antecedentTokenId: antecedent?.tokenId || null,
           antecedent: antecedent?.value || null,
           scope: 'sentence',
@@ -30,6 +31,12 @@ class PronounResolver extends BaseAnalyzer {
     }
     context.pronouns = pronouns;
     return context;
+  }
+
+  _kind(value) {
+    if (['this', 'that', 'these', 'those', 'there'].includes(value)) return 'demonstrative';
+    if (['same', 'one', 'ones'].includes(value)) return 'reference';
+    return 'personal';
   }
 }
 

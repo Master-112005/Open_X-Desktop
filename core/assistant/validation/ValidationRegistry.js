@@ -26,6 +26,18 @@ class ValidationRegistry {
       .sort((left, right) => (Number(left.priority) || 0) - (Number(right.priority) || 0) || String(left.id).localeCompare(String(right.id)));
   }
 
+  get(id) {
+    return this.validators.get(String(id || '').trim()) || null;
+  }
+
+  unregister(id) {
+    return this.validators.delete(String(id || '').trim());
+  }
+
+  count({ includeDisabled = true } = {}) {
+    return this.list({ includeDisabled }).length;
+  }
+
   health() {
     return this.list().map(validator => ({
       id: validator.id,
@@ -37,7 +49,9 @@ class ValidationRegistry {
   }
 
   clear() {
+    const count = this.validators.size;
     this.validators.clear();
+    return count;
   }
 }
 

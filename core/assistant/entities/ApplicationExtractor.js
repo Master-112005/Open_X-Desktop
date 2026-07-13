@@ -3,18 +3,10 @@
 const BaseEntityExtractor = require('./BaseEntityExtractor');
 const { APP_ALIASES } = require('./EntityExtractor');
 
-function escapeRegex(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 class ApplicationExtractor extends BaseEntityExtractor {
   extract(context) {
-    const text = this.normalized(context);
-    for (const [alias, canonical] of Object.entries(APP_ALIASES)) {
-      if (new RegExp(`\\b${escapeRegex(alias)}\\b`).test(text)) {
-        context.addEntity('application', canonical, { rawValue: alias, source: this.id, confidence: 0.82 });
-      }
-    }
+    this.addAliasMatches(context, 'application', APP_ALIASES, { confidence: 0.82 });
+    this.addRegexMatches(context, 'application', /\b(?:open|launch|start|run|close|quit|switch\s+to|focus)\s+(?:the\s+)?([A-Za-z][A-Za-z0-9 .+-]{1,60}?)(?=\s+(?:app|application|program|window)\b|$)/gi, { confidence: 0.64 });
     return context;
   }
 }

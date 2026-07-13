@@ -16,6 +16,16 @@ class BaseResponseGenerator {
   generate(context) { return context; }
   cleanup() { return true; }
   destroy() { this.initialized = false; return true; }
+
+  text(value, maxLength = 500) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    return text.length > maxLength ? `${text.slice(0, maxLength - 3).trim()}...` : text;
+  }
+
+  addPart(context, type, text, data = {}) {
+    if (!context || typeof context.addPart !== 'function') return null;
+    return context.addPart(type, this.text(text), data);
+  }
 }
 
 module.exports = BaseResponseGenerator;

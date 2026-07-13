@@ -33,23 +33,38 @@ class EntityRelationshipBuilder {
     this._relateFirst(context, 'timer', ['duration']);
     this._relateFirst(context, 'file', ['folder', 'path']);
     this._relateFirst(context, 'media', ['website', 'browser']);
+    this._relateFirst(context, 'contact', ['person', 'website']);
+    this._dedupeRelationships(context);
     return context;
   }
 
   _relateFirst(context, sourceType, targetTypes) {
-    const source = context.allEntities().find(entity => entity.type === sourceType);
-    if (!source) return;
+    const sources = context.allEntities().filter(entity => entity.type === sourceType);
+    if (sources.length === 0) return;
     for (const targetType of targetTypes) {
-      const target = context.allEntities().find(entity => entity.type === targetType);
-      if (target) {
+      const targets = context.allEntities().filter(entity => entity.type === targetType);
+      for (const source of sources) {
+        for (const target of targets) {
+          if (source.id === target.id) continue;
         context.addRelationship({
           type: `${sourceType}-${targetType}`,
           source: { kind: 'entity', id: source.id, entityType: source.type, value: source.canonical || source.value },
           target: { kind: 'entity', id: target.id, entityType: target.type, value: target.canonical || target.value },
           confidence: Math.min(source.confidence || 0.6, target.confidence || 0.6)
         });
+        }
       }
     }
+  }
+
+  _dedupeRelationships(context) {
+    const seen = new Set();
+    context.relationships = context.relationships.filter(relationship => {
+      const key = `${relationship.type}:${relationship.source?.id || relationship.source?.value}:${relationship.target?.id || relationship.target?.value}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
 }
 

@@ -28,6 +28,8 @@ class ReasoningPipeline {
       try {
         if (!reasoner.initialized && typeof reasoner.initialize === 'function') await reasoner.initialize();
         if (reasoner.supports(context)) await reasoner.reason(context);
+        context.compact();
+        this._trimCandidates(context);
       } catch (error) {
         const wrapped = new PipelineError(`Reasoner failed: ${reasoner.id}`, { cause: error, context: { reasonerId: reasoner.id } });
         context.diagnostics.error(wrapped);
@@ -39,6 +41,13 @@ class ReasoningPipeline {
     }
 
     return context.toReasoningResult();
+  }
+
+  _trimCandidates(context) {
+    const limit = context.configuration?.maxCandidates || 25;
+    for (const listName of ['candidateGoals', 'candidateIntents', 'candidateActions', 'candidateTasks']) {
+      if (context[listName].length > limit) context[listName] = context.ranked(listName).slice(0, limit);
+    }
   }
 }
 

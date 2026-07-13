@@ -19,8 +19,9 @@ class AssistantExecutionStage extends PipelineStage {
       return StageResult.skipped(this.id, 'No assistant executor configured.');
     }
 
-    const normalized = context.normalizedInputObject?.normalizedText;
-    const input = typeof normalized === 'string' && normalized.trim()
+    const commandIntentText = context.get?.('assistant.commandIntentText') || context.normalizedInputObject?.commandIntentText || context.normalizedInputObject?.metadata?.commandIntentText;
+    const normalized = String(commandIntentText || context.normalizedInputObject?.normalizedText || '').trim();
+    const input = normalized
       ? normalized
       : context.normalizedInput || context.rawInput;
     const options = {

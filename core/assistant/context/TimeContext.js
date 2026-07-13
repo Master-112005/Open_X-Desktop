@@ -14,11 +14,22 @@ class TimeContext {
 
   collect(context) {
     const now = this.now();
+    const hour = now.getHours();
+    const day = now.getDay();
     context.context.time = {
       currentTime: now.toISOString(),
       timeZone: globalThis.Intl?.DateTimeFormat().resolvedOptions().timeZone || '',
       date: now.toISOString().slice(0, 10),
-      relativeTime: 'now'
+      localHour: hour,
+      dayOfWeek: now.toLocaleDateString('en-US', { weekday: 'long' }),
+      isWeekend: day === 0 || day === 6,
+      partOfDay: hour < 5 ? 'night'
+        : hour < 12 ? 'morning'
+          : hour < 17 ? 'afternoon'
+            : hour < 21 ? 'evening'
+              : 'night',
+      relativeTime: 'now',
+      timestamp: now.getTime()
     };
     return context;
   }

@@ -410,7 +410,103 @@ class SystemController {
     if (type === 'systemSlowdown') {
       return this._getSystemSlowdownSnapshot();
     }
+    if (type === 'memoryUsage') {
+      const memory = this.getMemoryUsage();
+      return {
+        success: memory.success,
+        error: memory.error,
+        data: { insightType: 'memoryUsage', ...(memory.data || {}) }
+      };
+    }
+    if (type === 'gpuUsage') {
+      return this._getGpuSnapshot();
+    }
+    if (type === 'networkUsage') {
+      return this._getNetworkSnapshot();
+    }
+    if (type === 'temperature') {
+      return this._getTemperatureSnapshot();
+    }
+    if (type === 'systemSummary') {
+      const status = this.getStatus();
+      return {
+        success: true,
+        data: {
+          insightType: 'systemSummary',
+          ...(status.data || {}),
+          platform: os.platform(),
+          release: os.release(),
+          arch: os.arch(),
+          hostname: os.hostname()
+        }
+      };
+    }
     return { success: false, error: 'System insight is not supported yet' };
+  }
+
+  _getGpuSnapshot() {
+    return this._getCached('gpuSnapshot', 30000, () => {
+      try {
+        const output = execFileSync('powershell.exe', [
+          '-NoProfile',
+          '-Command',
+          'Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM, DriverVersion | ConvertTo-Json -Compress'
+        ], { encoding: 'utf8', timeout: 5000 });
+        const parsed = JSON.parse(output || '[]');
+        const rows = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+        const gpus = rows.map(row => ({
+          name: String(row.Name || '').trim(),
+          memoryMB: Number((Number(row.AdapterRAM || 0) / 1024 / 1024).toFixed(1)),
+          driverVersion: String(row.DriverVersion || '').trim()
+        })).filter(row => row.name);
+        return { success: true, data: { insightType: 'gpuUsage', gpus } };
+      } catch (err) {
+        return { success: true, data: { insightType: 'gpuUsage', gpus: [], message: 'GPU details are not available' } };
+      }
+    });
+  }
+
+  _getNetworkSnapshot() {
+    return this._getCached('networkSnapshot', 30000, () => {
+      try {
+        const output = execFileSync('powershell.exe', [
+          '-NoProfile',
+          '-Command',
+          'Get-NetAdapter | Where-Object Status -eq Up | Select-Object Name, InterfaceDescription, LinkSpeed, Status | ConvertTo-Json -Compress'
+        ], { encoding: 'utf8', timeout: 5000 });
+        const parsed = JSON.parse(output || '[]');
+        const rows = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+        const adapters = rows.map(row => ({
+          name: String(row.Name || '').trim(),
+          description: String(row.InterfaceDescription || '').trim(),
+          linkSpeed: String(row.LinkSpeed || '').trim(),
+          status: String(row.Status || '').trim()
+        })).filter(row => row.name);
+        return { success: true, data: { insightType: 'networkUsage', adapters } };
+      } catch (err) {
+        return { success: true, data: { insightType: 'networkUsage', adapters: [], message: 'Network details are not available' } };
+      }
+    });
+  }
+
+  _getTemperatureSnapshot() {
+    return this._getCached('temperatureSnapshot', 30000, () => {
+      try {
+        const output = execFileSync('powershell.exe', [
+          '-NoProfile',
+          '-Command',
+          'Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object CurrentTemperature | ConvertTo-Json -Compress'
+        ], { encoding: 'utf8', timeout: 5000 });
+        const parsed = JSON.parse(output || '[]');
+        const rows = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+        const temperatures = rows
+          .map(row => Number(((Number(row.CurrentTemperature || 0) / 10) - 273.15).toFixed(1)))
+          .filter(value => Number.isFinite(value) && value > -50);
+        return { success: true, data: { insightType: 'temperature', temperatures } };
+      } catch (err) {
+        return { success: true, data: { insightType: 'temperature', temperatures: [], message: 'Temperature sensors are not available' } };
+      }
+    });
   }
 
   _getTopProcessBy(property, metric) {

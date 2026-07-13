@@ -140,6 +140,10 @@ class ActionRouter {
       : this._safePrepareInput(effectiveCommandText);
     preparedInput.contextualRewrite = options.contextualRewrite || null;
     preparedInput.conversation = options.conversation || null;
+    preparedInput.resolvedContext = options.resolvedContext || null;
+    preparedInput.structuredEntities = options.structuredEntities || null;
+    preparedInput.semanticRepresentation = options.semanticRepresentation || null;
+    preparedInput.linguisticGraph = options.linguisticGraph || null;
     const rawCommandText = useNoisyRepair
       ? effectiveCommandText
       : (parseResult.rawCommandText || parseResult.commandText);
@@ -389,6 +393,15 @@ class ActionRouter {
 
   _resolveEarlyCapabilityCommandIntent(rawCommandText, preparedInput = {}) {
     const text = `${rawCommandText || ''} ${preparedInput?.correctedText || ''}`.toLowerCase();
+    if (/^(?:open|launch|start|run|show)\b/i.test(String(rawCommandText || preparedInput?.correctedText || '').trim())) {
+      const appIntent = this.intentRegistry.get('app.open');
+      if (appIntent) {
+        const appEntities = this.entityExtractor.extract(appIntent, rawCommandText || preparedInput?.correctedText || '');
+        if (appEntities?.appName) {
+          return null;
+        }
+      }
+    }
     if (/\b(?:file|files|folder|folders|directory|directories|document|documents|pdf|pdfs|docx?|xlsx?|pptx?|csv|json|zip|rar|image|images|photo|photos|picture|pictures|screenshot|screenshots|downloads?|desktop|resume|report|song|songs|track|tracks|playlist|playlists|music|video|videos|album|artist|favorites?|favourites?)\b|[^\s]+\.[a-z0-9]{1,10}\b/i.test(text)) {
       return null;
     }
@@ -1375,6 +1388,10 @@ class ActionRouter {
       return null;
     }
 
+    if (this._looksLikeSingleMediaTitleRequest(text)) {
+      return null;
+    }
+
     if (/\b(?:wifi|wi\s*fi)\b/i.test(text) &&
       /\b(?:connect|connected|disconnect|forget|enable|disable|turn\s+on|turn\s+off|switch\s+on|switch\s+off)\b/i.test(text)) {
       return null;
@@ -1424,10 +1441,7 @@ class ActionRouter {
 
     const actionableClauses = clauses.filter(clause => this._clauseLooksActionable(clause, source));
     if (actionableClauses.length < 2) {
-      if (clauses.length >= 2) {
-        return clauses;
-      }
-      if (this._hasImplicitMultiCommand(text)) {
+      if (!hasExplicitConnector && this._hasImplicitMultiCommand(text)) {
         return this._splitImplicitMultiCommand(text);
       }
       return null;
@@ -1479,6 +1493,24 @@ class ActionRouter {
     return /^(?:open|launch|start)\s+(?:youtube|spotify|apple\s+music|amazon\s+music|soundcloud)\s+and\s+(?:play|stream|listen|watch)\b/.test(source);
   }
 
+  _looksLikeSingleMediaTitleRequest(text) {
+    const source = String(text || '').trim().toLowerCase();
+    if (!/^(?:play|stream|listen\s+to|watch|queue|put\s+on|start\s+playing)\b/.test(source)) {
+      return false;
+    }
+    if (!/\s+and\s+/.test(source)) {
+      return false;
+    }
+    if (/\b(?:and then|then|after that|afterwards)\b|[;]/i.test(source)) {
+      return false;
+    }
+
+    const parts = source.split(/\s+and\s+/i).map(part => part.trim()).filter(Boolean);
+    if (parts.length < 2) return false;
+    const newActionPattern = /^(?:open|launch|start|run|close|quit|exit|terminate|minimize|maximize|switch|focus|search|google|find|look\s+up|set|turn|send|message|call|remind|notify|alert|create|delete|move|copy|rename|save|show|list|pause|resume|stop|skip|next|previous|volume|vol|brightness)\b/i;
+    return parts.slice(1).every(part => !newActionPattern.test(part));
+  }
+
   _normalizeMultiClauses(clauses) {
     const verbsThatCanCarry = new Set([
       'open',
@@ -1515,6 +1547,10 @@ class ActionRouter {
 
       if (/^(?:ask|tell|message|text|search|google|look\s+up|find|what|who|when|where|why|how|which|remind|set|turn|save|saved)\b/.test(normalized)) {
         carriedVerb = null;
+        const settingMatch = normalized.match(/^set\s+(?:the\s+)?(?:vol|volume|sound|audio|brightness|screen|display)\b/);
+        if (settingMatch) {
+          carriedVerb = 'set';
+        }
         return corrected;
       }
 
@@ -1526,6 +1562,10 @@ class ActionRouter {
       }
 
       if (carriedVerb && /^[a-z0-9][a-z0-9\s.-]*$/i.test(corrected)) {
+        if (carriedVerb === 'set' &&
+          !/^(?:vol|volume|sound|audio|brightness|screen|display)\b/i.test(corrected)) {
+          return corrected;
+        }
         return `${carriedVerb} ${corrected}`;
       }
 
@@ -2146,6 +2186,7 @@ class ActionRouter {
       intentText: preparedInput?.intentText || '',
       discourse: preparedInput?.discourse || null,
       contextualRewrite: preparedInput?.contextualRewrite || null,
+      resolvedContext: this._summarizeResolvedContext(preparedInput?.resolvedContext),
       commandFrame: commandFrame ? {
         action: commandFrame.action || null,
         actionToken: commandFrame.actionToken || null,
@@ -2212,6 +2253,25 @@ class ActionRouter {
           ? `Missing required entities: ${missing.join(', ')}`
           : 'Intent and required entities are complete'
       }
+    };
+  }
+
+  _summarizeResolvedContext(resolvedContext) {
+    if (!resolvedContext) return null;
+    return {
+      confidence: Number(resolvedContext.confidence || 0),
+      topic: resolvedContext.topic?.label || null,
+      references: Array.isArray(resolvedContext.resolvedReferences)
+        ? resolvedContext.resolvedReferences.slice(0, 5).map(reference => ({
+            reference: reference.reference || '',
+            target: reference.target || '',
+            targetType: reference.targetType || '',
+            confidence: Number(reference.confidence || 0)
+          }))
+        : [],
+      currentApplication: resolvedContext.workingMemory?.currentApplication || null,
+      currentFile: resolvedContext.workingMemory?.currentFile || null,
+      currentBrowser: resolvedContext.workingMemory?.currentBrowser || null
     };
   }
 
@@ -2744,6 +2804,26 @@ class ActionRouter {
 
     if (/\b(?:which|what)\b.*\b(?:process|app)\b.*\b(?:most\s+cpu|cpu)\b|\bconsuming\s+the\s+most\s+cpu\b/.test(input)) {
       return { intent, confidence: 1, entities: { insightType: 'topCpuProcess' } };
+    }
+
+    if (/\b(?:gpu\s+usage|gpu\s+information|gpu\s+details)\b/.test(input)) {
+      return { intent, confidence: 1, entities: { insightType: 'gpuUsage' } };
+    }
+
+    if (/\b(?:cpu\s+temperature|gpu\s+temperature|system\s+temperature|overheating|running\s+so\s+hot)\b/.test(input)) {
+      return { intent, confidence: 1, entities: { insightType: 'temperature' } };
+    }
+
+    if (/\b(?:ram\s+details|memory\s+details|memory\s+consumption|ram\s+consumption)\b/.test(input)) {
+      return { intent, confidence: 1, entities: { insightType: 'memoryUsage' } };
+    }
+
+    if (/\b(?:network\s+usage|network\s+speed|internet\s+speed|active\s+network\s+connections?)\b/.test(input)) {
+      return { intent, confidence: 1, entities: { insightType: 'networkUsage' } };
+    }
+
+    if (/\b(?:device\s+specifications|computer\s+specifications|hardware\s+information|complete\s+system\s+report|device\s+diagnostics|system\s+performance|system\s+health|quick\s+system\s+check)\b/.test(input)) {
+      return { intent, confidence: 1, entities: { insightType: 'systemSummary' } };
     }
 
     if (/\b(?:slowing\s+down|fan\s+running|fan\s+so\s+fast|computer\s+slow|laptop\s+slow)\b/.test(input)) {
@@ -4823,7 +4903,7 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
 
     if (
       !/^(?:open|launch|start|run)\b/.test(input) &&
-      /\b(?:running|open|opened|active|visible|in\s+use|being\s+used|used)\b/.test(input) &&
+      /\b(?:running|open|opened|active|background|visible|in\s+use|being\s+used|used)\b/.test(input) &&
       /\b(?:apps?|applications?|processes|programs?|system)\b/.test(input)
     ) {
       const target = /\b(?:apps?|applications?|programs?|windows?)\b/.test(input) && !/\bprocesses\b/.test(input)

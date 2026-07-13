@@ -1,8 +1,10 @@
 'use strict';
 
 const { LearningManager, createDefaultLearningManager } = require('./LearningManager');
+const LEARNING_LAYER_VERSION = '12.1.0';
 
 module.exports = {
+  LEARNING_LAYER_VERSION,
   LearningManager,
   createDefaultLearningManager,
   ActiveLearningManager: require('./ActiveLearningManager'),

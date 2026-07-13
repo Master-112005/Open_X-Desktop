@@ -15,6 +15,8 @@ class QuestionDetector extends BaseAnalyzer {
       if (WH_WORDS.has(firstWord)) type = 'wh';
       else if (AUXILIARY_STARTERS.has(firstWord)) type = 'yes-no';
       else if (hasQuestionMark) type = 'question';
+      else if (/^(?:tell|show|explain|define)\s+(?:me\s+)?(?:what|who|when|where|why|how|which)\b/i.test(sentence.text)) type = 'embedded-wh';
+      else if (/\b(?:do|does|did|can|could|will|would|should)\s+you\s+(?:know|think|tell|show)\b/i.test(sentence.text)) type = 'assistant-question';
       const tagQuestion = /,\s*(isn't|is it|right|okay|ok)\??$/i.test(sentence.text);
       if (tagQuestion) type = 'tag';
       return {

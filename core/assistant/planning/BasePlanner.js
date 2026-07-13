@@ -24,6 +24,39 @@ class BasePlanner {
     return context;
   }
 
+  taskId(value) {
+    return String(value || 'task')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '.')
+      .replace(/^\.+|\.+$/g, '') || 'task';
+  }
+
+  tasks(context) {
+    return Array.isArray(context?.tasks) ? context.tasks : [];
+  }
+
+  taskEntities(task = {}, context = null) {
+    return {
+      ...(context?.reasoningResult?.metadata?.entities || {}),
+      ...(context?.metadata?.entities || {}),
+      ...(task.metadata?.entities || {})
+    };
+  }
+
+  actionTarget(task = {}, context = null) {
+    const entities = this.taskEntities(task, context);
+    return String(
+      entities.appName ||
+      entities.filename ||
+      entities.folderName ||
+      entities.contactName ||
+      entities.query ||
+      entities.path ||
+      task.metadata?.target ||
+      ''
+    ).trim().toLowerCase();
+  }
+
   cleanup() {
     return true;
   }

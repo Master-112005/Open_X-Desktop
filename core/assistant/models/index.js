@@ -1,6 +1,9 @@
 'use strict';
 
+const MODELS_LAYER_VERSION = '1.1.0';
+
 module.exports = {
+  MODELS_LAYER_VERSION,
   AssistantRequest: require('./AssistantRequest'),
   AssistantResponse: require('./AssistantResponse'),
   DiagnosticRecord: require('./DiagnosticRecord'),

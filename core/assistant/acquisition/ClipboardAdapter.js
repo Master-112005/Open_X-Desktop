@@ -4,7 +4,15 @@ const BaseInputAdapter = require('./BaseInputAdapter');
 
 class ClipboardAdapter extends BaseInputAdapter {
   constructor(options = {}) {
-    super({ ...options, id: 'clipboard', source: 'clipboard', sourceType: 'clipboard', priority: options.priority ?? 55 });
+    super({
+      ...options,
+      id: 'clipboard',
+      source: 'clipboard',
+      aliases: ['copy', 'paste'],
+      sourceType: 'clipboard',
+      priority: options.priority ?? 55,
+      capabilities: ['text', 'clipboard']
+    });
   }
 
   extractText(payload = {}) {
@@ -16,7 +24,8 @@ class ClipboardAdapter extends BaseInputAdapter {
     return {
       ...metadata,
       clipboardSource: metadata.clipboardSource || null,
-      clipboardType: metadata.clipboardType || 'text'
+      clipboardType: metadata.clipboardType || 'text',
+      partial: metadata.partial === true
     };
   }
 }

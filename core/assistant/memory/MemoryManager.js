@@ -37,10 +37,12 @@ class MemoryManager {
     this.pipeline = options.pipeline || null;
     this.state = options.state || {};
     this.logger = options.logger || null;
+    this.defaultProvidersRegistered = false;
     if (options.defaultProviders !== false) this._registerDefaults();
   }
 
   _registerDefaults() {
+    if (this.defaultProvidersRegistered) return;
     [
       [WorkingMemory, 'memory.workingMemory', 'memoryProviders', 10],
       [ConversationMemory, 'memory.conversationMemory', 'memoryProviders', 20],
@@ -67,12 +69,19 @@ class MemoryManager {
       [SelectionContext, 'context.selection', 'contextProviders', 210],
       [WindowContext, 'context.window', 'contextProviders', 220]
     ].forEach(([Ctor, id, group, priority]) => {
+      const target = group === 'memoryProviders'
+        ? this.registry.memoryProviders
+        : group === 'referenceResolvers'
+          ? this.registry.referenceResolvers
+          : this.registry.contextProviders;
+      if (target?.has(id)) return;
       const configured = this.configuration.getProviderOptions(group, id, { priority });
       const instance = new Ctor({ id, ...configured, aliases: this.configuration.aliases });
       if (group === 'memoryProviders') this.registry.registerMemoryProvider(instance, { id, priority: configured.priority, enabled: configured.enabled });
       if (group === 'referenceResolvers') this.registry.registerReferenceResolver(instance, { id, priority: configured.priority, enabled: configured.enabled });
       if (group === 'contextProviders') this.registry.registerContextProvider(instance, { id, priority: configured.priority, enabled: configured.enabled });
     });
+    this.defaultProvidersRegistered = true;
   }
 
   registerMemoryProvider(provider, options = {}) { this.registry.registerMemoryProvider(provider, options); return this; }
@@ -92,17 +101,30 @@ class MemoryManager {
     return this.pipeline.run(structuredEntities, options);
   }
 
+  resetPipeline() {
+    this.pipeline = null;
+    return this;
+  }
+
+  clearState() {
+    this.state = {};
+    this.resetPipeline();
+    return this;
+  }
+
   getStatus() {
     return {
       enabled: this.configuration.enabled,
       version: this.configuration.version,
+      counts: this.registry.counts(),
+      stateKeys: Object.keys(this.state || {}),
       ...this.registry.health()
     };
   }
 
-  destroy() {
+  async destroy() {
     for (const group of [this.registry.listMemoryProviders(), this.registry.listReferenceResolvers(), this.registry.listContextProviders()]) {
-      for (const item of group) item.destroy?.();
+      for (const item of group) await item.destroy?.();
     }
     this.registry.clear();
     this.pipeline = null;

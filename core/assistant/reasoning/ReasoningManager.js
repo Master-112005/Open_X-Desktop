@@ -63,6 +63,8 @@ class ReasoningManager {
     return {
       enabled: this.configuration.enabled,
       version: this.configuration.version,
+      pipelineReady: Boolean(this.pipeline),
+      reasonerCount: this.registry.list().length,
       reasoners: this.registry.health()
     };
   }

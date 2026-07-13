@@ -24,6 +24,9 @@ class LinguisticPipeline {
         if (typeof analyzer.validate === 'function') await analyzer.validate(context);
         const nextContext = await analyzer.analyze(context);
         if (nextContext) context = nextContext;
+        if (typeof context.compact === 'function' && ['linguistic.dependencyParser', 'linguistic.clauseAnalyzer'].includes(analyzer.id)) {
+          context.compact();
+        }
         context.recordTiming(analyzer.id, Date.now() - startedAt, true);
       } catch (error) {
         const wrapped = error instanceof AnalyzerExecutionError
@@ -38,6 +41,7 @@ class LinguisticPipeline {
         if (typeof analyzer.cleanup === 'function') await analyzer.cleanup(context);
       }
     }
+    this.diagnostics.finish();
     return context;
   }
 }

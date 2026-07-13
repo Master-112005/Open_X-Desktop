@@ -1,6 +1,9 @@
 'use strict';
 
+const UTILS_VERSION = '1.1.0';
+
 module.exports = {
+  UTILS_VERSION,
   AsyncHelpers: require('./AsyncHelpers'),
   Cancellation: require('./Cancellation'),
   ConfigurationLoader: require('./ConfigurationLoader'),

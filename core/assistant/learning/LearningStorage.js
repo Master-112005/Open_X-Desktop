@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { ensureDataRoot, readJsonFile, writeJsonAtomic } = require('../Data');
 const { LearningStorageError } = require('./LearningErrors');
+const LearningGuard = require('./LearningGuard');
 
 const CATEGORIES = Object.freeze([
   'preferences',
@@ -45,7 +46,7 @@ class LearningStorage {
       storageWrites: 0
     };
     const grouped = new Map();
-    for (const event of events) {
+    for (const event of events.slice(0, Math.max(1, this.maxRecords))) {
       const category = event.storageCategory || this._storageCategory(event.category);
       if (!CATEGORIES.includes(category)) {
         result.rejected.push({ category: event.category, key: event.key, reason: 'Unsupported storage category.' });
@@ -63,11 +64,11 @@ class LearningStorage {
         const record = {
           category: event.category,
           key: event.key,
-          value: event.value,
+          value: LearningGuard.sanitizeForLearning(event.value),
           confidence: event.confidence,
           source: event.source,
           module: event.module,
-          metadata: event.metadata || {},
+          metadata: LearningGuard.sanitizeForLearning(event.metadata || {}),
           count: Number(existing.count || 0) + 1,
           createdAt: existing.createdAt || event.learnedAt,
           updatedAt: event.learnedAt
@@ -90,6 +91,20 @@ class LearningStorage {
 
   snapshot(category) {
     return clone(this._read(category));
+  }
+
+  getRecord(category, key) {
+    const data = this._read(category);
+    return clone(data.records?.[key] || null);
+  }
+
+  summarize(category) {
+    const data = this._read(category);
+    return {
+      category,
+      records: Object.keys(data.records || {}).length,
+      metadata: { ...(data.metadata || {}) }
+    };
   }
 
   _read(category) {

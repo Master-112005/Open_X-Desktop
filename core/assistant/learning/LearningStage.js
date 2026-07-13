@@ -35,11 +35,18 @@ class LearningStage extends PipelineStage {
     });
     context.learningResult = learningResult;
     context.set('assistant.learningResult', learningResult);
+    if (
+      context.assistantResponse &&
+      typeof context.assistantResponse === 'object' &&
+      Object.isExtensible(context.assistantResponse)
+    ) {
+      context.assistantResponse.learningResult = learningResult;
+    }
     return StageResult.ok(this.id, finalOutput);
   }
 
   async destroy() {
-    this.manager.destroy?.();
+    await this.manager.destroy?.();
     return super.destroy();
   }
 }

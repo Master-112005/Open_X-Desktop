@@ -49,6 +49,17 @@ describe('Entity Extractor', function() {
     assert.equal(entities.appName, 'apple music');
   });
 
+  it('should resolve Windows utility and settings app aliases', function() {
+    const extractor = new EntityExtractor({});
+    const intent = { entities: [{ name: 'appName', type: 'string', required: true }] };
+
+    assert.equal(extractor.extract(intent, 'open voice recorder').appName, 'soundrecorder');
+    assert.equal(extractor.extract(intent, 'open microsoft store').appName, 'microsoft store');
+    assert.equal(extractor.extract(intent, 'open device manager').appName, 'devmgmt.msc');
+    assert.equal(extractor.extract(intent, 'open update settings').appName, 'ms-settings:windowsupdate');
+    assert.equal(extractor.extract(intent, 'open firewall settings').appName, 'windowsdefender://network');
+  });
+
   it('should keep unknown app names for Start menu resolution', function() {
     const extractor = new EntityExtractor({});
     const intent = { entities: [{ name: 'appName', type: 'string', required: true }] };
@@ -143,6 +154,15 @@ describe('Entity Extractor', function() {
     assert.equal(entities.folderName, 'rakesh');
   });
 
+  it('should extract suffix folder names from create and delete commands', function() {
+    const extractor = new EntityExtractor({});
+    const intent = { entities: [{ name: 'folderName', type: 'string', required: true }] };
+
+    assert.equal(extractor.extract(intent, 'create Projects folder').folderName, 'Projects');
+    assert.equal(extractor.extract(intent, 'create a study folder').folderName, 'study');
+    assert.equal(extractor.extract(intent, 'delete screenshots folder').folderName, 'screenshots');
+  });
+
   it('should extract file move source and destination', function() {
     const extractor = new EntityExtractor({});
     const intent = {
@@ -161,6 +181,14 @@ describe('Entity Extractor', function() {
     const intent = { entities: [{ name: 'value', type: 'number', required: true }] };
     const entities = extractor.extract(intent, 'set volume');
     assert.strictEqual(entities.value, null);
+  });
+
+  it('should extract spoken maximum and minimum values', function() {
+    const extractor = new EntityExtractor({});
+    const intent = { entities: [{ name: 'value', type: 'number', required: true }] };
+
+    assert.equal(extractor.extract(intent, 'set brightness to maximum').value, 100);
+    assert.equal(extractor.extract(intent, 'set volume to minimum').value, 0);
   });
 
   it('should extract timer duration in minutes', function() {

@@ -15,6 +15,9 @@ class InputAdapterRegistry {
     if (!id) throw new AdapterUnavailableError('Input adapter id is required.');
     adapter.id = id;
     if (Number.isFinite(options.priority)) adapter.priority = Number(options.priority);
+    if (this.adapters.has(id) && options.replace !== true) {
+      throw new AdapterUnavailableError(`Input adapter already registered: ${id}`, { adapterId: id });
+    }
     this.adapters.set(id, adapter);
     return this;
   }
@@ -30,6 +33,14 @@ class InputAdapterRegistry {
     return candidates[0] || null;
   }
 
+  get(id) {
+    return this.adapters.get(String(id || '').trim()) || null;
+  }
+
+  count() {
+    return this.adapters.size;
+  }
+
   enumerate() {
     return [...this.adapters.values()]
       .sort((left, right) => (Number(right.priority) || 0) - (Number(left.priority) || 0))
@@ -42,6 +53,12 @@ class InputAdapterRegistry {
         version: adapter.version,
         health: adapter.initialized === false ? 'registered' : 'ready'
       }));
+  }
+
+  clear() {
+    const count = this.adapters.size;
+    this.adapters.clear();
+    return count;
   }
 }
 

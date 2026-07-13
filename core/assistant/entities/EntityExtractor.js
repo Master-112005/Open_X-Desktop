@@ -11,6 +11,8 @@ const APP_ALIASES = {
   'google chrome': 'chrome',
   'firefox': 'firefox',
   'mozilla firefox': 'firefox',
+  'brave': 'brave',
+  'brave browser': 'brave',
   'edge': 'msedge',
   'microsoft edge': 'msedge',
   'notepad': 'notepad',
@@ -33,11 +35,35 @@ const APP_ALIASES = {
   'calculator': 'calc',
   'paint': 'mspaint',
   'snipping tool': 'snippingtool',
+  'camera': 'camera',
+  'voice recorder': 'soundrecorder',
+  'sound recorder': 'soundrecorder',
   'task manager': 'taskmgr',
+  'device manager': 'devmgmt.msc',
+  'disk management': 'diskmgmt.msc',
+  'services': 'services.msc',
   'control panel': 'control',
   'settings': 'ms-settings',
   'windows settings': 'ms-settings',
   'system settings': 'ms-settings',
+  'update settings': 'ms-settings:windowsupdate',
+  'windows update': 'ms-settings:windowsupdate',
+  'display settings': 'ms-settings:display',
+  'sound settings': 'ms-settings:sound',
+  'audio settings': 'ms-settings:sound',
+  'bluetooth settings': 'ms-settings:bluetooth',
+  'wifi settings': 'ms-settings:network-wifi',
+  'wi fi settings': 'ms-settings:network-wifi',
+  'network settings': 'ms-settings:network',
+  'storage settings': 'ms-settings:storagesense',
+  'privacy settings': 'ms-settings:privacy',
+  'accessibility settings': 'ms-settings:easeofaccess',
+  'keyboard settings': 'ms-settings:keyboard',
+  'mouse settings': 'ms-settings:mousetouchpad',
+  'printer settings': 'ms-settings:printers',
+  'firewall settings': 'windowsdefender://network',
+  'security settings': 'windowsdefender:',
+  'power settings': 'ms-settings:powersleep',
   'spotify': 'spotify',
   'discord': 'discord',
   'google chat': 'google chat',
@@ -253,6 +279,8 @@ class EntityExtractor {
   }
 
   _extractValue(text) {
+    if (/\b(?:max|maximum|full|hundred)\b/.test(text)) return 100;
+    if (/\b(?:min|minimum|zero|mute)\b/.test(text)) return 0;
     const num = Normalizer.extractNumber(text);
     if (num === null) return null;
     if (num > 100) return 100;
@@ -528,7 +556,9 @@ class EntityExtractor {
     const patterns = [
       /\b(?:create|new|make)\s+(?:a\s+)?(?:folder|directory)\s+(?:called|named)\s+(.+?)(?=\s+(?:on|in|at|to|from)\b|$)/i,
       /\b(?:create|new|make)\s+(?:folder|directory)\s+(.+?)(?=\s+(?:on|in|at|to|from)\b|$)/i,
+      /\b(?:create|new|make)\s+(?:a\s+|an\s+)?(.+?)\s+(?:folder|directory)(?=\s+(?:on|in|at|to|from)\b|$)/i,
       /\b(?:delete|remove|erase)\s+(?:folder|directory)\s+(.+?)(?=\s+(?:on|in|at|to|from)\b|$)/i,
+      /\b(?:delete|remove|erase)\s+(?:the\s+)?(.+?)\s+(?:folder|directory)(?=\s+(?:on|in|at|to|from)\b|$)/i,
       /\b(?:open|show|navigate to|go to)\s+(?:folder|directory)\s+(.+?)(?=\s+(?:on|in|at)\b|$)/i,
       /\b(?:open|show|navigate to|go to)\s+(.+?)\s+(?:folder|directory)(?=\s+(?:on|in|at)\b|$)/i,
       /\bmove\s+(?:folder|directory)\s+(.+?)(?=\s+(?:to|into|in|on|from)\b|$)/i
@@ -630,6 +660,13 @@ class EntityExtractor {
         })
       },
       {
+        regex: /^(?:reply|respond)\s+(?:to|for)\s+(.+?)(?:\s+(?:saying|that|with)\s+(.+))?$/i,
+        map: match => ({
+          contactName: match[1],
+          messageText: match[2] || null
+        })
+      },
+      {
         regex: /^(?:say|send)\s+(.+?)\s+to\s+(.+?)(?:\s+(?:on|in|via|using)\s+(.+))?$/i,
         map: match => ({
           messageText: match[1],
@@ -724,7 +761,8 @@ class EntityExtractor {
     }
 
     const partialMessage = String(raw || '').trim().match(/^(?:message|text|msg|massage)\s+(.+)$/i) ||
-      String(raw || '').trim().match(/^(?:telegram|signal|discord|messenger|instagram)\s+(.+)$/i);
+      String(raw || '').trim().match(/^(?:telegram|signal|discord|messenger|instagram)\s+(.+)$/i) ||
+      String(raw || '').trim().match(/^(?:reply|respond)\s+(?:to|for)\s+(.+)$/i);
     if (partialMessage?.[1]) {
       return this._cleanContactName(partialMessage[1]);
     }
@@ -1234,7 +1272,7 @@ class EntityExtractor {
     const cleaned = commandMatch[1]
       .replace(/\s+(?:on|in|via)\s+(?:youtube|spotify|soundcloud|gaana|jiosaavn|amazon\s*music|apple\s*music|saavn).*$/i, '')
       .replace(/^(?:the|a|an)\s+/i, '')
-      .replace(/\b(?:song|songs|music|track|tracks|video|videos)\b/gi, ' ')
+      .replace(/\s+\b(?:song|songs|music|track|tracks|video|videos)\b\s*$/i, ' ')
       .replace(/\b(?:called|named)\b/gi, ' ')
       .replace(/\s+/g, ' ')
       .trim();

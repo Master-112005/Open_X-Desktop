@@ -1,6 +1,9 @@
 'use strict';
 
 const { NormalizationManager, createDefaultNormalizationManager } = require('./NormalizationManager');
+const NormalizationConfiguration = require('./NormalizationConfiguration');
+
+const NORMALIZATION_LAYER_VERSION = '3.1.0';
 
 module.exports = {
   AbbreviationExpander: require('./AbbreviationExpander'),
@@ -12,7 +15,8 @@ module.exports = {
   InputCleaner: require('./InputCleaner'),
   LanguageNormalizationStage: require('./LanguageNormalizationStage'),
   LanguageSwitcher: require('./LanguageSwitcher'),
-  NormalizationConfiguration: require('./NormalizationConfiguration'),
+  NORMALIZATION_LAYER_VERSION,
+  NormalizationConfiguration,
   NormalizationContext: require('./NormalizationContext'),
   NormalizationDiagnostics: require('./NormalizationDiagnostics'),
   NormalizationLogger: require('./NormalizationLogger'),

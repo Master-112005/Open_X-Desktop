@@ -262,6 +262,7 @@ class CorrectionStore extends BaseStore {
     return {
       totalCorrections: Object.keys(this.data.corrections || {}).length,
       pendingSuggestions: this.occurrenceBuffer.size,
+      status: this.getStatus(),
       metadata: this.data.metadata
     };
   }

@@ -7,11 +7,24 @@ const INVISIBLE_CHARACTERS = /[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g;
 
 class InputCleaner extends BaseNormalizer {
   normalize(context) {
-    const next = String(context.workingText || '')
+    const cleaned = String(context.workingText || '')
       .replace(/\r\n?/g, '\n')
       .replace(CONTROL_CHARACTERS, '')
       .replace(INVISIBLE_CHARACTERS, '');
-    return context.setText(next, this.id, { removedUnsupportedCharacters: context.workingText.length - next.length });
+    const maxLength = Math.max(1, Number(context.configuration?.maxInputLength) || cleaned.length || 1);
+    const truncated = cleaned.length > maxLength;
+    const next = truncated ? cleaned.slice(0, maxLength) : cleaned;
+    if (truncated) {
+      context.addWarning('Input was truncated by normalization maxInputLength.', {
+        maxInputLength: maxLength,
+        originalLength: cleaned.length
+      });
+    }
+    return context.setText(next, this.id, {
+      removedUnsupportedCharacters: context.workingText.length - cleaned.length,
+      truncated,
+      maxInputLength: maxLength
+    });
   }
 }
 

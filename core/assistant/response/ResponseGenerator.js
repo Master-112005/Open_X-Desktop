@@ -147,6 +147,15 @@ function clampText(text, maxLength = 220) {
   return `${truncated.replace(/[,:;.\s]+$/g, '')}...`;
 }
 
+function safeContext(context) {
+  if (!context || typeof context !== 'object') return {};
+  return context;
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function stripTechnicalSpeechNoise(text) {
   return String(text || '')
     .replace(/\bSource:\s*[^.]+\.?/gi, '')
@@ -1202,13 +1211,18 @@ class ResponseGenerator {
   generate(type, templateId, context) {
     const bucket = RESPONSE_BUILDERS[type] || RESPONSE_BUILDERS.info;
     const builder = bucket[templateId] || bucket.default || RESPONSE_BUILDERS.info.default;
+    const safe = safeContext(context || {});
 
-    if (typeof builder === 'function') {
-      return this._polish(builder(context || {}));
-    }
+    try {
+      if (typeof builder === 'function') {
+        return this._polish(builder(safe));
+      }
 
-    if (typeof builder === 'string') {
-      return this._polish(this._interpolateString(builder, context || {}));
+      if (typeof builder === 'string') {
+        return this._polish(this._interpolateString(builder, safe));
+      }
+    } catch (error) {
+      return this._polish(humanizeError(error?.message || error));
     }
 
     return '';
@@ -1222,7 +1236,7 @@ class ResponseGenerator {
       if (!source || typeof source !== 'object') return;
 
       Object.entries(source).forEach(([key, value]) => {
-        result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), value ?? '');
+        result = result.replace(new RegExp(`\\{${escapeRegExp(key)}\\}`, 'g'), value ?? '');
       });
     });
 
@@ -1230,7 +1244,7 @@ class ResponseGenerator {
   }
 
   _polish(text) {
-    const result = String(text || '').replace(/\s+/g, ' ').trim();
+    const result = clampText(String(text || '').replace(/\s+/g, ' ').trim(), this.config?.assistant?.maxResponseLength || 1200);
     if (!result) return '';
     return applyFormalAddress(result, this.config);
   }
@@ -1303,10 +1317,15 @@ class ResponseGenerator {
   }
 
   addTemplate(type, templateId, template) {
-    if (!RESPONSE_BUILDERS[type]) {
-      RESPONSE_BUILDERS[type] = {};
+    const safeType = String(type || '').trim();
+    const safeId = String(templateId || '').trim();
+    if (!safeType || !safeId) {
+      throw new Error('Response template type and id are required.');
     }
-    RESPONSE_BUILDERS[type][templateId] = template;
+    if (!RESPONSE_BUILDERS[safeType]) {
+      RESPONSE_BUILDERS[safeType] = {};
+    }
+    RESPONSE_BUILDERS[safeType][safeId] = template;
   }
 
   static getTemplates() {

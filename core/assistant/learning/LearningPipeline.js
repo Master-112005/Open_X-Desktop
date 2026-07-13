@@ -7,7 +7,8 @@ const LearningPolicy = require('./LearningPolicy');
 const LearningValidator = require('./LearningValidator');
 const LearningStorage = require('./LearningStorage');
 const LearningAnalytics = require('./LearningAnalytics');
-const { PipelineError } = require('./LearningErrors');
+const { withTimeout } = require('../utils/AsyncHelpers');
+const { PipelineError, ModuleTimeoutError } = require('./LearningErrors');
 
 class LearningPipeline {
   constructor(options = {}) {
@@ -37,21 +38,38 @@ class LearningPipeline {
 
     for (const module of this.registry.list({ includeDisabled: false })) {
       const started = Date.now();
-      context.diagnostics.pipelineOrder.push(module.id);
+      let success = true;
+      let skipped = false;
+      let capturedError = null;
+      context.diagnostics.order(module.id);
       try {
         if (!module.initialized && typeof module.initialize === 'function') await module.initialize();
-        if (module.supports(context)) await module.learn(context);
+        const moduleOptions = this.configuration.getModuleOptions(module.id, module.options || {});
+        if (module.supports(context)) {
+          await withTimeout(
+            module.learn(context),
+            moduleOptions.timeoutMs,
+            () => new ModuleTimeoutError(module.id, moduleOptions.timeoutMs)
+          );
+        } else {
+          skipped = true;
+        }
       } catch (error) {
+        success = false;
+        capturedError = error;
         const wrapped = new PipelineError(`Learning module failed: ${module.id}`, { cause: error, context: { moduleId: module.id } });
         context.diagnostics.error(wrapped);
         if (this.configuration.strict) throw wrapped;
       } finally {
-        context.diagnostics.time(module.id, Date.now() - started);
+        const durationMs = Date.now() - started;
+        context.diagnostics.time(module.id, durationMs);
+        if (typeof module.markRun === 'function') module.markRun({ success, skipped, durationMs, error: capturedError });
+        context.recordModule(module.id, { success, skipped, durationMs, error: capturedError });
         if (typeof module.cleanup === 'function') await module.cleanup(context);
       }
     }
 
-    const storageResult = this.storage.commit(context.acceptedEvents);
+    const storageResult = this.storage.commit(context.acceptedEvents.slice(0, this.configuration.maxEventsPerRun));
     const analytics = this.analytics.summarize(context, storageResult);
     context.metadata.analytics = analytics;
     context.applyStorageResult(storageResult);

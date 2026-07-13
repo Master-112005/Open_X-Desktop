@@ -9,6 +9,10 @@ class VoiceFormatter extends BaseResponseGenerator {
       .replace(/\bStatus:\s*/i, '')
       .replace(/\s+/g, ' ')
       .trim();
+    context.formattedVoiceResponse = this.text(
+      context.formattedVoiceResponse || 'I do not have a spoken response for that yet.',
+      context.configuration?.maxVoiceLength || 900
+    );
     context.diagnostics.formatter(this.id);
     return context;
   }

@@ -180,6 +180,22 @@ class ActiveLearningStore {
     return JSON.parse(JSON.stringify(this.data));
   }
 
+  getStatus() {
+    return {
+      enabled: this.enabled,
+      askForFeedback: this.askForFeedback,
+      storePath: this.storePath,
+      pendingSave: Boolean(this.pendingSaveTimer),
+      counts: {
+        commandRewrites: this.data.commandRewrites?.length || 0,
+        preferences: Object.keys(this.data.preferences || {}).length,
+        userFacts: Object.keys(this.data.userFacts || {}).length,
+        commandSequences: Object.keys(this.data.commandSequences || {}).length,
+        feedbackPrompts: this.data.feedbackPrompts?.length || 0
+      }
+    };
+  }
+
   rememberCorrection(input, correction, metadata = {}) {
     if (!this.enabled) {
       return null;
@@ -199,8 +215,8 @@ class ActiveLearningStore {
       normalizedInput,
       correction: target,
       confidence: 1,
-      source: metadata.source || 'user-feedback',
-      reason: metadata.reason || '',
+      source: LearningGuard.sanitizeForLearning(metadata.source || 'user-feedback'),
+      reason: LearningGuard.sanitizeForLearning(metadata.reason || ''),
       createdAt: existing?.createdAt || now,
       updatedAt: now,
       learnedAt: now,

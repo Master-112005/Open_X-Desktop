@@ -2,6 +2,12 @@
 
 const LearningDiagnostics = require('./LearningDiagnostics');
 const LearningResult = require('./LearningResult');
+const LearningGuard = require('./LearningGuard');
+
+function pushBounded(list, item, limit) {
+  list.push(item);
+  if (list.length > limit) list.splice(0, list.length - limit);
+}
 
 class LearningContext {
   constructor(options = {}) {
@@ -10,8 +16,8 @@ class LearningContext {
     this.policy = options.policy || null;
     this.validator = options.validator || null;
     this.storage = options.storage || null;
-    this.metadata = { ...(options.metadata || {}) };
-    this.diagnostics = options.diagnostics || new LearningDiagnostics();
+    this.metadata = LearningGuard.sanitizeForLearning({ ...(options.metadata || {}) });
+    this.diagnostics = options.diagnostics || new LearningDiagnostics({ limit: this.configuration?.maxDiagnostics });
     this.acceptedEvents = [];
     this.itemsLearned = [];
     this.itemsRejected = [];
@@ -29,7 +35,7 @@ class LearningContext {
   addEvent(event = {}) {
     const checked = this.validator.validate(event, this);
     if (!checked.valid) {
-      this.itemsRejected.push({
+      this.addRejected({
         category: event.category || 'unknown',
         key: event.key || '',
         reason: checked.reason
@@ -43,16 +49,35 @@ class LearningContext {
       confidence: checked.event.confidence,
       source: checked.event.source || 'learning-engine',
       module: checked.event.module || 'unknown',
-      metadata: checked.event.metadata || {},
+      storageCategory: checked.event.storageCategory,
+      metadata: LearningGuard.sanitizeForLearning(checked.event.metadata || {}),
       learnedAt: this.now()
     };
-    this.acceptedEvents.push(normalized);
+    pushBounded(this.acceptedEvents, normalized, this.configuration?.maxEventsPerRun || 100);
     return normalized;
+  }
+
+  addRejected(item = {}) {
+    pushBounded(this.itemsRejected, LearningGuard.sanitizeForLearning({
+      category: item.category || 'unknown',
+      key: item.key || '',
+      reason: item.reason || 'Rejected'
+    }), this.configuration?.maxEventsPerRun || 100);
+  }
+
+  recordModule(moduleId, result = {}) {
+    if (!this.metadata.modules) this.metadata.modules = {};
+    this.metadata.modules[String(moduleId || 'unknown')] = {
+      success: result.success !== false,
+      skipped: result.skipped === true,
+      durationMs: Math.max(0, Number(result.durationMs) || 0),
+      error: result.error ? String(result.error.message || result.error).slice(0, 240) : null
+    };
   }
 
   applyStorageResult(result = {}) {
     this.itemsLearned = result.learned || [];
-    this.itemsRejected.push(...(result.rejected || []));
+    for (const item of result.rejected || []) this.addRejected(item);
     this.updatedPreferences = result.updatedPreferences || [];
     this.updatedAliases = result.updatedAliases || [];
     this.updatedHabits = result.updatedHabits || [];

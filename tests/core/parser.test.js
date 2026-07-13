@@ -94,6 +94,42 @@ describe('Input Parser', function() {
     );
   });
 
+  it('should keep connector words inside one command target', function() {
+    const parser = new InputParser({});
+    const result = parser.parse('search for cats and dogs');
+
+    assert.equal(result.commandClauses.length, 1);
+    assert.equal(result.commandClauses[0].text, 'search for cats and dogs');
+    assert.deepEqual(result.commandClauses[0].tokens, ['search', 'for', 'cats', 'and', 'dogs']);
+  });
+
+  it('should preserve media titles that contain connector words', function() {
+    const parser = new InputParser({});
+    const result = parser.parse('play Stars and Stripes Forever song');
+
+    assert.equal(result.commandClauses.length, 1);
+    assert.equal(result.commandClauses[0].text, 'play stars and stripes forever song');
+    assert.equal(result.commandClauses[0].actionToken, 'play');
+  });
+
+  it('should flag correction follow-ups for context-aware routing', function() {
+    const parser = new InputParser({});
+    const result = parser.parse('no no set it to 40');
+
+    assert.equal(result.isCorrection, true);
+    assert.equal(result.discourse.requiresContext, true);
+    assert.equal(result.commandClauses[0].actionToken, 'set');
+  });
+
+  it('should classify reminder and alarm frames as schedule work', function() {
+    const { CommandFrameParser } = require('../../core/assistant/linguistic/InputParser');
+    const frame = new CommandFrameParser().parse('remind me every saturday and monday to eat lunch at 8 pm');
+
+    assert.equal(frame.domain, 'schedule');
+    assert.equal(frame.clauses.length, 1);
+    assert.equal(frame.isCorrection, false);
+  });
+
   it('should classify phone transfer command frames with natural aliases', function() {
     const { CommandFrameParser } = require('../../core/assistant/linguistic/InputParser');
     const frame = new CommandFrameParser().parse('copy latest screenshot onto my mobile');

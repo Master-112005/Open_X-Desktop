@@ -1,6 +1,7 @@
 'use strict';
 
 const { DecisionManager, createDefaultDecisionManager } = require('./DecisionManager');
+const DecisionResult = require('./DecisionResult');
 
 module.exports = {
   DecisionPipeline: require('./DecisionPipeline'),
@@ -15,7 +16,8 @@ module.exports = {
   ConfirmationDecision: require('./ConfirmationDecision'),
   PolicyDecision: require('./PolicyDecision'),
   ConflictDecision: require('./ConflictDecision'),
-  DecisionResult: require('./DecisionResult'),
+  DecisionResult,
+  DECISION_STATUSES: DecisionResult.STATUSES,
   DecisionConfiguration: require('./DecisionConfiguration'),
   DecisionDiagnostics: require('./DecisionDiagnostics'),
   DecisionLogger: require('./DecisionLogger'),

@@ -16,8 +16,19 @@ class LearningRegistry {
     module.id = id;
     if (Number.isFinite(options.priority)) module.priority = Number(options.priority);
     if (options.enabled !== undefined) module.enabled = options.enabled !== false;
+    if (this.modules.has(id) && options.replace !== true) {
+      throw new ConfigurationError(`Learning module already registered: ${id}`);
+    }
     this.modules.set(id, module);
     return this;
+  }
+
+  has(id) { return this.modules.has(String(id || '').trim()); }
+  get(id) { return this.modules.get(String(id || '').trim()) || null; }
+  count(options = {}) { return this.list(options).length; }
+  registerAll(modules = [], options = {}) {
+    for (const module of modules) this.register(module, options);
+    return this.count({ includeDisabled: true });
   }
 
   list({ includeDisabled = true } = {}) {
@@ -27,13 +38,17 @@ class LearningRegistry {
   }
 
   health() {
-    return this.list().map(module => ({
-      id: module.id,
-      version: module.version,
-      priority: module.priority,
-      enabled: module.enabled !== false,
-      initialized: module.initialized === true
-    }));
+    return this.list().map(module => (
+      typeof module.describe === 'function'
+        ? module.describe()
+        : {
+          id: module.id,
+          version: module.version,
+          priority: module.priority,
+          enabled: module.enabled !== false,
+          initialized: module.initialized === true
+        }
+    ));
   }
 
   clear() { this.modules.clear(); }

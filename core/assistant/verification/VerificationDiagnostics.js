@@ -9,6 +9,8 @@ function pushBounded(list, item) {
 
 class VerificationDiagnostics {
   constructor() {
+    this.startedAt = Date.now();
+    this.finishedAt = null;
     this.verificationTime = {};
     this.verificationEvidence = [];
     this.warnings = [];
@@ -36,8 +38,18 @@ class VerificationDiagnostics {
       : null;
   }
 
+  finish() {
+    this.finishedAt = Date.now();
+    this.memoryUsage = this._memoryUsage();
+    return this;
+  }
+
   toJSON() {
+    this.finish();
     return {
+      startedAt: this.startedAt,
+      finishedAt: this.finishedAt,
+      durationMs: Math.max(0, (this.finishedAt || Date.now()) - this.startedAt),
       verificationTime: { ...this.verificationTime },
       verificationEvidence: this.verificationEvidence.slice(),
       warnings: this.warnings.slice(),

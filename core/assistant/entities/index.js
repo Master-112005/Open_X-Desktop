@@ -1,8 +1,10 @@
 'use strict';
 
 const { EntityManager, createDefaultEntityManager } = require('./EntityManager');
+const ENTITY_UNDERSTANDING_VERSION = '6.0.0';
 
 module.exports = {
+  ENTITY_UNDERSTANDING_VERSION,
   EntityPipeline: require('./EntityPipeline'),
   EntityManager,
   createDefaultEntityManager,

@@ -10,7 +10,12 @@ class SummaryResponse extends BaseResponseGenerator {
     const failed = result.failedActions?.length || 0;
     const skipped = result.skippedActions?.length || 0;
     context.responseType = 'summary';
-    context.addPart('summary', `Status: ${result.executionStatus}. Completed ${completed}, failed ${failed}, skipped ${skipped}.`);
+    const status = result.executionStatus || 'UNKNOWN';
+    this.addPart(context, 'summary', `Status: ${status}. Completed ${completed}, failed ${failed}, skipped ${skipped}.`, {
+      completed,
+      failed,
+      skipped
+    });
     return context;
   }
 }

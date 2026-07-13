@@ -75,6 +75,7 @@ function scorePreparedPattern(preparedInput, patternPrepared) {
     inputTokens[0] === patternTokens[0] ||
     Normalizer.similarity(inputTokens[0], patternTokens[0]) >= 0.84
   ) ? 1 : 0;
+  const contiguousPhraseBonus = patternTokens.length > 1 && inputText.includes(patternTokens.join(' ')) ? 0.05 : 0;
 
   return Math.max(
     0,
@@ -85,11 +86,24 @@ function scorePreparedPattern(preparedInput, patternPrepared) {
       (ordered * 0.16) +
       (bigramScore * 0.14) +
       (stringSimilarity * 0.16) +
-      (leadingVerbMatch * 0.06)
+      (leadingVerbMatch * 0.06) +
+      contiguousPhraseBonus
     )
   );
 }
 
+function explainPreparedPattern(preparedInput, patternPrepared) {
+  const score = scorePreparedPattern(preparedInput, patternPrepared);
+  return {
+    score,
+    input: preparedInput.intentText || preparedInput.correctedText || '',
+    pattern: patternPrepared.intentText || patternPrepared.correctedText || '',
+    inputTokenCount: (preparedInput.intentTokens || preparedInput.tokens || []).length,
+    patternTokenCount: (patternPrepared.intentTokens || patternPrepared.tokens || []).length
+  };
+}
+
 module.exports = {
-  scorePreparedPattern
+  scorePreparedPattern,
+  explainPreparedPattern
 };

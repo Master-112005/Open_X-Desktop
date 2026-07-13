@@ -19,6 +19,8 @@ class ReasoningResult {
     this.evidence = Array.isArray(input.evidence) ? input.evidence.slice() : [];
     this.diagnostics = input.diagnostics || {};
     this.metadata = { ...(input.metadata || {}) };
+    this.entitySummary = { ...(input.entitySummary || {}) };
+    this.ready = Boolean(this.resolvedGoal && this.resolvedIntent && this.resolvedAction && this.clarificationRequirements.length === 0);
     this.timing = { ...(input.timing || {}) };
     this.version = String(input.version || '8.0.0');
     this.futureExtensions = { ...(input.futureExtensions || {}) };

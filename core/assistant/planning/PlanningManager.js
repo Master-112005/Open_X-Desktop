@@ -31,8 +31,8 @@ class PlanningManager {
       [DependencyPlanner, 'planning.dependencyPlanner', 30],
       [ParallelPlanner, 'planning.parallelPlanner', 40],
       [RecoveryPlanner, 'planning.recoveryPlanner', 50],
-      [ExecutionPlanner, 'planning.executionPlanner', 60],
-      [PlannerOptimizer, 'planning.optimizer', 70],
+      [PlannerOptimizer, 'planning.optimizer', 60],
+      [ExecutionPlanner, 'planning.executionPlanner', 70],
       [TaskGraphBuilder, 'planning.taskGraphBuilder', 80],
       [ExecutionGraphBuilder, 'planning.executionGraphBuilder', 90]
     ].forEach(([Ctor, id, priority]) => {
@@ -54,13 +54,21 @@ class PlanningManager {
         logger: this.logger
       });
     }
-    return this.pipeline.run(reasoningResult, options);
+    return this.pipeline.run(reasoningResult, {
+      ...(options || {}),
+      metadata: {
+        ...(options.metadata || {}),
+        planningManagerVersion: this.configuration.version
+      }
+    });
   }
 
   getStatus() {
     return {
       enabled: this.configuration.enabled,
       version: this.configuration.version,
+      pipelineReady: Boolean(this.pipeline),
+      plannerCount: this.registry.list().length,
       planners: this.registry.health()
     };
   }

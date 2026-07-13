@@ -1,8 +1,9 @@
 class Personality {
   constructor(config) {
     this.config = config;
+    const displayName = String(config?.assistant?.displayName || 'OpenX').replace(/\s+/g, ' ').trim();
     this.persona = {
-      name: config?.assistant?.displayName,
+      name: displayName,
       title: 'Desktop Assistant',
       greeting: 'How may I assist you, sir?',
       farewell: 'Awaiting your next command, sir.',
@@ -31,6 +32,7 @@ class Personality {
     }
 
     if (!result) return '';
+    if (!/[.!?]$/.test(result)) result = `${result}.`;
     return result;
   }
 

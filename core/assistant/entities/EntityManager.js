@@ -91,6 +91,11 @@ class EntityManager {
     return {
       enabled: this.configuration.enabled,
       version: this.configuration.version,
+      pipelineReady: Boolean(this.pipeline),
+      extractorCount: this.registry.listExtractors().length,
+      normalizerCount: this.registry.normalizers.size,
+      resolverCount: this.registry.resolvers.size,
+      validatorCount: this.registry.validators.size,
       extractors: this.registry.health()
     };
   }

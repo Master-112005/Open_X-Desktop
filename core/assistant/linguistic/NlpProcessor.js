@@ -14,7 +14,7 @@ const {
 } = require('../reasoning/IntentPatternScorer');
 const { normalizeWebTarget } = require('../semantic/WebTargets');
 const { parseLearningDirective } = require('../learning/LearningLanguage');
-const { analyzeDiscourse } = require('./LanguageAnalysis');
+const { analyzeDiscourse, splitCommandClauses } = require('./LanguageAnalysis');
 
 const PREPARE_CACHE_LIMIT = 4096;
 const PATTERN_CACHE_LIMIT = 2048;
@@ -46,6 +46,7 @@ class NlpProcessor {
       ...prepared,
       query: prepared.query ? { ...prepared.query, clauses: [...(prepared.query.clauses || [])] } : prepared.query,
       semanticFrame: prepared.semanticFrame ? { ...prepared.semanticFrame } : prepared.semanticFrame,
+      commandClauses: [...(prepared.commandClauses || [])],
       discourse: prepared.discourse ? {
         ...prepared.discourse,
         references: [...(prepared.discourse.references || [])]
@@ -172,6 +173,7 @@ class NlpProcessor {
     const intentBigrams = buildBigrams(intentTokens);
     const learningDirective = parseLearningDirective(text);
     const discourse = analyzeDiscourse(text);
+    const commandClauses = splitCommandClauses(commandText || correctedText);
 
     return {
       normalizedText: normalized,
@@ -188,6 +190,7 @@ class NlpProcessor {
       intentTokens,
       learningDirective,
       discourse,
+      commandClauses,
       bigrams,
       intentBigrams
     };
@@ -198,6 +201,7 @@ class NlpProcessor {
     const text = String(correctedText || '').trim().toLowerCase();
     const raw = String(rawText || '').trim().toLowerCase();
     const action = this._findNoisyAction(safeTokens);
+    const discourse = analyzeDiscourse(rawText || correctedText);
     const value = Normalizer.extractNumber(text);
     const questionWord = safeTokens.find(token => ['what', 'who', 'when', 'where', 'why', 'how', 'which'].includes(token)) || null;
     const targetText = action
@@ -212,7 +216,8 @@ class NlpProcessor {
       targetText: normalizedTargetText,
       localScope,
       webTarget,
-      value
+      value,
+      discourse
     });
     const targetType = this._classifyTargetType({
       actionVerb: action?.verb || null,
@@ -231,6 +236,7 @@ class NlpProcessor {
       webTarget,
       domain,
       value,
+      isCorrection: discourse.isCorrection === true,
       localScope,
       requiresWeb: targetType === 'web' || targetType === 'knowledge',
       isLocal: targetType === 'local-file' || targetType === 'local-app'
@@ -289,10 +295,19 @@ class NlpProcessor {
     return target;
   }
 
-  _inferDomain({ actionVerb, correctedText, targetText, localScope, webTarget, value }) {
+  _inferDomain({ actionVerb, correctedText, targetText, localScope, webTarget, value, discourse }) {
     const combined = `${correctedText || ''} ${targetText || ''}`.toLowerCase();
+    if (discourse?.isCorrection) {
+      return 'correction';
+    }
     if (actionVerb === 'open' && /\bnew\s+(?:chrome\s+)?tab\b/.test(combined)) {
       return 'browser-tab';
+    }
+    if (['next', 'previous'].includes(actionVerb) && /\bjump\s+to\s+(?:end|ending|last|beginning|start|first)\b/.test(combined)) {
+      return 'media';
+    }
+    if (/\b(?:timer|alarm|reminder|remind|wake|snooze|daily|weekly|weekday|weekend|every\s+(?:day|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/.test(combined)) {
+      return 'schedule';
     }
     if (/\b(?:volume|sound|audio)\b/.test(combined)) {
       return 'volume';
@@ -395,10 +410,7 @@ class NlpProcessor {
       /^(?:what|which|show|list|tell)\b/i.test(text);
     const isKnowledgeQuestion = isQuestion && !isLocalFileQuestion &&
       !/\b(?:time|date|day)\b/i.test(text);
-    const clauses = text
-      .split(/\s+\band\b\s+|\s*;\s*/i)
-      .map(clause => clause.trim())
-      .filter(Boolean);
+    const clauses = splitCommandClauses(text);
 
     let type = 'unknown';
     if (action?.verb) {
@@ -488,7 +500,7 @@ class NlpProcessor {
       }
     }
 
-    if (['search', 'play', 'pause', 'resume', 'stop', 'set', 'remind', 'remember'].includes(action.verb)) {
+    if (['search', 'play', 'pause', 'resume', 'stop', 'set', 'remind', 'remember', 'send', 'message'].includes(action.verb)) {
       return this._buildCommandTail(tokens, action.index, action.verb);
     }
 
@@ -522,7 +534,9 @@ class NlpProcessor {
       'finance',
       'stock',
       'gold',
-      'rupees'
+      'rupees',
+      'stripes',
+      'forever'
     ]);
     const groups = [
       { verb: 'open', words: ['open', 'launch', 'start', 'run', 'show', 'play'] },
@@ -541,7 +555,7 @@ class NlpProcessor {
       { verb: 'remind', words: ['remind', 'alert', 'notify'] },
       { verb: 'delete', words: ['delete', 'remove', 'trash', 'discard', 'erase', 'eliminate'] },
       { verb: 'create', words: ['create', 'make', 'new', 'add', 'generate', 'build'] },
-      { verb: 'send', words: ['send', 'share', 'deliver', 'dispatch', 'mail', 'post'] },
+      { verb: 'send', words: ['send', 'share', 'deliver', 'dispatch', 'mail', 'post', 'reply', 'respond', 'transfer'] },
       { verb: 'call', words: ['call', 'phone', 'dial', 'ring', 'contact'] },
       { verb: 'message', words: ['message', 'text', 'sms', 'chat'] },
       { verb: 'remember', words: ['remember', 'note', 'memorize', 'recall', 'store', 'save', 'keep'] },
@@ -554,6 +568,16 @@ class NlpProcessor {
       const token = tokens[index];
       if (protectedQueryTokens.has(token)) {
         continue;
+      }
+
+      if (token === 'jump' && tokens[index + 1] === 'to') {
+        const destination = tokens[index + 2];
+        if (['beginning', 'start', 'first'].includes(destination)) {
+          return { verb: 'previous', index };
+        }
+        if (['end', 'ending', 'last'].includes(destination)) {
+          return { verb: 'next', index };
+        }
       }
 
       for (const group of groups) {
@@ -737,6 +761,7 @@ class NlpProcessor {
       'hold',
       'ignore',
       'increase',
+      'jump',
       'launch',
       'learn',
       'listen',

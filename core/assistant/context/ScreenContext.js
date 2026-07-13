@@ -1,5 +1,9 @@
 'use strict';
 
+function numberOrNull(value) {
+  return Number.isFinite(Number(value)) ? Number(value) : null;
+}
+
 class ScreenContext {
   constructor(options = {}) {
     this.id = String(options.id || 'context.screen');
@@ -12,7 +16,25 @@ class ScreenContext {
   initialize() { this.initialized = true; }
 
   collect(context) {
-    context.context.screen = { ...(context.snapshots.screen || {}) };
+    const screen = context.snapshots?.screen || {};
+    const displays = (Array.isArray(screen.displays) ? screen.displays : [])
+      .map(display => ({
+        id: display.id || null,
+        width: numberOrNull(display.width),
+        height: numberOrNull(display.height),
+        scaleFactor: numberOrNull(display.scaleFactor),
+        primary: Boolean(display.primary)
+      }))
+      .slice(0, 4);
+    context.context.screen = {
+      width: numberOrNull(screen.width),
+      height: numberOrNull(screen.height),
+      scaleFactor: numberOrNull(screen.scaleFactor),
+      displays,
+      displayCount: displays.length || numberOrNull(screen.displayCount),
+      locked: Boolean(screen.locked),
+      state: screen.state || (screen.locked ? 'locked' : 'available')
+    };
     return context;
   }
 }

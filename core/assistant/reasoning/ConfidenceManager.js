@@ -16,13 +16,17 @@ class ConfidenceManager extends BaseReasoner {
     const task = average(context.candidateTasks.map(item => item.confidence));
     const clarification = context.clarificationRequirements.length ? 0.5 : 0.9;
     const conflictPenalty = context.detectedConflicts.length ? 0.2 : 0;
-    const overall = Math.max(0, average([goal, intent, action, task || goal, clarification]) - conflictPenalty);
+    const entitySupport = Object.keys(context.entitySummary || {}).length > 0 ? 0.06 : 0;
+    const contextSupport = context.evidence.some(item => item.type.startsWith('context.')) ? 0.04 : 0;
+    const overall = Math.max(0, Math.min(1, average([goal, intent, action, task || goal, clarification]) + entitySupport + contextSupport - conflictPenalty));
     context.confidenceScores = {
       goal,
       intent,
       action,
       task,
       clarification,
+      entitySupport,
+      contextSupport,
       overall: Number(overall.toFixed(3)),
       explanations: {
         overall: 'deterministic evidence average; no execution, planning, validation, or response generation'

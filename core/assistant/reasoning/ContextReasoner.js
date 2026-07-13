@@ -17,6 +17,18 @@ class ContextReasoner extends BaseReasoner {
     for (const reference of resolved.resolvedReferences || []) {
       context.addEvidence('context.reference', reference.target, reference.confidence || 0.6, this.id);
     }
+    const recent = resolved.workingMemory?.lastAction || resolved.conversationMemory?.lastAction || resolved.metadata?.lastAction || null;
+    if (recent) context.addEvidence('context.recent-action', String(recent), 0.66, this.id);
+    if (/\b(?:no no|actually|instead|set it to|change it to)\b/.test(context.normalizedInput)) {
+      context.metadata.isCorrection = true;
+      context.addEvidence('context.correction', 'correction-or-revision', 0.72, this.id);
+      const value = context.entitySummary.volumeLevels || /\bvol(?:ume)?\b/.test(context.normalizedInput);
+      if (value) {
+        context.addUnique('candidateGoals', { id: 'audio.adjustment', name: 'Audio Adjustment', confidence: 0.78, evidence: ['context.correction'], source: this.id });
+        context.addUnique('candidateIntents', { intent: 'SetVolume', confidence: 0.76, evidence: ['audio.adjustment'], source: this.id });
+        context.addUnique('candidateActions', { action: 'SET_VOLUME', confidence: 0.78, evidence: ['SetVolume'], source: this.id });
+      }
+    }
     return context;
   }
 }

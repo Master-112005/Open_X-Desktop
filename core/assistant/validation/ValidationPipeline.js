@@ -3,6 +3,7 @@
 const ValidationContext = require('./ValidationContext');
 const ValidationConfiguration = require('./ValidationConfiguration');
 const ValidationRegistry = require('./ValidationRegistry');
+const ValidationLogger = require('./ValidationLogger');
 const { PipelineError } = require('./ValidationErrors');
 
 class ValidationPipeline {
@@ -11,6 +12,7 @@ class ValidationPipeline {
     this.configuration = options.configuration instanceof ValidationConfiguration
       ? options.configuration
       : new ValidationConfiguration(options.configuration || {});
+    this.logger = options.logger instanceof ValidationLogger ? options.logger : new ValidationLogger(options.logger || null);
   }
 
   async run(executionBlueprint, decisionResult, options = {}) {
@@ -32,6 +34,8 @@ class ValidationPipeline {
       } catch (error) {
         const wrapped = new PipelineError(`Validator failed: ${validator.id}`, { cause: error, context: { validatorId: validator.id } });
         context.diagnostics.error(wrapped);
+        context.check(validator.id, false, wrapped.message, { validatorId: validator.id });
+        this.logger.warn(wrapped.message, { validatorId: validator.id });
         if (this.configuration.strict) throw wrapped;
       } finally {
         context.diagnostics.time(validator.id, Date.now() - started);

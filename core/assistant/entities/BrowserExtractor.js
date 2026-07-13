@@ -13,11 +13,9 @@ const BROWSERS = Object.freeze({
 
 class BrowserExtractor extends BaseEntityExtractor {
   extract(context) {
-    const text = this.normalized(context);
-    for (const [alias, canonical] of Object.entries(BROWSERS)) {
-      if (new RegExp(`\\b${alias}\\b`).test(text)) {
-        context.addEntity('browser', canonical, { rawValue: alias, source: this.id, confidence: alias === 'browser' ? 0.55 : 0.86 });
-      }
+    this.addAliasMatches(context, 'browser', BROWSERS, { confidence: 0.86 });
+    if (/\b(?:open|launch|start|search|browse)\s+(?:the\s+)?(?:web|internet|browser)\b/i.test(this.text(context))) {
+      this.addEntity(context, 'browser', 'browser', { rawValue: 'browser', confidence: 0.6 });
     }
     return context;
   }

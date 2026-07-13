@@ -1,8 +1,10 @@
 'use strict';
 
 const { ResponseManager, createDefaultResponseManager } = require('./ResponseManager');
+const RESPONSE_VERSION = '11.1.0';
 
 module.exports = {
+  RESPONSE_VERSION,
   ResponsePipeline: require('./ResponsePipeline'),
   ResponseManager,
   createDefaultResponseManager,

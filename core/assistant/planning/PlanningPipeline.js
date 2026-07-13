@@ -20,7 +20,10 @@ class PlanningPipeline {
       configuration: this.configuration,
       metadata: options.metadata || {}
     });
-    if (this.configuration.enabled === false) return context.toExecutionBlueprint();
+    if (this.configuration.enabled === false) {
+      context.diagnostics.warn('Planning pipeline disabled; returning empty execution blueprint.');
+      return context.toExecutionBlueprint();
+    }
 
     for (const planner of this.registry.list({ includeDisabled: false })) {
       const started = Date.now();
@@ -28,6 +31,7 @@ class PlanningPipeline {
       try {
         if (!planner.initialized && typeof planner.initialize === 'function') await planner.initialize();
         if (planner.supports(context)) await planner.plan(context);
+        context.removeInvalidReferences();
       } catch (error) {
         const wrapped = new PlannerExecutionError(`Planner failed: ${planner.id}`, { cause: error, context: { plannerId: planner.id } });
         context.diagnostics.error(wrapped);

@@ -25,6 +25,7 @@ const KNOWN_APPS = {
   'msedge': { path: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', cmd: 'msedge', newWindowArgs: ['--new-window'] },
   'edge': { path: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', cmd: 'msedge', newWindowArgs: ['--new-window'] },
   'firefox': { path: 'C:\\Program Files\\Mozilla Firefox\\firefox.exe', cmd: 'firefox', newWindowArgs: ['--new-window'] },
+  'brave': { cmd: 'brave', newWindowArgs: ['--new-window'] },
   'notepad': { path: 'C:\\Windows\\System32\\notepad.exe', cmd: 'notepad', newTabShortcut: '^n' },
   'calc': { path: 'C:\\Windows\\System32\\calc.exe', cmd: 'calc' },
   'mspaint': { path: 'C:\\Windows\\System32\\mspaint.exe', cmd: 'mspaint' },
@@ -32,6 +33,9 @@ const KNOWN_APPS = {
   'powershell': { path: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', cmd: 'powershell' },
   'explorer': { path: 'C:\\Windows\\explorer.exe', cmd: 'explorer', newWindowArgs: ['/n'] },
   'taskmgr': { path: 'C:\\Windows\\System32\\Taskmgr.exe', cmd: 'taskmgr' },
+  'devmgmt.msc': { path: 'C:\\Windows\\System32\\mmc.exe', cmd: 'mmc', args: ['devmgmt.msc'] },
+  'diskmgmt.msc': { path: 'C:\\Windows\\System32\\mmc.exe', cmd: 'mmc', args: ['diskmgmt.msc'] },
+  'services.msc': { path: 'C:\\Windows\\System32\\mmc.exe', cmd: 'mmc', args: ['services.msc'] },
   'control': { path: 'C:\\Windows\\System32\\control.exe', cmd: 'control' },
   'snippingtool': { path: 'C:\\Windows\\System32\\SnippingTool.exe', cmd: 'SnippingTool' },
   'winword': { cmd: 'winword', newWindowArgs: ['/n'] },
@@ -69,6 +73,23 @@ const SPECIAL_LAUNCHERS = {
   'system settings': { target: 'ms-settings:' },
   'recycle bin': { target: 'C:\\Windows\\explorer.exe', args: ['shell:RecycleBinFolder'] },
   'microsoft store': { target: 'ms-windows-store:' },
+  'soundrecorder': { target: 'ms-soundrecorder:' },
+  'camera': { target: 'microsoft.windows.camera:' },
+  'ms-settings:windowsupdate': { target: 'ms-settings:windowsupdate' },
+  'ms-settings:display': { target: 'ms-settings:display' },
+  'ms-settings:sound': { target: 'ms-settings:sound' },
+  'ms-settings:bluetooth': { target: 'ms-settings:bluetooth' },
+  'ms-settings:network-wifi': { target: 'ms-settings:network-wifi' },
+  'ms-settings:network': { target: 'ms-settings:network' },
+  'ms-settings:storagesense': { target: 'ms-settings:storagesense' },
+  'ms-settings:privacy': { target: 'ms-settings:privacy' },
+  'ms-settings:easeofaccess': { target: 'ms-settings:easeofaccess' },
+  'ms-settings:keyboard': { target: 'ms-settings:keyboard' },
+  'ms-settings:mousetouchpad': { target: 'ms-settings:mousetouchpad' },
+  'ms-settings:printers': { target: 'ms-settings:printers' },
+  'ms-settings:powersleep': { target: 'ms-settings:powersleep' },
+  'windowsdefender:': { target: 'windowsdefender:' },
+  'windowsdefender://network': { target: 'windowsdefender://network' },
   'photos': { target: 'ms-photos:' },
   'google chat': { target: 'https://chat.google.com', webFallback: true },
   'youtube': { target: 'https://www.youtube.com', webFallback: true }
@@ -84,11 +105,17 @@ const APP_ALIASES = new Map([
   ['edge browser', 'edge'],
   ['mozilla firefox', 'firefox'],
   ['firefox browser', 'firefox'],
+  ['brave browser', 'brave'],
   ['visual studio code', 'code'],
   ['vs code', 'code'],
   ['vscode', 'code'],
   ['calculator', 'calc'],
   ['paint', 'mspaint'],
+  ['voice recorder', 'soundrecorder'],
+  ['sound recorder', 'soundrecorder'],
+  ['device manager', 'devmgmt.msc'],
+  ['disk management', 'diskmgmt.msc'],
+  ['services', 'services.msc'],
   ['instagram', 'instagram'],
   ['instagram app', 'instagram'],
   ['instgram', 'instagram'],
@@ -126,7 +153,9 @@ class AppController {
       ? 'open-new-window'
       : (options.requestedOperation || 'open-or-focus');
     const beforeWindowCount = forceNewWindow ? this._countAppWindows(name) : null;
-    const launchArgs = forceNewWindow ? (app?.newWindowArgs || []) : [];
+    const launchArgs = forceNewWindow
+      ? (app?.newWindowArgs || app?.args || [])
+      : (app?.args || []);
 
     try {
       if (!options.forceNewWindow && !options.skipAlreadyOpenCheck) {

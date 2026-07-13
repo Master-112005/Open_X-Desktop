@@ -18,6 +18,9 @@ class ExecutionBlueprint {
     this.estimatedDuration = Number(input.estimatedDuration || 0);
     this.planningDiagnostics = input.planningDiagnostics || {};
     this.metadata = { ...(input.metadata || {}) };
+    this.actionCounts = { ...(input.actionCounts || {}) };
+    this.taskIndex = Object.fromEntries(this.tasks.map(task => [task.id, task]));
+    this.ready = this.tasks.length > 0 && this.ordering.length === this.tasks.length;
     this.version = String(input.version || '9.0.0');
     this.futureExtensions = { ...(input.futureExtensions || {}) };
     deepFreeze(this);

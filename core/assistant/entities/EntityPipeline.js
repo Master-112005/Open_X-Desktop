@@ -77,6 +77,7 @@ class EntityPipeline {
       try {
         if (!extractor.initialized && typeof extractor.initialize === 'function') await extractor.initialize();
         if (extractor.supports(context)) await extractor.extract(context);
+        if (this.configuration.deduplicate !== false) context.compactEntities();
         if (typeof extractor.validate === 'function') extractor.validate(context);
       } catch (error) {
         const wrapped = new ExtractorExecutionError(`Entity extractor failed: ${extractor.id}`, { cause: error, context: { extractorId: extractor.id } });
@@ -93,9 +94,11 @@ class EntityPipeline {
       const started = Date.now();
       try {
         await step.process(context);
+        if (this.configuration.deduplicate !== false) context.compactEntities();
         if (step instanceof EntityNormalizer) await this._runRegistered('normalizers', context);
         if (step instanceof EntityResolver) await this._runRegistered('resolvers', context);
         if (step instanceof EntityValidator) await this._runRegistered('validators', context);
+        if (this.configuration.deduplicate !== false) context.compactEntities();
       } catch (error) {
         context.diagnostics.error(error, { stepId: step.id });
         if (this.configuration.strict) throw error;

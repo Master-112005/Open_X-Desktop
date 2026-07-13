@@ -12,13 +12,23 @@ class ExecutionGraphBuilder extends BasePlanner {
         mode: order.mode,
         optional: order.optional,
         retryable: order.retryable,
-        cancelable: order.cancelable
+        cancelable: order.cancelable,
+        action: context.tasks.find(task => task.id === order.taskId)?.action || null
       })),
-      edges: context.ordering.slice(1).map((order, index) => ({
-        from: context.ordering[index].taskId,
-        to: order.taskId,
-        type: order.mode === 'parallel' ? 'parallel-branch' : 'next'
-      })),
+      edges: [
+        ...context.dependencies.map(dependency => ({
+          from: dependency.from,
+          to: dependency.to,
+          type: dependency.type || 'requires'
+        })),
+        ...context.ordering.slice(1).map((order, index) => ({
+          from: context.ordering[index].taskId,
+          to: order.taskId,
+          type: order.mode === 'parallel' ? 'parallel-branch' : 'next'
+        }))
+      ].filter((edge, index, all) =>
+        all.findIndex(item => item.from === edge.from && item.to === edge.to && item.type === edge.type) === index
+      ),
       conditionalBranches: context.conditions.slice(),
       recoveryPaths: context.recoveryPlan.slice(),
       retryPaths: context.recoveryPlan

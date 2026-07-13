@@ -47,6 +47,10 @@ class AnalyzerRegistry {
     }));
   }
 
+  count({ includeDisabled = true } = {}) {
+    return this.list({ includeDisabled }).length;
+  }
+
   clear() {
     const count = this.analyzers.size;
     this.analyzers.clear();

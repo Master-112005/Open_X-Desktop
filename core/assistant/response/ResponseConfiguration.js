@@ -11,6 +11,11 @@ class ResponseConfiguration {
     this.voiceVerbosity = String(input.voiceVerbosity || 'concise');
     this.chatVerbosity = String(input.chatVerbosity || 'concise');
     this.suggestions = input.suggestions !== false;
+    this.maxVoiceLength = Number(input.maxVoiceLength || 900);
+    this.maxChatLength = Number(input.maxChatLength || 2400);
+    this.maxNotificationLength = Number(input.maxNotificationLength || 120);
+    this.maxParts = Number(input.maxParts || 20);
+    this.maxSuggestions = Number(input.maxSuggestions || 8);
     this.generators = { ...(input.generators || {}) };
   }
 
@@ -19,6 +24,22 @@ class ResponseConfiguration {
       ...DEFAULT_GENERATOR_OPTIONS,
       ...(defaults || {}),
       ...(this.generators[String(id || '')] || {})
+    };
+  }
+
+  toJSON() {
+    return {
+      enabled: this.enabled,
+      version: this.version,
+      strict: this.strict,
+      voiceVerbosity: this.voiceVerbosity,
+      chatVerbosity: this.chatVerbosity,
+      suggestions: this.suggestions,
+      maxVoiceLength: this.maxVoiceLength,
+      maxChatLength: this.maxChatLength,
+      maxNotificationLength: this.maxNotificationLength,
+      maxParts: this.maxParts,
+      maxSuggestions: this.maxSuggestions
     };
   }
 }

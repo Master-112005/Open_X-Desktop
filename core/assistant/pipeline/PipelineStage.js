@@ -10,6 +10,7 @@ class PipelineStage {
     this.order = Number(order) || 0;
     this.enabled = enabled !== false;
     this.initialized = false;
+    this.stats = { runs: 0, failures: 0, skips: 0, lastRunAt: null };
   }
 
   async initialize() {
@@ -22,6 +23,29 @@ class PipelineStage {
       throw new ValidationError('PipelineContext is required.', { stageId: this.id });
     }
     return true;
+  }
+
+  supports() {
+    return this.enabled;
+  }
+
+  markRun(result = {}) {
+    this.stats.runs += 1;
+    if (result.skipped) this.stats.skips += 1;
+    if (result.success === false) this.stats.failures += 1;
+    this.stats.lastRunAt = Date.now();
+    return this.stats;
+  }
+
+  describe() {
+    return {
+      id: this.id,
+      name: this.name,
+      order: this.order,
+      enabled: this.enabled,
+      initialized: this.initialized,
+      stats: { ...this.stats }
+    };
   }
 
   async execute() {

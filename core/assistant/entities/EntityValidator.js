@@ -31,8 +31,17 @@ class EntityValidator {
       if (entity.type === 'path' && !/^[A-Za-z]:\\|^\\\\|^~|^\//.test(entity.value)) {
         issues.push('unverified-path');
       }
-      if (entity.type === 'date' && !RELATIVE_DATES.test(entity.value) && !NATURAL_DATES.test(entity.value) && Number.isNaN(Date.parse(entity.value))) {
+      if (entity.type === 'date' && entity.metadata?.recurring !== true && !RELATIVE_DATES.test(entity.value) && !NATURAL_DATES.test(entity.value) && Number.isNaN(Date.parse(entity.value))) {
         issues.push('invalid-date');
+      }
+      if ((entity.type === 'volumeLevel' || entity.type === 'brightnessLevel') && (Number(entity.value) < 0 || Number(entity.value) > 100)) {
+        issues.push('numeric-range');
+      }
+      if ((entity.type === 'reminder' || entity.type === 'media' || entity.type === 'contact') && String(entity.value).trim().length < 2) {
+        issues.push('too-short');
+      }
+      if (entity.confidence < 0.45) {
+        issues.push('low-confidence');
       }
       if (entity.type === 'application' && this.knownApplications.size > 0 && !this.knownApplications.has(String(entity.canonical || entity.value).toLowerCase())) {
         issues.push('unknown-application');

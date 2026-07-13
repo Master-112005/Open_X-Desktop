@@ -65,6 +65,53 @@ describe('Assistant Verification and Response Layer', function() {
     assert.equal(generators.find(item => item.id === 'response.suggestion').enabled, false);
   });
 
+  it('summarizes verification confidence and links evidence to graph nodes', async function() {
+    const { createDefaultVerificationManager } = require('../../core/assistant/verification/index.js');
+    const result = await createDefaultVerificationManager().verify(automationResult());
+
+    assert.equal(result.verified, true);
+    assert.ok(result.confidence > 0.5);
+    assert.equal(result.summary.completed, 1);
+    assert.ok(result.evidence.some(item => item.status === 'verified' && item.type === 'application'));
+    assert.ok(result.verificationGraph.nodes.some(node => node.type === 'evidence' && node.status === 'verified'));
+    assert.ok(result.verificationGraph.edges.some(edge => edge.type === 'verified-by'));
+  });
+
+  it('marks failed automation evidence as not verified', async function() {
+    const { createDefaultVerificationManager } = require('../../core/assistant/verification/index.js');
+    const result = await createDefaultVerificationManager().verify(automationResult({
+      executionStatus: 'FAILED',
+      completedActions: [],
+      failedActions: [{ taskId: 'open.application', action: 'OPEN_APPLICATION', route: 'app.open', success: false, error: 'not found' }],
+      controllerResults: []
+    }));
+
+    assert.equal(result.verified, false);
+    assert.equal(result.summary.failed, 1);
+    assert.ok(result.evidence.some(item => item.status === 'failed'));
+  });
+
+  it('supports verification registry helpers and configuration serialization', function() {
+    const {
+      BaseVerifier,
+      VerificationConfiguration,
+      VerificationRegistry,
+      VERIFICATION_VERSION
+    } = require('../../core/assistant/verification/index.js');
+    const registry = new VerificationRegistry();
+    const verifier = new BaseVerifier({ id: 'verification.custom' });
+    const configuration = new VerificationConfiguration({ maxEvidence: 42, minVerifiedConfidence: 0.75 });
+
+    registry.register(verifier);
+    assert.equal(VERIFICATION_VERSION, '11.1.0');
+    assert.equal(registry.get('verification.custom'), verifier);
+    assert.equal(registry.count(), 1);
+    assert.equal(registry.unregister('verification.custom'), true);
+    assert.equal(registry.clear(), 0);
+    assert.equal(configuration.toJSON().maxEvidence, 42);
+    assert.equal(configuration.toJSON().minVerifiedConfidence, 0.75);
+  });
+
   it('runs inside the assistant pipeline without changing routed plain text', async function() {
     const Assistant = require('../../core/assistant');
     const routed = [];

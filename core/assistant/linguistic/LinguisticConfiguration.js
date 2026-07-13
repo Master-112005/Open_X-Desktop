@@ -24,6 +24,9 @@ class LinguisticConfiguration {
     this.version = String(input.version || DEFAULT_CONFIGURATION.version);
     this.locale = String(input.locale || DEFAULT_CONFIGURATION.locale);
     this.strict = input.strict === true;
+    this.maxTokens = Number.isFinite(input.maxTokens) ? Math.max(1, Number(input.maxTokens)) : 512;
+    this.maxClauses = Number.isFinite(input.maxClauses) ? Math.max(1, Number(input.maxClauses)) : 32;
+    this.preserveCommandTargets = input.preserveCommandTargets !== false;
     this.analyzers = { ...(input.analyzers || {}) };
   }
 
@@ -45,6 +48,9 @@ class LinguisticConfiguration {
       version: this.version,
       locale: this.locale,
       strict: this.strict,
+      maxTokens: this.maxTokens,
+      maxClauses: this.maxClauses,
+      preserveCommandTargets: this.preserveCommandTargets,
       analyzers: { ...this.analyzers }
     };
   }

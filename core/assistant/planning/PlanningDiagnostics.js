@@ -16,10 +16,12 @@ class PlanningDiagnostics {
     this.optimizationResults = [];
     this.parallelGroups = 0;
     this.recoveryPlans = 0;
+    this.executionOrderCount = 0;
     this.warnings = [];
     this.errors = [];
     this.pipelineOrder = [];
     this.memoryUsage = this._memoryUsage();
+    this.finishedMemoryUsage = null;
   }
 
   time(id, durationMs) {
@@ -46,6 +48,11 @@ class PlanningDiagnostics {
       : null;
   }
 
+  finish() {
+    this.finishedMemoryUsage = this._memoryUsage();
+    return this;
+  }
+
   toJSON() {
     return {
       planningTime: { ...this.planningTime },
@@ -55,10 +62,12 @@ class PlanningDiagnostics {
       optimizationResults: this.optimizationResults.slice(),
       parallelGroups: this.parallelGroups,
       recoveryPlans: this.recoveryPlans,
+      executionOrderCount: this.executionOrderCount,
       warnings: this.warnings.slice(),
       errors: this.errors.slice(),
       pipelineOrder: this.pipelineOrder.slice(),
-      memoryUsage: this.memoryUsage
+      memoryUsage: this.memoryUsage,
+      finishedMemoryUsage: this.finishedMemoryUsage
     };
   }
 }

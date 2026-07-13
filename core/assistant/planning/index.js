@@ -1,8 +1,12 @@
 'use strict';
 
 const { PlanningManager, createDefaultPlanningManager } = require('./PlanningManager');
+const ExecutionBlueprint = require('./ExecutionBlueprint');
+
+const PLANNING_VERSION = '9.0.0';
 
 module.exports = {
+  PLANNING_VERSION,
   PlanningPipeline: require('./PlanningPipeline'),
   PlanningManager,
   createDefaultPlanningManager,
@@ -18,7 +22,7 @@ module.exports = {
   PlannerOptimizer: require('./PlannerOptimizer'),
   TaskGraphBuilder: require('./TaskGraphBuilder'),
   ExecutionGraphBuilder: require('./ExecutionGraphBuilder'),
-  ExecutionBlueprint: require('./ExecutionBlueprint'),
+  ExecutionBlueprint,
   PlanningConfiguration: require('./PlanningConfiguration'),
   PlanningDiagnostics: require('./PlanningDiagnostics'),
   PlanningLogger: require('./PlanningLogger'),

@@ -8,10 +8,11 @@ class PunctuationNormalizer extends BaseNormalizer {
       .replace(/\.{3,}/g, '...')
       .replace(/\?{2,}/g, '?')
       .replace(/!{2,}/g, '!')
+      .replace(/([!?]){2,}/g, '$1')
       .replace(/\s+([,.;:?!])/g, '$1')
       .replace(/([,;?!])([^\s,.;:?!])/g, '$1 $2')
       .trim();
-    return context.setText(next, this.id);
+    return context.setText(next, this.id, { normalizedPunctuation: next !== String(context.workingText || '') });
   }
 }
 

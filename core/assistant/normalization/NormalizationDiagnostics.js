@@ -1,8 +1,9 @@
 'use strict';
 
 class NormalizationDiagnostics {
-  constructor() {
+  constructor(options = {}) {
     this.records = [];
+    this.maxRecords = Math.max(50, Number(options.maxRecords) || 500);
   }
 
   record(record = {}) {
@@ -14,7 +15,7 @@ class NormalizationDiagnostics {
       timestamp: Date.now()
     };
     this.records.push(entry);
-    this.records = this.records.slice(-500);
+    this.records = this.records.slice(-this.maxRecords);
     return entry;
   }
 
@@ -26,6 +27,21 @@ class NormalizationDiagnostics {
     const count = this.records.length;
     this.records = [];
     return count;
+  }
+
+  countByLevel() {
+    return this.records.reduce((summary, record) => {
+      summary[record.level] = (summary[record.level] || 0) + 1;
+      return summary;
+    }, {});
+  }
+
+  snapshot(limit = 100) {
+    return {
+      total: this.records.length,
+      byLevel: this.countByLevel(),
+      records: this.list(limit)
+    };
   }
 }
 

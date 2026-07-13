@@ -57,12 +57,36 @@ class EntityResolver {
       const value = website.canonical || website.value;
       website.resolved = website.resolved || {
         kind: /^https?:\/\//i.test(value) || /\.[a-z]{2,}/i.test(value) ? 'url' : 'known-website',
-        value
+        value,
+        url: /^https?:\/\//i.test(value)
+          ? value
+          : /\.[a-z]{2,}/i.test(value)
+            ? `https://${value.replace(/^www\./i, '')}`
+            : null
       };
     }
 
     for (const contact of context.entities.contacts) {
       contact.resolved = contact.resolved || { kind: 'contact-reference', name: contact.canonical || contact.value };
+    }
+
+    for (const file of context.entities.files) {
+      file.resolved = file.resolved || { kind: /\.[A-Za-z0-9]{1,10}$/.test(file.value) ? 'file-name' : 'file-reference', name: file.value };
+    }
+
+    for (const pathEntity of context.entities.paths) {
+      pathEntity.resolved = pathEntity.resolved || { kind: 'path-reference', path: pathEntity.value };
+    }
+
+    for (const entity of [
+      ...context.entities.dates,
+      ...context.entities.times,
+      ...context.entities.durations,
+      ...context.entities.reminders,
+      ...context.entities.alarms,
+      ...context.entities.timers
+    ]) {
+      entity.resolved = entity.resolved || { kind: `${entity.type}-reference`, value: entity.canonical || entity.value };
     }
 
     return context;

@@ -4,7 +4,15 @@ const BaseInputAdapter = require('./BaseInputAdapter');
 
 class OCRAdapter extends BaseInputAdapter {
   constructor(options = {}) {
-    super({ ...options, id: 'ocr', source: 'ocr', sourceType: 'ocr-text', priority: options.priority ?? 50 });
+    super({
+      ...options,
+      id: 'ocr',
+      source: 'ocr',
+      aliases: ['image-text', 'screen-text'],
+      sourceType: 'ocr-text',
+      priority: options.priority ?? 50,
+      capabilities: ['text', 'ocr']
+    });
   }
 
   extractText(payload = {}) {
@@ -16,7 +24,8 @@ class OCRAdapter extends BaseInputAdapter {
     return {
       ...metadata,
       ocrConfidence: metadata.ocrConfidence ?? metadata.confidence ?? null,
-      imageSource: metadata.imageSource || null
+      imageSource: metadata.imageSource || null,
+      partial: metadata.partial === true
     };
   }
 }

@@ -18,6 +18,33 @@ class LearningResult {
     this.futureExtensions = { ...(input.futureExtensions || {}) };
     deepFreeze(this);
   }
+
+  get learned() { return this.itemsLearned.length; }
+  get rejected() { return this.itemsRejected.length; }
+  get hasUpdates() {
+    return this.itemsLearned.length > 0 ||
+      this.updatedPreferences.length > 0 ||
+      this.updatedAliases.length > 0 ||
+      this.updatedHabits.length > 0 ||
+      this.updatedWorkflows.length > 0;
+  }
+
+  toJSON() {
+    return {
+      completed: this.completed,
+      itemsLearned: this.itemsLearned,
+      itemsRejected: this.itemsRejected,
+      updatedPreferences: this.updatedPreferences,
+      updatedAliases: this.updatedAliases,
+      updatedHabits: this.updatedHabits,
+      updatedWorkflows: this.updatedWorkflows,
+      diagnostics: this.diagnostics,
+      metadata: this.metadata,
+      timing: this.timing,
+      version: this.version,
+      futureExtensions: this.futureExtensions
+    };
+  }
 }
 
 module.exports = LearningResult;

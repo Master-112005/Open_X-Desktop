@@ -21,6 +21,7 @@ class ReasoningDiagnostics {
     this.errors = [];
     this.pipelineOrder = [];
     this.memoryUsage = this._memoryUsage();
+    this.finishedMemoryUsage = null;
   }
 
   time(id, durationMs) {
@@ -47,7 +48,13 @@ class ReasoningDiagnostics {
       : null;
   }
 
+  finish() {
+    this.finishedMemoryUsage = this._memoryUsage();
+    return this;
+  }
+
   toJSON() {
+    this.finish();
     return {
       reasoningTime: { ...this.reasoningTime },
       inferenceCount: this.inferenceCount,
@@ -60,7 +67,8 @@ class ReasoningDiagnostics {
       warnings: this.warnings.slice(),
       errors: this.errors.slice(),
       pipelineOrder: this.pipelineOrder.slice(),
-      memoryUsage: this.memoryUsage
+      memoryUsage: this.memoryUsage,
+      finishedMemoryUsage: this.finishedMemoryUsage
     };
   }
 }

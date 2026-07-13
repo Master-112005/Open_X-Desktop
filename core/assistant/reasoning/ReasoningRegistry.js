@@ -20,6 +20,14 @@ class ReasoningRegistry {
     return this;
   }
 
+  get(id) {
+    return this.reasoners.get(String(id || '').trim()) || null;
+  }
+
+  unregister(id) {
+    return this.reasoners.delete(String(id || '').trim());
+  }
+
   list({ includeDisabled = true } = {}) {
     return [...this.reasoners.values()]
       .filter(reasoner => includeDisabled || reasoner.enabled !== false)
@@ -37,7 +45,9 @@ class ReasoningRegistry {
   }
 
   clear() {
+    const count = this.reasoners.size;
     this.reasoners.clear();
+    return count;
   }
 }
 

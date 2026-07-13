@@ -17,53 +17,39 @@ class PipelineManager {
     this.builder = options.builder || new PipelineBuilder(options);
     this.engine = options.engine || null;
     this.started = false;
+    this.options = { ...(options || {}) };
+    this.defaultStagesRegistered = false;
     if (options.defaultStages !== false) {
-      this.builder.registerStage(new LanguageNormalizationStage({
-        configuration: options.normalization || options.configuration?.normalization || {},
-        logger: options.logger || null
-      }), { id: 'assistant.language.normalization', order: -100 });
-      this.builder.registerStage(new LinguisticUnderstandingStage({
-        configuration: options.linguistic || options.configuration?.linguistic || {},
-        logger: options.logger || null
-      }), { id: 'assistant.linguistic.understanding', order: -50 });
-      this.builder.registerStage(new SemanticUnderstandingStage({
-        configuration: options.semantic || options.configuration?.semantic || {},
-        logger: options.logger || null
-      }), { id: 'assistant.semantic.understanding', order: -25 });
-      this.builder.registerStage(new EntityUnderstandingStage({
-        configuration: options.entities || options.configuration?.entities || {},
-        logger: options.logger || null
-      }), { id: 'assistant.entity.understanding', order: -10 });
-      this.builder.registerStage(new MemoryContextStage({
-        configuration: options.memory || options.configuration?.memory || {},
-        logger: options.logger || null
-      }), { id: 'assistant.memory.context', order: -5 });
-      this.builder.registerStage(new GoalIntentReasoningStage({
-        configuration: options.reasoning || options.configuration?.reasoning || {},
-        logger: options.logger || null
-      }), { id: 'assistant.goalIntent.reasoning', order: -2 });
-      this.builder.registerStage(new TaskPlanningStage({
-        configuration: options.planning || options.configuration?.planning || {},
-        logger: options.logger || null
-      }), { id: 'assistant.task.planning', order: -1 });
-      this.builder.registerStage(new DecisionValidationAutomationStage({
-        configuration: options.decisionAutomation || options.configuration?.decisionAutomation || {},
-        automationEngine: options.automationEngine || null,
-        logger: options.logger || null
-      }), { id: 'assistant.decision.validation.automation', order: -0.5 });
-      this.builder.registerStage(new VerificationResponseStage({
-        configuration: options.verificationResponse || options.configuration?.verificationResponse || {},
-        logger: options.logger || null
-      }), { id: 'assistant.verification.response', order: -0.25 });
-      this.builder.registerStage(new AssistantExecutionStage({
-        executor: options.commandExecutor || options.executor || null,
-        logger: options.logger || null
-      }), { id: 'assistant.execution', order: 0.1 });
-      this.builder.registerStage(new LearningStage({
-        configuration: options.learning || options.configuration?.learning || {},
-        logger: options.logger || null
-      }), { id: 'assistant.learning', order: 0.25 });
+      this.registerDefaultStages(options);
     }
+  }
+
+  registerDefaultStages(options = this.options) {
+    if (this.defaultStagesRegistered) return this;
+    const logger = options.logger || null;
+    const configuration = options.configuration || {};
+    const stages = [
+      [new LanguageNormalizationStage({ configuration: options.normalization || configuration.normalization || {}, logger }), { id: 'assistant.language.normalization', order: -100 }],
+      [new LinguisticUnderstandingStage({ configuration: options.linguistic || configuration.linguistic || {}, logger }), { id: 'assistant.linguistic.understanding', order: -50 }],
+      [new SemanticUnderstandingStage({ configuration: options.semantic || configuration.semantic || {}, logger }), { id: 'assistant.semantic.understanding', order: -25 }],
+      [new EntityUnderstandingStage({ configuration: options.entities || configuration.entities || {}, logger }), { id: 'assistant.entity.understanding', order: -10 }],
+      [new MemoryContextStage({ configuration: options.memory || configuration.memory || {}, logger }), { id: 'assistant.memory.context', order: -5 }],
+      [new GoalIntentReasoningStage({ configuration: options.reasoning || configuration.reasoning || {}, logger }), { id: 'assistant.goalIntent.reasoning', order: -2 }],
+      [new TaskPlanningStage({ configuration: options.planning || configuration.planning || {}, logger }), { id: 'assistant.task.planning', order: -1 }],
+      [new DecisionValidationAutomationStage({
+        configuration: options.decisionAutomation || configuration.decisionAutomation || {},
+        automationEngine: options.automationEngine || null,
+        logger
+      }), { id: 'assistant.decision.validation.automation', order: -0.5 }],
+      [new VerificationResponseStage({ configuration: options.verificationResponse || configuration.verificationResponse || {}, logger }), { id: 'assistant.verification.response', order: -0.25 }],
+      [new AssistantExecutionStage({ executor: options.commandExecutor || options.executor || null, logger }), { id: 'assistant.execution', order: 0.1 }],
+      [new LearningStage({ configuration: options.learning || configuration.learning || {}, logger }), { id: 'assistant.learning', order: 0.25 }]
+    ];
+    stages.forEach(([stage, stageOptions]) => {
+      if (!this.builder.registry.has(stageOptions.id)) this.builder.registerStage(stage, stageOptions);
+    });
+    this.defaultStagesRegistered = true;
+    return this;
   }
 
   start() {
@@ -84,10 +70,23 @@ class PipelineManager {
       options,
       rawUserInput,
       metadata: {
+        ...(options.pipelineMetadata || {}),
         sourceType: rawUserInput?.sourceType || source,
         acquisitionConfidence: rawUserInput?.confidence
       }
     });
+  }
+
+  configure(options = {}) {
+    this.builder.configure(options);
+    this.engine = null;
+    if (this.started) this.start();
+    return this;
+  }
+
+  getEngine() {
+    if (!this.started) this.start();
+    return this.engine;
   }
 
   stop() {
@@ -99,17 +98,18 @@ class PipelineManager {
     return {
       started: this.started,
       running: this.engine?.running === true,
-      stages: this.builder.registry.list().map(stage => ({
-        id: stage.id,
-        name: stage.name,
-        order: stage.order,
-        enabled: stage.enabled !== false
-      }))
+      stageCount: this.builder.registry.count(),
+      stages: this.builder.registry.health(),
+      builder: typeof this.builder.getStatus === 'function' ? this.builder.getStatus() : null
     };
   }
 
-  destroy() {
+  async destroy() {
     this.stop();
+    const stages = this.builder.registry.list();
+    for (const stage of stages) {
+      if (typeof stage.destroy === 'function') await stage.destroy();
+    }
     this.builder.registry.clear();
     this.engine = null;
   }

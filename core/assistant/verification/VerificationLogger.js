@@ -5,10 +5,19 @@ class VerificationLogger {
     this.logger = logger || null;
   }
 
-  debug(message, data) { this.logger?.debug?.(message, data); }
-  info(message, data) { this.logger?.info?.(message, data); }
-  warn(message, data) { this.logger?.warn?.(message, data); }
-  error(message, data) { this.logger?.error?.(message, data); }
+  _safe(data) {
+    if (!data || typeof data !== 'object') return data;
+    const copy = { ...data };
+    for (const key of Object.keys(copy)) {
+      if (/(password|token|secret|key|email|phone|messageText)/i.test(key)) copy[key] = '[REDACTED]';
+    }
+    return copy;
+  }
+
+  debug(message, data) { this.logger?.debug?.(`[Verification] ${message}`, this._safe(data)); }
+  info(message, data) { this.logger?.info?.(`[Verification] ${message}`, this._safe(data)); }
+  warn(message, data) { this.logger?.warn?.(`[Verification] ${message}`, this._safe(data)); }
+  error(message, data) { this.logger?.error?.(`[Verification] ${message}`, this._safe(data)); }
 }
 
 module.exports = VerificationLogger;

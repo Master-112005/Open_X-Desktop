@@ -224,13 +224,38 @@ class LearningGuard {
     return entropy;
   }
 
-  static sanitizeForLearning(input) {
-    if (!input || typeof input !== 'string') return '';
-    
-    return input
-      .trim()
-      .replace(/[;&|`$(){}\[\]\\\n\r]/g, '')
-      .substring(0, 200);
+  static redactSensitiveText(input) {
+    return String(input || '')
+      .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
+      .replace(/\b(?:password|token|secret|otp|api[-_\s]?key)\s*[:=]\s*\S+/gi, '[redacted-secret]')
+      .replace(/\b\d{6,}\b/g, '[redacted-number]');
+  }
+
+  static sanitizeForLearning(input, depth = 0) {
+    if (depth > 4) return '[truncated]';
+    if (input === null || input === undefined) return '';
+    if (typeof input === 'string') {
+      return LearningGuard.redactSensitiveText(input)
+        .trim()
+        .replace(/[;&|`$(){}\[\]\\\n\r]/g, '')
+        .substring(0, 500);
+    }
+    if (typeof input === 'number' || typeof input === 'boolean') return input;
+    if (Array.isArray(input)) {
+      return input.slice(0, 40).map(item => LearningGuard.sanitizeForLearning(item, depth + 1));
+    }
+    if (typeof input === 'object') {
+      const result = {};
+      for (const [key, value] of Object.entries(input).slice(0, 80)) {
+        const safeKey = LearningGuard.sanitizeForLearning(key, depth + 1).slice(0, 80);
+        if (!safeKey || LearningGuard.isUnsafeObjectKey(safeKey)) continue;
+        result[safeKey] = /(password|token|secret|credential|otp|cookie|authorization)/i.test(key)
+          ? '[redacted]'
+          : LearningGuard.sanitizeForLearning(value, depth + 1);
+      }
+      return result;
+    }
+    return '';
   }
 
   static validateAliasTarget(target) {

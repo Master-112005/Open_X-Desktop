@@ -235,9 +235,15 @@ class Assistant extends EventEmitter {
       }
 
       const routedInput = this._buildRoutedInput(input);
+      const pipelineContext = options.pipelineContext || null;
       const result = await this._runWithCommandTimeout(({ signal, executionContext }) => this.router.process(routedInput, source, {
         contextualRewrite: this._lastContextualRewrite,
         conversation: this.context.buildConversationDigest({ limit: 4 }),
+        pipelineContext,
+        resolvedContext: pipelineContext?.resolvedContext || null,
+        structuredEntities: pipelineContext?.structuredEntities || null,
+        semanticRepresentation: pipelineContext?.semanticRepresentation || null,
+        linguisticGraph: pipelineContext?.linguisticGraph || null,
         permissionGuard: options.permissionGuard,
         phoneContext: options.phoneContext || null,
         signal,

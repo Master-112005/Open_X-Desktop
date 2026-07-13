@@ -7,7 +7,9 @@ class SuggestionResponse extends BaseResponseGenerator {
     if (context.configuration?.suggestions === false) return context;
     const failed = context.verificationResult?.failedActions || [];
     if (failed.length > 0) {
-      context.suggestions.push({ type: 'recovery', text: 'Review the failed action evidence before retrying.' });
+      context.addSuggestion('recovery', 'Review the failed action evidence before retrying.', { failed: failed.length });
+    } else if (context.responseType === 'clarification') {
+      context.addSuggestion('clarification', 'Provide the missing detail and I can continue.');
     }
     return context;
   }

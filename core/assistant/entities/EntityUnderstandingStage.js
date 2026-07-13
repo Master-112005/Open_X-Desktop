@@ -27,9 +27,16 @@ class EntityUnderstandingStage extends PipelineStage {
     });
     context.structuredEntities = structuredEntities;
     context.set('assistant.structuredEntities', structuredEntities);
+    const entityTypes = Object.fromEntries(
+      structuredEntities.entityGraph.nodes.reduce((counts, node) => {
+        counts.set(node.type, (counts.get(node.type) || 0) + 1);
+        return counts;
+      }, new Map())
+    );
     return StageResult.ok(this.id, {
       entityCount: structuredEntities.entityGraph.nodes.length,
       relationshipCount: structuredEntities.relationships.length,
+      entityTypes,
       confidence: structuredEntities.confidence,
       version: structuredEntities.version
     });

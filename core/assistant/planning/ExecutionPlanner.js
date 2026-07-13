@@ -11,7 +11,16 @@ class ExecutionPlanner extends BasePlanner {
         context.dependencies
           .filter(dependency => dependency.to === task.id)
           .every(dependency => ordered.includes(dependency.from))
-      ) || remaining.values().next().value;
+      );
+      if (!next) {
+        const fallback = remaining.values().next().value;
+        context.diagnostics.warn('Dependency cycle or unresolved dependency detected during ordering; using deterministic fallback.', {
+          remainingTaskIds: [...remaining.keys()]
+        });
+        ordered.push(fallback.id);
+        remaining.delete(fallback.id);
+        continue;
+      }
       ordered.push(next.id);
       remaining.delete(next.id);
     }
@@ -28,7 +37,9 @@ class ExecutionPlanner extends BasePlanner {
     context.conditions = context.tasks.flatMap(task => task.conditions.map(condition => ({ taskId: task.id, condition })));
     context.optionalTasks = context.tasks.filter(task => task.optional).map(task => task.id);
     context.estimatedComplexity = context.tasks.length > 5 ? 'high' : context.tasks.length > 2 ? 'medium' : 'low';
-    context.estimatedDuration = context.tasks.length * 30;
+    context.estimatedDuration = context.tasks.reduce((total, task) =>
+      total + context.configuration.durationForAction(task.action), 0);
+    context.diagnostics.executionOrderCount = context.ordering.length;
     return context;
   }
 }

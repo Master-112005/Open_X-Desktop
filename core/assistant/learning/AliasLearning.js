@@ -1,6 +1,7 @@
 'use strict';
 
 const BaseLearningModule = require('./BaseLearningModule');
+const { stripLearningPunctuation } = require('./LearningLanguage');
 
 class AliasLearning extends BaseLearningModule {
   learn(context) {
@@ -9,11 +10,12 @@ class AliasLearning extends BaseLearningModule {
     if (!match) return context;
     context.addEvent({
       category: 'alias',
-      key: match[1],
-      value: match[2].replace(/[.!?]+$/g, ''),
+      key: stripLearningPunctuation(match[1]),
+      value: stripLearningPunctuation(match[2]),
       confidence: 0.95,
       source: 'explicit-user-alias',
-      module: this.id
+      module: this.id,
+      metadata: { directive: 'alias' }
     });
     return context;
   }

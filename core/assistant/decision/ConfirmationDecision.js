@@ -6,19 +6,20 @@ class ConfirmationDecision extends BaseDecision {
   decide(context) {
     const confirmationActions = context.configuration?.confirmationActions || new Set();
     const confirmed = context.metadata.confirmed === true;
-    for (const task of context.executionBlueprint?.tasks || []) {
-      if (!confirmationActions.has(task.action)) continue;
+    for (const task of this.tasks(context)) {
+      const requiresConfirmation = confirmationActions.has(task.action) ||
+        task.metadata?.requiresConfirmation === true ||
+        task.metadata?.dangerous === true ||
+        task.metadata?.risk === 'high';
+      if (!requiresConfirmation) continue;
       if (confirmed) continue;
       const request = {
         taskId: task.id,
         action: task.action,
-        reason: 'action requires explicit confirmation'
+        target: this.actionTarget(task, context),
+        reason: task.metadata?.confirmationReason || 'action requires explicit confirmation'
       };
-      context.confirmationRequired.push(request);
-      context.diagnostics.confirmationRequests.push(request);
-    }
-    if (context.confirmationRequired.length > 0) {
-      context.setStatus('CONFIRM', 'confirmation required before execution');
+      context.addConfirmation(request);
     }
     return context;
   }

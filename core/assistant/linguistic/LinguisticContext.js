@@ -71,7 +71,36 @@ class LinguisticContext {
     return this;
   }
 
+  summary() {
+    return {
+      tokenCount: this.tokens.length,
+      sentenceCount: this.sentences.length,
+      clauseCount: this.clauses.length,
+      dependencyCount: this.dependencies.length,
+      questionCount: this.questions.length,
+      negationCount: this.negations.length,
+      pronounCount: this.pronouns.length
+    };
+  }
+
+  compact() {
+    const uniqueBy = (items, keyFn) => {
+      const seen = new Set();
+      return (items || []).filter(item => {
+        const key = keyFn(item);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    };
+    this.dependencies = uniqueBy(this.dependencies, item => `${item.governor}:${item.dependent}:${item.relation}`);
+    this.grammaticalRelationships = uniqueBy(this.grammaticalRelationships, item => `${item.type}:${item.from}:${item.to}`);
+    this.clauses = this.clauses.slice(0, this.configuration.maxClauses || 32);
+    return this;
+  }
+
   toGraph() {
+    this.compact();
     this.timing.finishedAt = Date.now();
     this.timing.durationMs = Math.max(0, this.timing.finishedAt - this.timing.startedAt);
     return new LinguisticGraph({
@@ -91,6 +120,7 @@ class LinguisticContext {
       questions: this.questions,
       grammaticalRelationships: this.grammaticalRelationships,
       diagnostics: this.diagnostics.concat(this.warnings.map(warning => ({ level: 'warn', message: warning.message, data: warning.data, timestamp: warning.timestamp }))),
+      summary: this.summary(),
       confidence: this.confidence,
       timing: this.timing,
       futureExtensions: this.futureExtensions,

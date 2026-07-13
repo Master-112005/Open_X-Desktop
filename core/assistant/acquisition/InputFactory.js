@@ -11,9 +11,10 @@ class InputFactory {
   constructor(options = {}) {
     this.idGenerator = options.idGenerator || new IdGenerator({ prefix: 'input' });
     this.languageDetector = options.languageDetector || new LanguageDetector();
-    this.attachmentResolver = options.attachmentResolver || new AttachmentResolver();
+    this.attachmentResolver = options.attachmentResolver || new AttachmentResolver(options);
     this.metadataBuilder = options.metadataBuilder || new InputMetadataBuilder();
     this.confidenceCalculator = options.confidenceCalculator || new SourceConfidenceCalculator();
+    this.maxRawTextLength = Math.max(1, Number(options.maxRawTextLength) || 12000);
   }
 
   create({
@@ -29,8 +30,9 @@ class InputFactory {
     flags = {},
     confidence = null
   } = {}) {
+    const safeRawText = String(rawText || '').slice(0, this.maxRawTextLength);
     const builtMetadata = this.metadataBuilder.build({ source, payload, metadata });
-    const language = this.languageDetector.detect(rawText, builtMetadata);
+    const language = this.languageDetector.detect(safeRawText, builtMetadata);
     const resolvedAttachments = this.attachmentResolver.resolve(attachments || payload.attachments || [], source);
     const requestId = String(payload.requestId || builtMetadata.requestId || this.idGenerator.next('request'));
     return new RawUserInput({
@@ -41,7 +43,7 @@ class InputFactory {
       timestamp: builtMetadata.receivedTimestamp || Date.now(),
       source,
       sourceType: sourceType || source,
-      rawText,
+      rawText: safeRawText,
       language,
       confidence: this.confidenceCalculator.calculate({ source, metadata: builtMetadata, explicitConfidence: confidence }),
       attachments: resolvedAttachments,

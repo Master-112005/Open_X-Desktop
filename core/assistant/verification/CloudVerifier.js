@@ -4,12 +4,9 @@ const BaseVerifier = require('./BaseVerifier');
 
 class CloudVerifier extends BaseVerifier {
   verify(context) {
-    for (const action of context.successfulActions.concat(context.failedActions)) {
+    for (const action of this.completedAndFailed(context)) {
       if (!/cloud/i.test(String(action.route || action.action || ''))) continue;
-      context.addEvidence('cloud', action.success ? 'cloud action reported success' : 'cloud action reported failure', {
-        taskId: action.taskId,
-        route: action.route
-      });
+      this.addActionEvidence(context, 'cloud', action, 'cloud action reported success', 'cloud action reported failure');
     }
     return context;
   }

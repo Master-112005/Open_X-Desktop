@@ -1,8 +1,10 @@
 'use strict';
 
 const { VerificationManager, createDefaultVerificationManager } = require('./VerificationManager');
+const VERIFICATION_VERSION = '11.1.0';
 
 module.exports = {
+  VERIFICATION_VERSION,
   ...require('./VerificationResponseManager'),
   VerificationResponseStage: require('./VerificationResponseStage'),
   VerificationPipeline: require('./VerificationPipeline'),

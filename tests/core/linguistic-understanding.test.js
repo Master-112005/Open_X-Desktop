@@ -56,6 +56,46 @@ describe('Assistant Linguistic Understanding Layer', function() {
     assert.equal(status.analyzers.find(analyzer => analyzer.id === 'linguistic.negationDetector').enabled, false);
   });
 
+  it('keeps coordinated media titles as one command target', async function() {
+    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
+    const { createDefaultLinguisticManager } = require('../../core/assistant/linguistic');
+
+    const raw = createDefaultInputSourceManager().acquire('Play Stars and Stripes Forever song.', 'chat');
+    const normalized = await createDefaultNormalizationManager().normalize(raw);
+    const graph = await createDefaultLinguisticManager().analyze(normalized);
+
+    assert.equal(graph.clauses.length, 1);
+    assert.equal(graph.clauses[0].actionToken, 'play');
+    assert.ok(graph.objects.some(object => /stars and stripes forever song/i.test(object.value)));
+  });
+
+  it('still splits true chained actions at action-starting connectors', async function() {
+    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
+    const { createDefaultLinguisticManager } = require('../../core/assistant/linguistic');
+
+    const raw = createDefaultInputSourceManager().acquire('Open Chrome and search latest news.', 'chat');
+    const normalized = await createDefaultNormalizationManager().normalize(raw);
+    const graph = await createDefaultLinguisticManager().analyze(normalized);
+
+    assert.equal(graph.clauses.length, 2);
+    assert.deepEqual(graph.clauses.map(clause => clause.actionToken), ['open', 'search']);
+  });
+
+  it('marks correction-style turns without treating no no as a hard failure', async function() {
+    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
+    const { createDefaultLinguisticManager } = require('../../core/assistant/linguistic');
+
+    const raw = createDefaultInputSourceManager().acquire('no no set it to 40', 'chat');
+    const normalized = await createDefaultNormalizationManager().normalize(raw);
+    const graph = await createDefaultLinguisticManager().analyze(normalized);
+
+    assert.ok(graph.negations.some(item => item.kind === 'correction'));
+    assert.ok(graph.pronouns.some(item => item.value.toLowerCase() === 'it'));
+  });
+
   it('runs inside the assistant pipeline without changing routed plain text', async function() {
     const Assistant = require('../../core/assistant');
     const routed = [];
