@@ -239,6 +239,30 @@ class VoiceExecutionCoordinator extends EventEmitter {
     }
     turn.completed = true;
     if (this.activeTurn === turn) this.activeTurn = null;
+    if (turn.result?.ui?.suspendVoiceListening === true) {
+      let cancelled = null;
+      try {
+        cancelled = typeof this.manager.cancelSession === 'function'
+          ? this.manager.cancelSession('Voice listening suspended for assistant result.')
+          : null;
+      } catch (error) {
+        this._log('Recognition Suspend Cleanup Skipped', {
+          turnId: turn.id,
+          error: error.message
+        });
+      }
+      this._log('Recognition Resume Suspended After Assistant Turn', {
+        turnId: turn.id,
+        ttsOutcome: ttsOutcome.outcome,
+        state: cancelled?.state
+      });
+      return {
+        success: true,
+        resumed: false,
+        suspended: true,
+        state: cancelled?.state || this.manager?.getCurrentState?.()
+      };
+    }
     try {
       const transition = this.manager.resumeListeningCycle(`assistant-tts-${ttsOutcome.outcome || 'complete'}`);
       if (transition?.resumed) this.metrics.resumedAfterTts += 1;

@@ -2021,6 +2021,108 @@ describe('Voice Subsystem Architecture', function() {
     assert.equal(windowUpdates[0].choices[0].path, 'C:\\A\\Screenshots');
   });
 
+  it('should keep web search persistent while phone notifications use hover-aware timeout', function() {
+    const { VoiceOverlay } = require('../../apps/desktop/voice/ui');
+    const windowUpdates = [];
+    const overlay = new VoiceOverlay({
+      windowController: {
+        updateAssistantResult: payload => windowUpdates.push(payload)
+      }
+    });
+
+    overlay.displayAssistantResult({
+      success: true,
+      intent: 'browser.search',
+      response: 'I found results.',
+      ui: { autoHideMs: 24000, persistUntilAction: true }
+    });
+    overlay.displayAssistantResult({
+      success: true,
+      intent: 'phone.notification',
+      response: 'Instagram sent a message.',
+      ui: { autoHideMs: 0, persistUntilAction: true }
+    });
+    overlay.displayAssistantResult({
+      success: true,
+      intent: 'folder.open',
+      response: 'Opened Downloads.',
+      ui: { autoHideMs: 14000, persistUntilAction: true }
+    });
+
+    assert.equal(windowUpdates[0].autoHideMs, 0);
+    assert.equal(windowUpdates[0].hoverHoldAutoHide, false);
+    assert.equal(windowUpdates[0].persistUntilAction, true);
+    assert.equal(windowUpdates[1].autoHideMs, 15000);
+    assert.equal(windowUpdates[1].hoverHoldAutoHide, true);
+    assert.equal(windowUpdates[1].persistUntilAction, false);
+    assert.equal(windowUpdates[2].autoHideMs, 14000);
+    assert.equal(windowUpdates[2].hoverHoldAutoHide, false);
+    assert.equal(windowUpdates[2].persistUntilAction, true);
+  });
+
+  it('should keep a sticky browser search result visible when the voice session closes', function() {
+    const { VoiceOverlay, SESSION_EVENTS } = require('../../apps/desktop/voice');
+    let hidden = false;
+    const overlay = new VoiceOverlay({
+      windowController: {
+        hasStickyAssistantResult: () => true,
+        hide: () => {
+          hidden = true;
+        },
+        updateState() {}
+      }
+    });
+    const listeners = {};
+    overlay.attachToSessionManager({
+      on(eventName, listener) {
+        listeners[eventName] = listener;
+      },
+      off() {}
+    });
+
+    listeners[SESSION_EVENTS.VOICE_SESSION_CLOSED]({});
+
+    assert.equal(hidden, false);
+  });
+
+  it('should suspend voice listening after browser search TTS instead of resuming capture', async function() {
+    const VoiceExecutionCoordinator = require('../../apps/desktop/voice/integration/VoiceExecutionCoordinator');
+    let resumed = false;
+    let cancelledReason = '';
+    const coordinator = new VoiceExecutionCoordinator({
+      manager: {
+        beginExecution() {},
+        beginSpeaking() {},
+        completeSpeakingTurn() {},
+        resumeListeningCycle() {
+          resumed = true;
+          return { resumed: true };
+        },
+        cancelSession(reason) {
+          cancelledReason = reason;
+          return { state: 'IDLE' };
+        },
+        getCurrentState() {
+          return 'SPEAKING';
+        }
+      },
+      textToSpeech: {
+        speakAsync: async () => ({ outcome: 'completed' })
+      }
+    });
+
+    const result = await coordinator.finishExecution({
+      success: true,
+      intent: 'browser.search',
+      response: 'I found results.',
+      ui: { suspendVoiceListening: true }
+    });
+
+    assert.equal(result.finished, true);
+    assert.equal(resumed, false);
+    assert.match(cancelledReason, /suspended/);
+  });
+
   it('should dispatch normalized voice text through the same assistant text boundary', async function() {
     const { AssistantInputAdapter, NormalizedTranscript } = require('../../apps/desktop/voice');
     const calls = [];
