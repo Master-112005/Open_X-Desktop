@@ -146,6 +146,9 @@ describe('Electron Chat Shortcut', function() {
     assert.match(script, /showTimerWidget\(preferredId, \{ includeStopwatch: intent\.startsWith\('stopwatch\.'\) \}\)/);
     assert.match(script, /restoreLiveScheduleInDynamicIsland\(\)/);
     assert.match(script, /presentLiveScheduleInDynamicIsland\(payload\.data \|\| \{\}, \{ expandMs: LIVE_SCHEDULE_INITIAL_EXPAND_MS \}\)/);
+    assert.match(script, /setTimeout\(\(\) => collapseLiveScheduleToCompact\(schedule\), LIVE_SCHEDULE_INITIAL_EXPAND_MS\)/);
+    assert.match(script, /function liveScheduleIcon\(schedule = \{\}\)/);
+    assert.match(script, /'\\u23F0' : '\\u23F1'/);
   });
 
   it('should recover renderer failures without tight restart loops', function() {

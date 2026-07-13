@@ -50,6 +50,7 @@ describe('Dynamic Island Schedule Alerts', function() {
     assert.match(preload, /function appendVoiceScheduleDue\(fragment, payload = \{\}\)/);
     assert.match(preload, /function appendVoiceScheduleLive\(fragment, payload = \{\}\)/);
     assert.match(preload, /function updateVoiceLiveScheduleDom\(panel, schedule = \{\}\)/);
+    assert.match(preload, /function formatVoiceIcon\(value, fallback = 'JA'\)/);
     assert.match(preload, /voice-schedule-due/);
     assert.match(preload, /voice-schedule-live/);
     assert.match(preload, /voiceOverlay:expandLiveSchedule/);
