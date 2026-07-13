@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, globalShortcut, session, screen, powerMonitor, dialog, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, globalShortcut, session, screen, powerMonitor, dialog, safeStorage, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -217,6 +217,7 @@ const IPC_CHANNELS = [
   'assistant:status',
   'tts:speak',
   'tts:stop',
+  'browser:openExternal',
   'voice:start',
   'voiceOverlay:collapse',
   'voiceOverlay:expandLiveSchedule',
@@ -1641,10 +1642,6 @@ function displayPhoneNotificationGroup(groupKey) {
   const response = grouped
     ? `${totalCount} ${primary.appName} notifications from ${primary.sourceName}`
     : (primary.message || primary.title);
-  const maxPriority = notifications.some(item => item.priority === 'critical')
-    ? 'critical'
-    : notifications.some(item => item.priority === 'high') ? 'high' : primary.priority;
-
   try {
     voiceOverlay.displayAssistantResult({
       success: true,
@@ -1674,8 +1671,8 @@ function displayPhoneNotificationGroup(groupKey) {
           ? `${primary.appName} - ${totalCount} notifications`
           : `${primary.appName} from ${primary.sourceName}`,
         preExpandDelayMs: grouped ? 350 : 650,
-        autoHideMs: maxPriority === 'critical' ? 0 : maxPriority === 'high' ? 20000 : 14000,
-        persistUntilAction: maxPriority === 'critical'
+        autoHideMs: 15000,
+        persistUntilAction: false
       }
     });
     return true;
@@ -2419,6 +2416,11 @@ function setupIPC() {
     return { success: true };
   });
 
+  registerIpcHandler('browser:openExternal', async (_event, { url }) => {
+    await shell.openExternal(url);
+    return { success: true, url };
+  });
+
   registerIpcHandler('window:openChat', async () => {
     createChatWindow();
   });
@@ -3002,6 +3004,15 @@ function startVoiceListeningFromShortcut(shortcut = '') {
   }
 
   try {
+    const dismissedSearchResult = voiceOverlay?.windowController?.dismissAssistantResultForIntent?.('browser.search', {
+      statusText: 'Search closed',
+      icon: 'SE',
+      hideAfterMs: 0
+    });
+    if (dismissedSearchResult?.dismissed) {
+      mainLogger.info('Voice shortcut dismissed persistent browser search result', { shortcut });
+    }
+
     const speakingAction = handleVoiceShortcutDuringSpeaking(shortcut);
     if (speakingAction) return speakingAction;
 

@@ -79,7 +79,12 @@ class VoiceOverlay extends EventEmitter {
       this.emit(VOICE_UI_EVENTS.EXECUTION_COMPLETED, Object.freeze({ state: event.state }));
     });
     this._subscribe(manager, SESSION_EVENTS.VOICE_SESSION_CANCELLED, event => this.updateState(event.state, event));
-    this._subscribe(manager, SESSION_EVENTS.VOICE_SESSION_CLOSED, () => this.hide());
+    this._subscribe(manager, SESSION_EVENTS.VOICE_SESSION_CLOSED, () => {
+      if (this.windowController?.hasStickyAssistantResult?.()) {
+        return;
+      }
+      this.hide();
+    });
     this._subscribe(manager, SESSION_EVENTS.VOICE_ERROR, event => this.displayError(event.error || event));
     return this;
   }
@@ -292,6 +297,8 @@ class VoiceOverlay extends EventEmitter {
 
   _buildAssistantResultPayload(result = {}) {
     const intent = String(result?.intent || '');
+    const persistentBrowserSearch = intent === 'browser.search';
+    const hoverHoldAutoHide = intent === 'phone.notification';
     return Object.freeze({
       heading: this._buildAssistantResultHeading(result, intent),
       response: this._formatAssistantResponseText(result),
@@ -305,8 +312,9 @@ class VoiceOverlay extends EventEmitter {
       icon: String(result?.ui?.icon || result?.data?.icon || '').slice(0, 3),
       previewStatus: String(result?.ui?.previewStatus || '').slice(0, 80),
       preExpandDelayMs: Number(result?.ui?.preExpandDelayMs) || 0,
-      autoHideMs: Number(result?.ui?.autoHideMs) || 0,
-      persistUntilAction: result?.ui?.persistUntilAction === true
+      autoHideMs: hoverHoldAutoHide ? 15000 : persistentBrowserSearch ? 0 : Number(result?.ui?.autoHideMs) || 0,
+      hoverHoldAutoHide,
+      persistUntilAction: persistentBrowserSearch ? true : hoverHoldAutoHide ? false : result?.ui?.persistUntilAction === true
     });
   }
 

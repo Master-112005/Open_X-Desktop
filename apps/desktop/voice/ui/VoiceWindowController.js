@@ -39,6 +39,7 @@ class VoiceWindowController {
     this.pendingSize = null;
     this.lastBounds = null;
     this.resultSticky = false;
+    this.resultIntent = '';
     this.pendingOverlayOperations = new Map();
     this.overlayFlushAttached = false;
   }
@@ -203,11 +204,13 @@ class VoiceWindowController {
       this._clearResultTimers();
       if (!hasPayload) {
         this.resultSticky = false;
+        this.resultIntent = '';
         this._setSizeMode('compact', { delayMs: 120 });
         this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.DISPLAY_ASSISTANT_RESULT, {});
         return { updated: true, payload };
       }
       this.resultSticky = payload.persistUntilAction === true;
+      this.resultIntent = String(payload.intent || '');
 
       if (!this.visible) {
         if (typeof this.window.setAlwaysOnTop === 'function') this.window.setAlwaysOnTop(true, 'screen-saver');
@@ -242,7 +245,7 @@ class VoiceWindowController {
         });
         this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.DISPLAY_ASSISTANT_RESULT, { ...payload, displayMode });
         const autoHideMs = Number(payload.autoHideMs) || 0;
-        if (autoHideMs > 0 && !this.resultSticky) {
+        if (autoHideMs > 0 && !this.resultSticky && payload.hoverHoldAutoHide !== true) {
           this.resultAutoHideTimer = setTimeout(() => {
             this.resultAutoHideTimer = null;
             this._setSizeMode('compact', { delayMs: 120 });
@@ -260,6 +263,7 @@ class VoiceWindowController {
     if (!this.window || this._isDestroyed(this.window)) return { collapsed: false };
     this._clearResultTimers();
     this.resultSticky = false;
+    this.resultIntent = '';
     const statusText = String(options.statusText || 'Done').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Done';
     const icon = String(options.icon || 'OK').replace(/\s+/g, '').trim().slice(0, 3).toUpperCase() || 'OK';
     this._setSizeMode('compact', { delayMs: 0 });
@@ -283,6 +287,24 @@ class VoiceWindowController {
       if (typeof this.resultDismissTimer.unref === 'function') this.resultDismissTimer.unref();
     }
     return { collapsed: true, hideAfterMs };
+  }
+
+  dismissAssistantResultForIntent(intent, options = {}) {
+    const targetIntent = String(intent || '');
+    if (!this.resultSticky || this.resultIntent !== targetIntent) {
+      return { dismissed: false };
+    }
+    const collapsed = this.collapseAssistantResult({
+      statusText: options.statusText || 'OpenX',
+      icon: options.icon || 'OX',
+      hideAfterMs: options.hideAfterMs === undefined ? 1 : Number(options.hideAfterMs) || 0
+    });
+    return { dismissed: collapsed?.collapsed === true, intent: targetIntent };
+  }
+
+  hasStickyAssistantResult(intent = '') {
+    const targetIntent = String(intent || '');
+    return this.resultSticky && (!targetIntent || this.resultIntent === targetIntent);
   }
 
   /**
@@ -430,6 +452,10 @@ body { animation: overlay-in 220ms var(--voice-ease) both; }
 .voice-content-summary { display: inline-flex; align-items: center; min-height: 22px; margin-top: 10px; padding: 0 9px; border: 1px solid rgba(255,255,255,.10); border-radius: 999px; color: rgba(247,248,251,.72); background: rgba(255,255,255,.06); font-size: 11px; font-weight: 750; }
 .voice-card-list { display: grid; gap: 8px; margin: 8px 0 0; padding: 0; list-style: none; }
 .voice-card { display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 9px; align-items: start; padding: 9px 10px; border-radius: 15px; border: 1px solid rgba(255,255,255,.13); background: linear-gradient(145deg, rgba(255,255,255,.105), rgba(255,255,255,.055)); box-shadow: inset 0 1px 0 rgba(255,255,255,.08); contain: layout paint style; transform: translateZ(0); }
+.voice-card-openable { cursor: pointer; transition: border-color 160ms var(--voice-ease), background 160ms var(--voice-ease), transform 160ms var(--voice-ease); }
+.voice-card-openable:hover { border-color: color-mix(in srgb, var(--voice-accent) 42%, rgba(255,255,255,.18)); background: linear-gradient(145deg, rgba(255,255,255,.14), rgba(255,255,255,.07)); }
+.voice-card-openable:focus-visible { outline: 2px solid color-mix(in srgb, var(--voice-accent) 70%, white); outline-offset: 2px; }
+.voice-card-openable:active { transform: translateY(1px); }
 .voice-card-number { width: 24px; height: 24px; border-radius: 9px; display: grid; place-items: center; color: var(--voice-text); background: color-mix(in srgb, var(--voice-accent) 28%, transparent); border: 1px solid color-mix(in srgb, var(--voice-accent) 45%, transparent); font-size: 12px; font-weight: 700; }
 .voice-card-body { min-width: 0; display: block; }
 .voice-card strong { display: -webkit-box; min-width: 0; color: rgba(247,248,251,.96); font-size: 13px; line-height: 1.25; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }

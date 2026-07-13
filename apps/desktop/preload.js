@@ -6,9 +6,42 @@ let voiceAlertAudioContext = null;
 let voiceAlertSoundInterval = null;
 let voiceAlertActiveTones = [];
 let voiceLiveScheduleTimer = null;
+let voiceHoverAutoHideTimer = null;
+let voiceHoverAutoHideLeaveTimer = null;
+let voiceHoverAutoHideWatchTimer = null;
+let voiceHoverAutoHidePayload = null;
+let voiceHoverPointerInside = false;
+let voiceHoverPointerPosition = null;
+let voiceHoverTrackingAttached = false;
 
 function voiceResultNameFromPath(pathValue, fallback) {
   return String(pathValue || '').split(/[\\/]/).filter(Boolean).pop() || fallback;
+}
+
+function isWebResultUrl(value) {
+  try {
+    const parsed = new URL(String(value || ''));
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch (_) {
+    return false;
+  }
+}
+
+function makeVoiceWebCardOpenable(item, url) {
+  if (!isWebResultUrl(url)) return false;
+  item.classList.add('voice-card-openable');
+  item.tabIndex = 0;
+  item.setAttribute('role', 'button');
+  item.setAttribute('aria-label', `Open ${url}`);
+  item.title = String(url);
+  const open = () => ipcRenderer.invoke('browser:openExternal', { url }).catch(() => {});
+  item.addEventListener('click', open);
+  item.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    open();
+  });
+  return true;
 }
 
 function appendVoiceCard(list, entry, options = {}) {
@@ -40,7 +73,9 @@ function appendVoiceCard(list, entry, options = {}) {
     meta.textContent = metaText;
     body.appendChild(meta);
   }
-  if (options.showPath && entry?.path && metaText !== entry.path) {
+  if (entry?.type === 'web' && entry?.path) {
+    makeVoiceWebCardOpenable(item, entry.path);
+  } else if (options.showPath && entry?.path && metaText !== entry.path) {
     const pathEl = document.createElement('small');
     pathEl.className = 'voice-card-path';
     pathEl.textContent = String(entry.path);
@@ -241,6 +276,124 @@ function clearVoiceActionCollapseTimer() {
   }
 }
 
+function clearVoiceHoverAutoHideTimers() {
+  if (voiceHoverAutoHideTimer) {
+    clearTimeout(voiceHoverAutoHideTimer);
+    voiceHoverAutoHideTimer = null;
+  }
+  if (voiceHoverAutoHideLeaveTimer) {
+    clearTimeout(voiceHoverAutoHideLeaveTimer);
+    voiceHoverAutoHideLeaveTimer = null;
+  }
+  if (voiceHoverAutoHideWatchTimer) {
+    clearInterval(voiceHoverAutoHideWatchTimer);
+    voiceHoverAutoHideWatchTimer = null;
+  }
+  voiceHoverAutoHidePayload = null;
+}
+
+function refreshVoiceHoverPointerState(root = document.getElementById('voice-overlay')) {
+  if (!root) {
+    voiceHoverPointerInside = false;
+    return false;
+  }
+  if (root.matches?.(':hover')) {
+    voiceHoverPointerInside = true;
+    return true;
+  }
+  if (voiceHoverPointerPosition) {
+    const target = document.elementFromPoint(voiceHoverPointerPosition.x, voiceHoverPointerPosition.y);
+    voiceHoverPointerInside = Boolean(target && root.contains(target));
+    return voiceHoverPointerInside;
+  }
+  voiceHoverPointerInside = false;
+  return false;
+}
+
+function collapseVoiceHoverAutoHideResult(delayMs = 0) {
+  if (voiceHoverAutoHideWatchTimer) {
+    clearInterval(voiceHoverAutoHideWatchTimer);
+    voiceHoverAutoHideWatchTimer = null;
+  }
+  if (voiceHoverAutoHideLeaveTimer) {
+    clearTimeout(voiceHoverAutoHideLeaveTimer);
+    voiceHoverAutoHideLeaveTimer = null;
+  }
+  voiceHoverAutoHideLeaveTimer = setTimeout(async () => {
+    voiceHoverAutoHideLeaveTimer = null;
+    voiceHoverAutoHidePayload = null;
+    try {
+      await ipcRenderer.invoke('voiceOverlay:collapse', {
+        statusText: 'OpenX',
+        icon: 'OX'
+      });
+    } catch (_) {
+      renderVoiceAssistantResult({});
+    }
+  }, Math.max(0, Math.min(5000, Number(delayMs) || 0)));
+}
+
+function watchVoiceHoverExit(root = document.getElementById('voice-overlay')) {
+  if (voiceHoverAutoHideWatchTimer || !voiceHoverAutoHidePayload) return;
+  voiceHoverAutoHideWatchTimer = setInterval(() => {
+    if (!voiceHoverAutoHidePayload) {
+      clearInterval(voiceHoverAutoHideWatchTimer);
+      voiceHoverAutoHideWatchTimer = null;
+      return;
+    }
+    if (!refreshVoiceHoverPointerState(root)) {
+      clearInterval(voiceHoverAutoHideWatchTimer);
+      voiceHoverAutoHideWatchTimer = null;
+      collapseVoiceHoverAutoHideResult(5000);
+    }
+  }, 500);
+}
+
+function ensureVoiceHoverTracking(root) {
+  if (!root || voiceHoverTrackingAttached) return;
+  voiceHoverTrackingAttached = true;
+  const markInside = event => {
+    if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+      voiceHoverPointerPosition = { x: event.clientX, y: event.clientY };
+    }
+    voiceHoverPointerInside = true;
+    if (voiceHoverAutoHideLeaveTimer) {
+      clearTimeout(voiceHoverAutoHideLeaveTimer);
+      voiceHoverAutoHideLeaveTimer = null;
+    }
+  };
+  const markOutside = () => {
+    voiceHoverPointerPosition = null;
+    voiceHoverPointerInside = false;
+    if (voiceHoverAutoHidePayload && !voiceHoverAutoHideTimer) {
+      collapseVoiceHoverAutoHideResult(5000);
+    }
+  };
+  root.addEventListener('mouseenter', markInside);
+  root.addEventListener('mousemove', markInside);
+  root.addEventListener('pointerenter', markInside);
+  root.addEventListener('pointermove', markInside);
+  root.addEventListener('mouseleave', markOutside);
+  root.addEventListener('pointerleave', markOutside);
+}
+
+function scheduleVoiceHoverAutoHide(payload = {}) {
+  clearVoiceHoverAutoHideTimers();
+  if (payload.hoverHoldAutoHide !== true) return;
+  const root = document.getElementById('voice-overlay');
+  refreshVoiceHoverPointerState(root);
+  const autoHideMs = Math.max(1200, Math.min(30000, Number(payload.autoHideMs) || 15000));
+  voiceHoverAutoHidePayload = payload;
+  voiceHoverAutoHideTimer = setTimeout(() => {
+    voiceHoverAutoHideTimer = null;
+    if (refreshVoiceHoverPointerState(root)) {
+      watchVoiceHoverExit(root);
+      return;
+    }
+    collapseVoiceHoverAutoHideResult(0);
+  }, autoHideMs);
+}
+
 function collapseVoiceIslandAfter(delayMs = 80, options = {}) {
   clearVoiceActionCollapseTimer();
   voiceAssistantActionCollapseTimer = setTimeout(async () => {
@@ -382,6 +535,7 @@ function renderVoiceAssistantResult(payload = {}) {
     stopVoiceLiveScheduleTicker();
     stopVoiceAlertSound();
     clearVoiceActionCollapseTimer();
+    clearVoiceHoverAutoHideTimers();
     if (root) root.classList.remove('expanded', 'medium', 'large', 'schedule-due-result', 'schedule-live-result', 'schedule-live-compact');
     responseEl.classList.remove('visible');
     voiceAssistantResultClearTimer = setTimeout(() => {
@@ -391,6 +545,7 @@ function renderVoiceAssistantResult(payload = {}) {
     return;
   }
   if (root) {
+    ensureVoiceHoverTracking(root);
     const displayMode = String(payload.displayMode || 'expanded').toLowerCase();
     const isScheduleDue = String(payload.intent || '') === 'schedule.due';
     const isScheduleLive = String(payload.intent || '') === 'schedule.live';
@@ -457,6 +612,7 @@ function renderVoiceAssistantResult(payload = {}) {
     const scheduleKind = payload.scheduleKind || payload.schedule?.kind || '';
     playVoiceScheduleSound(scheduleKind);
   }
+  scheduleVoiceHoverAutoHide(payload);
   requestAnimationFrame(() => responseEl.classList.add('visible'));
 }
 

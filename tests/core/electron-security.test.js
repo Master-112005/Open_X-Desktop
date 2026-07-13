@@ -124,6 +124,21 @@ describe('Electron Security Boundary', function() {
     );
   });
 
+  it('should validate external browser URLs for Dynamic Island result links', function() {
+    assert.deepEqual(
+      IPC_VALIDATORS['browser:openExternal']({ url: ' https://example.com/path?q=openx ' }),
+      { url: 'https://example.com/path?q=openx' }
+    );
+    assert.throws(
+      () => IPC_VALIDATORS['browser:openExternal']({ url: 'file:///C:/secret.txt' }),
+      /protocol is not supported/
+    );
+    assert.throws(
+      () => IPC_VALIDATORS['browser:openExternal']({ url: 'javascript:alert(1)' }),
+      /protocol is not supported/
+    );
+  });
+
   it('should normalize Dynamic Island end actions as stop actions', function() {
     assert.deepEqual(
       IPC_VALIDATORS['schedule:alertAction']({ id: 'reminder-1', action: 'end', minutes: 5 }),
@@ -134,6 +149,7 @@ describe('Electron Security Boundary', function() {
   it('should provide a validator for every registered IPC channel', function() {
     const expectedChannels = [
       'command:process', 'command:confirm', 'assistant:status', 'tts:speak', 'tts:stop', 'voice:start',
+      'browser:openExternal',
       'voiceOverlay:collapse', 'voiceOverlay:expandLiveSchedule',
       'window:openChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
       'config:get', 'settings:get',

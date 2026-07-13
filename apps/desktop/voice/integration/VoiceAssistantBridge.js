@@ -112,7 +112,7 @@ class VoiceAssistantBridge extends EventEmitter {
     this.emit(EVENTS.VOICE_COMMAND_READY, Object.freeze({ normalizedTranscript }));
     this.coordinator.startExecution();
     try {
-      const result = await this.adapter.handle(normalizedTranscript);
+      const result = this._prepareResultForVoice(await this.adapter.handle(normalizedTranscript));
       this.metrics.commandsDispatched += 1;
       this.emit(EVENTS.VOICE_RESPONSE_READY, Object.freeze({ result }));
       await this.coordinator.finishExecution(result);
@@ -136,6 +136,19 @@ class VoiceAssistantBridge extends EventEmitter {
       ...this.metrics,
       adapter: this.adapter.getMetrics(),
       coordinator: this.coordinator.getMetrics()
+    };
+  }
+
+  _prepareResultForVoice(result = {}) {
+    if (result?.intent !== 'browser.search') {
+      return result;
+    }
+    return {
+      ...result,
+      ui: {
+        ...(result.ui || {}),
+        suspendVoiceListening: true
+      }
     };
   }
 

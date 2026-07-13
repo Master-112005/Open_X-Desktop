@@ -115,6 +115,16 @@ function validateSpeech(payload) {
   return { text: requireString(payload.text, 'text', { maxLength: 4000 }) };
 }
 
+function validateExternalBrowserUrl(payload) {
+  requirePlainObject(payload);
+  const url = requireString(payload.url, 'url', { maxLength: 2048 });
+  const parsed = new URL(url);
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new TypeError('url protocol is not supported');
+  }
+  return { url: parsed.href };
+}
+
 function validateSettings(payload) {
   return validateStructuredPayload(payload, 'settings', 256 * 1024);
 }
@@ -261,6 +271,7 @@ const IPC_VALIDATORS = Object.freeze({
   'assistant:status': validateEmpty,
   'tts:speak': validateSpeech,
   'tts:stop': validateEmpty,
+  'browser:openExternal': validateExternalBrowserUrl,
   'voice:start': validateEmpty,
   'voiceOverlay:collapse': validateVoiceOverlayCollapse,
   'voiceOverlay:expandLiveSchedule': validateEmpty,
