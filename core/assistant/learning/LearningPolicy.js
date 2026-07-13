@@ -33,6 +33,10 @@ class LearningPolicy {
     return { allowed: true, storageCategory: CATEGORY_FILES[category] };
   }
 
+  isCategoryAllowed(category) {
+    return this.allowedCategories.has(String(category || '').trim().toLowerCase());
+  }
+
   storageCategory(category) {
     return CATEGORY_FILES[String(category || '').trim().toLowerCase()] || '';
   }

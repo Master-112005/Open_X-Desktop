@@ -20,6 +20,14 @@ class PlanningRegistry {
     return this;
   }
 
+  get(id) {
+    return this.planners.get(String(id || '').trim()) || null;
+  }
+
+  unregister(id) {
+    return this.planners.delete(String(id || '').trim());
+  }
+
   list({ includeDisabled = true } = {}) {
     return [...this.planners.values()]
       .filter(planner => includeDisabled || planner.enabled !== false)
@@ -37,7 +45,9 @@ class PlanningRegistry {
   }
 
   clear() {
+    const count = this.planners.size;
     this.planners.clear();
+    return count;
   }
 }
 

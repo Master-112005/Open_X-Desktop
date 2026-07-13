@@ -6,6 +6,10 @@ const MAX_TOPIC_MEMORY = 40;
 const MAX_USER_PREFERENCES = 50;
 const MAX_USER_FACTS = 100;
 const MAX_HISTORY_DATA_ITEMS = 3;
+const MAX_ENTITY_ARRAY_ITEMS = 6;
+const MAX_ENTITY_KEYS = 40;
+const MAX_SESSION_VALUE_LENGTH = 4000;
+const SENSITIVE_KEY_PATTERN = /(password|passcode|token|secret|api[_-]?key|private[_-]?key|otp|pin|credential)/i;
 const TOPIC_STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'can', 'could',
   'did', 'do', 'does', 'for', 'from', 'give', 'go', 'had', 'has', 'have',
@@ -61,22 +65,27 @@ class ContextManager {
   }
 
   record(input, parsed, result) {
+    const compactInput = compactSentence(input, 500);
+    const compactEntities = this._compactEntities(result?.entities || parsed?.entities || {});
     const entry = {
       timestamp: Date.now(),
-      input,
+      input: compactInput,
       commandId: result?.commandId || null,
-      intent: result?.intent || null,
+      intent: result?.intent || parsed?.intent || null,
       confidence: result?.confidence || 0,
       success: result?.success || false,
       requiresConfirmation: Boolean(result?.requiresConfirmation),
       needsClarification: Boolean(result?.needsClarification),
-      entities: result?.entities || {},
-      response: result?.response || '',
+      entities: compactEntities,
+      response: compactSentence(result?.response || '', 700),
       data: this._compactData(result?.data),
       languageUnderstanding: this._compactStatus(result?.languageUnderstanding, ['status', 'intent', 'domain', 'action']),
       validation: this._compactStatus(result?.validation || result?.data?.validation, ['status', 'check', 'reason']),
       verification: this._compactStatus(result?.verification || result?.data?.verification, ['status', 'check', 'reason'])
     };
+    entry.domain = this._domainFromIntent(entry.intent);
+    entry.target = this._entryTarget(entry);
+    entry.actionSummary = this._lastActionSummary(entry);
 
     this.history.push(entry);
     this.lastInteraction = Date.now();
@@ -110,9 +119,9 @@ class ContextManager {
     const entities = result?.entities || {};
 
     if (intent === 'reminder.set' && entities?.reminderText) {
-      this.pendingTasks.push({
+      this._upsertPendingTask({
         type: 'reminder',
-        text: entities.reminderText,
+        text: compactSentence(entities.reminderText, 160),
         category: entities.reminderCategory || result?.data?.category || 'general',
         duration: entities.duration || null,
         timeExpression: entities.timeExpression || null,
@@ -122,7 +131,7 @@ class ContextManager {
     }
 
     if (intent === 'timer.set' && entities?.duration) {
-      this.pendingTasks.push({
+      this._upsertPendingTask({
         type: 'timer',
         duration: entities.duration,
         dueAt: result?.data?.dueAt || null,
@@ -131,6 +140,22 @@ class ContextManager {
     }
 
     this.pendingTasks = this.pendingTasks.filter(t => Date.now() - t.timestamp < 3600000);
+  }
+
+  _upsertPendingTask(task) {
+    const key = [
+      task.type,
+      normalizeText(task.text || ''),
+      normalizeText(task.timeExpression || ''),
+      String(task.dueAt || task.duration || '')
+    ].join('|');
+    const existingIndex = this.pendingTasks.findIndex(item => item.key === key);
+    const entry = { ...task, key };
+    if (existingIndex >= 0) {
+      this.pendingTasks[existingIndex] = { ...this.pendingTasks[existingIndex], ...entry };
+      return;
+    }
+    this.pendingTasks.push(entry);
   }
 
   setUserPreference(key, value) {
@@ -196,7 +221,7 @@ class ContextManager {
 
   setSessionData(key, value) {
     this.sessionData.set(key, {
-      value,
+      value: this._compactSessionValue(value),
       timestamp: Date.now()
     });
   }
@@ -204,7 +229,7 @@ class ContextManager {
   getSessionData(key) {
     const data = this.sessionData.get(key);
     if (!data) return null;
-    if (Date.now() - data.timestamp > MAX_CONTEXT_AGE_MS) {
+    if (Date.now() - data.timestamp > this.maxContextAgeMs) {
       this.sessionData.delete(key);
       return null;
     }
@@ -252,6 +277,31 @@ class ContextManager {
 
   getLastCommand() {
     return this.history[this.history.length - 1] || null;
+  }
+
+  getLastSuccessfulCommand() {
+    return this.findRecent(entry => entry?.success, this.maxHistory);
+  }
+
+  getLastDomainAction(domain, limit = 30) {
+    const normalized = String(domain || '').replace(/\.$/, '');
+    if (!normalized) return null;
+    return this.findRecent(entry => entry?.success && entry.domain === normalized, limit);
+  }
+
+  getRecentActionTargets(limit = 8) {
+    return this.history
+      .slice(-Math.max(1, limit * 3))
+      .reverse()
+      .filter(entry => entry?.success && entry.target)
+      .map(entry => ({
+        intent: entry.intent,
+        domain: entry.domain,
+        target: entry.target,
+        input: entry.input,
+        timestamp: entry.timestamp
+      }))
+      .slice(0, limit);
   }
 
   findRecent(predicate, limit = 20) {
@@ -326,7 +376,7 @@ class ContextManager {
       .slice(-limit)
       .reverse()
       .find(entry => entry?.success && entry?.input && entry?.intent &&
-        /^(?:app|browser|file|folder|media|volume|brightness|window|phone)\./.test(entry.intent)) || null;
+        /^(?:app|browser|file|folder|media|volume|brightness|window|phone|reminder|timer|alarm|calendar)\./.test(entry.intent)) || null;
   }
 
   resolveEllipticalFollowUp(input) {
@@ -477,7 +527,22 @@ class ContextManager {
       recentTopics: Array.from(this.topicMemory.values())
         .sort((a, b) => b.score - a.score || b.lastSeen - a.lastSeen)
         .slice(0, 5)
-        .map(topic => topic.label)
+        .map(topic => topic.label),
+      recentTargets: this.getRecentActionTargets(5)
+    };
+  }
+
+  getContextSnapshot(options = {}) {
+    const limit = Number(options.limit || 6);
+    return {
+      lastInteraction: this.lastInteraction,
+      lastIntent: this.getLastIntent(),
+      lastEntities: this.getLastEntities(),
+      lastSuccessfulCommand: this.getLastSuccessfulCommand(),
+      recentCommands: this.getRecentCommands(limit),
+      recentTargets: this.getRecentActionTargets(limit),
+      recentTasks: this.getRecentTasks(),
+      summary: this.getConversationSummary()
     };
   }
 
@@ -619,16 +684,39 @@ class ContextManager {
       entities.fileName,
       entities.contactName,
       entities.plannerText,
+      entities.reminderText,
+      entities.timeExpression,
+      entities.duration,
+      entities.value,
       data.entry?.title,
+      data.transferredName,
+      data.path,
       data.query
     ].map(value => String(value || '').trim()).find(Boolean) || '';
+  }
+
+  _lastActionSummary(entry) {
+    if (!entry?.intent) return null;
+    const target = entry.target || this._entryTarget(entry);
+    return {
+      intent: entry.intent,
+      domain: this._domainFromIntent(entry.intent),
+      target: target ? compactSentence(target, 160) : null,
+      success: Boolean(entry.success),
+      timestamp: entry.timestamp
+    };
+  }
+
+  _domainFromIntent(intent) {
+    const text = String(intent || '');
+    return text.includes('.') ? text.split('.')[0] : text || null;
   }
 
   _compactStatus(value, keys) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return value || null;
     const compact = {};
     for (const key of keys) {
-      if (value[key] !== undefined && value[key] !== null) compact[key] = value[key];
+      if (value[key] !== undefined && value[key] !== null) compact[key] = this._compactPrimitive(value[key]);
     }
     return Object.keys(compact).length > 0 ? compact : null;
   }
@@ -643,12 +731,18 @@ class ContextManager {
       'topic',
       'category',
       'dueAt',
+      'message',
+      'title',
+      'url',
+      'duration',
       'matchedWindow',
       'launchMethod',
       'app',
       'appId'
     ].forEach(key => {
-      if (data[key] !== undefined && data[key] !== null) compact[key] = data[key];
+      if (data[key] !== undefined && data[key] !== null && !SENSITIVE_KEY_PATTERN.test(key)) {
+        compact[key] = this._compactPrimitive(data[key]);
+      }
     });
     if (data.entry?.title) compact.entry = { title: String(data.entry.title) };
     if (data.opened) compact.opened = this._compactFileCandidate(data.opened);
@@ -661,9 +755,62 @@ class ContextManager {
     if (typeof value === 'string') return value;
     if (!value || typeof value !== 'object') return {};
     return {
-      name: String(value.name || value.title || '').trim(),
-      path: String(value.path || value.location || '').trim()
+      name: compactSentence(value.name || value.title || '', 140),
+      path: compactSentence(value.path || value.location || '', 260)
     };
+  }
+
+  _compactEntities(entities) {
+    if (!entities || typeof entities !== 'object' || Array.isArray(entities)) {
+      return {};
+    }
+
+    const compact = {};
+    for (const [key, value] of Object.entries(entities).slice(0, MAX_ENTITY_KEYS)) {
+      if (SENSITIVE_KEY_PATTERN.test(key)) {
+        continue;
+      }
+      compact[key] = this._compactValue(value, 0);
+    }
+    return compact;
+  }
+
+  _compactSessionValue(value) {
+    const compact = this._compactValue(value, 0);
+    const json = JSON.stringify(compact);
+    if (json && json.length > MAX_SESSION_VALUE_LENGTH) {
+      return { truncated: true, preview: compactSentence(json, 1000) };
+    }
+    return compact;
+  }
+
+  _compactValue(value, depth) {
+    if (value === null || value === undefined) return value;
+    if (typeof value === 'string') return compactSentence(value, 300);
+    if (typeof value === 'number' || typeof value === 'boolean') return value;
+    if (value instanceof Date) return value.toISOString();
+    if (Array.isArray(value)) {
+      if (depth >= 2) return '[array]';
+      return value.slice(0, MAX_ENTITY_ARRAY_ITEMS).map(item => this._compactValue(item, depth + 1));
+    }
+    if (typeof value === 'object') {
+      if (depth >= 2) return '[object]';
+      const compact = {};
+      for (const [key, item] of Object.entries(value).slice(0, MAX_ENTITY_KEYS)) {
+        if (SENSITIVE_KEY_PATTERN.test(key)) continue;
+        compact[key] = this._compactValue(item, depth + 1);
+      }
+      return compact;
+    }
+    return String(value);
+  }
+
+  _compactPrimitive(value) {
+    if (typeof value === 'string') return compactSentence(value, 240);
+    if (typeof value === 'number' || typeof value === 'boolean') return value;
+    if (value instanceof Date) return value.toISOString();
+    if (value && typeof value === 'object') return this._compactValue(value, 0);
+    return value;
   }
 
   _fileReferenceFromEntry(entry) {

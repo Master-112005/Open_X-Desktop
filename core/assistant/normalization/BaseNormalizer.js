@@ -9,6 +9,7 @@ class BaseNormalizer {
     this.version = String(options.version || '1.0.0');
     this.options = { ...(options || {}) };
     this.initialized = false;
+    this.stats = { runs: 0, failures: 0, lastRunAt: null };
   }
 
   initialize() {
@@ -18,6 +19,29 @@ class BaseNormalizer {
 
   supports() {
     return this.enabled;
+  }
+
+  getOption(key, fallback = undefined) {
+    return Object.prototype.hasOwnProperty.call(this.options, key) ? this.options[key] : fallback;
+  }
+
+  markRun(success = true) {
+    this.stats.runs += 1;
+    if (!success) this.stats.failures += 1;
+    this.stats.lastRunAt = Date.now();
+    return this.stats;
+  }
+
+  describe() {
+    return {
+      id: this.id,
+      name: this.name,
+      priority: this.priority,
+      enabled: this.enabled,
+      version: this.version,
+      initialized: this.initialized,
+      stats: { ...this.stats }
+    };
   }
 
   normalize(context) {

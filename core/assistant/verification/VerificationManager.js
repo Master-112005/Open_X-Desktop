@@ -11,6 +11,7 @@ const ReminderVerifier = require('./ReminderVerifier');
 const TransferVerifier = require('./TransferVerifier');
 const CloudVerifier = require('./CloudVerifier');
 const VerificationGraphBuilder = require('./VerificationGraphBuilder');
+const VerificationLogger = require('./VerificationLogger');
 
 class VerificationManager {
   constructor(options = {}) {
@@ -19,6 +20,7 @@ class VerificationManager {
       : new VerificationConfiguration(options.configuration || options);
     this.registry = options.registry || new VerificationRegistry();
     this.pipeline = options.pipeline || null;
+    this.logger = options.logger instanceof VerificationLogger ? options.logger : new VerificationLogger(options.logger || null);
     if (options.defaultVerifiers !== false) this._registerDefaults();
   }
 
@@ -45,13 +47,23 @@ class VerificationManager {
 
   async verify(automationResult, options = {}) {
     if (!this.pipeline) {
-      this.pipeline = new VerificationPipeline({ registry: this.registry, configuration: this.configuration });
+      this.pipeline = new VerificationPipeline({
+        registry: this.registry,
+        configuration: this.configuration,
+        logger: this.logger
+      });
     }
     return this.pipeline.run(automationResult, options);
   }
 
   getStatus() {
-    return { enabled: this.configuration.enabled, version: this.configuration.version, verifiers: this.registry.health() };
+    return {
+      enabled: this.configuration.enabled,
+      version: this.configuration.version,
+      pipelineReady: Boolean(this.pipeline),
+      verifierCount: this.registry.count(),
+      verifiers: this.registry.health()
+    };
   }
 
   destroy() {

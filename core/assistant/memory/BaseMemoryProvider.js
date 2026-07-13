@@ -9,6 +9,7 @@ class BaseMemoryProvider {
     this.version = String(options.version || '1.0.0');
     this.options = { ...(options || {}) };
     this.initialized = false;
+    this.stats = { runs: 0, failures: 0, skips: 0, lastRunAt: null };
   }
 
   initialize() {
@@ -18,6 +19,26 @@ class BaseMemoryProvider {
 
   supports(context) {
     return this.enabled && !!context;
+  }
+
+  markRun(result = {}) {
+    this.stats.runs += 1;
+    if (result.skipped) this.stats.skips += 1;
+    if (result.success === false) this.stats.failures += 1;
+    this.stats.lastRunAt = Date.now();
+    return this.stats;
+  }
+
+  describe() {
+    return {
+      id: this.id,
+      name: this.name,
+      priority: this.priority,
+      enabled: this.enabled,
+      version: this.version,
+      initialized: this.initialized,
+      stats: { ...this.stats }
+    };
   }
 
   apply(context) {

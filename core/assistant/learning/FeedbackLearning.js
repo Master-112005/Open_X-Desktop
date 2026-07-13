@@ -1,6 +1,7 @@
 'use strict';
 
 const BaseLearningModule = require('./BaseLearningModule');
+const { stripLearningPunctuation } = require('./LearningLanguage');
 
 class FeedbackLearning extends BaseLearningModule {
   learn(context) {
@@ -13,7 +14,8 @@ class FeedbackLearning extends BaseLearningModule {
       value: normalized.includes('always') ? 'always_do_this' : normalized.includes('wrong') ? 'wrong' : 'good',
       confidence: 0.9,
       source: 'explicit-user-feedback',
-      module: this.id
+      module: this.id,
+      metadata: { feedback: stripLearningPunctuation(text).slice(0, 120) }
     });
     return context;
   }

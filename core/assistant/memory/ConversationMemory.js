@@ -8,11 +8,8 @@ class ConversationMemory extends BaseMemoryProvider {
     const history = context.state.conversationTurns || [];
     const turn = {
       input: context.input,
-      entities: context.entities.map(entity => ({
-        type: entity.type,
-        value: entity.canonical || entity.value,
-        confidence: entity.confidence
-      })),
+      entities: context.entitySnapshot(limit),
+      source: context.metadata.source || context.structuredEntities?.metadata?.source || 'chat',
       timestamp: Date.now()
     };
     history.push(turn);
@@ -23,6 +20,10 @@ class ConversationMemory extends BaseMemoryProvider {
         ? context.state.conversationTurns[context.state.conversationTurns.length - 2]
         : null,
       references: context.state.conversationTurns.flatMap(item => item.entities).slice(-limit)
+    };
+    context.futureExtensions.conversation = {
+      turnCount: context.conversationMemory.turns.length,
+      referenceCount: context.conversationMemory.references.length
     };
     return context;
   }

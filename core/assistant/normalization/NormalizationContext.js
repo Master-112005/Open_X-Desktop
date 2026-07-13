@@ -6,6 +6,12 @@ const IdGenerator = require('../utils/IdGenerator');
 
 const idGenerator = new IdGenerator({ prefix: 'norm' });
 
+function boundedPush(list, value, limit) {
+  list.push(value);
+  if (list.length > limit) list.splice(0, list.length - limit);
+  return list;
+}
+
 class NormalizationContext {
   constructor({ rawUserInput = null, text = '', configuration = {}, metadata = {} } = {}) {
     const config = configuration instanceof NormalizationConfiguration
@@ -50,7 +56,7 @@ class NormalizationContext {
     const next = String(nextText ?? '');
     this.workingText = next;
     const changed = previous !== next;
-    this.normalizationHistory.push({
+    boundedPush(this.normalizationHistory, {
       normalizerId: String(normalizerId || 'unknown'),
       changed,
       beforeLength: previous.length,
@@ -58,7 +64,7 @@ class NormalizationContext {
       modifiedCharacters: changed ? Math.abs(previous.length - next.length) : 0,
       details: { ...(details || {}) },
       timestamp: Date.now()
-    });
+    }, this.configuration.maxHistoryEntries);
     return this;
   }
 
@@ -67,24 +73,39 @@ class NormalizationContext {
     if (!Array.isArray(this.metadata.observations[key])) {
       this.metadata.observations[key] = [];
     }
-    this.metadata.observations[key].push(value);
+    boundedPush(this.metadata.observations[key], value, this.configuration.maxObservationEntriesPerType);
     return this;
   }
 
   addWarning(message, data = {}) {
-    this.warnings.push({ message: String(message || ''), data: { ...(data || {}) }, timestamp: Date.now() });
+    boundedPush(this.warnings, { message: String(message || ''), data: { ...(data || {}) }, timestamp: Date.now() }, this.configuration.maxDiagnosticEntries);
     return this;
   }
 
   addDiagnostic(record = {}) {
-    this.diagnostics.push({
+    boundedPush(this.diagnostics, {
       level: String(record.level || 'info'),
       message: String(record.message || ''),
       normalizerId: String(record.normalizerId || ''),
       data: { ...(record.data || {}) },
       timestamp: Date.now()
-    });
+    }, this.configuration.maxDiagnosticEntries);
     return this;
+  }
+
+  setCommandIntent(text, details = {}) {
+    const intentText = String(text || '').trim();
+    this.metadata.commandIntentText = intentText;
+    this.futureExtensions.command = {
+      ...(this.futureExtensions.command || {}),
+      intentText,
+      ...(details || {})
+    };
+    return this;
+  }
+
+  getText() {
+    return String(this.workingText || '');
   }
 
   recordTiming(normalizerId, durationMs, success = true) {

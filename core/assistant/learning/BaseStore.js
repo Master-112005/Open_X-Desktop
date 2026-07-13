@@ -19,7 +19,11 @@ function safeBackupPath(filePath) {
 }
 
 function clone(value) {
-  return JSON.parse(JSON.stringify(value));
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (_) {
+    return {};
+  }
 }
 
 function ensureDirectory(dir) {
@@ -211,6 +215,17 @@ class BaseStore {
   getFilePath() { return this.filePath; }
   exists() { return fs.existsSync(this.filePath); }
   getLastError() { return this.lastError; }
+  getStatus() {
+    const stats = this.getFileStats();
+    return {
+      path: this.filePath,
+      exists: this.exists(),
+      size: stats?.size || 0,
+      modified: stats?.modified || null,
+      healthy: !this.lastError,
+      lastError: this.lastError ? String(this.lastError.message || this.lastError) : null
+    };
+  }
 
   getFileStats() {
     try {

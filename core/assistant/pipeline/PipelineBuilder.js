@@ -33,6 +33,14 @@ class PipelineBuilder {
     return this;
   }
 
+  registerStages(stages = []) {
+    for (const item of stages) {
+      if (Array.isArray(item)) this.registerStage(item[0], item[1] || {});
+      else this.registerStage(item);
+    }
+    return this;
+  }
+
   configure(options = {}) {
     this.configuration = new PipelineConfiguration({
       ...this.configuration,
@@ -49,6 +57,14 @@ class PipelineBuilder {
       dispatcher: this.dispatcher,
       logger: this.logger
     });
+  }
+
+  getStatus() {
+    return {
+      configuration: this.configuration.toJSON(),
+      stages: this.registry.health(),
+      diagnostics: typeof this.diagnostics.summary === 'function' ? this.diagnostics.summary(25) : null
+    };
   }
 }
 

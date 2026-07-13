@@ -2,11 +2,15 @@
 
 const InputAdapterRegistry = require('./InputAdapterRegistry');
 const { UnsupportedSourceError } = require('./AcquisitionErrors');
+const InputDiagnostics = require('./InputDiagnostics');
+const SourceNormalizer = require('./SourceNormalizer');
+const { sanitizeAcquisitionData } = require('./AcquisitionSanitizer');
 
 class InputSourceManager {
   constructor(options = {}) {
     this.registry = options.registry || new InputAdapterRegistry();
-    this.diagnostics = [];
+    this.diagnostics = options.diagnostics || new InputDiagnostics(options);
+    this.sourceNormalizer = options.sourceNormalizer || new SourceNormalizer(options);
   }
 
   register(adapter, options = {}) {
@@ -19,7 +23,7 @@ class InputSourceManager {
   }
 
   acquire(input, source = 'chat', options = {}) {
-    const payload = this.toPayload(input, source, options);
+    const payload = this.toPayload(input, this.sourceNormalizer.normalize(source), options);
     const startedAt = Date.now();
     const adapter = this.registry.find(payload);
     if (!adapter) {
@@ -40,49 +44,48 @@ class InputSourceManager {
   }
 
   toPayload(input, source = 'chat', options = {}) {
+    const safeOptions = sanitizeAcquisitionData(options || {});
     if (input && typeof input === 'object' && input.rawText !== undefined) {
       return {
         ...input,
         source: input.source || source,
         metadata: {
           ...(input.metadata || {}),
-          ...(options.metadata || {})
+          ...(safeOptions.metadata || {})
         }
       };
     }
     return {
       input: String(input || ''),
       source: String(source || 'chat'),
-      options: { ...(options || {}) },
+      options: safeOptions,
       metadata: {
-        ...(options?.metadata || {}),
-        requestId: options?.requestId || null,
-        conversationId: options?.conversationId || null,
-        sessionId: options?.sessionId || null,
-        phoneContext: options?.phoneContext || null
+        ...(safeOptions?.metadata || {}),
+        requestId: safeOptions?.requestId || null,
+        conversationId: safeOptions?.conversationId || null,
+        sessionId: safeOptions?.sessionId || null,
+        phoneContext: safeOptions?.phoneContext || null
       },
-      attachments: options?.attachments || [],
-      device: options?.device || options?.phoneContext || null,
-      platform: options?.platform || null,
-      userContext: options?.userContext || {},
-      flags: options?.flags || {},
-      requestId: options?.requestId || null,
-      conversationId: options?.conversationId || null,
-      sessionId: options?.sessionId || null
+      attachments: safeOptions?.attachments || [],
+      device: safeOptions?.device || safeOptions?.phoneContext || null,
+      platform: safeOptions?.platform || null,
+      userContext: safeOptions?.userContext || {},
+      flags: safeOptions?.flags || {},
+      requestId: safeOptions?.requestId || null,
+      conversationId: safeOptions?.conversationId || null,
+      sessionId: safeOptions?.sessionId || null
     };
   }
 
   recordDiagnostic(level, message, data = {}) {
-    const record = { level, message, data, timestamp: Date.now() };
-    this.diagnostics.push(record);
-    this.diagnostics = this.diagnostics.slice(-500);
-    return record;
+    return this.diagnostics.record(level, message, data);
   }
 
   getStatus() {
     return {
+      adapterCount: this.registry.count(),
       adapters: this.registry.enumerate(),
-      diagnostics: this.diagnostics.slice(-25)
+      diagnostics: this.diagnostics.list(25)
     };
   }
 
@@ -90,6 +93,8 @@ class InputSourceManager {
     for (const adapter of this.registry.adapters.values()) {
       adapter.destroy?.();
     }
+    this.registry.clear();
+    this.diagnostics.clear();
   }
 }
 

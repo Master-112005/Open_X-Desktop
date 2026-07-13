@@ -1,6 +1,7 @@
 'use strict';
 
 const BaseLearningModule = require('./BaseLearningModule');
+const { normalizeLearningKey, stripLearningPunctuation } = require('./LearningLanguage');
 
 class PreferenceLearning extends BaseLearningModule {
   learn(context) {
@@ -12,11 +13,12 @@ class PreferenceLearning extends BaseLearningModule {
     if (!kind || !value) return context;
     context.addEvent({
       category: 'preference',
-      key: kind.toLowerCase().replace(/\s+/g, '.'),
-      value: value.replace(/[.!?]+$/g, ''),
+      key: normalizeLearningKey(kind),
+      value: stripLearningPunctuation(value),
       confidence: 0.95,
       source: 'explicit-user-preference',
-      module: this.id
+      module: this.id,
+      metadata: { directive: 'preference' }
     });
     return context;
   }

@@ -109,4 +109,41 @@ describe('Assistant Entity Understanding Layer', function() {
     assert.ok(entities.reminders.some(entity => entity.value.toLowerCase() === 'wishes to mohit'));
     assert.equal(entities.intent, undefined);
   });
+
+  it('keeps full song titles as one media entity', async function() {
+    const entities = await buildStructuredEntities('play Stars and Stripes Forever song');
+
+    assert.ok(entities.media.some(entity => entity.value === 'Stars and Stripes Forever'));
+    assert.equal(entities.media.filter(entity => /Stars/i.test(entity.value)).length, 1);
+  });
+
+  it('extracts recurring reminder task, days, time, and recurrence metadata', async function() {
+    const entities = await buildStructuredEntities('remind me every saturday monday to eat lunch at 8pm');
+
+    assert.ok(entities.reminders.some(entity => entity.value.toLowerCase() === 'eat lunch'));
+    assert.ok(entities.dates.some(entity => /saturday monday/i.test(entity.value)));
+    assert.ok(entities.times.some(entity => entity.value.toLowerCase() === '8pm'));
+    assert.ok(entities.reminders.some(entity => /saturday monday/i.test(entity.metadata.recurrence || '')));
+  });
+
+  it('deduplicates aliases while retaining the best entity metadata', async function() {
+    const entities = await buildStructuredEntities('open chrome and google chrome');
+
+    assert.equal(entities.applications.filter(entity => entity.canonical === 'Google Chrome').length, 1);
+    assert.ok(entities.diagnostics.duplicateEntities.length >= 1);
+  });
+
+  it('extracts reply contacts through the legacy entity extractor', function() {
+    const { EntityExtractor } = require('../../core/assistant/entities/index.js');
+    const extractor = new EntityExtractor({});
+    const entities = extractor.extract({
+      entities: [
+        { name: 'contactName' },
+        { name: 'messageText' }
+      ]
+    }, 'reply for Sunil saying I will call later');
+
+    assert.equal(entities.contactName, 'Sunil');
+    assert.equal(entities.messageText, 'I will call later');
+  });
 });

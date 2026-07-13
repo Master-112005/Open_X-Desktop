@@ -1,12 +1,13 @@
 'use strict';
 
 const BaseLearningModule = require('./BaseLearningModule');
+const { normalizeLearningKey } = require('./LearningLanguage');
 
 class PatternLearning extends BaseLearningModule {
   learn(context) {
     const actions = context.assistantResponse?.verificationResult?.successfulActions || [];
     for (const action of actions) {
-      const route = action.route || action.action || action.taskId;
+      const route = normalizeLearningKey(action.route || action.action || action.taskId);
       if (!route) continue;
       if (context.storage.getCount('statistics', `statistic:command.${route}`) + 1 >= context.configuration.patternThreshold) {
         context.addEvent({
@@ -15,7 +16,8 @@ class PatternLearning extends BaseLearningModule {
           value: route,
           confidence: 0.8,
           source: 'long-term-usage',
-          module: this.id
+          module: this.id,
+          metadata: { threshold: context.configuration.patternThreshold }
         });
       }
     }

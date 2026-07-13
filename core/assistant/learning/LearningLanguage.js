@@ -14,6 +14,19 @@ function cleanText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function normalizeLearningKey(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/["'`]/g, '')
+    .replace(/[^\w\s.:-]/g, ' ')
+    .replace(/\s+/g, '.')
+    .slice(0, 120);
+}
+
+function stripLearningPunctuation(value) {
+  return cleanText(value).replace(/[.!?]+$/g, '').trim();
+}
+
 function extractReplacement(input) {
   const text = cleanText(input);
   if (!text) return '';
@@ -43,6 +56,9 @@ function parseLearningDirective(input) {
 }
 
 module.exports = {
+  cleanText,
   extractReplacement,
+  normalizeLearningKey,
+  stripLearningPunctuation,
   parseLearningDirective
 };

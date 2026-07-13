@@ -66,6 +66,16 @@ describe('Natural Language Router', function() {
     );
   });
 
+  it('should keep connector words inside one search target when no second action exists', function() {
+    const router = createRouter();
+    const result = router.parse('search for cats and dogs');
+
+    assert.equal(result.multiIntent, false);
+    assert.equal(result.frames.length, 1);
+    assert.equal(result.frames[0].intentId, 'browser.search');
+    assert.equal(result.frames[0].entities.query, 'cats and dogs');
+  });
+
   it('should distinguish media volume from system volume when a media platform is named', function() {
     const router = createRouter();
     const media = router.parse('increase youtube volume');

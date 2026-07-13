@@ -8,12 +8,20 @@ class ParallelPlanner extends BasePlanner {
     const independent = context.tasks.filter(task =>
       !context.dependencies.some(dependency => dependency.to === task.id || dependency.from === task.id)
     );
-    const appTasks = independent.filter(task => task.action === 'OPEN_APPLICATION');
-    if (appTasks.length > 1) {
+    const parallelTasks = independent.filter(task => context.configuration?.parallelActions?.has?.(task.action));
+    const groupedByAction = new Map();
+    for (const task of parallelTasks) {
+      if (!groupedByAction.has(task.action)) groupedByAction.set(task.action, []);
+      groupedByAction.get(task.action).push(task);
+    }
+    for (const [action, tasks] of groupedByAction.entries()) {
+      if (tasks.length <= 1) continue;
       context.parallelGroups.push({
-        id: 'parallel.openApplications',
-        tasks: appTasks.map(task => task.id),
-        reason: 'independent application launches'
+        id: action === 'OPEN_APPLICATION'
+          ? 'parallel.openApplications'
+          : `parallel.${String(action || 'tasks').toLowerCase().replace(/[^a-z0-9]+/g, '.')}`,
+        tasks: tasks.map(task => task.id),
+        reason: `independent ${action.toLowerCase().replace(/_/g, ' ')} tasks`
       });
     }
     context.diagnostics.parallelGroups = context.parallelGroups.length;

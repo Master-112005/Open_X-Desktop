@@ -36,6 +36,10 @@ class StructuredEntities {
     this.diagnostics = input.diagnostics || {};
     this.metadata = { ...(input.metadata || {}) };
     this.confidence = Math.max(0, Math.min(1, Number(input.confidence ?? 0)));
+    this.entityCounts = Object.fromEntries(COLLECTIONS.map(key => [key, this[key].length]));
+    this.primary = Object.fromEntries(COLLECTIONS
+      .map(key => [key, this[key].slice().sort((left, right) => right.confidence - left.confidence)[0] || null])
+      .filter(([, value]) => value));
     this.timing = { ...(input.timing || {}) };
     this.version = String(input.version || '6.0.0');
     this.futureExtensions = { ...(input.futureExtensions || {}) };

@@ -4,7 +4,15 @@ const BaseInputAdapter = require('./BaseInputAdapter');
 
 class CloudAdapter extends BaseInputAdapter {
   constructor(options = {}) {
-    super({ ...options, id: 'cloud', source: 'cloud', sourceType: 'cloud-relay', priority: options.priority ?? 85 });
+    super({
+      ...options,
+      id: 'cloud',
+      source: 'cloud',
+      aliases: ['relay', 'mobile-cloud'],
+      sourceType: 'cloud-relay',
+      priority: options.priority ?? 85,
+      capabilities: ['text', 'cloud-command']
+    });
   }
 
   extractText(payload = {}) {
@@ -16,7 +24,9 @@ class CloudAdapter extends BaseInputAdapter {
     return {
       ...metadata,
       cloudSession: metadata.cloudSession || metadata.cloudRequestId || null,
-      relay: metadata.relay || metadata.relayUrl || null
+      relay: metadata.relay || metadata.relayUrl || null,
+      encrypted: metadata.encrypted === true,
+      relayConnected: metadata.relayConnected !== false
     };
   }
 }

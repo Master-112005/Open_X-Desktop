@@ -21,10 +21,12 @@ class LearningManager {
     this.registry = options.registry || new LearningRegistry();
     this.pipeline = options.pipeline || null;
     this.storage = options.storage || null;
+    this.defaultModulesRegistered = false;
     if (options.defaultModules !== false) this._registerDefaults();
   }
 
   _registerDefaults() {
+    if (this.defaultModulesRegistered) return;
     [
       [CorrectionLearning, 'learning.correction', 10],
       [AliasLearning, 'learning.alias', 20],
@@ -36,13 +38,16 @@ class LearningManager {
       [PatternLearning, 'learning.pattern', 80],
       [FeedbackLearning, 'learning.feedback', 90]
     ].forEach(([Ctor, id, priority]) => {
+      if (this.registry.has(id)) return;
       const configured = this.configuration.getModuleOptions(id, { priority });
       this.registry.register(new Ctor({ id, ...configured }), { id, priority: configured.priority, enabled: configured.enabled });
     });
+    this.defaultModulesRegistered = true;
   }
 
   registerModule(module, options = {}) {
     this.registry.register(module, options);
+    this.pipeline = null;
     return this;
   }
 
@@ -58,13 +63,21 @@ class LearningManager {
   }
 
   getStatus() {
-    return { enabled: this.configuration.enabled, version: this.configuration.version, modules: this.registry.health() };
+    return {
+      enabled: this.configuration.enabled,
+      version: this.configuration.version,
+      moduleCount: this.registry.count({ includeDisabled: true }),
+      activeModuleCount: this.registry.count({ includeDisabled: false }),
+      configuration: this.configuration.toJSON(),
+      modules: this.registry.health()
+    };
   }
 
-  destroy() {
-    for (const module of this.registry.list()) module.destroy?.();
+  async destroy() {
+    for (const module of this.registry.list()) await module.destroy?.();
     this.registry.clear();
     this.pipeline = null;
+    this.defaultModulesRegistered = false;
   }
 }
 

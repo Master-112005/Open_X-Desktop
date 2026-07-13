@@ -46,13 +46,21 @@ class DecisionManager {
         configuration: this.configuration
       });
     }
-    return this.pipeline.run(executionBlueprint, options);
+    return this.pipeline.run(executionBlueprint, {
+      ...(options || {}),
+      metadata: {
+        ...(options.metadata || {}),
+        decisionManagerVersion: this.configuration.version
+      }
+    });
   }
 
   getStatus() {
     return {
       enabled: this.configuration.enabled,
       version: this.configuration.version,
+      pipelineReady: Boolean(this.pipeline),
+      decisionCount: this.registry.list().length,
       decisions: this.registry.health()
     };
   }

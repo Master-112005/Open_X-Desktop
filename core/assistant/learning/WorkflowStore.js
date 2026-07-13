@@ -369,6 +369,7 @@ class WorkflowStore extends BaseStore {
         acc[w.category] = (acc[w.category] || 0) + 1;
         return acc;
       }, {}),
+      status: this.getStatus(),
       metadata: this.data.metadata
     };
   }

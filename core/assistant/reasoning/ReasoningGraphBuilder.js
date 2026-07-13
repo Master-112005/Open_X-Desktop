@@ -7,15 +7,15 @@ class ReasoningGraphBuilder extends BaseReasoner {
   reason(context) {
     const nodes = [];
     const edges = [];
-    const addNode = (id, type, value, confidence = 0) => {
-      nodes.push({ id, type, value, confidence });
+    const addNode = (id, type, value, confidence = 0, metadata = {}) => {
+      nodes.push({ id, type, value, confidence, metadata });
     };
 
-    context.evidence.forEach((item, index) => addNode(`evidence:${index + 1}`, 'evidence', item.value, item.confidence));
-    context.candidateGoals.forEach((item, index) => addNode(`goal:${index + 1}`, 'goal', item.id, item.confidence));
-    context.candidateIntents.forEach((item, index) => addNode(`intent:${index + 1}`, 'intent', item.intent, item.confidence));
-    context.candidateActions.forEach((item, index) => addNode(`action:${index + 1}`, 'action', item.action, item.confidence));
-    context.candidateTasks.forEach((item, index) => addNode(`task:${index + 1}`, 'task', item.task, item.confidence));
+    context.evidence.forEach((item, index) => addNode(`evidence:${index + 1}`, 'evidence', item.value, item.confidence, { evidenceType: item.type, source: item.source }));
+    context.candidateGoals.forEach((item, index) => addNode(`goal:${index + 1}`, 'goal', item.id, item.confidence, { name: item.name, source: item.source }));
+    context.candidateIntents.forEach((item, index) => addNode(`intent:${index + 1}`, 'intent', item.intent, item.confidence, { source: item.source }));
+    context.candidateActions.forEach((item, index) => addNode(`action:${index + 1}`, 'action', item.action, item.confidence, { source: item.source, ...(item.metadata || {}) }));
+    context.candidateTasks.forEach((item, index) => addNode(`task:${index + 1}`, 'task', item.task, item.confidence, { action: item.action || null, source: item.source }));
     context.detectedConflicts.forEach((item, index) => addNode(`conflict:${index + 1}`, 'conflict', item.type, item.confidence));
     context.clarificationRequirements.forEach((item, index) => addNode(`clarification:${index + 1}`, 'clarification', item.requirement, item.confidence));
 
@@ -39,6 +39,7 @@ class ReasoningGraphBuilder extends BaseReasoner {
       nodes,
       edges,
       confidence: context.confidenceScores.overall || 0,
+      entitySummary: { ...(context.entitySummary || {}) },
       path: context.diagnostics.pipelineOrder.slice()
     });
     return context;

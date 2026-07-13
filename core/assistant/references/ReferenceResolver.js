@@ -1,6 +1,6 @@
 'use strict';
 
-const PRONOUNS = /\b(it|that|this|those|these|them|they|same one|previous one|last file|current app|selected folder)\b/gi;
+const { extractDiscourseReferences } = require('../linguistic/LanguageAnalysis');
 
 class ReferenceResolver {
   constructor(options = {}) {
@@ -16,13 +16,8 @@ class ReferenceResolver {
   }
 
   resolve(context) {
-    const found = new Set();
-    let match;
-    PRONOUNS.lastIndex = 0;
-    while ((match = PRONOUNS.exec(context.input || ''))) {
-      found.add(match[1].toLowerCase());
-    }
-    context.references = Array.from(found).map(value => ({
+    const references = extractDiscourseReferences(context.input || '');
+    context.references = references.map(value => ({
       value,
       type: value.includes('file') || value.includes('app') || value.includes('folder') ? 'named-reference' : 'pronoun',
       resolved: null,

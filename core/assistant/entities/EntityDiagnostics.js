@@ -20,6 +20,7 @@ class EntityDiagnostics {
     this.errors = [];
     this.pipelineOrder = [];
     this.memoryUsage = this._memoryUsage();
+    this.finishedMemoryUsage = null;
   }
 
   time(id, durationMs) {
@@ -51,8 +52,13 @@ class EntityDiagnostics {
       : null;
   }
 
+  finish() {
+    this.finishedMemoryUsage = this._memoryUsage();
+    return this;
+  }
+
   toJSON() {
-    this.memoryUsage = this._memoryUsage();
+    this.finish();
     return {
       extractionTimes: { ...this.extractionTimes },
       entitiesDiscovered: { ...this.entitiesDiscovered },
@@ -64,7 +70,8 @@ class EntityDiagnostics {
       warnings: this.warnings.slice(),
       errors: this.errors.slice(),
       pipelineOrder: this.pipelineOrder.slice(),
-      memoryUsage: this.memoryUsage
+      memoryUsage: this.memoryUsage,
+      finishedMemoryUsage: this.finishedMemoryUsage
     };
   }
 }

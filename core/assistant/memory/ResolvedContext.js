@@ -33,6 +33,52 @@ class ResolvedContext {
     this.futureExtensions = { ...(input.futureExtensions || {}) };
     deepFreeze(this);
   }
+
+  getRecentReference(type = '') {
+    const wanted = String(type || '');
+    return this.conversationMemory?.references?.slice().reverse().find(reference => !wanted || reference.type === wanted) || null;
+  }
+
+  hasContext() {
+    return Boolean(
+      Object.keys(this.workingMemory || {}).length ||
+      Object.keys(this.sessionMemory || {}).length ||
+      (this.resolvedReferences || []).length ||
+      this.topic
+    );
+  }
+
+  toJSON() {
+    return {
+      workingMemory: this.workingMemory,
+      conversationMemory: this.conversationMemory,
+      sessionMemory: this.sessionMemory,
+      dialogueHistory: this.dialogueHistory,
+      topic: this.topic,
+      resolvedReferences: this.resolvedReferences,
+      resolvedAliases: this.resolvedAliases,
+      resolvedPronouns: this.resolvedPronouns,
+      application: this.application,
+      runningApplications: this.runningApplications,
+      desktopState: this.desktopState,
+      browserState: this.browserState,
+      screen: this.screen,
+      clipboard: this.clipboard,
+      selections: this.selections,
+      windows: this.windows,
+      system: this.system,
+      media: this.media,
+      calendar: this.calendar,
+      time: this.time,
+      user: this.user,
+      metadata: this.metadata,
+      diagnostics: this.diagnostics,
+      confidence: this.confidence,
+      timing: this.timing,
+      version: this.version,
+      futureExtensions: this.futureExtensions
+    };
+  }
 }
 
 module.exports = ResolvedContext;

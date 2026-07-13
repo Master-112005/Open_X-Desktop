@@ -9,10 +9,16 @@ const UNITS = Object.freeze({
   degree: 'deg',
   seconds: 's',
   second: 's',
+  secs: 's',
+  sec: 's',
   minutes: 'min',
   minute: 'min',
+  mins: 'min',
+  min: 'min',
   hours: 'h',
   hour: 'h',
+  hrs: 'h',
+  hr: 'h',
   kilobytes: 'KB',
   megabytes: 'MB',
   gigabytes: 'GB',
@@ -27,18 +33,26 @@ const UNITS = Object.freeze({
 class UnitNormalizer extends BaseNormalizer {
   normalize(context) {
     const text = String(context.workingText || '');
+    const rewriteText = this.options.rewriteText === true;
+    let next = text;
     text.replace(/\b(\d+(?:\.\d+)?)\s+([a-zA-Z]+)\b/g, (match, value, unit) => {
       const canonical = UNITS[unit.toLowerCase()];
       if (!canonical) return match;
       context.addObservation('units', { original: match, value: Number(value), unit, canonical });
       return `${value} ${canonical}`;
     });
-    text.replace(/\b(percent|percentage|degrees?|seconds?|minutes?|hours?|kilobytes|megabytes|gigabytes|meters?|kilometres|kilometers|inches|pixels)\b/gi, match => {
+    next = next.replace(/\b(\d+(?:\.\d+)?)(sec|secs|min|mins|hr|hrs|kb|mb|gb|px|%)\b/gi, (match, value, unit) => {
+      const lower = unit.toLowerCase();
+      const canonical = UNITS[lower] || (lower === 'kb' ? 'KB' : lower === 'mb' ? 'MB' : lower === 'gb' ? 'GB' : lower);
+      context.addObservation('units', { original: match, value: Number(value), unit, canonical });
+      return rewriteText ? `${value} ${canonical}` : match;
+    });
+    text.replace(/\b(percent|percentage|degrees?|seconds?|secs?|minutes?|mins?|hours?|hrs?|kilobytes|megabytes|gigabytes|meters?|kilometres|kilometers|inches|pixels)\b/gi, match => {
       const canonical = UNITS[match.toLowerCase()];
       if (canonical) context.addObservation('units', { original: match, unit: match, canonical });
       return match;
     });
-    return context.setText(text, this.id);
+    return context.setText(next, this.id, { rewriteText });
   }
 }
 

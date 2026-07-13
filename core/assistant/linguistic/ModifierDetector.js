@@ -17,10 +17,15 @@ class ModifierDetector extends BaseAnalyzer {
           value: tag.value,
           type: tag.tag,
           headTokenId: head?.tokenId || null,
+          scope: this._clauseForIndex(context, tag.index)?.id || 'sentence',
           confidence: tag.confidence
         };
       });
     return context;
+  }
+
+  _clauseForIndex(context, index) {
+    return (context.clauses || []).find(clause => index >= clause.startToken && index <= clause.endToken) || null;
   }
 }
 

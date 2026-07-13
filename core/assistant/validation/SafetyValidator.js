@@ -5,15 +5,19 @@ const BaseValidator = require('./BaseValidator');
 class SafetyValidator extends BaseValidator {
   validate(context) {
     const dangerous = context.configuration?.safety?.dangerousActions || new Set();
-    for (const task of context.executionBlueprint?.tasks || []) {
-      if (!dangerous.has(task.action)) continue;
+    let foundDangerous = false;
+    for (const task of this.tasks(context)) {
+      const highRisk = task.metadata?.risk === 'high';
+      if (!dangerous.has(task.action) && !highRisk) continue;
+      foundDangerous = true;
       const confirmed = context.metadata.confirmed === true;
       context.check(this.id, confirmed, confirmed ? 'dangerous action confirmed' : 'dangerous action requires confirmation', {
         taskId: task.id,
-        action: task.action
+        action: task.action,
+        risk: task.metadata?.risk || null
       });
     }
-    if (!(context.executionBlueprint?.tasks || []).some(task => dangerous.has(task.action))) {
+    if (!foundDangerous) {
       context.check(this.id, true, 'no dangerous actions');
     }
     return context;

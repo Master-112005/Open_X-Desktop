@@ -28,7 +28,16 @@ class EntityRegistry {
   registerResolver(id, resolver) { this.resolvers.set(String(id), resolver); return this; }
   registerValidator(id, validator) { this.validators.set(String(id), validator); return this; }
   registerEntityType(id, definition = {}) { this.entityTypes.set(String(id), { ...(definition || {}) }); return this; }
+  getExtractor(id) { return this.extractors.get(String(id)) || null; }
+  getNormalizer(id) { return this.normalizers.get(String(id)) || null; }
+  getResolver(id) { return this.resolvers.get(String(id)) || null; }
+  getValidator(id) { return this.validators.get(String(id)) || null; }
+  getEntityType(id) { return this.entityTypes.get(String(id)) || null; }
   unregisterExtractor(id) { return this.extractors.delete(String(id)); }
+  unregisterNormalizer(id) { return this.normalizers.delete(String(id)); }
+  unregisterResolver(id) { return this.resolvers.delete(String(id)); }
+  unregisterValidator(id) { return this.validators.delete(String(id)); }
+  unregisterEntityType(id) { return this.entityTypes.delete(String(id)); }
 
   listExtractors({ includeDisabled = true } = {}) {
     return [...this.extractors.values()]
@@ -47,11 +56,19 @@ class EntityRegistry {
   }
 
   clear() {
+    const counts = {
+      extractors: this.extractors.size,
+      normalizers: this.normalizers.size,
+      resolvers: this.resolvers.size,
+      validators: this.validators.size,
+      entityTypes: this.entityTypes.size
+    };
     this.extractors.clear();
     this.normalizers.clear();
     this.resolvers.clear();
     this.validators.clear();
     this.entityTypes.clear();
+    return counts;
   }
 }
 

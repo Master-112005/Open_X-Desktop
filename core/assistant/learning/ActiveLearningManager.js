@@ -292,6 +292,8 @@ class ActiveLearningManager {
 
   getStats() {
     return {
+      enabled: this.enabled,
+      learningPath: this.learningPath,
       alias: this.aliasStore.getStats(),
       preference: this.preferenceStore.getStats(),
       correction: this.correctionStore.getStats(),
@@ -306,11 +308,11 @@ class ActiveLearningManager {
       enabled: this.enabled,
       learningPath: this.learningPath,
       stores: {
-        aliases: this.aliasStore.exists(),
-        preferences: this.preferenceStore.exists(),
-        corrections: this.correctionStore.exists(),
-        workflows: this.workflowStore.exists(),
-        usageStats: this.usageStatsStore.exists()
+        aliases: this.aliasStore.getStatus(),
+        preferences: this.preferenceStore.getStatus(),
+        corrections: this.correctionStore.getStatus(),
+        workflows: this.workflowStore.getStatus(),
+        usageStats: this.usageStatsStore.getStatus()
       }
     };
   }

@@ -18,12 +18,8 @@ const SITES = Object.freeze({
 class WebsiteExtractor extends BaseEntityExtractor {
   extract(context) {
     this.addRegexMatches(context, 'website', /(?:https?:\/\/)?(?:www\.)?[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\/\S*)?/g, { confidence: 0.9 });
-    const text = this.normalized(context);
-    for (const [alias, canonical] of Object.entries(SITES)) {
-      if (new RegExp(`\\b${alias}\\b`).test(text)) {
-        context.addEntity('website', canonical, { rawValue: alias, source: this.id, confidence: 0.8 });
-      }
-    }
+    this.addAliasMatches(context, 'website', SITES, { confidence: 0.8 });
+    this.addRegexMatches(context, 'website', /\b(?:open|search|browse|go\s+to)\s+([A-Za-z0-9.-]+\.[A-Za-z]{2,})(?:\s|$)/gi, { confidence: 0.86 });
     return context;
   }
 }

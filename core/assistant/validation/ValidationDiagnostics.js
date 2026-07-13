@@ -9,6 +9,8 @@ function pushBounded(list, item) {
 
 class ValidationDiagnostics {
   constructor() {
+    this.startedAt = Date.now();
+    this.finishedAt = null;
     this.validationTime = {};
     this.warnings = [];
     this.errors = [];
@@ -18,6 +20,12 @@ class ValidationDiagnostics {
 
   time(id, durationMs) {
     this.validationTime[String(id || '')] = Math.max(0, Number(durationMs) || 0);
+  }
+
+  finish() {
+    this.finishedAt = Date.now();
+    this.memoryUsage = this._memoryUsage();
+    return this;
   }
 
   warn(message, data = {}) {
@@ -41,7 +49,11 @@ class ValidationDiagnostics {
   }
 
   toJSON() {
+    this.finish();
     return {
+      startedAt: this.startedAt,
+      finishedAt: this.finishedAt,
+      durationMs: Math.max(0, (this.finishedAt || Date.now()) - this.startedAt),
       validationTime: { ...this.validationTime },
       warnings: this.warnings.slice(),
       errors: this.errors.slice(),

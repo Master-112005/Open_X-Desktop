@@ -10,6 +10,7 @@ const ContextValidator = require('./ContextValidator');
 const ConfirmationValidator = require('./ConfirmationValidator');
 const AutomationValidator = require('./AutomationValidator');
 const ConstraintValidator = require('./ConstraintValidator');
+const ValidationLogger = require('./ValidationLogger');
 
 class ValidationManager {
   constructor(options = {}) {
@@ -18,6 +19,7 @@ class ValidationManager {
       : new ValidationConfiguration(options.configuration || options);
     this.registry = options.registry || new ValidationRegistry();
     this.pipeline = options.pipeline || null;
+    this.logger = options.logger instanceof ValidationLogger ? options.logger : new ValidationLogger(options.logger || null);
     if (options.defaultValidators !== false) this._registerDefaults();
   }
 
@@ -45,7 +47,8 @@ class ValidationManager {
     if (!this.pipeline) {
       this.pipeline = new ValidationPipeline({
         registry: this.registry,
-        configuration: this.configuration
+        configuration: this.configuration,
+        logger: this.logger
       });
     }
     return this.pipeline.run(executionBlueprint, decisionResult, options);
@@ -55,6 +58,8 @@ class ValidationManager {
     return {
       enabled: this.configuration.enabled,
       version: this.configuration.version,
+      pipelineReady: Boolean(this.pipeline),
+      validatorCount: this.registry.count(),
       validators: this.registry.health()
     };
   }

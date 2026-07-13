@@ -266,6 +266,7 @@ class AliasStore extends BaseStore {
     return {
       totalAliases: Object.keys(this.data.aliases || {}).length,
       pendingSuggestions: this.occurrenceBuffer.size,
+      status: this.getStatus(),
       metadata: this.data.metadata
     };
   }

@@ -12,6 +12,8 @@ const PhoneAdapter = require('./PhoneAdapter');
 const PluginAdapter = require('./PluginAdapter');
 const VoiceAdapter = require('./VoiceAdapter');
 
+const ACQUISITION_VERSION = '1.1.0';
+
 function createDefaultInputSourceManager(options = {}) {
   const manager = new InputSourceManager(options);
   [
@@ -28,7 +30,9 @@ function createDefaultInputSourceManager(options = {}) {
 }
 
 module.exports = {
+  ACQUISITION_VERSION,
   ...require('./AcquisitionErrors'),
+  AcquisitionSanitizer: require('./AcquisitionSanitizer'),
   APIAdapter,
   AttachmentResolver: require('./AttachmentResolver'),
   BaseInputAdapter,
@@ -37,6 +41,7 @@ module.exports = {
   CloudAdapter,
   createDefaultInputSourceManager,
   InputAdapterRegistry: require('./InputAdapterRegistry'),
+  InputDiagnostics: require('./InputDiagnostics'),
   InputFactory,
   InputMetadataBuilder: require('./InputMetadataBuilder'),
   InputSourceManager,
@@ -45,5 +50,6 @@ module.exports = {
   PhoneAdapter,
   PluginAdapter,
   SourceConfidenceCalculator: require('./SourceConfidenceCalculator'),
+  SourceNormalizer: require('./SourceNormalizer'),
   VoiceAdapter
 };

@@ -20,6 +20,14 @@ class DecisionRegistry {
     return this;
   }
 
+  get(id) {
+    return this.decisions.get(String(id || '').trim()) || null;
+  }
+
+  unregister(id) {
+    return this.decisions.delete(String(id || '').trim());
+  }
+
   list({ includeDisabled = true } = {}) {
     return [...this.decisions.values()]
       .filter(decision => includeDisabled || decision.enabled !== false)
@@ -37,7 +45,9 @@ class DecisionRegistry {
   }
 
   clear() {
+    const count = this.decisions.size;
     this.decisions.clear();
+    return count;
   }
 }
 

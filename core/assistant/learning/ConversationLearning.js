@@ -1,11 +1,12 @@
 'use strict';
 
 const BaseLearningModule = require('./BaseLearningModule');
+const { normalizeLearningKey } = require('./LearningLanguage');
 
 class ConversationLearning extends BaseLearningModule {
   learn(context) {
     const responseType = context.assistantResponse?.responseType || '';
-    const source = context.metadata.source || 'chat';
+    const source = normalizeLearningKey(context.metadata.source || 'chat') || 'chat';
     if (!responseType) return context;
     context.addEvent({
       category: 'conversation',
@@ -13,7 +14,8 @@ class ConversationLearning extends BaseLearningModule {
       value: responseType,
       confidence: 0.75,
       source: 'response-metadata',
-      module: this.id
+      module: this.id,
+      metadata: { responseType }
     });
     return context;
   }

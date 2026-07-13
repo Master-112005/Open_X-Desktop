@@ -10,7 +10,9 @@ class DialogueHistory extends BaseMemoryProvider {
       role: 'user',
       text: context.input,
       timestamp: Date.now(),
-      entityCount: context.entities.length
+      entityCount: context.entities.length,
+      topic: context.topic?.label || context.state.lastTopic?.label || null,
+      source: context.metadata.source || 'chat'
     });
     context.state.dialogueHistory = history.slice(-limit);
     context.dialogueHistory = context.state.dialogueHistory.slice();

@@ -1,8 +1,10 @@
 'use strict';
 
 const { MemoryManager, createDefaultMemoryManager } = require('./MemoryManager');
+const MEMORY_LAYER_VERSION = '7.1.0';
 
 module.exports = {
+  MEMORY_LAYER_VERSION,
   MemoryPipeline: require('./MemoryPipeline'),
   MemoryManager,
   createDefaultMemoryManager,

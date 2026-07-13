@@ -32,10 +32,14 @@ class MemoryContextStage extends PipelineStage {
     });
     context.resolvedContext = resolvedContext;
     context.set('assistant.resolvedContext', resolvedContext);
+    context.set('assistant.memoryConfidence', resolvedContext.confidence);
+    context.set('assistant.memoryTopic', resolvedContext.topic);
     return StageResult.ok(this.id, {
       referenceCount: resolvedContext.resolvedReferences.length,
       aliasCount: resolvedContext.resolvedAliases.length,
       pronounCount: resolvedContext.resolvedPronouns.length,
+      dialogueTurns: resolvedContext.dialogueHistory.length,
+      hasContext: resolvedContext.hasContext(),
       topic: resolvedContext.topic?.label || null,
       confidence: resolvedContext.confidence,
       version: resolvedContext.version
@@ -43,7 +47,7 @@ class MemoryContextStage extends PipelineStage {
   }
 
   async destroy() {
-    if (typeof this.manager?.destroy === 'function') this.manager.destroy();
+    if (typeof this.manager?.destroy === 'function') await this.manager.destroy();
     return super.destroy();
   }
 }

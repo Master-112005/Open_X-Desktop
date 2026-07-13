@@ -20,6 +20,7 @@ class ResponseManager {
       : new ResponseConfiguration(options.configuration || options);
     this.registry = options.registry || new ResponseRegistry();
     this.pipeline = options.pipeline || null;
+    this.logger = options.logger || null;
     if (options.defaultGenerators !== false) this._registerDefaults();
   }
 
@@ -47,13 +48,18 @@ class ResponseManager {
 
   async generate(verificationResult, options = {}) {
     if (!this.pipeline) {
-      this.pipeline = new ResponsePipeline({ registry: this.registry, configuration: this.configuration });
+      this.pipeline = new ResponsePipeline({ registry: this.registry, configuration: this.configuration, logger: this.logger });
     }
     return this.pipeline.run(verificationResult, options);
   }
 
   getStatus() {
-    return { enabled: this.configuration.enabled, version: this.configuration.version, generators: this.registry.health() };
+    return {
+      enabled: this.configuration.enabled,
+      version: this.configuration.version,
+      generatorCount: this.registry.count(),
+      generators: this.registry.health()
+    };
   }
 
   destroy() {

@@ -18,7 +18,10 @@ class VerificationResponseManager {
       metadata: options.metadata || {}
     });
     const assistantResponse = await this.responseManager.generate(verificationResult, {
-      metadata: options.metadata || {}
+      metadata: {
+        ...(options.metadata || {}),
+        verificationSummary: verificationResult.summary || {}
+      }
     });
     return { verificationResult, assistantResponse };
   }

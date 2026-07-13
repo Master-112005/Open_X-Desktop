@@ -252,6 +252,7 @@ class UsageStatsStore extends BaseStore {
       unique,
       median,
       top10: this.getTopItems(10),
+      status: this.getStatus(),
       metadata: this.data.metadata
     };
   }

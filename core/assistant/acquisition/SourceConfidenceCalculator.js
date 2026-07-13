@@ -1,5 +1,7 @@
 'use strict';
 
+const { clampConfidence } = require('./AcquisitionSanitizer');
+
 const BASE_CONFIDENCE = Object.freeze({
   chat: 0.99,
   voice: 0.72,
@@ -17,13 +19,16 @@ class SourceConfidenceCalculator {
     if (Number.isFinite(explicit)) return this.clamp(explicit);
     let confidence = BASE_CONFIDENCE[String(source || '').toLowerCase()] ?? 0.75;
     if (metadata.trusted === true) confidence += 0.05;
+    if (metadata.encrypted === true) confidence += 0.03;
+    if (metadata.connected === false) confidence -= 0.08;
     if (metadata.relayConnected === false) confidence -= 0.12;
     if (metadata.partial === true) confidence -= 0.18;
+    if (metadata.mixedScript === true) confidence -= 0.04;
     return this.clamp(confidence);
   }
 
   clamp(value) {
-    return Math.max(0, Math.min(1, Number(value) || 0));
+    return clampConfidence(value, 0);
   }
 }
 

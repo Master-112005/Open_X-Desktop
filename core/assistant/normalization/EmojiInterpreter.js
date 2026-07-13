@@ -7,7 +7,12 @@ const EMOJI_MEANINGS = Object.freeze({
   '\u{1F4E8}': 'message',
   '\u{1F4C1}': 'folder',
   '\u{1F4C2}': 'folder',
+  '\u{1F4DD}': 'note',
+  '\u{1F4F1}': 'phone',
   '\u{1F50A}': 'volume',
+  '\u{1F507}': 'mute',
+  '\u{23F0}': 'alarm',
+  '\u{23F2}': 'timer',
   '\u{1F50D}': 'search',
   '\u{1F642}': 'happy',
   '\u{1F60A}': 'happy'

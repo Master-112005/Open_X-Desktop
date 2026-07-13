@@ -20,7 +20,7 @@ const INTENT_DEFINITIONS = [
   },
   {
     id: 'volume.set',
-    patterns: ['set volume to', 'set the volume to', 'change volume to', 'volume to', 'set sound to'],
+    patterns: ['set volume to', 'set the volume to', 'change volume to', 'volume to', 'set sound to', 'vol', 'set it to', 'no set it to', 'change it to'],
     permissionLevel: 'low',
     action: 'volume.set',
     entities: [{ name: 'value', type: 'number', required: true }],
@@ -68,7 +68,7 @@ const INTENT_DEFINITIONS = [
   },
   {
     id: 'app.open',
-    patterns: ['open', 'launch', 'start', 'run', 'open up'],
+    patterns: ['open', 'launch', 'start', 'run', 'open up', 'pull up'],
     permissionLevel: 'low',
     action: 'app.open',
     entities: [
@@ -441,6 +441,7 @@ const INTENT_DEFINITIONS = [
       'set a timer at', 'set timer at', 'set me timer at',
       'set a timer for', 'start a timer at', 'create a timer at',
       'timer at', 'a timer at',
+      'start countdown', 'countdown for', 'pomodoro timer',
       'set alarm at', 'set alarm for', 'set me alarm at',
       'set a alarm at', 'alarm at', 'a alarm at',
       'wake me up at', 'wake me at'
@@ -455,7 +456,7 @@ const INTENT_DEFINITIONS = [
   },
   {
     id: 'alarm.set',
-    patterns: ['set alarm for', 'alarm for', 'wake me at'],
+    patterns: ['set alarm for', 'alarm for', 'wake me at', 'wake me up', 'set daily alarm'],
     permissionLevel: 'low',
     action: 'alarm.set',
     entities: [
@@ -474,7 +475,8 @@ const INTENT_DEFINITIONS = [
       'remind me in the evening at', 'remind in the evening at',
       'remind me at night at', 'remind at night at',
       'remind me later at', 'remind later at',
-      'set a reminder for', 'create reminder for', 'add reminder for'
+      'set a reminder for', 'create reminder for', 'add reminder for',
+      'remind me every', 'notify me', 'alert me'
     ],
     permissionLevel: 'low',
     action: 'reminder.set',
@@ -830,7 +832,7 @@ const INTENT_DEFINITIONS = [
   },
   {
     id: 'media.next',
-    patterns: ['next', 'next song', 'next track', 'skip', 'skip song', 'skip track', 'play next', 'play next song', 'play next track'],
+    patterns: ['next', 'next song', 'next track', 'skip', 'skip song', 'skip track', 'play next', 'play next song', 'play next track', 'jump to end', 'jump to ending', 'jump to last'],
     permissionLevel: 'low',
     action: 'media.next',
     entities: [],
@@ -838,7 +840,7 @@ const INTENT_DEFINITIONS = [
   },
   {
     id: 'media.previous',
-    patterns: ['previous', 'previous song', 'previous track', 'go back', 'go back track', 'go back song', 'prev song', 'play previous', 'play previous song', 'play prev song'],
+    patterns: ['previous', 'previous song', 'previous track', 'go back', 'go back track', 'go back song', 'prev song', 'play previous', 'play previous song', 'play prev song', 'jump to beginning', 'jump to start', 'jump to first'],
     permissionLevel: 'low',
     action: 'media.previous',
     entities: [],
@@ -1025,16 +1027,24 @@ class IntentRegistry {
   }
 
   registerCustom(intentDef) {
-    if (!intentDef.id || !intentDef.patterns || !intentDef.action) {
+    if (!intentDef.id || !Array.isArray(intentDef.patterns) || !intentDef.action) {
       throw new Error('Custom intent must have id, patterns, and action');
     }
-    this.intentRegistry.set(intentDef.id, intentDef);
-    intentDef.patterns.forEach(pattern => {
+    const normalizedDef = {
+      permissionLevel: 'low',
+      entities: [],
+      description: '',
+      ...intentDef,
+      patterns: [...new Set(intentDef.patterns.map(pattern => String(pattern || '').trim()).filter(Boolean))]
+    };
+    this.intentRegistry.set(normalizedDef.id, normalizedDef);
+    normalizedDef.patterns.forEach(pattern => {
       const normalized = Normalizer.normalizeText(pattern);
       if (!this.patternIndex.has(normalized)) {
         this.patternIndex.set(normalized, []);
       }
-      this.patternIndex.get(normalized).push(intentDef.id);
+      const bucket = this.patternIndex.get(normalized);
+      if (!bucket.includes(normalizedDef.id)) bucket.push(normalizedDef.id);
     });
     this.revision += 1;
     this.logger.info(`Registered custom intent: ${intentDef.id}`);
@@ -1054,7 +1064,18 @@ class IntentRegistry {
       });
       this.intentRegistry.delete(intentId);
       this.revision += 1;
+      return true;
     }
+    return false;
+  }
+
+  search(query) {
+    const normalized = Normalizer.normalizeText(query);
+    return this.getAll().filter(def =>
+      def.id.includes(normalized) ||
+      def.action.includes(normalized) ||
+      def.patterns.some(pattern => Normalizer.normalizeText(pattern).includes(normalized))
+    );
   }
 }
 

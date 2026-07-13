@@ -31,6 +31,102 @@ describe('Assistant Intelligence Pipeline', function() {
     assert.equal(result.stageResults[0].stageId, 'test.stage');
     assert.equal(result.context.shared.seen, 'open chrome');
     assert.equal(result.timing.stages.length, 1);
+    assert.equal(result.lastStageResult.stageId, 'test.stage');
+    assert.equal(result.failedStageResults.length, 0);
+  });
+
+  it('bounds pipeline context state and exposes command input helpers', async function() {
+    const {
+      PipelineBuilder,
+      PipelineStage,
+      StageResult
+    } = require('../../core/assistant/pipeline');
+
+    class ContextStage extends PipelineStage {
+      constructor() {
+        super({ id: 'context.stage', order: 1 });
+      }
+
+      execute(context) {
+        context.set('assistant.commandIntentText', 'open chrome');
+        for (let index = 0; index < 30; index += 1) {
+          context.addDiagnostic({ level: 'info', message: `diag-${index}` });
+          context.set(`key-${index}`, index);
+        }
+        return StageResult.ok(this.id, {
+          commandInput: context.getCommandInput(),
+          sharedSize: context.shared.size,
+          diagnostics: context.diagnostics.length
+        });
+      }
+    }
+
+    const engine = new PipelineBuilder({
+      configuration: {
+        maxDiagnostics: 5,
+        maxSharedEntries: 4
+      }
+    }).registerStage(new ContextStage()).build();
+
+    const result = await engine.run({ rawInput: 'please open chrome', source: 'chat' });
+
+    assert.equal(result.success, true);
+    assert.equal(result.output.commandInput, 'open chrome');
+    assert.equal(result.output.sharedSize, 10);
+    assert.equal(result.context.diagnostics.length, 25);
+  });
+
+  it('fails slow stages with stage timeout without hanging the command pipeline', async function() {
+    const {
+      PipelineBuilder,
+      PipelineStage
+    } = require('../../core/assistant/pipeline');
+    const { sleep } = require('../../core/assistant/utils/AsyncHelpers');
+
+    class SlowStage extends PipelineStage {
+      constructor() {
+        super({ id: 'slow.stage', order: 1 });
+      }
+
+      async execute() {
+        await sleep(50);
+        return { done: true };
+      }
+    }
+
+    const engine = new PipelineBuilder({
+      configuration: {
+        stageTimeoutMs: 5,
+        continueOnStageFailure: true
+      }
+    }).registerStage(new SlowStage()).build();
+
+    const result = await engine.run({ rawInput: 'open chrome' });
+
+    assert.equal(result.success, true);
+    assert.equal(result.stageResults[0].success, false);
+    assert.equal(result.stageResults[0].error.code, 'stage-timeout-error');
+    assert.equal(result.failedStageResults.length, 1);
+  });
+
+  it('protects registry integrity and exposes health status', function() {
+    const {
+      PipelineBuilder,
+      PipelineStage,
+      ConfigurationError
+    } = require('../../core/assistant/pipeline');
+
+    class TestStage extends PipelineStage {
+      constructor() {
+        super({ id: 'unique.stage', order: 1 });
+      }
+    }
+
+    const builder = new PipelineBuilder().registerStage(new TestStage());
+
+    assert.throws(() => builder.registerStage(new TestStage()), ConfigurationError);
+    assert.equal(builder.getStatus().stages[0].id, 'unique.stage');
+    assert.equal(builder.getStatus().configuration.enabled, true);
   });
 
   it('routes Assistant.processCommand through AssistantEngine while preserving behavior', async function() {
@@ -67,5 +163,8 @@ describe('Assistant Intelligence Pipeline', function() {
     assert.equal(routed[0].source, 'phone');
     assert.deepEqual(routed[0].options.phoneContext, { deviceId: 'phone_1' });
     assert.deepEqual(routed[0].options.permissionGuard, { source: 'test' });
+    assert.ok(routed[0].options.pipelineContext);
+    assert.ok(routed[0].options.resolvedContext);
+    assert.ok(routed[0].options.structuredEntities);
   });
 });

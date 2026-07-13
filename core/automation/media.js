@@ -1560,7 +1560,7 @@ class MediaParser {
 
   _cleanEntityText(input) {
     return String(input || '')
-      .replace(/\b(?:and|play|open|on|in|via|using)\b/g, ' ')
+      .replace(/\b(?:play|open|on|in|via|using)\b/g, ' ')
       .replace(/\b(?:the|a|an|called|named)\b/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
@@ -1581,6 +1581,10 @@ class MediaParser {
       .replace(/\b(?:song|songs|music|tracks?|videos?)\b/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+
+    if (cleaned && /\band\b/i.test(original)) {
+      return cleaned;
+    }
 
     if (cleaned && original) {
       return original;

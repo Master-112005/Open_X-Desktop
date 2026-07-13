@@ -13,10 +13,21 @@ class NormalizerRegistry {
     }
     const id = String(options.id || normalizer.id || normalizer.name || normalizer.constructor?.name || '').trim();
     if (!id) throw new ConfigurationError('Normalizer id is required.');
+    if (this.normalizers.has(id) && options.replace !== true) {
+      throw new ConfigurationError(`Normalizer already registered: ${id}`);
+    }
     normalizer.id = id;
     if (Number.isFinite(options.priority)) normalizer.priority = Number(options.priority);
     if (options.enabled !== undefined) normalizer.enabled = options.enabled !== false;
     this.normalizers.set(id, normalizer);
+    return this;
+  }
+
+  registerAll(normalizers = []) {
+    for (const item of normalizers) {
+      if (Array.isArray(item)) this.register(item[0], item[1] || {});
+      else this.register(item);
+    }
     return this;
   }
 
@@ -26,6 +37,10 @@ class NormalizerRegistry {
 
   get(id) {
     return this.normalizers.get(String(id || '').trim()) || null;
+  }
+
+  has(id) {
+    return this.normalizers.has(String(id || '').trim());
   }
 
   list({ includeDisabled = true } = {}) {
@@ -51,6 +66,10 @@ class NormalizerRegistry {
     const count = this.normalizers.size;
     this.normalizers.clear();
     return count;
+  }
+
+  count() {
+    return this.normalizers.size;
   }
 }
 

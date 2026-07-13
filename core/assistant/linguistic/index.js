@@ -1,8 +1,10 @@
 'use strict';
 
 const { LinguisticManager, createDefaultLinguisticManager } = require('./LinguisticManager');
+const LINGUISTIC_VERSION = '4.0.0';
 
 module.exports = {
+  LINGUISTIC_VERSION,
   AnalyzerRegistry: require('./AnalyzerRegistry'),
   BaseAnalyzer: require('./BaseAnalyzer'),
   ClauseAnalyzer: require('./ClauseAnalyzer'),

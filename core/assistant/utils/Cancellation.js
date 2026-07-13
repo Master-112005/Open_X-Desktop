@@ -1,22 +1,28 @@
 'use strict';
 
+const DEFAULT_CANCEL_CODE = 'operation_cancelled';
+const DEFAULT_TIMEOUT_CODE = 'operation_timeout';
+
 function createCancellationError(signalOrReason, fallbackMessage = 'Operation cancelled') {
   const reason = signalOrReason?.reason !== undefined ? signalOrReason.reason : signalOrReason;
   if (reason instanceof Error) {
-    if (!reason.code) reason.code = 'operation_cancelled';
+    if (!reason.code) reason.code = DEFAULT_CANCEL_CODE;
     return reason;
   }
   const message = typeof reason === 'string'
     ? reason
     : reason?.message || fallbackMessage;
   const error = new Error(message);
-  error.code = reason?.code || 'operation_cancelled';
+  error.name = 'CancellationError';
+  error.code = reason?.code || DEFAULT_CANCEL_CODE;
+  if (reason?.details) error.details = reason.details;
   return error;
 }
 
 function createTimeoutError(message, code = 'operation_timeout', details = {}) {
   const error = new Error(message);
-  error.code = code;
+  error.name = 'TimeoutError';
+  error.code = code || DEFAULT_TIMEOUT_CODE;
   Object.assign(error, details);
   return error;
 }
@@ -38,6 +44,14 @@ function isTimeoutError(error) {
 function deadlineFromTimeout(timeoutMs, now = Date.now()) {
   const value = Number(timeoutMs);
   return Number.isFinite(value) && value > 0 ? now + value : null;
+}
+
+function deadlineContext(timeoutMs, context = {}) {
+  const existing = Number(context?.deadlineAt);
+  if (Number.isFinite(existing) && existing > 0) {
+    return { ...context, deadlineAt: existing };
+  }
+  return { ...context, deadlineAt: deadlineFromTimeout(timeoutMs) };
 }
 
 function remainingTimeMs(context = {}, fallbackMs = 1000, options = {}) {
@@ -64,7 +78,11 @@ function throwIfAborted(signal) {
 function abortController(controller, reason) {
   if (!controller) return;
   if (!controller.signal?.aborted) {
-    controller.abort(reason);
+    try {
+      controller.abort(reason);
+    } catch (_) {
+      controller.abort();
+    }
   }
 }
 
@@ -77,6 +95,21 @@ function linkAbortSignal(parentSignal, controller) {
   const abort = () => abortController(controller, createCancellationError(parentSignal));
   parentSignal.addEventListener?.('abort', abort, { once: true });
   return () => parentSignal.removeEventListener?.('abort', abort);
+}
+
+function anySignal(signals = []) {
+  const usable = signals.filter(Boolean);
+  if (usable.length === 0) return null;
+  if (usable.some(signal => signal.aborted)) {
+    const controller = new AbortController();
+    const aborted = usable.find(signal => signal.aborted);
+    abortController(controller, createCancellationError(aborted));
+    return controller.signal;
+  }
+  const controller = new AbortController();
+  const cleanups = usable.map(signal => linkAbortSignal(signal, controller));
+  controller.signal.addEventListener?.('abort', () => cleanups.forEach(cleanup => cleanup()), { once: true });
+  return controller.signal;
 }
 
 async function raceWithSignal(signal, work, onAbort) {
@@ -114,8 +147,10 @@ async function raceWithSignal(signal, work, onAbort) {
 
 module.exports = {
   abortController,
+  anySignal,
   createCancellationError,
   createTimeoutError,
+  deadlineContext,
   deadlineFromTimeout,
   isCancellationError,
   isTimeoutError,

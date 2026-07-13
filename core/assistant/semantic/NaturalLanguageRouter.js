@@ -2,9 +2,7 @@ const { Normalizer } = require('../Data');
 const EntityExtractor = require('../entities/EntityExtractor');
 const { FILLER_WORDS } = require('../normalization/CommandPreprocessor');
 const { parseLearningDirective } = require('../learning/LearningLanguage');
-const { analyzeDiscourse, buildWordRelations } = require('../linguistic/LanguageAnalysis');
-
-const CONNECTOR_PATTERN = /\s*(?:;|,|\b(?:and then|then|after that|afterwards|and|also|plus|additionally|furthermore)\b)\s*/i;
+const { analyzeDiscourse, buildWordRelations, splitCommandClauses } = require('../linguistic/LanguageAnalysis');
 
 const ACTION_ALIASES = new Map([
   ['add', 'set'],
@@ -27,6 +25,7 @@ const ACTION_ALIASES = new Map([
   ['goto', 'open'],
   ['hide', 'minimize'],
   ['increase', 'increase'],
+  ['jump', 'next'],
   ['launch', 'open'],
   ['listen', 'play'],
   ['locate', 'search'],
@@ -159,13 +158,7 @@ class NaturalLanguageRouter {
       return [];
     }
 
-    const parts = source
-      .split(CONNECTOR_PATTERN)
-      .map(part => part.trim())
-      .filter(Boolean)
-      .slice(0, 8);
-
-    return parts.length > 0 ? parts : [source];
+    return splitCommandClauses(source);
   }
 
   _parseClause(clause, index) {
@@ -248,6 +241,15 @@ class NaturalLanguageRouter {
             : 'set';
         return { verb, token: `turn ${next}`, index };
       }
+      if (token === 'jump' && tokens[index + 1] === 'to') {
+        const destination = tokens[index + 2];
+        if (['beginning', 'start', 'first'].includes(destination)) {
+          return { verb: 'previous', token: 'jump to beginning', index };
+        }
+        if (['end', 'ending', 'last'].includes(destination)) {
+          return { verb: 'next', token: 'jump to end', index };
+        }
+      }
       const direct = ACTION_ALIASES.get(token);
       if (direct) {
         return { verb: direct, token, index };
@@ -278,6 +280,9 @@ class NaturalLanguageRouter {
 
     if (action === 'open' && /\bnew\s+(?:chrome\s+)?tab\b/.test(text)) {
       return 'browser-tab';
+    }
+    if (['next', 'previous'].includes(action) && /\bjump\s+to\s+(?:end|ending|last|beginning|start|first)\b/.test(text)) {
+      return 'media';
     }
 
     const hasFileEvidence = /\.[a-z0-9]{1,10}\b/i.test(text) || has('file');

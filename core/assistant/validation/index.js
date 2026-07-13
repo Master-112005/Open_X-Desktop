@@ -1,8 +1,10 @@
 'use strict';
 
 const { ValidationManager, createDefaultValidationManager } = require('./ValidationManager');
+const VALIDATION_VERSION = '10.1.0';
 
 module.exports = {
+  VALIDATION_VERSION,
   ValidationPipeline: require('./ValidationPipeline'),
   ValidationManager,
   createDefaultValidationManager,

@@ -7,10 +7,24 @@ class PipelineLogger {
     this.logger = safeLogger(logger);
   }
 
-  debug(message, data) { this.logger.debug(`[PIPELINE] ${message}`, data); }
-  info(message, data) { this.logger.info(`[PIPELINE] ${message}`, data); }
-  warn(message, data) { this.logger.warn(`[PIPELINE] ${message}`, data); }
-  error(message, data) { this.logger.error(`[PIPELINE] ${message}`, data); }
+  _log(level, message, data = {}) {
+    this.logger[level](`[PIPELINE] ${message}`, data);
+  }
+
+  debug(message, data) { this._log('debug', message, data); }
+  info(message, data) { this._log('info', message, data); }
+  warn(message, data) { this._log('warn', message, data); }
+  error(message, data) { this._log('error', message, data); }
+
+  child(scope = '') {
+    const prefix = String(scope || '').trim();
+    return {
+      debug: (message, data) => this.debug(prefix ? `${prefix}: ${message}` : message, data),
+      info: (message, data) => this.info(prefix ? `${prefix}: ${message}` : message, data),
+      warn: (message, data) => this.warn(prefix ? `${prefix}: ${message}` : message, data),
+      error: (message, data) => this.error(prefix ? `${prefix}: ${message}` : message, data)
+    };
+  }
 }
 
 module.exports = PipelineLogger;

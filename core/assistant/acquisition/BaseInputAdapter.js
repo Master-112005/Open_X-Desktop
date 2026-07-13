@@ -2,16 +2,19 @@
 
 const InputFactory = require('./InputFactory');
 const { InvalidInputError } = require('./AcquisitionErrors');
+const { normalizeSourceName, sanitizeAcquisitionData } = require('./AcquisitionSanitizer');
 
 class BaseInputAdapter {
   constructor(options = {}) {
-    this.id = String(options.id || this.constructor.name).replace(/Adapter$/, '').toLowerCase();
-    this.source = String(options.source || this.id);
+    this.id = normalizeSourceName(String(options.id || this.constructor.name).replace(/Adapter$/, ''), 'adapter');
+    this.source = normalizeSourceName(options.source || this.id, this.id);
+    this.aliases = Object.freeze((options.aliases || []).map(value => normalizeSourceName(value, '')).filter(Boolean));
     this.sourceType = String(options.sourceType || this.source);
     this.priority = Number(options.priority) || 0;
     this.capabilities = Object.freeze([...(options.capabilities || ['text'])]);
     this.version = String(options.version || '1.0.0');
     this.inputFactory = options.inputFactory || new InputFactory(options);
+    this.maxInputLength = Math.max(1, Number(options.maxInputLength) || 12000);
     this.initialized = false;
   }
 
@@ -25,6 +28,13 @@ class BaseInputAdapter {
     if (typeof text !== 'string') {
       throw new InvalidInputError('Input text must be a string.', { source: this.source, adapterId: this.id });
     }
+    if (text.length > this.maxInputLength) {
+      throw new InvalidInputError('Input text is too long.', {
+        source: this.source,
+        adapterId: this.id,
+        details: { maxInputLength: this.maxInputLength, actualLength: text.length }
+      });
+    }
     return true;
   }
 
@@ -32,7 +42,8 @@ class BaseInputAdapter {
     const source = typeof sourceOrPayload === 'string'
       ? sourceOrPayload
       : sourceOrPayload?.source;
-    return String(source || '').toLowerCase() === this.source;
+    const normalized = String(source || '').toLowerCase();
+    return normalized === this.source || this.aliases.includes(normalized);
   }
 
   acquire(payload = {}) {
@@ -58,7 +69,7 @@ class BaseInputAdapter {
   }
 
   normalizeMetadata(metadata = {}) {
-    return { ...(metadata || {}) };
+    return sanitizeAcquisitionData(metadata || {});
   }
 
   cleanup() {

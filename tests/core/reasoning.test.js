@@ -47,6 +47,102 @@ describe('Assistant Goal and Intent Reasoning Layer', function() {
     assert.ok(result.detectedConflicts.some(item => item.type === 'action-conflict' || item.type === 'text-conflict'));
   });
 
+  it('does not invent opposite application actions from broad goals', async function() {
+    const { createDefaultReasoningManager } = require('../../core/assistant/reasoning/index.js');
+    const manager = createDefaultReasoningManager();
+    const result = await manager.reason(resolved('Open Chrome.'));
+
+    assert.ok(result.candidateActions.some(item => item.action === 'OPEN_APPLICATION'));
+    assert.ok(!result.candidateActions.some(item => item.action === 'CLOSE_APPLICATION'));
+  });
+
+  it('uses structured entities for full media titles and planning metadata', async function() {
+    const { createDefaultReasoningManager } = require('../../core/assistant/reasoning/index.js');
+    const manager = createDefaultReasoningManager();
+    const structuredEntities = {
+      media: [{ value: 'Stars and Stripes Forever', confidence: 0.9 }],
+      applications: [],
+      browsers: [],
+      files: [],
+      folders: [],
+      paths: [],
+      contacts: [],
+      reminders: [],
+      alarms: [],
+      timers: [],
+      dates: [],
+      times: [],
+      durations: [],
+      volumeLevels: [],
+      brightnessLevels: []
+    };
+    const result = await manager.reason(resolved('Play Stars and Stripes Forever song.'), {
+      metadata: { structuredEntities }
+    });
+
+    assert.equal(result.resolvedAction.action, 'PLAY_MEDIA');
+    assert.equal(result.candidateActions[0].metadata.entities.mediaQuery, 'Stars and Stripes Forever');
+    assert.equal(result.entitySummary.media, 1);
+  });
+
+  it('understands recurring reminder schedules as reminder actions', async function() {
+    const { createDefaultReasoningManager } = require('../../core/assistant/reasoning/index.js');
+    const manager = createDefaultReasoningManager();
+    const structuredEntities = {
+      reminders: [{ value: 'eat lunch', confidence: 0.86, metadata: { recurrence: 'saturday monday' } }],
+      dates: [{ value: 'saturday monday', confidence: 0.76, metadata: { recurring: true } }],
+      times: [{ value: '8pm', confidence: 0.86 }],
+      applications: [],
+      browsers: [],
+      files: [],
+      folders: [],
+      paths: [],
+      contacts: [],
+      media: [],
+      alarms: [],
+      timers: [],
+      durations: [],
+      volumeLevels: [],
+      brightnessLevels: []
+    };
+    const result = await manager.reason(resolved('remind me every saturday monday to eat lunch at 8pm'), {
+      metadata: { structuredEntities }
+    });
+
+    assert.equal(result.resolvedAction.action, 'CREATE_REMINDER');
+    assert.equal(result.candidateActions[0].metadata.entities.reminderText, 'eat lunch');
+    assert.ok(result.candidateTasks.some(task => task.action === 'CREATE_REMINDER'));
+  });
+
+  it('handles correction-style volume follow ups', async function() {
+    const { createDefaultReasoningManager } = require('../../core/assistant/reasoning/index.js');
+    const manager = createDefaultReasoningManager();
+    const structuredEntities = {
+      volumeLevels: [{ value: '40', confidence: 0.86 }],
+      applications: [],
+      browsers: [],
+      files: [],
+      folders: [],
+      paths: [],
+      contacts: [],
+      media: [],
+      dates: [],
+      times: [],
+      durations: [],
+      reminders: [],
+      alarms: [],
+      timers: [],
+      brightnessLevels: []
+    };
+    const result = await manager.reason(resolved('no no set it to 40'), {
+      metadata: { structuredEntities }
+    });
+
+    assert.equal(result.resolvedAction.action, 'SET_VOLUME');
+    assert.equal(result.candidateActions[0].metadata.entities.value, '40');
+    assert.equal(result.metadata.isCorrection, true);
+  });
+
   it('keeps reasoner order configurable', function() {
     const { createDefaultReasoningManager } = require('../../core/assistant/reasoning/index.js');
     const manager = createDefaultReasoningManager({

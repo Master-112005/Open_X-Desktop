@@ -9,6 +9,7 @@ class ValidationResult {
     this.errors = Array.isArray(input.errors) ? input.errors.slice() : [];
     this.warnings = Array.isArray(input.warnings) ? input.warnings.slice() : [];
     this.metadata = { ...(input.metadata || {}) };
+    this.summary = { ...(input.summary || {}) };
     this.diagnostics = input.diagnostics || {};
     this.version = String(input.version || '10.0.0');
     this.futureExtensions = { ...(input.futureExtensions || {}) };

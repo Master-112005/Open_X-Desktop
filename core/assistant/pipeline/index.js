@@ -1,6 +1,9 @@
 'use strict';
 
+const PIPELINE_LAYER_VERSION = '1.1.0';
+
 module.exports = {
+  PIPELINE_LAYER_VERSION,
   PipelineBuilder: require('./PipelineBuilder'),
   PipelineConfiguration: require('./PipelineConfiguration'),
   PipelineContext: require('./PipelineContext'),

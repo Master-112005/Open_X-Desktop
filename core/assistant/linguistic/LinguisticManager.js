@@ -45,7 +45,7 @@ class LinguisticManager {
     ];
     defaults.forEach(([Ctor, id, priority]) => {
       const configured = this.configuration.getAnalyzerOptions(id, { priority });
-      this.registry.register(new Ctor({ id, ...configured }), { id, priority: configured.priority });
+      this.registry.register(new Ctor({ id, ...configured }), { id, priority: configured.priority, enabled: configured.enabled });
     });
   }
 
@@ -71,6 +71,8 @@ class LinguisticManager {
     return {
       enabled: this.configuration.enabled,
       version: this.configuration.version,
+      pipelineReady: Boolean(this.pipeline),
+      analyzerCount: this.registry.count(),
       analyzers: this.registry.health()
     };
   }

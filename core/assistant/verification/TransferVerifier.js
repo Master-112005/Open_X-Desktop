@@ -4,12 +4,9 @@ const BaseVerifier = require('./BaseVerifier');
 
 class TransferVerifier extends BaseVerifier {
   verify(context) {
-    for (const action of context.successfulActions.concat(context.failedActions)) {
+    for (const action of this.completedAndFailed(context)) {
       if (!/transfer|phone\.sendFile|cloud/i.test(String(action.route || action.action || ''))) continue;
-      context.addEvidence('transfer', action.success ? 'transfer action reported success' : 'transfer action reported failure', {
-        taskId: action.taskId,
-        route: action.route
-      });
+      this.addActionEvidence(context, 'transfer', action, 'transfer action reported success', 'transfer action reported failure');
     }
     return context;
   }

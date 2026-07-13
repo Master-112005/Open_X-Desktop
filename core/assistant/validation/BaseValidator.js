@@ -20,6 +20,31 @@ class BaseValidator {
     return this.enabled && !!context;
   }
 
+  tasks(context) {
+    return Array.isArray(context?.executionBlueprint?.tasks)
+      ? context.executionBlueprint.tasks
+      : [];
+  }
+
+  entities(context, task = null) {
+    return {
+      ...(context?.executionBlueprint?.metadata?.entities || {}),
+      ...(task?.metadata?.entities || {})
+    };
+  }
+
+  fail(context, message, data = {}) {
+    return context.check(this.id, false, message, data);
+  }
+
+  pass(context, message, data = {}) {
+    return context.check(this.id, true, message, data);
+  }
+
+  warn(context, message, data = {}) {
+    return context.warn(this.id, message, data);
+  }
+
   validate(context) {
     return context;
   }

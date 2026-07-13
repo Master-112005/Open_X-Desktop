@@ -1,5 +1,7 @@
 'use strict';
 
+const LearningGuard = require('./LearningGuard');
+
 class LearningValidator {
   constructor(options = {}) {
     this.maxKeyLength = Number.isFinite(options.maxKeyLength) ? Number(options.maxKeyLength) : 120;
@@ -7,10 +9,11 @@ class LearningValidator {
   }
 
   validate(event = {}, context = {}) {
-    const category = String(event.category || '').trim().toLowerCase();
+    const category = this._clean(event.category, 40).toLowerCase();
     const key = this._clean(event.key, this.maxKeyLength);
-    const value = this._clean(event.value, this.maxValueLength);
+    const value = LearningGuard.sanitizeForLearning(this._clean(event.value, this.maxValueLength));
     if (!category || !key || !value) return { valid: false, reason: 'Learning event is incomplete.' };
+    if (LearningGuard.isUnsafeObjectKey(key)) return { valid: false, reason: 'Learning key is unsafe.' };
     const policy = context.policy.check({ ...event, category, key, value });
     if (!policy.allowed) return { valid: false, reason: policy.reason };
     return {
@@ -21,7 +24,8 @@ class LearningValidator {
         storageCategory: policy.storageCategory,
         key,
         value,
-        confidence: Math.max(0, Math.min(1, Number(event.confidence ?? 1)))
+        confidence: Math.max(0, Math.min(1, Number(event.confidence ?? 1))),
+        metadata: LearningGuard.sanitizeForLearning(event.metadata || {})
       }
     };
   }

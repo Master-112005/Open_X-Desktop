@@ -1,6 +1,7 @@
 'use strict';
 
 const BaseLearningModule = require('./BaseLearningModule');
+const { stripLearningPunctuation, normalizeLearningKey } = require('./LearningLanguage');
 
 class CorrectionLearning extends BaseLearningModule {
   learn(context) {
@@ -9,11 +10,12 @@ class CorrectionLearning extends BaseLearningModule {
     if (!match) return context;
     context.addEvent({
       category: 'correction',
-      key: `correction:${text.toLowerCase().slice(0, 80)}`,
-      value: match[1].replace(/[.!?]+$/g, '').trim(),
+      key: `correction:${normalizeLearningKey(text).slice(0, 80)}`,
+      value: stripLearningPunctuation(match[1]),
       confidence: 0.95,
       source: 'explicit-user-correction',
-      module: this.id
+      module: this.id,
+      metadata: { directive: 'correction' }
     });
     return context;
   }

@@ -69,6 +69,10 @@ class PreferenceStore extends BaseStore {
     return { valid: true, sanitized };
   }
 
+  isAllowedKind(kind) {
+    return VALID_PREFERENCE_KINDS.has(this._normalizeKind(kind));
+  }
+
   setPreference(kind, value, source = 'user') {
     const normalizedKind = this._normalizeKind(kind);
     if (!normalizedKind) {
@@ -180,6 +184,7 @@ class PreferenceStore extends BaseStore {
     return {
       totalPreferences: Object.keys(this.data.preferences || {}).length,
       kinds: Object.keys(this.data.preferences || {}),
+      status: this.getStatus(),
       metadata: this.data.metadata
     };
   }

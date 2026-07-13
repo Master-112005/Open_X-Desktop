@@ -15,6 +15,9 @@ class EntityConfiguration {
     this.locale = String(input.locale || 'en-US');
     this.strict = input.strict === true;
     this.confidenceThreshold = Math.max(0, Math.min(1, Number(input.confidenceThreshold ?? 0.45)));
+    this.maxEntitiesPerType = Number.isFinite(input.maxEntitiesPerType) ? Math.max(1, Number(input.maxEntitiesPerType)) : 50;
+    this.deduplicate = input.deduplicate !== false;
+    this.captureSourcePositions = input.captureSourcePositions !== false;
     this.extractors = { ...(input.extractors || {}) };
     this.normalizers = { ...(input.normalizers || {}) };
     this.resolvers = { ...(input.resolvers || {}) };
@@ -34,6 +37,21 @@ class EntityConfiguration {
 
   isExtractorEnabled(id) {
     return this.enabled && this.getExtractorOptions(id).enabled !== false;
+  }
+
+  toJSON() {
+    return {
+      enabled: this.enabled,
+      version: this.version,
+      locale: this.locale,
+      strict: this.strict,
+      confidenceThreshold: this.confidenceThreshold,
+      maxEntitiesPerType: this.maxEntitiesPerType,
+      deduplicate: this.deduplicate,
+      captureSourcePositions: this.captureSourcePositions,
+      extractors: { ...this.extractors },
+      entityTypes: { ...this.entityTypes }
+    };
   }
 }
 

@@ -1,8 +1,10 @@
 'use strict';
 
 const { ReasoningManager, createDefaultReasoningManager } = require('./ReasoningManager');
+const REASONING_VERSION = '8.0.0';
 
 module.exports = {
+  REASONING_VERSION,
   ReasoningPipeline: require('./ReasoningPipeline'),
   ReasoningManager,
   createDefaultReasoningManager,

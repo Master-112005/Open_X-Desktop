@@ -10,7 +10,11 @@ class TaskGraphBuilder extends BasePlanner {
         id: task.id,
         label: task.label,
         action: task.action,
-        optional: task.optional
+        optional: task.optional,
+        retryable: task.retryable,
+        cancelable: task.cancelable,
+        confidence: Number(task.metadata?.confidence) || null,
+        target: this.actionTarget(task, context)
       })),
       edges: context.dependencies.map(dependency => ({
         from: dependency.from,

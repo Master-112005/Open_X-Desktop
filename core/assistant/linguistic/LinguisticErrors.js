@@ -5,7 +5,20 @@ class LinguisticError extends Error {
     super(message);
     this.name = this.constructor.name;
     this.context = { ...(context || {}) };
+    this.code = context.code || this.constructor.name;
+    this.timestamp = Date.now();
+    if (context.cause) this.cause = context.cause;
     if (Error.captureStackTrace) Error.captureStackTrace(this, this.constructor);
+  }
+
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      code: this.code,
+      context: this.context,
+      timestamp: this.timestamp
+    };
   }
 }
 

@@ -2,6 +2,7 @@
 
 const MemoryDiagnostics = require('./MemoryDiagnostics');
 const ResolvedContext = require('./ResolvedContext');
+const { sanitizeDetails } = require('../utils/ErrorHelpers');
 
 function allEntities(structuredEntities) {
   if (!structuredEntities || typeof structuredEntities !== 'object') return [];
@@ -25,6 +26,21 @@ function inputText(structuredEntities, metadata = {}) {
   );
 }
 
+function compactText(value, limit = 500) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > limit ? `${text.slice(0, Math.max(1, limit - 3)).trim()}...` : text;
+}
+
+function compactEntity(entity = {}) {
+  return sanitizeDetails({
+    type: entity.type,
+    value: entity.canonical || entity.value,
+    confidence: entity.confidence,
+    role: entity.role,
+    source: entity.source
+  });
+}
+
 class MemoryContext {
   constructor({ structuredEntities = null, configuration = null, state = null, metadata = {}, snapshots = {} } = {}) {
     this.structuredEntities = structuredEntities || null;
@@ -32,8 +48,13 @@ class MemoryContext {
     this.state = state || {};
     this.metadata = { ...(metadata || {}) };
     this.snapshots = { ...(snapshots || {}) };
-    this.input = inputText(structuredEntities, this.metadata);
-    this.entities = allEntities(structuredEntities);
+    this.limits = {
+      memoryLimit: Math.max(5, Number(configuration?.memoryLimit) || 50),
+      maxEntitySnapshots: Math.max(10, Number(configuration?.maxEntitySnapshots) || 50),
+      maxTextLength: Math.max(80, Number(configuration?.maxTextLength) || 500)
+    };
+    this.input = compactText(inputText(structuredEntities, this.metadata), this.limits.maxTextLength);
+    this.entities = allEntities(structuredEntities).slice(-this.limits.maxEntitySnapshots);
     this.workingMemory = {};
     this.conversationMemory = {};
     this.sessionMemory = {};
@@ -58,14 +79,31 @@ class MemoryContext {
       time: {},
       user: {}
     };
-    this.diagnostics = new MemoryDiagnostics();
+    this.diagnostics = new MemoryDiagnostics({ limit: configuration?.maxDiagnostics });
     this.timing = { startedAt: Date.now(), finishedAt: null, durationMs: 0 };
     this.futureExtensions = {};
   }
 
   latestEntity(types = []) {
     const allowed = new Set(types);
-    return this.entities.find(entity => allowed.has(entity.type)) || null;
+    return this.entities.slice().reverse().find(entity => allowed.has(entity.type)) || null;
+  }
+
+  compactEntity(entity = {}) {
+    return compactEntity(entity);
+  }
+
+  rememberState(key, value, limit = this.limits.memoryLimit) {
+    const normalized = String(key || '');
+    if (!normalized) return this;
+    const list = Array.isArray(this.state[normalized]) ? this.state[normalized] : [];
+    list.push(value);
+    this.state[normalized] = list.slice(-Math.max(1, Number(limit) || this.limits.memoryLimit));
+    return this;
+  }
+
+  entitySnapshot(limit = this.limits.maxEntitySnapshots) {
+    return this.entities.slice(-Math.max(1, Number(limit) || this.limits.maxEntitySnapshots)).map(entity => compactEntity(entity));
   }
 
   confidence() {
@@ -101,3 +139,5 @@ class MemoryContext {
 }
 
 module.exports = MemoryContext;
+module.exports.compactEntity = compactEntity;
+module.exports.compactText = compactText;

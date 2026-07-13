@@ -4,7 +4,8 @@ const BaseResponseGenerator = require('./BaseResponseGenerator');
 
 class ChatFormatter extends BaseResponseGenerator {
   generate(context) {
-    context.formattedChatResponse = context.futureExtensions.naturalLanguage || context.baseText();
+    const text = context.futureExtensions.naturalLanguage || context.baseText() || 'I do not have a response for that yet.';
+    context.formattedChatResponse = this.text(text, context.configuration?.maxChatLength || 2400);
     context.diagnostics.formatter(this.id);
     return context;
   }

@@ -28,15 +28,21 @@ class LanguageNormalizationStage extends PipelineStage {
       options: context.options
     };
     const normalizedInput = await this.manager.normalize(rawUserInput, { metadata: context.metadata });
+    const commandIntentText = String(normalizedInput.commandIntentText || normalizedInput.metadata?.commandIntentText || '').trim();
     context.normalizedInput = normalizedInput.normalizedText;
+    context.commandIntentText = commandIntentText || normalizedInput.normalizedText;
     context.normalizedInputObject = normalizedInput;
+    context.set('assistant.commandIntentText', commandIntentText || normalizedInput.normalizedText);
     context.set('assistant.normalizedInput', normalizedInput);
+    context.set('assistant.normalizationObservations', normalizedInput.metadata?.observations || {});
     return StageResult.ok(this.id, {
       input: normalizedInput.normalizedText,
       source: context.source,
       options: { ...(context.options || {}) },
       normalizedInput: {
         normalizedText: normalizedInput.normalizedText,
+        commandIntentText,
+        commandTokens: normalizedInput.commandTokens,
         normalizationVersion: normalizedInput.normalizationVersion,
         historyCount: normalizedInput.normalizationHistory.length
       }

@@ -16,13 +16,25 @@ class ClarificationEngine extends BaseReasoner {
     if (/\b(?:move|delete|send)\s+(?:it|that|file|report)\b/.test(text) && !hasFile) {
       this._missing(context, 'file', 'target-file', 0.72);
     }
+    if (context.candidateActions.some(action => action.action === 'PLAY_MEDIA') && !context.entitySummary.media && !/\b(?:music|song|playlist)\b/.test(text)) {
+      this._missing(context, 'media-query', 'target-media', 0.64);
+    }
+    if (context.candidateActions.some(action => action.action === 'CREATE_REMINDER') && !context.entitySummary.reminders) {
+      this._missing(context, 'reminderText', 'reminder-content', 0.68);
+    }
+    if (context.candidateActions.some(action => action.action === 'SET_TIMER') && !context.entitySummary.durations) {
+      this._missing(context, 'duration', 'timer-duration', 0.68);
+    }
+    if (context.candidateActions.some(action => action.action === 'SET_ALARM') && !context.entitySummary.times) {
+      this._missing(context, 'timeExpression', 'alarm-time', 0.68);
+    }
     context.diagnostics.clarifications = context.clarificationRequirements.length;
     return context;
   }
 
   _missing(context, field, requirement, confidence) {
-    context.missingInformation.push({ field, confidence, source: this.id });
-    context.clarificationRequirements.push({ requirement, field, confidence, source: this.id });
+    context.addMissing({ field, confidence, source: this.id });
+    context.addClarification({ requirement, field, confidence, source: this.id });
   }
 }
 

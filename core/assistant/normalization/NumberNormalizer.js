@@ -36,6 +36,11 @@ const TENS = Object.freeze({
   ninety: 90
 });
 
+const MAGNITUDES = Object.freeze({
+  hundred: 100,
+  thousand: 1000
+});
+
 const ORDINALS = Object.freeze({
   first: 1,
   second: 2,
@@ -59,6 +64,13 @@ const ORDINALS = Object.freeze({
   twentieth: 20
 });
 
+const MULTIPLIERS = Object.freeze({
+  half: 0.5,
+  quarter: 0.25,
+  double: 2,
+  triple: 3
+});
+
 const ROMAN = Object.freeze({
   i: 1,
   ii: 2,
@@ -74,8 +86,16 @@ const ROMAN = Object.freeze({
 
 function parseNumberWords(words) {
   if (!words.length) return null;
+  const filtered = words.filter(word => word && word !== 'and');
+  if (filtered.length !== words.length) return parseNumberWords(filtered);
   if (words.length === 1) {
-    return SMALL[words[0]] ?? TENS[words[0]] ?? ORDINALS[words[0]] ?? null;
+    return SMALL[words[0]] ?? TENS[words[0]] ?? ORDINALS[words[0]] ?? MULTIPLIERS[words[0]] ?? null;
+  }
+  if (words.length === 2 && SMALL[words[0]] !== undefined && MAGNITUDES[words[1]]) {
+    return SMALL[words[0]] * MAGNITUDES[words[1]];
+  }
+  if (words.length === 3 && SMALL[words[0]] !== undefined && MAGNITUDES[words[1]] && SMALL[words[2]] !== undefined) {
+    return (SMALL[words[0]] * MAGNITUDES[words[1]]) + SMALL[words[2]];
   }
   if (words.length === 2 && TENS[words[0]] && SMALL[words[1]] !== undefined) {
     return TENS[words[0]] + SMALL[words[1]];
@@ -85,7 +105,7 @@ function parseNumberWords(words) {
 
 class NumberNormalizer extends BaseNormalizer {
   normalize(context) {
-    const tokens = String(context.workingText || '').split(/(\s+)/);
+    const tokens = String(context.workingText || '').replace(/([a-z]+)-([a-z]+)/gi, '$1 $2').split(/(\s+)/);
     const output = [];
     const rewriteText = this.options.rewriteText === true;
     for (let index = 0; index < tokens.length; index += 1) {
@@ -96,6 +116,18 @@ class NumberNormalizer extends BaseNormalizer {
       }
       const word = token.toLowerCase().replace(/[^a-z]/g, '');
       const nextWord = String(tokens[index + 2] || '').toLowerCase().replace(/[^a-z]/g, '');
+      const thirdWord = String(tokens[index + 4] || '').toLowerCase().replace(/[^a-z]/g, '');
+      const fourthWord = String(tokens[index + 6] || '').toLowerCase().replace(/[^a-z]/g, '');
+      const numeric = token.match(/^(\d+(?:\.\d+)?)(st|nd|rd|th|%)?$/i);
+      if (numeric) {
+        context.addObservation('numbers', {
+          original: token,
+          value: Number(numeric[1]),
+          type: numeric[2] === '%' ? 'percentage' : numeric[2] ? 'ordinal' : 'numeric'
+        });
+        output.push(token);
+        continue;
+      }
       if (/^[IVX]{2,}$/u.test(token)) {
         const romanValue = ROMAN[token.toLowerCase()] ?? null;
         if (romanValue !== null) {
@@ -103,6 +135,28 @@ class NumberNormalizer extends BaseNormalizer {
           output.push(rewriteText ? String(romanValue) : token);
           continue;
         }
+      }
+      const four = parseNumberWords([word, nextWord, thirdWord, fourthWord]);
+      if (four !== null && nextWord && thirdWord && fourthWord) {
+        context.addObservation('numbers', { original: `${token} ${tokens[index + 2]} ${tokens[index + 4]} ${tokens[index + 6]}`, value: four });
+        if (rewriteText) {
+          output.push(String(four));
+          index += 6;
+        } else {
+          output.push(token);
+        }
+        continue;
+      }
+      const three = parseNumberWords([word, nextWord, thirdWord]);
+      if (three !== null && nextWord && thirdWord) {
+        context.addObservation('numbers', { original: `${token} ${tokens[index + 2]} ${tokens[index + 4]}`, value: three });
+        if (rewriteText) {
+          output.push(String(three));
+          index += 4;
+        } else {
+          output.push(token);
+        }
+        continue;
       }
       const two = parseNumberWords([word, nextWord]);
       if (two !== null && nextWord) {
@@ -123,7 +177,7 @@ class NumberNormalizer extends BaseNormalizer {
       }
       output.push(token);
     }
-    return context.setText(output.join(''), this.id);
+    return context.setText(output.join(''), this.id, { rewriteText });
   }
 }
 

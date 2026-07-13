@@ -60,7 +60,8 @@ describe('Assistant Input Acquisition Layer', function() {
     });
 
     assert.equal(result.success, true);
-    assert.equal(routed[0].input, 'Search for OpenX');
+    assert.equal(acquired.rawText, 'Search for OpenX');
+    assert.equal(routed[0].input, 'search for openx');
     assert.equal(routed[0].source, 'voice');
     assert.equal(acquired.source, 'voice');
     assert.equal(acquired.metadata.voiceConfidence, 0.91);

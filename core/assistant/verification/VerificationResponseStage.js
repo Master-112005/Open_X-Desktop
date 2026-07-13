@@ -34,6 +34,9 @@ class VerificationResponseStage extends PipelineStage {
     context.set('assistant.assistantResponse', assistantResponse);
     return StageResult.ok(this.id, {
       executionStatus: verificationResult.executionStatus,
+      verified: verificationResult.verified,
+      confidence: verificationResult.confidence,
+      evidenceCount: verificationResult.evidence.length,
       responseType: assistantResponse.responseType,
       version: assistantResponse.version
     });

@@ -26,7 +26,8 @@ class GoalIntentReasoningStage extends PipelineStage {
       metadata: {
         ...(context.metadata || {}),
         rawInput: context.rawInput,
-        source: context.source
+        source: context.source,
+        structuredEntities: context.structuredEntities || context.get?.('assistant.structuredEntities') || null
       }
     });
     context.reasoningResult = reasoningResult;
@@ -35,6 +36,8 @@ class GoalIntentReasoningStage extends PipelineStage {
       goal: reasoningResult.resolvedGoal?.id || null,
       intent: reasoningResult.resolvedIntent?.intent || null,
       action: reasoningResult.resolvedAction?.action || null,
+      ready: reasoningResult.ready,
+      entitySummary: reasoningResult.entitySummary,
       confidence: reasoningResult.confidenceScores.overall || 0,
       version: reasoningResult.version
     });

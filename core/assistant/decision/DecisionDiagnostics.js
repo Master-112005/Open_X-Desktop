@@ -16,6 +16,7 @@ class DecisionDiagnostics {
     this.errors = [];
     this.pipelineOrder = [];
     this.memoryUsage = this._memoryUsage();
+    this.finishedMemoryUsage = null;
   }
 
   time(id, durationMs) {
@@ -42,6 +43,11 @@ class DecisionDiagnostics {
       : null;
   }
 
+  finish() {
+    this.finishedMemoryUsage = this._memoryUsage();
+    return this;
+  }
+
   toJSON() {
     return {
       decisionTime: { ...this.decisionTime },
@@ -50,7 +56,8 @@ class DecisionDiagnostics {
       warnings: this.warnings.slice(),
       errors: this.errors.slice(),
       pipelineOrder: this.pipelineOrder.slice(),
-      memoryUsage: this.memoryUsage
+      memoryUsage: this.memoryUsage,
+      finishedMemoryUsage: this.finishedMemoryUsage
     };
   }
 }

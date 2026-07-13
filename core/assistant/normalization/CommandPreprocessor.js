@@ -1,4 +1,5 @@
 const Normalizer = require('../Data').Normalizer;
+const BaseNormalizer = require('./BaseNormalizer');
 const {
   DOMAIN_VOCABULARY,
   FILLER_WORDS,
@@ -174,6 +175,7 @@ const TOKEN_CORRECTIONS = {
   alaram: 'alarm',
   apllication: 'application',
   applcation: 'application',
+  brighnes: 'brightness',
   brighness: 'brightness',
   capatin: 'captain',
   caption: 'captain',
@@ -227,15 +229,20 @@ const TOKEN_CORRECTIONS = {
   diretory: 'directory',
   dirctory: 'directory',
   githubb: 'github',
+  incres: 'increase',
   increse: 'increase',
   minit: 'minute',
+  mins: 'minutes',
   minits: 'minutes',
   minuts: 'minutes',
+  secs: 'seconds',
+  hrs: 'hours',
   collge: 'college',
   collage: 'college',
   excercise: 'exercise',
   lauch: 'launch',
   lnauch: 'launch',
+  maeesge: 'message',
   mesage: 'message',
   moblie: 'mobile',
   mobiel: 'mobile',
@@ -320,7 +327,12 @@ const TOKEN_SEQUENCE_REPLACEMENTS = [
   { from: ['where', 'i'], to: ['where', 'is'] },
   { from: ['whre', 'i'], to: ['where', 'is'] },
   { from: ['you', 'tube'], to: ['youtube'] },
-  { from: ['micro', 'soft'], to: ['microsoft'] }
+  { from: ['micro', 'soft'], to: ['microsoft'] },
+  { from: ['wi', 'fi'], to: ['wifi'] },
+  { from: ['blue', 'tooth'], to: ['bluetooth'] },
+  { from: ['p', 'm'], to: ['pm'] },
+  { from: ['a', 'm'], to: ['am'] },
+  { from: ['vs', 'code'], to: ['visual', 'studio', 'code'] }
 ];
 
 const DOMAIN_VOCABULARY = [
@@ -554,6 +566,10 @@ return {
 
 })();
 
+const REPEAT_PRESERVE_TOKENS = new Set(['no', 'yes', 'ok', 'okay', 'stop', 'wait']);
+const MEDIA_TITLE_ACTIONS = new Set(['play', 'queue']);
+const MEDIA_TITLE_SUFFIXES = new Set(['song', 'track', 'music', 'playlist', 'album', 'podcast']);
+
 function applyPhraseReplacements(text) {
   let result = String(text || '');
   for (const replacement of PHRASE_REPLACEMENTS) {
@@ -584,10 +600,27 @@ function collapseRepeatedTokens(tokens) {
   const collapsed = [];
   for (const token of tokens) {
     if (!token) continue;
-    if (collapsed[collapsed.length - 1] === token) continue;
+    if (collapsed[collapsed.length - 1] === token && !REPEAT_PRESERVE_TOKENS.has(token)) continue;
     collapsed.push(token);
   }
   return collapsed;
+}
+
+function looksLikeMediaTitleCommand(tokens) {
+  if (!Array.isArray(tokens) || tokens.length < 3) return false;
+  if (!MEDIA_TITLE_ACTIONS.has(tokens[0])) return false;
+  return MEDIA_TITLE_SUFFIXES.has(tokens[tokens.length - 1]) || tokens.length >= 4;
+}
+
+function applyTokenCorrections(tokens) {
+  if (!Array.isArray(tokens) || tokens.length === 0) {
+    return [];
+  }
+  const preserveTitle = looksLikeMediaTitleCommand(tokens);
+  return tokens.map((token, index) => {
+    if (preserveTitle && index > 0 && index < tokens.length - 1) return token;
+    return TOKEN_CORRECTIONS[token] || token;
+  });
 }
 
 function applyTokenSequenceReplacements(tokens) {
@@ -633,6 +666,18 @@ function buildBigrams(tokens) {
   return result;
 }
 
+function extractCommandHints(tokens) {
+  const safeTokens = Array.isArray(tokens) ? tokens : [];
+  const vocabularyHits = safeTokens.filter(token => DOMAIN_VOCABULARY.includes(token));
+  return {
+    tokenCount: safeTokens.length,
+    bigrams: buildBigrams(safeTokens),
+    vocabularyHits: [...new Set(vocabularyHits)],
+    likelyMediaTitle: looksLikeMediaTitleCommand(safeTokens),
+    hasCorrectionCue: safeTokens.includes('no') || safeTokens.includes('instead') || safeTokens.includes('change')
+  };
+}
+
 function preprocessCommand(text) {
   const expanded = Normalizer.expandContractions(text || '');
   const spaced = expanded
@@ -642,25 +687,72 @@ function preprocessCommand(text) {
   const stripped = stripLeadIns(normalized);
   const replaced = applyPhraseReplacements(stripped);
   const sequenceRepaired = applyTokenSequenceReplacements(Normalizer.tokenize(replaced));
-  const tokens = collapseRepeatedTokens(sequenceRepaired);
+  const corrected = applyTokenCorrections(sequenceRepaired);
+  const tokens = collapseRepeatedTokens(corrected);
+  const hints = extractCommandHints(tokens);
 
   return {
     normalizedText: tokens.join(' ').trim(),
-    tokens
+    tokens,
+    hints
   };
 }
 
+class CommandPreprocessorNormalizer extends BaseNormalizer {
+  constructor(options = {}) {
+    super(options);
+    this.rewriteText = options.rewriteText === true;
+  }
+
+  normalize(context) {
+    const prepared = preprocessCommand(context.workingText || '');
+    if (typeof context.setCommandIntent === 'function') {
+      context.setCommandIntent(prepared.normalizedText, {
+        tokens: prepared.tokens.slice(),
+        hints: { ...prepared.hints }
+      });
+    } else {
+      context.metadata.commandIntentText = prepared.normalizedText;
+    }
+    context.metadata.commandTokens = prepared.tokens.slice();
+    context.metadata.commandHints = { ...prepared.hints };
+    context.futureExtensions.command = {
+      intentText: prepared.normalizedText,
+      tokens: prepared.tokens.slice(),
+      hints: { ...prepared.hints }
+    };
+
+    if (this.rewriteText) {
+      return context.setText(prepared.normalizedText, this.id, {
+        tokenCount: prepared.tokens.length,
+        hints: { ...prepared.hints },
+        rewroteWorkingText: true
+      });
+    }
+
+    return context.setText(context.workingText, this.id, {
+      tokenCount: prepared.tokens.length,
+      hints: { ...prepared.hints },
+      intentTextChanged: prepared.normalizedText !== String(context.workingText || '').trim().toLowerCase()
+    });
+  }
+}
+
 module.exports = {
+  CommandPreprocessorNormalizer,
   DOMAIN_VOCABULARY,
   FILLER_WORDS,
   LEAD_IN_PATTERNS,
   PHRASE_REPLACEMENTS,
   TOKEN_CORRECTIONS,
   TOKEN_SEQUENCE_REPLACEMENTS,
+  extractCommandHints,
   applyPhraseReplacements,
+  applyTokenCorrections,
   applyTokenSequenceReplacements,
   buildBigrams,
   collapseRepeatedTokens,
+  looksLikeMediaTitleCommand,
   preprocessCommand,
   stripLeadIns
 };

@@ -7,6 +7,7 @@ class PipelineDiagnostics {
   constructor(options = {}) {
     this.performance = options.performance || new PerformanceTracker();
     this.records = [];
+    this.maxRecords = Number.isFinite(options.maxRecords) ? Math.max(25, Number(options.maxRecords)) : 1000;
   }
 
   record(level, message, data = {}) {
@@ -17,7 +18,7 @@ class PipelineDiagnostics {
       timestamp: Date.now()
     };
     this.records.push(record);
-    this.records = this.records.slice(-1000);
+    this.records = this.records.slice(-this.maxRecords);
     return record;
   }
 
@@ -45,6 +46,27 @@ class PipelineDiagnostics {
 
   list(limit = 100) {
     return this.records.slice(-Math.max(1, Number(limit) || 100));
+  }
+
+  clear() {
+    const count = this.records.length;
+    this.records = [];
+    return count;
+  }
+
+  summary(limit = 100) {
+    const records = this.list(limit);
+    const byLevel = records.reduce((summary, record) => {
+      summary[record.level] = (summary[record.level] || 0) + 1;
+      return summary;
+    }, {});
+    return {
+      total: this.records.length,
+      sampled: records.length,
+      byLevel,
+      memory: this.memorySnapshot(),
+      performance: typeof this.performance.summary === 'function' ? this.performance.summary() : null
+    };
   }
 }
 

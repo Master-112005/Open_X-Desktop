@@ -20,6 +20,10 @@ class EntityGraphBuilder {
           confidence: entity.confidence,
           resolved: entity.resolved || null,
           validation: entity.validation || null,
+          position: {
+            index: Number.isFinite(entity.metadata?.index) ? entity.metadata.index : null,
+            length: Number.isFinite(entity.metadata?.length) ? entity.metadata.length : null
+          },
           metadata: { ...(entity.metadata || {}) }
         })),
         relationships: context.relationships.map((relationship, index) => ({

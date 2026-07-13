@@ -5,6 +5,10 @@ const BaseAnalyzer = require('./BaseAnalyzer');
 class SentenceSplitter extends BaseAnalyzer {
   analyze(context) {
     const tokens = context.tokens || [];
+    if (tokens.length === 0) {
+      context.sentences = [];
+      return context;
+    }
     const sentences = [];
     let startToken = 0;
     for (let index = 0; index < tokens.length; index += 1) {
@@ -21,7 +25,9 @@ class SentenceSplitter extends BaseAnalyzer {
           endToken,
           start: sentenceTokens[0].start,
           end: sentenceTokens[sentenceTokens.length - 1].end,
-          text: context.normalizedSentence.slice(sentenceTokens[0].start, sentenceTokens[sentenceTokens.length - 1].end).trim()
+          text: context.normalizedSentence.slice(sentenceTokens[0].start, sentenceTokens[sentenceTokens.length - 1].end).trim(),
+          tokenCount: sentenceTokens.length,
+          kind: sentenceTokens.some(item => item.value === '?') ? 'question' : 'statement'
         });
       }
       startToken = index + 1;
@@ -33,7 +39,9 @@ class SentenceSplitter extends BaseAnalyzer {
       endToken: Math.max(0, tokens.length - 1),
       start: 0,
       end: context.normalizedSentence.length,
-      text: context.normalizedSentence
+      text: context.normalizedSentence,
+      tokenCount: tokens.length,
+      kind: /\?\s*$/.test(context.normalizedSentence) ? 'question' : 'statement'
     }];
     return context;
   }

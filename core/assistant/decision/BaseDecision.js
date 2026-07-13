@@ -28,6 +28,33 @@ class BaseDecision {
     return true;
   }
 
+  tasks(context) {
+    return Array.isArray(context?.executionBlueprint?.tasks)
+      ? context.executionBlueprint.tasks
+      : [];
+  }
+
+  taskEntities(task = {}, context = null) {
+    return {
+      ...(context?.executionBlueprint?.metadata?.entities || {}),
+      ...(task.metadata?.entities || {})
+    };
+  }
+
+  actionTarget(task = {}, context = null) {
+    const entities = this.taskEntities(task, context);
+    return String(
+      entities.appName ||
+      entities.filename ||
+      entities.folderName ||
+      entities.windowName ||
+      entities.path ||
+      entities.query ||
+      task.metadata?.target ||
+      ''
+    ).trim().toLowerCase();
+  }
+
   destroy() {
     this.initialized = false;
     return true;

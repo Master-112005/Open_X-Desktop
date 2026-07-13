@@ -20,6 +20,8 @@ class WorkingMemory extends BaseMemoryProvider {
     if (browser) store.values.currentBrowser = browser.canonical || browser.value;
     if (selection) store.values.currentSelection = selection;
     store.values.currentCommand = context.input || store.values.currentCommand || '';
+    store.values.currentSource = context.metadata.source || store.values.currentSource || 'chat';
+    store.values.lastEntityTypes = context.entities.map(entity => entity.type).slice(-10);
     store.updatedAt = now;
     context.state.workingMemory = store;
     context.workingMemory = {

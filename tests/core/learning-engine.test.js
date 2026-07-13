@@ -87,4 +87,57 @@ describe('Assistant Learning Engine', function() {
     assert.equal(routed[0].input, 'launch chrome');
     assert.equal(routed[0].source, 'chat');
   });
+
+  it('reports learning layer health and bounds slow modules', async function() {
+    const {
+      LEARNING_LAYER_VERSION,
+      LearningManager,
+      BaseLearningModule
+    } = require('../../core/assistant/learning/index.js');
+
+    class SlowLearning extends BaseLearningModule {
+      learn() {
+        return new Promise(() => {});
+      }
+    }
+
+    const manager = new LearningManager({
+      defaultModules: false,
+      configuration: {
+        moduleTimeoutMs: 25,
+        storage: { baseDir: tempDir() }
+      }
+    });
+    manager.registerModule(new SlowLearning({ id: 'learning.slow' }));
+    const result = await manager.learn(await assistantResponse('preferred browser is Chrome'), {
+      metadata: { rawInput: 'preferred browser is Chrome', source: 'chat' }
+    });
+
+    assert.equal(LEARNING_LAYER_VERSION, '12.1.0');
+    assert.equal(result.completed, true);
+    assert.ok(result.diagnostics.errors.some(error => error.code === 'PipelineError' || error.code === 'module_timeout'));
+    const status = manager.getStatus();
+    assert.equal(status.moduleCount, 1);
+    assert.equal(status.modules[0].stats.failures, 1);
+  });
+
+  it('redacts sensitive metadata before writing learning storage', function() {
+    const { LearningStorage } = require('../../core/assistant/learning/index.js');
+    const storage = new LearningStorage({ baseDir: tempDir(), maxRecords: 10 });
+    storage.commit([{
+      category: 'feedback',
+      key: 'voice.reply',
+      value: 'good',
+      confidence: 1,
+      source: 'test',
+      module: 'test',
+      metadata: { token: 'secret-token-value', note: 'safe note' },
+      learnedAt: '2026-07-09T00:00:00.000Z'
+    }]);
+
+    const snapshot = storage.snapshot('feedback');
+    const record = Object.values(snapshot.records)[0];
+    assert.equal(record.metadata.token, '[redacted]');
+    assert.equal(record.metadata.note, 'safe note');
+  });
 });

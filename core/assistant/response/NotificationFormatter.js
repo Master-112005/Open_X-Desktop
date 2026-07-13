@@ -5,7 +5,8 @@ const BaseResponseGenerator = require('./BaseResponseGenerator');
 class NotificationFormatter extends BaseResponseGenerator {
   generate(context) {
     const text = context.futureExtensions.naturalLanguage || context.baseText();
-    context.formattedNotification = text.length > 90 ? `${text.slice(0, 87).trim()}...` : text;
+    const limit = Number(context.configuration?.maxNotificationLength || 120);
+    context.formattedNotification = this.text(text, limit);
     context.diagnostics.formatter(this.id);
     return context;
   }

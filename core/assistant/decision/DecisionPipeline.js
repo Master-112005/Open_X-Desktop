@@ -19,7 +19,11 @@ class DecisionPipeline {
       configuration: this.configuration,
       metadata: options.metadata || {}
     });
-    if (this.configuration.enabled === false) return context.toDecisionResult();
+    if (this.configuration.enabled === false) {
+      const hasTasks = Array.isArray(executionBlueprint?.tasks) && executionBlueprint.tasks.length > 0;
+      context.setStatus(hasTasks ? 'EXECUTE' : 'WAIT', hasTasks ? 'decision pipeline disabled; allowing execution' : 'decision pipeline disabled; no tasks', { force: true });
+      return context.toDecisionResult();
+    }
 
     for (const decision of this.registry.list({ includeDisabled: false })) {
       const started = Date.now();
@@ -27,6 +31,9 @@ class DecisionPipeline {
       try {
         if (!decision.initialized && typeof decision.initialize === 'function') await decision.initialize();
         if (decision.supports(context)) await decision.decide(context);
+        if (context.status === 'REJECT' && this.configuration.shortCircuit !== false) {
+          break;
+        }
       } catch (error) {
         const wrapped = new PipelineError(`Decision failed: ${decision.id}`, { cause: error, context: { decisionId: decision.id } });
         context.diagnostics.error(wrapped);

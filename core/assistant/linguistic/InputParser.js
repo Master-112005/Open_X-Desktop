@@ -2,7 +2,7 @@ const Normalizer = require('../Data').Normalizer;
 const Logger = require('../Data').Logger;
 const { stripLeadIns } = require('../normalization/CommandPreprocessor');
 const { parseLearningDirective } = require('../learning/LearningLanguage');
-const { analyzeDiscourse, buildWordRelations } = require('./LanguageAnalysis');
+const { analyzeDiscourse, buildWordRelations, splitCommandClauses } = require('./LanguageAnalysis');
 
 class InputParser {
   constructor(config) {
@@ -41,28 +41,37 @@ class InputParser {
       hasCommand,
       learningDirective,
       discourse,
+      isCorrection: discourse.isCorrection === true,
+      clauseCount: commandClauses.length,
       commandTokens,
-      wordRelations: buildWordRelations(commandTokens),
+      wordRelations: buildWordRelations(commandTokens, {
+        actionIndex: commandTokens.findIndex(token => this._isActionToken(token)),
+        targetTokens: commandTokens
+      }),
       commandClauses
     };
   }
 
   _buildCommandClauses(commandText) {
-    const clauses = String(commandText || '')
-      .split(/\s*(?:;|,|\b(?:and then|then|after that|afterwards|and|also|plus)\b)\s*/i)
-      .map(clause => clause.trim())
-      .filter(Boolean);
-
-    return (clauses.length ? clauses : [String(commandText || '').trim()].filter(Boolean))
+    return splitCommandClauses(commandText)
       .map((clause, index) => {
         const tokens = Normalizer.tokenize(clause);
         return {
           index,
           text: clause,
           tokens,
-          relations: buildWordRelations(tokens)
+          actionToken: tokens.find(token => this._isActionToken(token)) || '',
+          isActionable: tokens.some(token => this._isActionToken(token)),
+          relations: buildWordRelations(tokens, {
+            actionIndex: tokens.findIndex(token => this._isActionToken(token)),
+            targetTokens: tokens
+          })
         };
       });
+  }
+
+  _isActionToken(token) {
+    return /^(?:open|launch|start|run|close|search|google|look|find|remind|remember|notify|alert|set|turn|send|share|transfer|copy|move|message|text|ask|tell|play|stream|listen|watch|queue|pause|resume|stop|skip|jump|create|delete|rename|save|show|list|call|wake)$/i.test(String(token || ''));
   }
 
   _stripLeadInRaw(text) {
@@ -101,7 +110,7 @@ module.exports = InputParser;
 const CommandFrameParser = (() => {
 const { Normalizer } = require('../Data');
 const { parseLearningDirective } = require('../learning/LearningLanguage');
-const { buildWordRelations } = require('./LanguageAnalysis');
+const { analyzeDiscourse, buildWordRelations, splitCommandClauses } = require('./LanguageAnalysis');
 
 const ACTION_ALIASES = new Map([
   ['close', 'close'],
@@ -116,8 +125,14 @@ const ACTION_ALIASES = new Map([
   ['continue', 'resume'],
   ['unpause', 'resume'],
   ['play', 'play'],
+  ['jump', 'next'],
+  ['listen', 'play'],
+  ['watch', 'play'],
+  ['queue', 'play'],
   ['send', 'send'],
   ['share', 'send'],
+  ['reply', 'send'],
+  ['respond', 'send'],
   ['transfer', 'send'],
   ['copy', 'send'],
   ['export', 'send'],
@@ -247,6 +262,8 @@ class CommandFrameParser {
       ? tokens.slice(actionIndex + 1).filter(token => !FILLER.has(token))
       : [];
     const targetText = targetTokens.join(' ').trim();
+    const discourse = analyzeDiscourse(raw);
+    const clauses = splitCommandClauses(corrected || raw);
     const domain = this._inferDomain(action, targetTokens, corrected || raw);
     const tokenRoles = tokens.map((token, index) => ({
       token,
@@ -267,6 +284,9 @@ class CommandFrameParser {
       tokens,
       tokenRoles,
       relations: buildWordRelations(tokens, { actionIndex, targetTokens }),
+      clauses,
+      discourse,
+      isCorrection: discourse.isCorrection === true,
       action,
       actionToken,
       actionIndex,
@@ -300,6 +320,14 @@ class CommandFrameParser {
 
     if (action === 'open' && /\bnew\s+(?:chrome\s+)?tab\b/.test(normalizedText)) {
       return 'browser-tab';
+    }
+
+    if (action === 'next' && /\bjump\s+to\s+(?:end|ending|last)\b/.test(normalizedText)) {
+      return 'media';
+    }
+
+    if (/\b(?:timer|alarm|reminder|remind|wake|snooze|daily|weekly|weekday|weekend|every\s+(?:day|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/.test(normalizedText)) {
+      return 'schedule';
     }
 
     if (hasFile && action === 'send' && hasPhoneTransferTarget) {

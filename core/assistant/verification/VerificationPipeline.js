@@ -3,6 +3,7 @@
 const VerificationContext = require('./VerificationContext');
 const VerificationConfiguration = require('./VerificationConfiguration');
 const VerificationRegistry = require('./VerificationRegistry');
+const VerificationLogger = require('./VerificationLogger');
 const { PipelineError } = require('./VerificationErrors');
 
 class VerificationPipeline {
@@ -11,6 +12,7 @@ class VerificationPipeline {
     this.configuration = options.configuration instanceof VerificationConfiguration
       ? options.configuration
       : new VerificationConfiguration(options.configuration || {});
+    this.logger = options.logger instanceof VerificationLogger ? options.logger : new VerificationLogger(options.logger || null);
   }
 
   async run(automationResult, options = {}) {
@@ -30,6 +32,12 @@ class VerificationPipeline {
       } catch (error) {
         const wrapped = new PipelineError(`Verifier failed: ${verifier.id}`, { cause: error, context: { verifierId: verifier.id } });
         context.diagnostics.error(wrapped);
+        context.addEvidence('verifier-error', wrapped.message, { verifierId: verifier.id }, {
+          status: 'failed',
+          confidence: 0.1,
+          source: verifier.id
+        });
+        this.logger.warn(wrapped.message, { verifierId: verifier.id });
         if (this.configuration.strict) throw wrapped;
       } finally {
         context.diagnostics.time(verifier.id, Date.now() - started);

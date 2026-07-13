@@ -16,9 +16,16 @@ class ResponseRegistry {
     generator.id = id;
     if (Number.isFinite(options.priority)) generator.priority = Number(options.priority);
     if (options.enabled !== undefined) generator.enabled = options.enabled !== false;
+    if (this.generators.has(id) && options.replace !== true) {
+      throw new ConfigurationError(`Response generator already registered: ${id}`);
+    }
     this.generators.set(id, generator);
     return this;
   }
+
+  get(id) { return this.generators.get(String(id || '').trim()) || null; }
+  unregister(id) { return this.generators.delete(String(id || '').trim()); }
+  count() { return this.generators.size; }
 
   list({ includeDisabled = true } = {}) {
     return [...this.generators.values()]
@@ -36,7 +43,11 @@ class ResponseRegistry {
     }));
   }
 
-  clear() { this.generators.clear(); }
+  clear() {
+    const count = this.generators.size;
+    this.generators.clear();
+    return count;
+  }
 }
 
 module.exports = ResponseRegistry;

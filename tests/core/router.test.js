@@ -434,6 +434,83 @@ describe('Action Router', function() {
     assert.equal(executed[1].entities.value, 50);
   });
 
+  it('should not split one web search target just because it contains and', async function() {
+    const config = {
+      permissions: {
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false },
+          medium: { requiresConfirmation: false, requiresAuth: false }
+        }
+      }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+    const result = await router.process('search for cats and dogs', 'chat');
+
+    assert.equal(result.intent, 'browser.search');
+    assert.equal(result.entities.query, 'cats and dogs');
+    assert.deepEqual(executed.map(step => step.actionId), ['browser.search']);
+  });
+
+  it('should carry setting intent across compact volume and brightness commands', async function() {
+    const config = {
+      permissions: {
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false },
+          medium: { requiresConfirmation: false, requiresAuth: false }
+        }
+      }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+    const result = await router.process('set volume to 40 and brightness to 60', 'chat');
+
+    assert.equal(result.intent, 'multi.command');
+    assert.deepEqual(executed.map(step => step.actionId), ['volume.set', 'brightness.set']);
+    assert.equal(executed[0].entities.value, 40);
+    assert.equal(executed[1].entities.value, 60);
+  });
+
+  it('should route command-corpus folder suffixes and maximum brightness without clarification', async function() {
+    const config = {
+      permissions: {
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false },
+          medium: { requiresConfirmation: false, requiresAuth: false }
+        }
+      }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const folder = await router.process('Create Projects folder', 'chat');
+    const brightness = await router.process('Set brightness to maximum', 'chat');
+
+    assert.equal(folder.intent, 'folder.create');
+    assert.equal(folder.entities.folderName, 'Projects');
+    assert.equal(brightness.intent, 'brightness.set');
+    assert.equal(brightness.entities.value, 100);
+    assert.deepEqual(executed.map(step => step.actionId), ['folder.create', 'brightness.set']);
+  });
+
   it('should execute three or four app commands and carry the verb to bare follow-up apps', async function() {
     const config = {
       permissions: {
@@ -825,6 +902,35 @@ describe('Action Router', function() {
     const result = await router.process('open apple music', 'chat');
     assert.equal(result.intent, 'app.open');
     assert.equal(result.entities.appName, 'apple music');
+  });
+
+  it('should route commands.md Windows app aliases to concrete app opening', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const recorder = await router.process('open voice recorder', 'chat');
+    const store = await router.process('open microsoft store', 'chat');
+    const deviceManager = await router.process('open device manager', 'chat');
+    const updateSettings = await router.process('open update settings', 'chat');
+
+    assert.equal(recorder.intent, 'app.open');
+    assert.equal(recorder.entities.appName, 'soundrecorder');
+    assert.equal(store.intent, 'app.open');
+    assert.equal(store.entities.appName, 'microsoft store');
+    assert.equal(deviceManager.intent, 'app.open');
+    assert.equal(deviceManager.entities.appName, 'devmgmt.msc');
+    assert.equal(updateSettings.intent, 'app.open');
+    assert.equal(updateSettings.entities.appName, 'ms-settings:windowsupdate');
+    assert.ok(executed.every(step => step.actionId === 'app.open'));
   });
 
   it('should route unknown app names to app.open for app discovery', async function() {
@@ -2149,6 +2255,23 @@ describe('Action Router', function() {
     assert.equal(result.entities.mediaPlatform, 'youtube');
   });
 
+  it('should preserve song titles that contain and as one media request', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const stubEngine = {
+      execute(actionId, entities) {
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+    const result = await router.process('play Stars and Stripes Forever song', 'chat');
+
+    assert.equal(result.intent, 'media.play');
+    assert.equal(result.entities.mediaQuery, 'stars and stripes forever');
+    assert.equal(result.entities.mediaPlatform, 'youtube');
+  });
+
   it('should preserve playdate title in natural media playback wording', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
@@ -2252,6 +2375,7 @@ describe('Action Router', function() {
 
     const running = await router.process('what apps are running', 'chat');
     const processes = await router.process('what processes are running', 'chat');
+    const background = await router.process('show background apps', 'chat');
     const chromeStatus = await router.process('check what apps are running and if chrome is opened tell me chrome is opened', 'chat');
     const cpu = await router.process('what is the cpu usage', 'chat');
     const ram = await router.process('what is the ram usage', 'chat');
@@ -2265,6 +2389,8 @@ describe('Action Router', function() {
     assert.equal(running.entities.target, 'apps');
     assert.equal(processes.intent, 'system.processes');
     assert.equal(processes.entities.target, 'processes');
+    assert.equal(background.intent, 'system.processes');
+    assert.equal(background.entities.target, 'apps');
     assert.equal(chromeStatus.intent, 'system.processes');
     assert.equal(chromeStatus.entities.target, 'apps');
     assert.equal(chromeStatus.entities.queryApp, 'chrome');
@@ -2384,6 +2510,9 @@ describe('Action Router', function() {
     const fan = await router.process('why is my laptop fan running so fast', 'chat');
     const space = await router.process("show me what's taking up space", 'chat');
     const installs = await router.process('show recently installed applications', 'chat');
+    const gpu = await router.process('show GPU usage', 'chat');
+    const network = await router.process('show network usage', 'chat');
+    const specs = await router.process('show device specifications', 'chat');
 
     assert.equal(memory.intent, 'system.insight');
     assert.equal(memory.entities.insightType, 'topMemoryApp');
@@ -2397,6 +2526,12 @@ describe('Action Router', function() {
     assert.equal(space.entities.insightType, 'storageUsage');
     assert.equal(installs.intent, 'system.insight');
     assert.equal(installs.entities.insightType, 'recentlyInstalledApps');
+    assert.equal(gpu.intent, 'system.insight');
+    assert.equal(gpu.entities.insightType, 'gpuUsage');
+    assert.equal(network.intent, 'system.insight');
+    assert.equal(network.entities.insightType, 'networkUsage');
+    assert.equal(specs.intent, 'system.insight');
+    assert.equal(specs.entities.insightType, 'systemSummary');
     assert.ok(executed.every(step => step.actionId === 'system.insight'));
   });
 

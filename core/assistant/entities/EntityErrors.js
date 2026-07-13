@@ -7,7 +7,19 @@ class EntityError extends Error {
     this.context = details.context || null;
     this.diagnostics = details.diagnostics || [];
     this.code = details.code || this.constructor.name;
+    this.timestamp = Date.now();
     if (details.cause) this.cause = details.cause;
+  }
+
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      code: this.code,
+      context: this.context,
+      diagnostics: this.diagnostics,
+      timestamp: this.timestamp
+    };
   }
 }
 

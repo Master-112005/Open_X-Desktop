@@ -39,6 +39,8 @@ class LinguisticUnderstandingStage extends PipelineStage {
         sentenceCount: linguisticGraph.sentences.length,
         clauseCount: linguisticGraph.clauses.length,
         dependencyCount: linguisticGraph.dependencies.length,
+        questionCount: linguisticGraph.summary?.questionCount || 0,
+        pronounCount: linguisticGraph.summary?.pronounCount || 0,
         linguisticVersion: linguisticGraph.linguisticVersion
       }
     });

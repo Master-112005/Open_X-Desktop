@@ -20,6 +20,7 @@ class LinguisticGraph {
     questions = [],
     grammaticalRelationships = [],
     diagnostics = [],
+    summary = {},
     confidence = 1,
     timing = {},
     futureExtensions = {},
@@ -41,6 +42,7 @@ class LinguisticGraph {
     this.questions = Array.isArray(questions) ? questions.slice() : [];
     this.grammaticalRelationships = Array.isArray(grammaticalRelationships) ? grammaticalRelationships.slice() : [];
     this.diagnostics = Array.isArray(diagnostics) ? diagnostics.slice() : [];
+    this.summary = { ...(summary || {}) };
     this.confidence = Math.max(0, Math.min(1, Number(confidence) || 0));
     this.timing = { ...(timing || {}) };
     this.futureExtensions = { ...(futureExtensions || {}) };

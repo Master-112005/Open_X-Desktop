@@ -3,9 +3,19 @@
 const BaseNormalizer = require('./BaseNormalizer');
 
 const DEFAULT_SLANG = Object.freeze({
+  bro: '',
+  bruh: '',
+  cuz: 'because',
   gonna: 'going to',
   gotta: 'got to',
-  wanna: 'want to'
+  wanna: 'want to',
+  kinda: 'kind of',
+  lemme: 'let me',
+  msg: 'message',
+  pls: 'please',
+  plz: 'please',
+  rn: 'right now',
+  ya: 'you'
 });
 
 class SlangNormalizer extends BaseNormalizer {
@@ -15,11 +25,14 @@ class SlangNormalizer extends BaseNormalizer {
   }
 
   normalize(context) {
+    const replacements = [];
     const next = String(context.workingText || '').replace(/\b[a-zA-Z']+\b/g, token => {
-      const replacement = this.dictionary[token.toLowerCase()];
-      return replacement || token;
-    });
-    return context.setText(next, this.id);
+      const key = token.toLowerCase();
+      if (!Object.prototype.hasOwnProperty.call(this.dictionary, key)) return token;
+      replacements.push({ from: token, to: this.dictionary[key] });
+      return this.dictionary[key];
+    }).replace(/[ \t]{2,}/g, ' ').trim();
+    return context.setText(next, this.id, { replacements });
   }
 }
 

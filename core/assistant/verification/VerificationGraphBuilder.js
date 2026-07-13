@@ -13,16 +13,29 @@ class VerificationGraphBuilder extends BaseVerifier {
       action: node.action || null
     }));
     context.evidence.forEach((evidence, index) => {
-      nodes.push({ id: `evidence:${index + 1}`, type: 'evidence', value: evidence.value });
+      nodes.push({
+        id: `evidence:${index + 1}`,
+        type: 'evidence',
+        value: evidence.value,
+        status: evidence.status,
+        confidence: evidence.confidence,
+        evidenceType: evidence.type
+      });
     });
+    const evidenceEdges = context.evidence
+      .map((evidence, index) => evidence.data?.taskId
+        ? { from: evidence.data.taskId, to: `evidence:${index + 1}`, type: 'verified-by' }
+        : null)
+      .filter(Boolean);
     context.verificationGraph = deepFreeze({
       nodes,
-      edges: (context.automationResult?.executionGraph?.edges || []).slice(),
+      edges: (context.automationResult?.executionGraph?.edges || []).concat(evidenceEdges),
       timing: context.automationResult?.timing || {},
       diagnostics: {
         successfulActions: context.successfulActions.length,
         failedActions: context.failedActions.length,
-        skippedActions: context.skippedActions.length
+        skippedActions: context.skippedActions.length,
+        evidenceCount: context.evidence.length
       }
     });
     return context;
