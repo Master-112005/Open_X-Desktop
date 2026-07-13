@@ -4927,7 +4927,12 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
         return null;
       }
 
-      const greetingType = /\bgood\s+morning\b/.test(combined)
+      const asksWellbeing = variants.some(text =>
+        /\b(?:how\s+are\s+you|how\s+do\s+you\s+do|are\s+you\s+(?:ok|okay|ready))\b/.test(text)
+      );
+      const greetingType = asksWellbeing
+        ? 'wellbeing'
+        : /\bgood\s+morning\b/.test(combined)
         ? 'morning'
         : /\bgood\s+afternoon\b/.test(combined)
           ? 'afternoon'

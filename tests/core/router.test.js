@@ -1599,6 +1599,22 @@ describe('Action Router', function() {
     assert.equal(result.entities.platform, 'telegram');
   });
 
+  it('should preserve wellbeing meaning in mixed greeting utterances', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const router = new ActionRouter(config, {
+      execute() {
+        return { success: true, data: {} };
+      }
+    });
+    const result = await router.process('hi how are you', 'chat');
+
+    assert.equal(result.intent, 'greeting');
+    assert.equal(result.entities.greetingType, 'wellbeing');
+    assert.match(result.response, /doing|fine|ready/i);
+  });
+
   it('should route call commands to call.start', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
