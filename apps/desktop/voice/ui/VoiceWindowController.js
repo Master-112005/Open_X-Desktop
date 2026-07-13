@@ -411,6 +411,14 @@ body { animation: overlay-in 220ms var(--voice-ease) both; }
 #voice-overlay.expanded.medium #assistant-response { margin-top: 6px; max-height: 74px; overflow: hidden; padding-right: 0; }
 .voice-response-heading { margin-bottom: 6px; color: rgba(247,248,251,.58); font-size: 10.5px; font-weight: 800; letter-spacing: .06em; line-height: 1.1; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #voice-overlay.expanded.medium .voice-response-heading { margin-bottom: 4px; color: rgba(247,248,251,.74); }
+#voice-overlay.expanded.large section { overflow: visible; }
+#voice-overlay.expanded.large #assistant-response { width: calc(100vw - 34px); max-width: calc(100vw - 34px); margin-left: -55px; box-sizing: border-box; padding-right: 0; }
+#voice-overlay.expanded.large .voice-response-heading,
+#voice-overlay.expanded.large .voice-response-text,
+#voice-overlay.expanded.large .voice-card-list,
+#voice-overlay.expanded.large .voice-action-row { width: min(336px, 100%); margin-left: auto; margin-right: auto; box-sizing: border-box; }
+#voice-overlay.expanded.large .voice-response-heading { text-align: center; }
+#voice-overlay.expanded.large .voice-content-summary { display: flex; width: fit-content; margin-left: auto; margin-right: auto; }
 #voice-overlay.schedule-due-result section { overflow: visible; }
 #voice-overlay.schedule-due-result #assistant-response { width: calc(100vw - 34px); max-width: calc(100vw - 34px); margin-left: -55px; }
 #voice-overlay.schedule-due-result .voice-response-heading { max-width: 320px; margin-left: auto; margin-right: auto; text-align: center; }

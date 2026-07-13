@@ -40,6 +40,19 @@ describe('Human-style context and profile memory', function() {
     );
   });
 
+  it('resolves corrective volume follow-ups against the recent action', function() {
+    const context = new ContextManager({});
+    context.record('vol 100', {}, {
+      success: true,
+      intent: 'volume.set',
+      entities: { value: 100 }
+    });
+
+    assert.equal(context.resolveEllipticalFollowUp('no no set it to 40'), 'set volume to 40');
+    assert.equal(context.resolveEllipticalFollowUp('no set it to 60'), 'set volume to 60');
+    assert.equal(context.resolveEllipticalFollowUp('please set the vol to 70'), 'set volume to 70');
+  });
+
   it('carries discourse metadata through parser, NLP, and NLU', function() {
     const registry = new IntentRegistry();
     const nlp = new NlpProcessor(registry);
@@ -110,6 +123,66 @@ describe('Human-style context and profile memory', function() {
 
     assert.equal(routed[1].input, 'open firefox');
     assert.equal(routed[1].options.contextualRewrite.correction, 'open firefox');
+  });
+
+  it('rewrites corrective volume commands before routing', async function() {
+    const routed = [];
+    const assistant = new Assistant({ activeLearning: { enabled: false } }, {
+      router: {
+        process: async (input, source, options) => {
+          routed.push({ input, source, options });
+          const value = Number(input.match(/\b(\d{1,3})\b/)?.[1] || 0);
+          return {
+            success: true,
+            intent: 'volume.set',
+            entities: { value },
+            response: `Volume set to ${value}.`
+          };
+        }
+      },
+      automation: {},
+      eventBus: { publish() {} }
+    });
+
+    await assistant.processCommand('set volume to 100');
+    await assistant.processCommand('no no set it to 40');
+    await assistant.processCommand('please set the vol to 70');
+
+    assert.equal(routed[1].input, 'set volume to 40');
+    assert.equal(routed[1].options.contextualRewrite.correction, 'set volume to 40');
+    assert.equal(routed[2].input, 'set volume to 70');
+  });
+
+  it('warns when a new reminder matches an active existing reminder', async function() {
+    const dueAt = new Date('2030-01-01T14:30:00.000Z').toISOString();
+    const assistant = new Assistant({ activeLearning: { enabled: false } }, {
+      router: {
+        process: async () => ({
+          success: true,
+          intent: 'reminder.set',
+          entities: { reminderText: 'call mummy' },
+          data: { id: 'new-reminder', dueAt, message: 'call mummy' },
+          response: 'Okay, I will remind you to call mummy.'
+        })
+      },
+      automation: {
+        scheduler: {
+          scheduledItems: [{
+            id: 'existing-reminder',
+            kind: 'Reminder',
+            status: 'scheduled',
+            dueAt,
+            message: 'call mummy'
+          }]
+        }
+      },
+      eventBus: { publish() {} }
+    });
+
+    const result = await assistant.processCommand('remind me at 8 pm to call mummy');
+
+    assert.equal(result.success, true);
+    assert.match(result.response, /already have an active matching reminder/i);
   });
 
   it('stores phone numbers and arbitrary profile details but rejects secrets', function() {
