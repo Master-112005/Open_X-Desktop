@@ -162,11 +162,12 @@ class VoiceWindowController {
   updateState(view = {}) {
     this.lastView = view;
     if (this.window && !this._isDestroyed(this.window)) {
+      const shouldCollapse = this._shouldCollapseForState(view?.state);
+      if (shouldCollapse && this.resultSticky) {
+        return { updated: false, view, skipped: 'sticky-result' };
+      }
       this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.UPDATE_STATE, { view });
-      if (this._shouldCollapseForState(view?.state)) {
-        if (this.resultSticky) {
-          return { updated: true, view };
-        }
+      if (shouldCollapse) {
         this._clearResultTimers();
         this._setSizeMode('compact', { delayMs: 140 });
         this._sendOverlayOperation(VoiceOverlayIPC.OPERATIONS.DISPLAY_ASSISTANT_RESULT, {});

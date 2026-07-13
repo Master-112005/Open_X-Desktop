@@ -1902,6 +1902,45 @@ describe('Voice Subsystem Architecture', function() {
     assert.ok(sent.some(message => message.operation === 'hideOverlay'));
   });
 
+  it('should skip collapse-state IPC while a sticky assistant result is visible', function() {
+    const { VoiceWindowController } = require('../../apps/desktop/voice');
+    const sent = [];
+    class MockWindow {
+      constructor() {
+        this.webContents = { send: (_channel, message) => sent.push(message) };
+        this.destroyed = false;
+      }
+      isDestroyed() { return this.destroyed; }
+      loadURL(url) { this.url = url; return Promise.resolve(); }
+      setBounds(nextBounds) { this.bounds = nextBounds; }
+      getBounds() { return this.bounds; }
+      setAlwaysOnTop() {}
+      showInactive() { this.visible = true; }
+      hide() { this.visible = false; }
+      destroy() { this.destroyed = true; }
+    }
+    const controller = new VoiceWindowController({
+      BrowserWindow: MockWindow,
+      screen: {
+        getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1000, height: 700 } })
+      }
+    });
+
+    controller.createWindow();
+    controller.updateAssistantResult({
+      intent: 'browser.search',
+      response: 'I found results.',
+      persistUntilAction: true
+    });
+    sent.length = 0;
+    const update = controller.updateState({ state: 'CANCELLED', statusText: 'Voice cancelled.' });
+    controller.destroy();
+
+    assert.equal(update.updated, false);
+    assert.equal(update.skipped, 'sticky-result');
+    assert.equal(sent.length, 0);
+  });
+
   it('should coalesce pending Voice overlay operations while the renderer is loading', function() {
     const { VoiceWindowController } = require('../../apps/desktop/voice');
     const sent = [];
