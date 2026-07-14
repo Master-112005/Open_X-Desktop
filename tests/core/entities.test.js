@@ -211,6 +211,24 @@ describe('Entity Extractor', function() {
     assert.equal(entities.reminderText, 'eat lunch');
   });
 
+  it('should extract loose spoken clock reminders without swallowing the message', function() {
+    const extractor = new EntityExtractor({});
+    const intent = {
+      entities: [
+        { name: 'timeExpression', type: 'string', required: false },
+        { name: 'reminderText', type: 'string', required: true }
+      ]
+    };
+
+    const spaced = extractor.extract(intent, 'remind me at 12 21 to call mummy');
+    const spacedMeridiem = extractor.extract(intent, 'remind me at 1 8 am to call mummy');
+
+    assert.equal(spaced.timeExpression, '12:21');
+    assert.equal(spaced.reminderText, 'call mummy');
+    assert.equal(spacedMeridiem.timeExpression, '1:08 am');
+    assert.equal(spacedMeridiem.reminderText, 'call mummy');
+  });
+
   it('should extract reminder time when the time appears after the reminder text', function() {
     const extractor = new EntityExtractor({});
     const intent = {

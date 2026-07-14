@@ -257,6 +257,47 @@ function humanizeError(error) {
   return message.charAt(0).toUpperCase() + message.slice(1);
 }
 
+function formatDisplayName(value) {
+  const source = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!source) return '';
+  const known = {
+    chrome: 'Chrome',
+    instagram: 'Instagram',
+    linkedin: 'LinkedIn',
+    linkdin: 'LinkedIn',
+    whatsapp: 'WhatsApp',
+    vscode: 'VS Code',
+    'visual studio code': 'Visual Studio Code'
+  };
+  const normalized = source.toLowerCase();
+  if (known[normalized]) return known[normalized];
+  return source.split(' ').map(part => {
+    if (/^[A-Z0-9]{2,}$/.test(part)) return part;
+    return part.charAt(0).toUpperCase() + part.slice(1);
+  }).join(' ');
+}
+
+function humanizeExecutionFailure(context = {}) {
+  const intentId = String(context.intent?.id || context.intent || '').trim();
+  const entities = context.entities || {};
+  const error = String(context.error || '').trim();
+  const lowered = error.toLowerCase();
+
+  if (intentId === 'app.close' && lowered.includes('still appears to be open')) {
+    const appName = formatDisplayName(entities.appName || entities.targetApp || '');
+    return appName
+      ? `I could not close ${appName} because ${appName} still appears to be open`
+      : 'I could not close that app because it still appears to be open';
+  }
+
+  if (intentId === 'app.open' && lowered.includes('could not find app')) {
+    const appName = formatDisplayName(entities.appName || entities.targetApp || error.split(':').slice(1).join(':'));
+    return appName ? `I could not open ${appName} because I cannot find that app` : humanizeError(error);
+  }
+
+  return humanizeError(error);
+}
+
 const RESPONSE_BUILDERS = {
   success: {
     'volume.up': context => {
@@ -802,10 +843,15 @@ const RESPONSE_BUILDERS = {
     },
     'timer.set': context => {
       const duration = valueFromContext(context, 'duration');
+      const label = valueFromContext(context, 'timerLabel', '');
+      const target = label ? ` for ${label}` : '';
+      if (!duration) {
+        return 'I started the timer.';
+      }
       return chooseVariant(`timer.set:${duration}`, [
-        `Timer set for ${duration} minute${duration === 1 ? '' : 's'}.`,
-        `Starting a timer for ${duration} minute${duration === 1 ? '' : 's'} now.`,
-        `Done. Your ${duration} minute timer starts now.`
+        `I started a ${duration} minute timer${target}.`,
+        `Your ${duration} minute timer${target} is running now.`,
+        `Done. The ${duration} minute timer${target} starts now.`
       ]);
     },
     'alarm.set': context => {
@@ -813,19 +859,26 @@ const RESPONSE_BUILDERS = {
       const recurrence = valueFromContext(context, 'recurrence', null);
       const repeat = recurrence ? `${recurrence.replace(/-/g, ' ')} ` : '';
       return chooseVariant(`alarm.set:${time}`, [
-        `I've set a ${repeat}alarm for ${time}.`,
+        `I set a ${repeat}alarm for ${time}.`,
         `Your ${repeat}alarm is set for ${time}.`,
-        `Done, I'll wake you at ${time}${recurrence ? ` ${repeat.trim()}` : ''}.`
+        `Done. I will alert you at ${time}${recurrence ? ` ${repeat.trim()}` : ''}.`
       ]);
     },
     'reminder.set': context => {
       const txt = valueFromContext(context, 'reminderText');
+      const time = valueFromContext(context, 'timeExpression', '');
+      const duration = valueFromContext(context, 'duration', null);
       const recurrence = valueFromContext(context, 'recurrence', null);
       const repeat = recurrence ? `${recurrence.replace(/-/g, ' ')} ` : '';
+      const when = time
+        ? ` at ${time}`
+        : duration
+          ? ` in ${duration} minute${duration === 1 ? '' : 's'}`
+          : '';
       return chooseVariant(`reminder.set:${txt}`, [
-        `I've added a ${repeat}reminder to ${txt}.`,
-        `Okay, I will remind you ${recurrence ? repeat : ''}to ${txt}.`,
-        `Added ${repeat}reminder: ${txt}.`
+        `I added a ${repeat}reminder to ${txt}${when}.`,
+        `Okay, I will remind you ${recurrence ? repeat : ''}to ${txt}${when}.`,
+        `Reminder added: ${txt}${when}.`
       ]);
     },
     'timer.pause': () => 'Paused the active timer.',
@@ -1148,7 +1201,7 @@ const RESPONSE_BUILDERS = {
 
       return 'I did not understand that clearly. Say the action first, then the target. For example: open Chrome, find my resume, play a song, or remind me at 6 PM.';
     },
-    executionFailed: context => humanizeError(context?.error),
+    executionFailed: context => humanizeExecutionFailure(context),
     permissionDenied: () => 'I cannot do that with the current permission setting, but I can still help with other tasks.',
     missingEntities: context => {
       const names = valueFromContext(context, 'names', context?.entities?.names || 'details');

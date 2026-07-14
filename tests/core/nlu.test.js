@@ -66,6 +66,17 @@ describe('Natural Language Router', function() {
     );
   });
 
+  it('should parse shared utility values into complete executable frames', function() {
+    const router = createRouter();
+    const result = router.parse('set the vol and brighness to 40');
+
+    assert.equal(result.multiIntent, true);
+    assert.deepEqual(result.clauses, ['set volume to 40', 'set brightness to 40']);
+    assert.deepEqual(result.frames.map(frame => frame.intentId), ['volume.set', 'brightness.set']);
+    assert.deepEqual(result.frames.map(frame => frame.entities.value), [40, 40]);
+    assert.deepEqual(result.frames.map(frame => frame.validation.status), ['passed', 'passed']);
+  });
+
   it('should keep connector words inside one search target when no second action exists', function() {
     const router = createRouter();
     const result = router.parse('search for cats and dogs');

@@ -14,7 +14,7 @@ const {
 } = require('../reasoning/IntentPatternScorer');
 const { normalizeWebTarget } = require('../semantic/WebTargets');
 const { parseLearningDirective } = require('../learning/LearningLanguage');
-const { analyzeDiscourse, splitCommandClauses } = require('./LanguageAnalysis');
+const { analyzeDiscourse, parseIntentPhrase, splitCommandClauses } = require('./LanguageAnalysis');
 
 const PREPARE_CACHE_LIMIT = 4096;
 const PATTERN_CACHE_LIMIT = 2048;
@@ -51,6 +51,15 @@ class NlpProcessor {
         ...prepared.discourse,
         references: [...(prepared.discourse.references || [])]
       } : prepared.discourse,
+      intentPhrase: prepared.intentPhrase ? {
+        ...prepared.intentPhrase,
+        references: [...(prepared.intentPhrase.references || [])],
+        quotedPhrases: [...(prepared.intentPhrase.quotedPhrases || [])],
+        modifiers: {
+          ...(prepared.intentPhrase.modifiers || {}),
+          recurrence: [...(prepared.intentPhrase.modifiers?.recurrence || [])]
+        }
+      } : prepared.intentPhrase,
       tokens: [...(prepared.tokens || [])],
       intentTokens: [...(prepared.intentTokens || [])],
       bigrams: [...(prepared.bigrams || [])],
@@ -173,6 +182,7 @@ class NlpProcessor {
     const intentBigrams = buildBigrams(intentTokens);
     const learningDirective = parseLearningDirective(text);
     const discourse = analyzeDiscourse(text);
+    const intentPhrase = parseIntentPhrase(text);
     const commandClauses = splitCommandClauses(commandText || correctedText);
 
     return {
@@ -190,6 +200,7 @@ class NlpProcessor {
       intentTokens,
       learningDirective,
       discourse,
+      intentPhrase,
       commandClauses,
       bigrams,
       intentBigrams
@@ -200,13 +211,14 @@ class NlpProcessor {
     const safeTokens = Array.isArray(tokens) ? tokens : [];
     const text = String(correctedText || '').trim().toLowerCase();
     const raw = String(rawText || '').trim().toLowerCase();
-    const action = this._findNoisyAction(safeTokens);
     const discourse = analyzeDiscourse(rawText || correctedText);
+    const intentPhrase = parseIntentPhrase(rawText || correctedText);
+    const action = this._findNoisyAction(safeTokens) || (intentPhrase.action ? { verb: intentPhrase.action, index: -1 } : null);
     const value = Normalizer.extractNumber(text);
     const questionWord = safeTokens.find(token => ['what', 'who', 'when', 'where', 'why', 'how', 'which'].includes(token)) || null;
-    const targetText = action
+    const targetText = intentPhrase.objectText || (action
       ? this._extractTargetTextAfterAction(text, action.verb)
-      : this._extractQuestionTargetText(text, questionWord);
+      : this._extractQuestionTargetText(text, questionWord));
     const normalizedTargetText = this._normalizeTargetText(targetText, action?.verb || null);
     const localScope = this._findLocalScope(text, raw);
     const webTarget = normalizeWebTarget(normalizedTargetText || text);
@@ -230,6 +242,7 @@ class NlpProcessor {
 
     return {
       actionVerb: action?.verb || null,
+      actionPhrase: intentPhrase.actionPhrase || '',
       questionWord,
       targetText: normalizedTargetText,
       targetType,
@@ -239,7 +252,8 @@ class NlpProcessor {
       isCorrection: discourse.isCorrection === true,
       localScope,
       requiresWeb: targetType === 'web' || targetType === 'knowledge',
-      isLocal: targetType === 'local-file' || targetType === 'local-app'
+      isLocal: targetType === 'local-file' || targetType === 'local-app',
+      intentPhrase
     };
   }
 

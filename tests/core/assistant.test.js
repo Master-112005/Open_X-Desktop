@@ -112,7 +112,40 @@ describe('Assistant Confirmation Flow', function() {
     assert.deepEqual(executed.map(step => step.actionId), ['app.close', 'volume.set']);
     assert.equal(executed[0].entities.appName, 'chrome');
     assert.equal(executed[1].entities.value, 100);
-    assert.match(confirmed.response, /Completed 2 commands/i);
+    assert.match(confirmed.response, /closed chrome/i);
+    assert.match(confirmed.response, /set the volume to 100%/i);
+  });
+
+  it('should execute shared-value volume and brightness commands without clarification', async function() {
+    const executed = [];
+    const automation = {
+      execute: async (actionId, entities) => {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const assistant = new Assistant({
+      permissions: {
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false }
+        }
+      },
+      activeLearning: { enabled: false }
+    }, {
+      automation,
+      eventBus: { publish() {} }
+    });
+
+    const result = await assistant.processCommand('set the vol and brighness to 40', 'chat');
+
+    assert.equal(result.success, true);
+    assert.equal(result.needsClarification, undefined);
+    assert.equal(result.intent, 'multi.command');
+    assert.deepEqual(result.entities.commands, ['set volume to 40', 'set brightness to 40']);
+    assert.deepEqual(executed.map(step => step.actionId), ['volume.set', 'brightness.set']);
+    assert.deepEqual(executed.map(step => step.entities.value), [40, 40]);
+    assert.match(result.response, /set the volume and brightness to 40%/i);
+    assert.doesNotMatch(result.response, /completed 2 commands/i);
   });
 
   it('should close a selected window after an ambiguity prompt', async function() {
@@ -430,7 +463,7 @@ describe('Assistant Confirmation Flow', function() {
     await assistant.processCommand('What are its uses?', 'chat');
 
     assert.deepEqual(routedInputs, [
-      'Explain Docker in simple words.',
+      'explain docker in simple words',
       'search for how docker works',
       'search for docker uses'
     ]);
@@ -1589,7 +1622,60 @@ describe('Assistant Confirmation Flow', function() {
     await assistant.processCommand('can you please open instagram');
     await assistant.processCommand('can please close that');
 
-    assert.deepEqual(routedInputs, ['can you please open instagram', 'close instagram']);
+    assert.deepEqual(routedInputs, ['open instagram', 'close instagram']);
+  });
+
+  it('should resolve plural app follow-ups like close them after opening multiple apps', async function() {
+    const routedInputs = [];
+    const router = {
+      process: async input => {
+        routedInputs.push(input);
+        if (input === 'open chrome and instagram and whatsapp') {
+          return {
+            commandId: 'cmd-open-many',
+            success: true,
+            intent: 'multi.command',
+            confidence: 1,
+            entities: { commands: ['open chrome', 'open instagram', 'open whatsapp'] },
+            steps: [
+              { success: true, intent: 'app.open', entities: { appName: 'chrome' }, response: 'Opened Chrome.' },
+              { success: true, intent: 'app.open', entities: { appName: 'instagram' }, response: 'Opened Instagram.' },
+              { success: true, intent: 'app.open', entities: { appName: 'whatsapp' }, response: 'Opened WhatsApp.' }
+            ],
+            response: 'Done, sir. I opened Chrome, Instagram, and WhatsApp.'
+          };
+        }
+        return {
+          commandId: 'cmd-close-many',
+          success: true,
+          intent: 'multi.command',
+          confidence: 1,
+          entities: { commands: input.split(/\s+and\s+/) },
+          steps: input.split(/\s+and\s+/).map(clause => ({
+            success: true,
+            intent: 'app.close',
+            entities: { appName: clause.replace(/^close\s+/i, '') },
+            response: `Closed ${clause.replace(/^close\s+/i, '')}.`
+          })),
+          response: 'Done.'
+        };
+      }
+    };
+
+    const assistant = new Assistant({}, {
+      router,
+      learning: { enabled: false },
+      automation: {},
+      eventBus: { publish() {} }
+    });
+
+    await assistant.processCommand('open chrome and instagram and whatsapp');
+    await assistant.processCommand('close them');
+
+    assert.deepEqual(routedInputs, [
+      'open chrome and instagram and whatsapp',
+      'close chrome and close instagram and close whatsapp'
+    ]);
   });
 
   it('should resolve app status context before window follow-ups', async function() {

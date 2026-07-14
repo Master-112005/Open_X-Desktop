@@ -10,7 +10,7 @@ class HabitLearning extends BaseLearningModule {
     for (const action of actions) {
       const route = normalizeLearningKey(action.route || action.action || action.taskId);
       if (!route) continue;
-      if (context.storage.getCount('statistics', `statistic:command.${route}`) + 1 >= threshold) {
+      if (context.predictedCount('statistics', `statistic:command.${route}`, 'statistic') >= threshold) {
         context.addEvent({
           category: 'habit',
           key: `command.${route}`,

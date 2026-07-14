@@ -1855,6 +1855,11 @@ class Assistant extends EventEmitter {
       return phoneTransferFollowUp;
     }
 
+    const pluralAppFollowUp = this._resolvePluralAppFollowUp(normalized);
+    if (pluralAppFollowUp) {
+      return pluralAppFollowUp;
+    }
+
     const lastReference = this._getLastReferenceTarget();
     const lastFileEntry = this.context.getLastFileReference();
     const lastFile = this.context.getFileReference(lastFileEntry);
@@ -1931,6 +1936,46 @@ class Assistant extends EventEmitter {
     }
 
     return `list ${type ? `${type} ` : ''}files in ${path}`;
+  }
+
+  _resolvePluralAppFollowUp(normalized) {
+    const match = String(normalized || '').match(
+      /^(?:(?:can|could|would)\s+(?:you\s+)?(?:please\s+)?)?(open|launch|start|run|close|quit|exit|terminate|switch|focus|minimize|maximize)\s+(?:them|those|these|they|all(?:\s+of\s+them)?|the\s+apps|those\s+apps|these\s+apps)(?:\s+again)?$/i
+    );
+    if (!match?.[1]) {
+      return '';
+    }
+
+    const action = match[1].toLowerCase();
+    const verbMap = {
+      launch: 'open',
+      start: 'open',
+      run: 'open',
+      quit: 'close',
+      exit: 'close',
+      terminate: 'close',
+      focus: 'switch to'
+    };
+    const verb = verbMap[action] || action;
+    const preferredIntent = verb === 'close'
+      ? 'app.open'
+      : verb === 'open'
+        ? 'app.close'
+        : null;
+    const group = this.context.getLastAppGroup?.(preferredIntent) ||
+      this.context.getLastAppGroup?.() ||
+      null;
+    const appNames = Array.isArray(group?.entities?.appNames)
+      ? group.entities.appNames.map(name => String(name || '').trim()).filter(Boolean)
+      : [];
+    const uniqueNames = Array.from(new Set(appNames.map(name => name.toLowerCase())))
+      .map(lower => appNames.find(name => name.toLowerCase() === lower))
+      .filter(Boolean);
+    if (uniqueNames.length === 0) {
+      return '';
+    }
+
+    return uniqueNames.map(appName => `${verb} ${appName}`).join(' and ');
   }
 
   _getLastFolderReferencePath() {

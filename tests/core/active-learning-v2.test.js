@@ -114,6 +114,31 @@ describe('Active Learning v2', function() {
     );
   });
 
+  it('returns a bounded overview across all active learning stores', function() {
+    const { manager } = createManager();
+
+    manager.approveAlias('code', 'Code.exe');
+    manager.setPreference('browser', 'chrome');
+    manager.approveCorrection('open code', 'open vscode');
+    manager.approveWorkflow('morning', ['open chrome', 'show calendar']);
+    manager.recordUsage('chrome');
+    manager.learnAlias('editor', 'Code.exe');
+    manager.learnAlias('editor', 'Code.exe');
+    manager.learnAlias('editor', 'Code.exe');
+
+    const overview = manager.getLearningOverview({ limit: 1 });
+    const commandOverview = manager.handleUserCommand('show learning overview');
+
+    assert.equal(overview.enabled, true);
+    assert.equal(overview.counts.aliases, 1);
+    assert.equal(overview.counts.preferences, 1);
+    assert.equal(overview.counts.corrections, 1);
+    assert.equal(overview.counts.workflows, 1);
+    assert.equal(overview.counts.pendingSuggestions, 1);
+    assert.equal(overview.topUsed.length, 1);
+    assert.equal(commandOverview.counts.pendingSuggestions, 1);
+  });
+
   it('bounds in-memory suggestion buffers for noisy commands', function() {
     const { manager } = createManager();
 

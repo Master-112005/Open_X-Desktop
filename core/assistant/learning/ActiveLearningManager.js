@@ -303,6 +303,30 @@ class ActiveLearningManager {
     };
   }
 
+  getLearningOverview(options = {}) {
+    const limit = Math.max(1, Math.min(50, Number(options.limit) || 10));
+    const topUsed = this.getTopUsed(limit);
+    const pendingSuggestions = this.getPendingSuggestions();
+    return {
+      enabled: this.enabled,
+      learningPath: this.learningPath,
+      counts: {
+        aliases: Object.keys(this.aliasStore.getAllAliases()).length,
+        preferences: Object.keys(this.preferenceStore.getAllPreferences()).length,
+        corrections: Object.keys(this.correctionStore.getAllCorrections()).length,
+        workflows: Object.keys(this.workflowStore.getAllWorkflows()).length,
+        usageStats: Object.keys(this.usageStatsStore.getAllStats()).length,
+        pendingSuggestions:
+          pendingSuggestions.aliases.length +
+          pendingSuggestions.corrections.length +
+          pendingSuggestions.workflows.length
+      },
+      topUsed,
+      pendingSuggestions,
+      status: this.getStatus()
+    };
+  }
+
   getStatus() {
     return {
       enabled: this.enabled,
@@ -331,6 +355,9 @@ class ActiveLearningManager {
     }
     if (normalized === 'show my usage' || normalized === 'show usage stats' || normalized === 'show usage statistics') {
       return this.showUsageStats();
+    }
+    if (normalized === 'show learning overview' || normalized === 'show my learning overview' || normalized === 'show learned overview') {
+      return this.getLearningOverview();
     }
     if (normalized === 'show pending suggestions' || normalized === 'show suggestions') {
       const suggestions = this.getPendingSuggestions();

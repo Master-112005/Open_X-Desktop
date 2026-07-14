@@ -113,7 +113,7 @@ describe('Active Learning Store', function() {
     assert.equal(reloaded.getPreference('photoLibrary').value, 'googlePhotos');
   });
 
-  it('should suppress repeated high-confidence feedback prompts for the same action', function() {
+  it('should ask for feedback only when active-learning utility is high', function() {
     const { store } = createStore();
     const entry = {
       input: 'open chrome',
@@ -123,10 +123,20 @@ describe('Active Learning Store', function() {
       confidence: 1
     };
 
-    assert.equal(store.shouldAskForFeedback(entry), true);
-    store.recordFeedbackPrompt(entry);
     assert.equal(store.shouldAskForFeedback(entry), false);
-    assert.equal(store.shouldAskForFeedback({ ...entry, confidence: 0.6 }), true);
+
+    const uncertain = { ...entry, confidence: 0.55 };
+    const score = store.scoreFeedbackOpportunity(uncertain);
+    assert.equal(score.shouldAsk, true);
+    assert.ok(score.reasons.includes('uncertain-route'));
+    assert.equal(store.shouldAskForFeedback(uncertain), true);
+
+    const prompt = store.recordFeedbackPrompt(uncertain);
+    assert.equal(prompt.activeLearning.shouldAsk, true);
+    assert.equal(store.shouldAskForFeedback(uncertain), false);
+
+    const recovered = { ...entry, confidence: 0.95, contextualRewrite: { correction: 'open chrome' } };
+    assert.equal(store.shouldAskForFeedback(recovered), true);
   });
 
   it('should remember and answer explicit user identity facts', function() {
@@ -241,6 +251,38 @@ describe('Active Learning Store', function() {
     assert.equal(snapshot.feedback[0].validation.status, 'passed');
     assert.equal(snapshot.feedback[0].verification.status, 'failed');
     assert.equal(snapshot.mistakes[0].verification.check, 'file-exists');
+  });
+
+  it('should use recent mistakes and redacted prompt metadata for active learning', function() {
+    const { store } = createStore();
+
+    store.recordFeedback({
+      input: 'open chorme',
+      routedInput: 'open chorme',
+      intent: 'app.open',
+      success: false,
+      rating: 'negative',
+      note: 'wrong app opened',
+      validation: { status: 'passed' },
+      verification: { status: 'failed' }
+    });
+
+    const retry = {
+      input: 'open chorme',
+      routedInput: 'open chorme',
+      intent: 'app.open',
+      entities: { appName: 'chrome', password: 'hunter2' },
+      confidence: 0.99
+    };
+    const score = store.scoreFeedbackOpportunity(retry);
+    const prompt = store.recordFeedbackPrompt(retry);
+    const insights = store.getLearningInsights(5);
+
+    assert.equal(store.shouldAskForFeedback(retry), true);
+    assert.ok(score.reasons.includes('similar-prior-mistake'));
+    assert.equal(prompt.entities.password, '[redacted]');
+    assert.equal(insights.recentFeedbackPrompts[0].score, prompt.activeLearning.score);
+    assert.deepEqual(insights.activeLearning.feedbackScoreThreshold, 0.45);
   });
 
   it('should not persist communication recipients in active-learning records', function() {

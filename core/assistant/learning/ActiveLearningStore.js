@@ -10,6 +10,9 @@ const MAX_PROMPTS = 100;
 const MAX_ROUTE_EVIDENCE = 200;
 const MAX_PREFERENCES = 100;
 const MAX_USER_FACTS = 150;
+const DEFAULT_FEEDBACK_SCORE_THRESHOLD = 0.45;
+const DEFAULT_FEEDBACK_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_FEEDBACK_NOVELTY_WINDOW = 20;
 const PRIVATE_COMMUNICATION_INTENTS = new Set(['message.send', 'email.compose', 'call.start']);
 
 function containsPrivateCommunicationIntent(intentOrList) {
@@ -167,6 +170,24 @@ class ActiveLearningStore {
     this.enabled = config?.activeLearning?.enabled !== false;
     this.askForFeedback = config?.activeLearning?.askForFeedback !== false;
     this.saveDelayMs = Number(config?.activeLearning?.saveDelayMs || 250);
+    this.feedbackScoreThreshold = this._clampNumber(
+      config?.activeLearning?.feedbackScoreThreshold,
+      DEFAULT_FEEDBACK_SCORE_THRESHOLD,
+      0,
+      1
+    );
+    this.feedbackCooldownMs = this._clampNumber(
+      config?.activeLearning?.feedbackCooldownMs,
+      DEFAULT_FEEDBACK_COOLDOWN_MS,
+      0,
+      7 * 24 * 60 * 60 * 1000
+    );
+    this.feedbackNoveltyWindow = Math.round(this._clampNumber(
+      config?.activeLearning?.feedbackNoveltyWindow,
+      DEFAULT_FEEDBACK_NOVELTY_WINDOW,
+      1,
+      MAX_PROMPTS
+    ));
     this.pendingSaveTimer = null;
     this.storePath = config?.activeLearning?.storePath || buildDataPaths(config).learningPath;
     const loadedData = this._load();
@@ -185,6 +206,11 @@ class ActiveLearningStore {
       enabled: this.enabled,
       askForFeedback: this.askForFeedback,
       storePath: this.storePath,
+      activeLearning: {
+        feedbackScoreThreshold: this.feedbackScoreThreshold,
+        feedbackCooldownMs: this.feedbackCooldownMs,
+        feedbackNoveltyWindow: this.feedbackNoveltyWindow
+      },
       pendingSave: Boolean(this.pendingSaveTimer),
       counts: {
         commandRewrites: this.data.commandRewrites?.length || 0,
@@ -747,12 +773,12 @@ class ActiveLearningStore {
       routedInput: cleanCommand(entry?.routedInput || entry?.input),
       intent: entry?.intent || null,
       success: Boolean(entry?.success),
-      rating: entry?.rating || 'unknown',
+      rating: LearningGuard.sanitizeForLearning(entry?.rating || 'unknown'),
       correction: cleanCommand(entry?.correction || ''),
-      note: String(entry?.note || '').trim(),
-      languageUnderstanding: isPlainObject(entry?.languageUnderstanding) ? entry.languageUnderstanding : null,
-      validation: isPlainObject(entry?.validation) ? entry.validation : null,
-      verification: isPlainObject(entry?.verification) ? entry.verification : null
+      note: LearningGuard.sanitizeForLearning(String(entry?.note || '').trim()),
+      languageUnderstanding: isPlainObject(entry?.languageUnderstanding) ? LearningGuard.sanitizeForLearning(entry.languageUnderstanding) : null,
+      validation: isPlainObject(entry?.validation) ? LearningGuard.sanitizeForLearning(entry.validation) : null,
+      verification: isPlainObject(entry?.verification) ? LearningGuard.sanitizeForLearning(entry.verification) : null
     };
 
     this.data.feedback.unshift(record);
@@ -841,14 +867,94 @@ class ActiveLearningStore {
       return false;
     }
 
-    const confidence = Number(entry.confidence ?? 1);
-    const recovered = Boolean(entry.recovered || entry.learnedCorrection || entry.contextualRewrite);
+    const activeLearning = this.scoreFeedbackOpportunity(entry);
+    if (!activeLearning.shouldAsk) {
+      return false;
+    }
+
     const previousPrompt = this.data.feedbackPrompts.find(prompt => prompt.key === key);
     if (!previousPrompt) {
       return true;
     }
 
-    return recovered || confidence < 0.82;
+    const promptAgeMs = Date.now() - (Date.parse(previousPrompt.promptedAt || 0) || 0);
+    if (promptAgeMs < this.feedbackCooldownMs && !activeLearning.forceAsk) {
+      return false;
+    }
+
+    return true;
+  }
+
+  scoreFeedbackOpportunity(entry = {}) {
+    const key = this.buildFeedbackKey(entry);
+    if (!key) {
+      return {
+        key: '',
+        score: 0,
+        threshold: this.feedbackScoreThreshold,
+        shouldAsk: false,
+        forceAsk: false,
+        reasons: ['no-feedback-key']
+      };
+    }
+
+    const reasons = [];
+    const confidence = this._normalizeConfidence(entry.confidence);
+    const uncertainty = 1 - confidence;
+    let score = Math.min(0.35, uncertainty * 0.55);
+    if (uncertainty >= 0.18) reasons.push('uncertain-route');
+
+    const recovered = Boolean(entry.recovered || entry.learnedCorrection || entry.contextualRewrite);
+    if (recovered) {
+      score += 0.34;
+      reasons.push('recovered-route');
+    }
+
+    const validationStatus = this._statusText(entry.validation?.status || entry.validationStatus);
+    const verificationStatus = this._statusText(entry.verification?.status || entry.verificationStatus);
+    if (['unknown', 'incomplete', 'warning'].includes(validationStatus)) {
+      score += 0.16;
+      reasons.push(`validation-${validationStatus}`);
+    }
+    if (['unknown', 'failed', 'warning'].includes(verificationStatus)) {
+      score += verificationStatus === 'failed' ? 0.3 : 0.12;
+      reasons.push(`verification-${verificationStatus}`);
+    }
+
+    const priorMistake = this._hasRecentMistakeForEntry(entry, key);
+    if (priorMistake) {
+      score += 0.24;
+      reasons.push('similar-prior-mistake');
+    }
+
+    if (this._isNovelFeedbackKey(key, entry.intent)) {
+      score += 0.1;
+      reasons.push('novel-action-target');
+    }
+
+    const routeSource = String(entry.routeSource || entry.languageUnderstanding?.routeSource || '').toLowerCase();
+    if (/learned|fuzzy|fallback|context/.test(routeSource)) {
+      score += 0.16;
+      reasons.push('non-primary-route');
+    }
+
+    const forceAsk = recovered || priorMistake || verificationStatus === 'failed';
+    const boundedScore = Math.max(0, Math.min(1, Number(score.toFixed(3))));
+    const shouldAsk = forceAsk || boundedScore >= this.feedbackScoreThreshold;
+    if (!shouldAsk && reasons.length === 0) {
+      reasons.push('high-confidence-routine');
+    }
+
+    return {
+      key,
+      score: boundedScore,
+      threshold: this.feedbackScoreThreshold,
+      confidence,
+      uncertainty: Number(uncertainty.toFixed(3)),
+      shouldAsk,
+      forceAsk,
+      reasons
+    };
   }
 
   recordFeedbackPrompt(entry = {}) {
@@ -863,13 +969,15 @@ class ActiveLearningStore {
 
     const now = new Date().toISOString();
     const existing = this.data.feedbackPrompts.find(prompt => prompt.key === key);
+    const activeLearning = this.scoreFeedbackOpportunity(entry);
     const record = {
       key,
       input: cleanCommand(entry.input),
       routedInput: cleanCommand(entry.routedInput || entry.input),
       intent: entry.intent || null,
-      entities: isPlainObject(entry.entities) ? entry.entities : {},
+      entities: isPlainObject(entry.entities) ? LearningGuard.sanitizeForLearning(entry.entities) : {},
       confidence: Number(entry.confidence ?? 1),
+      activeLearning,
       promptedAt: now,
       count: existing ? Number(existing.count || 0) + 1 : 1
     };
@@ -883,6 +991,43 @@ class ActiveLearningStore {
 
     this._save();
     return record;
+  }
+
+  getLearningInsights(limit = 10) {
+    const cap = Math.max(1, Math.min(50, Number(limit) || 10));
+    return {
+      activeLearning: {
+        feedbackScoreThreshold: this.feedbackScoreThreshold,
+        feedbackCooldownMs: this.feedbackCooldownMs,
+        feedbackNoveltyWindow: this.feedbackNoveltyWindow
+      },
+      recentFeedbackPrompts: (this.data.feedbackPrompts || []).slice(0, cap).map(prompt => ({
+        key: prompt.key,
+        input: prompt.input,
+        intent: prompt.intent,
+        confidence: prompt.confidence,
+        score: prompt.activeLearning?.score ?? null,
+        reasons: Array.isArray(prompt.activeLearning?.reasons) ? prompt.activeLearning.reasons : [],
+        promptedAt: prompt.promptedAt,
+        count: prompt.count
+      })),
+      recentMistakes: (this.data.mistakes || []).slice(0, cap).map(mistake => ({
+        input: mistake.input,
+        intent: mistake.intent,
+        rating: mistake.rating,
+        validationStatus: mistake.validation?.status || null,
+        verificationStatus: mistake.verification?.status || null,
+        timestamp: mistake.timestamp
+      })),
+      recentRoutingEvidence: (this.data.routingEvidence || []).slice(0, cap).map(evidence => ({
+        input: evidence.input,
+        intent: evidence.intent,
+        success: evidence.success,
+        routeSource: evidence.routeSource,
+        validationStatus: evidence.validationStatus,
+        timestamp: evidence.timestamp
+      }))
+    };
   }
 
   learnFromText(input) {
@@ -1364,6 +1509,56 @@ class ActiveLearningStore {
       fact: normalizeMemoryKey(kind),
       response: 'I can remember ordinary profile details, including your phone number, but I cannot store passwords, tokens, OTPs, payment data, or authentication secrets.'
     };
+  }
+
+  _clampNumber(value, fallback, min, max) {
+    const numeric = Number(value);
+    const safe = Number.isFinite(numeric) ? numeric : fallback;
+    return Math.max(min, Math.min(max, safe));
+  }
+
+  _normalizeConfidence(value) {
+    return this._clampNumber(value, 1, 0, 1);
+  }
+
+  _statusText(value) {
+    return String(value || '').trim().toLowerCase() || 'unknown';
+  }
+
+  _hasRecentMistakeForEntry(entry, key) {
+    if (!key) {
+      return false;
+    }
+    const intent = String(entry.intent || '').trim();
+    const input = normalizeCommand(entry.input || entry.routedInput || '');
+    return (this.data.mistakes || [])
+      .slice(0, 30)
+      .some(mistake => {
+        if (this.buildFeedbackKey(mistake) === key) {
+          return true;
+        }
+        if (intent && String(mistake.intent || '').trim() !== intent) {
+          return false;
+        }
+        const mistakeInput = normalizeCommand(mistake.input || mistake.routedInput || '');
+        return Boolean(input && mistakeInput && mistakeInput === input);
+      });
+  }
+
+  _isNovelFeedbackKey(key, intent) {
+    if (!key) {
+      return false;
+    }
+    const recent = (this.data.feedbackPrompts || []).slice(0, this.feedbackNoveltyWindow);
+    if (recent.some(prompt => prompt.key === key)) {
+      return false;
+    }
+    const normalizedIntent = String(intent || '').trim();
+    if (!normalizedIntent) {
+      return recent.length === 0;
+    }
+    const sameIntentCount = recent.filter(prompt => prompt.intent === normalizedIntent).length;
+    return sameIntentCount < Math.max(1, Math.floor(this.feedbackNoveltyWindow * 0.25));
   }
 
   _containsPrivateCommunicationRecords(source) {

@@ -35,8 +35,9 @@ function extractReplacement(input) {
   if (explicit?.[1]) return cleanText(explicit[1]);
 
   return cleanText(text
-    .replace(/^(?:no|nope|nah)\s*,?\s*/i, '')
-    .replace(/^(?:actually\s*,?\s*|instead\s*,?\s*|learn\s+instead\s+|remember\s+instead\s+|it\s+should\s+be\s+|the\s+correction\s+is\s+)/i, ''));
+    .replace(/^(?:(?:no|nope|nah|wrong|incorrect)\s*,?\s*)+/i, '')
+    .replace(/^(?:actually\s*,?\s*|instead\s*,?\s*|learn\s+instead\s+|remember\s+instead\s+|it\s+should\s+be\s+|the\s+correction\s+is\s+)/i, '')
+    .replace(/\s+instead$/i, ''));
 }
 
 function parseLearningDirective(input) {

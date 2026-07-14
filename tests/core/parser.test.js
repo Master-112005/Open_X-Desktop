@@ -103,6 +103,17 @@ describe('Input Parser', function() {
     assert.deepEqual(result.commandClauses[0].tokens, ['search', 'for', 'cats', 'and', 'dogs']);
   });
 
+  it('should expand shared utility values into complete command clauses', function() {
+    const parser = new InputParser({});
+    const result = parser.parse('set the vol and brighness to 40');
+
+    assert.deepEqual(result.commandClauses.map(clause => clause.text), [
+      'set volume to 40',
+      'set brightness to 40'
+    ]);
+    assert.deepEqual(result.commandClauses.map(clause => clause.actionToken), ['set', 'set']);
+  });
+
   it('should preserve media titles that contain connector words', function() {
     const parser = new InputParser({});
     const result = parser.parse('play Stars and Stripes Forever song');
@@ -110,6 +121,9 @@ describe('Input Parser', function() {
     assert.equal(result.commandClauses.length, 1);
     assert.equal(result.commandClauses[0].text, 'play stars and stripes forever song');
     assert.equal(result.commandClauses[0].actionToken, 'play');
+    assert.equal(result.intentPhrase.action, 'play');
+    assert.equal(result.intentPhrase.domain, 'media');
+    assert.equal(result.intentPhrase.objectText, 'Stars and Stripes Forever');
   });
 
   it('should flag correction follow-ups for context-aware routing', function() {
@@ -119,6 +133,19 @@ describe('Input Parser', function() {
     assert.equal(result.isCorrection, true);
     assert.equal(result.discourse.requiresContext, true);
     assert.equal(result.commandClauses[0].actionToken, 'set');
+    assert.equal(result.intentPhrase.isCorrection, true);
+    assert.equal(result.intentPhrase.objectText, 'volume 40');
+    assert.equal(result.intentPhrase.modifiers.value, 40);
+  });
+
+  it('should expose quoted human-language objects as one semantic phrase', function() {
+    const parser = new InputParser({});
+    const result = parser.parse('search for "Apple ReALM reference resolution"');
+
+    assert.equal(result.intentPhrase.action, 'search');
+    assert.equal(result.intentPhrase.domain, 'web');
+    assert.equal(result.intentPhrase.objectText, 'Apple ReALM reference resolution');
+    assert.deepEqual(result.intentPhrase.quotedPhrases, ['Apple ReALM reference resolution']);
   });
 
   it('should classify reminder and alarm frames as schedule work', function() {
