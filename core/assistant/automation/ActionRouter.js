@@ -356,6 +356,7 @@ class ActionRouter {
       ['_resolveEarlyCapabilityCommandIntent', () => this._resolveEarlyCapabilityCommandIntent(rawCommandText, preparedInput)],
       ['_resolveYouTubeMediaIntent', () => this._resolveYouTubeMediaIntent(rawCommandText, preparedInput)],
       ['_resolveBrowserFollowupIntent', () => this._resolveBrowserFollowupIntent(rawCommandText, preparedInput)],
+      ['_resolveKnownWebOpenIntent', () => this._resolveKnownWebOpenIntent(rawCommandText, preparedInput)],
       ['_resolveAppLanguageIntent', () => this._resolveAppLanguageIntent(rawCommandText, preparedInput)],
       ['_resolveBrowserLanguageIntent', () => this._resolveBrowserLanguageIntent(rawCommandText, preparedInput)],
       ['_resolveBrowserTabIntent', () => this._resolveBrowserTabIntent(rawCommandText, preparedInput)],
@@ -372,7 +373,6 @@ class ActionRouter {
       ['_resolveLocalInfoIntent', () => this._resolveLocalInfoIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitAppIntent', () => this._resolveExplicitAppIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitWindowIntent', () => this._resolveExplicitWindowIntent(rawCommandText, preparedInput)],
-      ['_resolveKnownWebOpenIntent', () => this._resolveKnownWebOpenIntent(rawCommandText, preparedInput)],
       ['_resolveSiteSearchIntent', () => this._resolveSiteSearchIntent(rawCommandText, preparedInput)],
       ['_resolvePersonalPhotoIntent', () => this._resolvePersonalPhotoIntent(rawCommandText, preparedInput)],
       ['_resolveNaturalConditionIntent', () => this._resolveNaturalConditionIntent(rawCommandText, preparedInput)],
@@ -827,7 +827,7 @@ class ActionRouter {
     const action = frame.actionVerb || '';
     const domain = frame.domain || 'unknown';
     const targetText = String(frame.targetText || '').trim();
-    const value = Number.isFinite(Number(frame.value)) ? Math.max(0, Math.min(100, Number(frame.value))) : null;
+    const value = Number.isFinite(Number(frame.value)) ? Number(frame.value) : null;
 
     if (!corrected || frame.questionWord) {
       return null;
@@ -963,7 +963,10 @@ class ActionRouter {
 
     const extracted = this.entityExtractor.extract(intent, rawText);
     const correctedEntities = this.entityExtractor.extract(intent, correctedText);
-    const windowName = extracted.windowName || correctedEntities.windowName || targetText;
+    const windowName = String(extracted.windowName || correctedEntities.windowName || targetText || '')
+      .replace(/\b(?:bigger|larger|smaller|hidden|hide|maximize|minimize|fullscreen|full\s+screen|window)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
     return {
       intent,
       confidence: 0.94,
@@ -1288,6 +1291,38 @@ class ActionRouter {
       };
     }
 
+    if (actionValidation.valid === false) {
+      const firstError = Array.isArray(actionValidation.errors) && actionValidation.errors.length > 0
+        ? actionValidation.errors[0]
+        : null;
+      const message = firstError?.message || 'The command details are not valid.';
+      this._recordRoutingEvidence({
+        input: rawCommandText,
+        source,
+        intent: intentResult.intent.id,
+        success: false,
+        preparedInput,
+        validationStatus: 'failed'
+      });
+
+      return {
+        commandId,
+        success: false,
+        error: message,
+        response: this._buildResponse('error', 'executionFailed', { error: message }),
+        intent: intentResult.intent.id,
+        confidence: intentResult.confidence,
+        entities,
+        validation: actionValidation,
+        languageUnderstanding: this._buildLanguageUnderstanding(
+          preparedInput || this._safePrepareInput(rawCommandText),
+          intentResult,
+          [],
+          'failed'
+        )
+      };
+    }
+
     const externalPermissionCheck = this._validateExternalPermission(
       options.permissionGuard,
       intentResult.intent,
@@ -1338,6 +1373,8 @@ class ActionRouter {
         response: this._buildResponse('confirmation', 'confirmAction', {
           action: intentResult.intent.description,
           details: permissionCheck.confirmationMessage,
+          risk: permissionCheck.risk,
+          consequence: permissionCheck.consequence,
           intent: permissionIntent
         }),
         languageUnderstanding
@@ -1508,7 +1545,7 @@ class ActionRouter {
       return null;
     }
 
-    const value = Math.max(0, Math.min(100, Number(match[2])));
+    const value = Number(match[2]);
     if (!Number.isFinite(value)) {
       return null;
     }
@@ -2989,7 +3026,7 @@ class ActionRouter {
 
   _cleanWindowTarget(value) {
     return String(value || '')
-      .replace(/\b(?:minimize|maximize|collapse|expand|hide|shrink|fullscreen|full\s+screen|please|kindly|now)\b/gi, ' ')
+      .replace(/\b(?:minimize|maximize|collapse|expand|hide|shrink|fullscreen|full\s+screen|bigger|larger|smaller|hidden|please|kindly|now)\b/gi, ' ')
       .replace(/^(?:the|a|an)\s+/i, '')
       .replace(/\s+/g, ' ')
       .trim();
@@ -3898,12 +3935,14 @@ class ActionRouter {
 
   _resolveKnownWebOpenIntent(rawText, preparedInput) {
     const input = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
-    const match = input.match(/^(?:open|launch|start|go\s+to|pull\s+up|show(?:\s+me)?)\s+(.+?)(?:\s+(?:website|site))?(?:\s+(?:in|on)\s+(?:chrome|browser|edge|firefox))?$/i);
+    const match = input.match(/^(?:open|launch|start|go\s+to|pull\s+up|show\s+me|show)\s+(.+?)(?:\s+(?:website|site))?(?:\s+(?:in|on)\s+(?:chrome|browser|edge|firefox))?$/i);
     if (!match?.[1]) {
       return null;
     }
 
-    const requestedTarget = String(preparedInput?.semanticFrame?.targetText || match[1] || '').trim();
+    const matchedTarget = String(match[1] || '').trim();
+    const framedTarget = String(preparedInput?.semanticFrame?.targetText || '').trim();
+    const requestedTarget = framedTarget || matchedTarget;
     if (this._looksLikeLocalPhotosTarget(requestedTarget, rawText)) {
       const appIntent = this.intentRegistry.get('app.open');
       return appIntent
@@ -3911,7 +3950,9 @@ class ActionRouter {
         : null;
     }
 
-    const query = preparedInput?.semanticFrame?.webTarget || this._normalizeKnownWebTarget(requestedTarget);
+    const query = preparedInput?.semanticFrame?.webTarget ||
+      this._normalizeKnownWebTarget(framedTarget) ||
+      this._normalizeKnownWebTarget(matchedTarget);
     if (!query) {
       return null;
     }
@@ -4326,6 +4367,21 @@ class ActionRouter {
     if (frame.operation === 'open-browser-target') {
       const knownWeb = this._resolveKnownWebOpenIntent(rawText, preparedInput);
       if (knownWeb) return knownWeb;
+      if (['open', 'show'].includes(frame.entities.action) && frame.entities.repairedBrowserJoin !== true) {
+        const openFirstIntent = this.intentRegistry.get('browser.openFirstResult');
+        return openFirstIntent ? {
+          intent: openFirstIntent,
+          confidence: frame.confidence,
+          entities: {
+            query: frame.entities.query,
+            browserName: frame.browserName,
+            openInBrowser: true,
+            ...(frame.entities.newTab ? { newTab: true } : {}),
+            routeSource: 'browser-language-v1'
+          },
+          semanticFrame: frame
+        } : null;
+      }
       const intent = this.intentRegistry.get('browser.search');
       return intent ? {
         intent,

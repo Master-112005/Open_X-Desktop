@@ -29,6 +29,8 @@ class LearningAnalytics {
       patternsDetected: learned.filter(item => item.category === 'patterns').length,
       preferenceUpdates: storageResult.updatedPreferences?.length || 0,
       workflowFrequency: storageResult.updatedWorkflows?.length || 0,
+      personalization: context.metadata.personalization || null,
+      learningPrompts: Array.isArray(context.metadata.learningPrompts) ? context.metadata.learningPrompts.length : 0,
       moduleCount: Object.keys(modules).length,
       slowModules,
       durationMs: Math.max(0, Date.now() - context.timing.startedAt)

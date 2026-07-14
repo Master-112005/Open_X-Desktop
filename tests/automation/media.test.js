@@ -198,6 +198,32 @@ describe('Media Controller', function() {
     assert.equal(result.data.knownPlayback, true);
   });
 
+  it('should reuse cached YouTube lookups without another network request', async function() {
+    const controller = createController();
+    controller._rememberYouTubeLookup('playdate', 'rODr5Zfj8RA');
+
+    const result = await controller._fetchFirstYouTubeVideoId('playdate');
+
+    assert.equal(result, 'rODr5Zfj8RA');
+  });
+
+  it('should report global media key fallback metadata for controls', function() {
+    const controller = createController();
+    controller.activeSession = {
+      platform: 'youtube',
+      windowQuery: 'youtube'
+    };
+    controller.windowSession.sendKeys = () => ({ success: false, error: 'window not found' });
+
+    const result = controller.pause();
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.action, 'pause');
+    assert.equal(result.data.method, 'global-media-key');
+    assert.equal(result.data.controllerVerified, true);
+    assert.deepEqual(controller.sentMediaKeys, [179]);
+  });
+
   it('should pause a playing Windows media session for voice activation', function() {
     const controller = createController();
     controller._tryPauseSystemMediaSession = () => ({

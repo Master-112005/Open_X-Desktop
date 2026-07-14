@@ -421,7 +421,7 @@ class NaturalLanguageRouter {
   _extractEntities(intent, rawText, frame) {
     const extracted = this.entityExtractor.extract(intent, rawText) || {};
     const entities = { ...extracted };
-    const value = Number.isFinite(frame.value) ? Math.max(0, Math.min(100, frame.value)) : null;
+    const value = Number.isFinite(frame.value) ? frame.value : null;
 
     if ((intent.id === 'volume.set' || intent.id === 'brightness.set') && value !== null) {
       entities.value = value;
@@ -748,6 +748,7 @@ class BrowserCommandLanguage {
   parse(rawText, correctedText = rawText) {
     const raw = String(rawText || '').trim();
     const corrected = String(correctedText || raw).trim();
+    const repairedBrowserJoin = /\b[a-z0-9]{8,}in\s+(?:chrome|browser|edge|firefox)\b/i.test(corrected);
     const repaired = corrected
       .replace(/\b([a-z0-9]{8,})in\s+(chrome|browser|edge|firefox)\b/gi, '$1 in $2')
       .replace(/\s+/g, ' ')
@@ -782,15 +783,18 @@ class BrowserCommandLanguage {
       }
     }
 
-    const browserTarget = text.match(/^(?:open|show|find|search(?:\s+for)?)\s+(.+?)\s+(?:in|on)\s+(?:the\s+)?(chrome|browser|edge|firefox)$/);
+    const browserTarget = text.match(/^(open|show|find|search(?:\s+for)?)\s+(.+?)\s+(?:in|on)\s+(?:the\s+)?(chrome|browser|edge|firefox)$/);
     if (browserTarget?.[1]) {
-      const requestedTarget = browserTarget[1].trim();
+      const action = browserTarget[1].startsWith('search') ? 'search' : browserTarget[1];
+      const requestedTarget = browserTarget[2].trim();
       const newTab = /\s+(?:in|on)\s+(?:a\s+)?new\s+tab$/.test(requestedTarget);
-      return this._frame('open-browser-target', browserTarget[2], {
+      return this._frame('open-browser-target', browserTarget[3], {
+        action,
         query: requestedTarget
           .replace(/\s+(?:in|on)\s+(?:a\s+)?new\s+tab$/, '')
           .trim(),
-        newTab
+        newTab,
+        repairedBrowserJoin
       }, repaired);
     }
 

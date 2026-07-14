@@ -12,6 +12,14 @@ const {
 } = require('../assistant/Data');
 
 const PRODUCT_NAME = 'OpenX';
+const MAX_SCHEDULES = 160;
+const MAX_ACTIVE_SCHEDULES = 120;
+const MAX_TIMEOUT_MS = 2147483647;
+const MAX_MESSAGE_LENGTH = 500;
+const MAX_TITLE_LENGTH = 160;
+const MAX_CATEGORY_LENGTH = 60;
+const VALID_STATUSES = new Set(['scheduled', 'paused', 'due', 'completed', 'dismissed', 'running']);
+const VALID_KINDS = new Set(['Timer', 'Alarm', 'Reminder', 'Stopwatch']);
 
 const REMINDER_PRESENTATIONS = Object.freeze({
   education: { symbol: '\u{1F393}', label: 'School & college' },
@@ -61,6 +69,42 @@ function inferReminderCategory(message, preferredCategory = '') {
   return 'general';
 }
 
+function sanitizeText(value, maxLength = MAX_MESSAGE_LENGTH) {
+  return String(value || '')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
+}
+
+function normalizeScheduleKind(value, fallback = 'Reminder') {
+  const key = String(value || fallback || '').trim().toLowerCase();
+  if (key === 'timer') return 'Timer';
+  if (key === 'alarm') return 'Alarm';
+  if (key === 'reminder') return 'Reminder';
+  if (key === 'stopwatch') return 'Stopwatch';
+  return VALID_KINDS.has(fallback) ? fallback : 'Reminder';
+}
+
+function normalizeScheduleStatus(value, fallback = 'scheduled') {
+  const status = String(value || fallback || '').trim().toLowerCase();
+  return VALID_STATUSES.has(status) ? status : fallback;
+}
+
+function scheduleIdentity(item = {}) {
+  const due = Number.isFinite(Date.parse(item.dueAt)) ? new Date(item.dueAt).toISOString().slice(0, 16) : '';
+  return [
+    item.kind || '',
+    sanitizeText(item.message || item.title || '', MAX_MESSAGE_LENGTH).toLowerCase(),
+    due,
+    item.recurrence || ''
+  ].join('|');
+}
+
+function scheduleVerification(status, check, detail = {}) {
+  return { status, check, ...detail };
+}
+
 class SchedulerController {
   constructor(config) {
     this.logger = new Logger(config?.logging || { level: 'info' });
@@ -79,21 +123,22 @@ class SchedulerController {
   }
 
   setTimer(durationMinutes) {
-    if (!durationMinutes || durationMinutes <= 0) {
-      return { success: false, error: 'Invalid timer duration' };
+    const minutes = Number(durationMinutes);
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      return this._failure('Invalid timer duration', 'Timer', 'schedule-input');
     }
 
-    const dueAt = new Date(Date.now() + (durationMinutes * 60 * 1000));
+    const dueAt = new Date(Date.now() + (minutes * 60 * 1000));
     return this._scheduleNotification({
       kind: 'Timer',
       title: `${PRODUCT_NAME} Timer`,
-      message: `Your ${durationMinutes} minute timer is done.`,
+      message: `Your ${minutes} minute timer is done.`,
       dueAt,
       category: 'timer',
       symbol: '\u23F1\uFE0F',
       metadata: {
-        durationMinutes,
-        durationMs: durationMinutes * 60 * 1000
+        durationMinutes: minutes,
+        durationMs: minutes * 60 * 1000
       }
     });
   }
@@ -178,11 +223,11 @@ class SchedulerController {
   setAlarm(timeExpression, alarmLabel = '', options = {}) {
     let dueAt = this._parseTimeExpression(timeExpression);
     if (!dueAt) {
-      return { success: false, error: 'Invalid alarm time' };
+      return this._failure('Invalid alarm time', 'Alarm', 'schedule-time');
     }
 
-    const label = String(alarmLabel || '').trim();
-    const recurrence = String(options.recurrence || '').trim();
+    const label = sanitizeText(alarmLabel, MAX_TITLE_LENGTH);
+    const recurrence = this._normalizeRecurrence(options.recurrence);
     if (recurrence) {
       dueAt = this._alignRecurringDueDate(recurrence, dueAt);
     }
@@ -201,9 +246,9 @@ class SchedulerController {
   }
 
   setReminder(reminderText, options = {}) {
-    const message = String(reminderText || '').trim();
+    const message = sanitizeText(reminderText, MAX_MESSAGE_LENGTH);
     if (!message) {
-      return { success: false, error: 'Reminder text is required' };
+      return this._failure('Reminder text is required', 'Reminder', 'schedule-input');
     }
 
     let dueAt = null;
@@ -212,14 +257,14 @@ class SchedulerController {
     } else if (options.timeExpression) {
       dueAt = this._parseTimeExpression(options.timeExpression);
       if (dueAt && options.recurrence) {
-        dueAt = this._alignRecurringDueDate(options.recurrence, dueAt);
+        dueAt = this._alignRecurringDueDate(this._normalizeRecurrence(options.recurrence), dueAt);
       }
     } else if (options.recurrence) {
-      dueAt = this._nextRecurringDate(options.recurrence, new Date());
+      dueAt = this._nextRecurringDate(this._normalizeRecurrence(options.recurrence), new Date());
     }
 
     if (!dueAt) {
-      return { success: false, error: 'Invalid reminder time' };
+      return this._failure('Invalid reminder time', 'Reminder', 'schedule-time');
     }
 
     const category = inferReminderCategory(message, options.category);
@@ -231,7 +276,7 @@ class SchedulerController {
       dueAt,
       category,
       symbol: presentation.symbol,
-      metadata: options.recurrence ? { recurrence: options.recurrence } : {}
+      metadata: options.recurrence ? { recurrence: this._normalizeRecurrence(options.recurrence) } : {}
     });
   }
 
@@ -599,45 +644,136 @@ class SchedulerController {
 
   _scheduleNotification({ kind, title, message, dueAt, category = null, symbol = null, metadata = {} }) {
     try {
-      const taskName = this._scheduleTaskName(kind);
+      const normalizedKind = normalizeScheduleKind(kind);
+      const targetDate = dueAt instanceof Date ? dueAt : new Date(dueAt);
+      if (!Number.isFinite(targetDate.getTime()) || targetDate.getTime() <= Date.now()) {
+        return this._failure(`Invalid ${normalizedKind.toLowerCase()} time`, normalizedKind, 'schedule-time');
+      }
+      const cleanTitle = sanitizeText(title || `${PRODUCT_NAME} ${normalizedKind}`, MAX_TITLE_LENGTH);
+      const cleanMessage = sanitizeText(message || cleanTitle, MAX_MESSAGE_LENGTH);
+      if (!cleanMessage) {
+        return this._failure(`${normalizedKind} text is required`, normalizedKind, 'schedule-input');
+      }
+
+      const taskName = this._scheduleTaskName(normalizedKind);
       const item = {
         id: taskName,
         taskName,
-        kind,
-        title,
-        message,
-        category: category || String(kind || '').toLowerCase(),
-        symbol: symbol || null,
+        kind: normalizedKind,
+        title: cleanTitle,
+        message: cleanMessage,
+        category: sanitizeText(category || normalizedKind.toLowerCase(), MAX_CATEGORY_LENGTH),
+        symbol: sanitizeText(symbol, 8) || null,
         ...metadata,
-        dueAt: dueAt.toISOString(),
+        recurrence: this._normalizeRecurrence(metadata.recurrence),
+        dueAt: targetDate.toISOString(),
         status: 'scheduled',
         createdAt: new Date().toISOString()
       };
-      this.scheduledItems.push(item);
+
+      const duplicateIndex = normalizedKind !== 'Timer'
+        ? this.scheduledItems.findIndex(existing =>
+            ['scheduled', 'paused', 'due'].includes(existing.status) &&
+            scheduleIdentity(existing) === scheduleIdentity(item))
+        : -1;
+
+      let savedItem = item;
+      const duplicate = duplicateIndex >= 0;
+      if (duplicate) {
+        const existing = this.scheduledItems[duplicateIndex];
+        const timer = this.timers.get(existing.id);
+        if (timer) clearTimeout(timer);
+        this.timers.delete(existing.id);
+        savedItem = {
+          ...existing,
+          ...item,
+          id: existing.id,
+          taskName: existing.taskName,
+          createdAt: existing.createdAt || item.createdAt,
+          updatedAt: new Date().toISOString()
+        };
+        this.scheduledItems[duplicateIndex] = savedItem;
+      } else {
+        this.scheduledItems.push(item);
+      }
       this._saveScheduledItems();
-      this._arm(item);
+      this._arm(savedItem);
 
       return {
         success: true,
         data: {
-          taskName,
-          dueAt: item.dueAt,
-          kind,
-          title: item.title,
-          message: item.message,
-          category: item.category,
-          symbol: item.symbol,
-          id: item.id,
-          durationMinutes: item.durationMinutes,
-          durationMs: item.durationMs,
-          alarmLabel: item.alarmLabel,
-          recurrence: item.recurrence || null
+          ...this._publicScheduleData(savedItem),
+          operation: duplicate ? 'update' : 'schedule',
+          duplicate,
+          verified: this._hasSchedule(savedItem.id),
+          verification: scheduleVerification(
+            this._hasSchedule(savedItem.id) ? 'passed' : 'failed',
+            'schedule-persisted',
+            { id: savedItem.id, kind: savedItem.kind, dueAt: savedItem.dueAt }
+          ),
+          responseVariantSeed: `schedule:${savedItem.kind}:${savedItem.dueAt}:${savedItem.message}:${duplicate ? 'updated' : 'created'}`
         }
       };
     } catch (err) {
-      this.logger.error(`Failed to schedule ${kind.toLowerCase()}`, err);
-      return { success: false, error: `Could not schedule ${kind.toLowerCase()}` };
+      this.logger.error(`Failed to schedule ${String(kind || 'schedule').toLowerCase()}`, err);
+      return this._failure(`Could not schedule ${String(kind || 'schedule').toLowerCase()}`, kind, 'schedule-exception');
     }
+  }
+
+  _publicScheduleData(item = {}) {
+    return {
+      taskName: item.taskName,
+      dueAt: item.dueAt,
+      kind: item.kind,
+      title: item.title,
+      message: item.message,
+      category: item.category,
+      symbol: item.symbol,
+      id: item.id,
+      status: item.status,
+      durationMinutes: item.durationMinutes,
+      durationMs: item.durationMs,
+      alarmLabel: item.alarmLabel,
+      recurrence: item.recurrence || null,
+      remainingMs: item.remainingMs,
+      source: item.source || null,
+      sourceDeviceId: item.sourceDeviceId || null
+    };
+  }
+
+  _failure(error, kind = 'Schedule', check = 'schedule-result') {
+    const normalizedKind = normalizeScheduleKind(kind, 'Reminder');
+    return {
+      success: false,
+      error,
+      data: {
+        kind: normalizedKind,
+        operation: 'schedule',
+        verified: false,
+        verification: scheduleVerification('failed', check, { message: error })
+      }
+    };
+  }
+
+  _hasSchedule(id) {
+    const target = String(id || '').trim();
+    if (!target) return false;
+    return this._loadScheduledItems().some(item => item.id === target || item.taskName === target);
+  }
+
+  _stateResult(item, operation, check = 'schedule-state') {
+    const data = {
+      ...this._publicScheduleData(item),
+      operation,
+      verified: Boolean(item?.id),
+      verification: scheduleVerification(
+        item?.id ? 'passed' : 'failed',
+        check,
+        { id: item?.id, kind: item?.kind, status: item?.status, dueAt: item?.dueAt }
+      ),
+      responseVariantSeed: `schedule:${operation}:${item?.kind || 'Schedule'}:${item?.status || ''}:${item?.dueAt || ''}`
+    };
+    return { success: Boolean(item?.id), data, ...(item?.id ? {} : { error: 'Schedule state not available' }) };
   }
 
   _loadScheduledItems() {
@@ -686,13 +822,30 @@ class SchedulerController {
   }
 
   _saveScheduledItems() {
-    this.scheduledItems = this.scheduledItems
-      .map(item => this._normalizeStoredSchedule(item))
-      .filter(Boolean);
-    writeJsonAtomic(this.schedulePath, this.scheduledItems.slice(-100), { backup: true });
+    this.scheduledItems = this._compactSchedules(this.scheduledItems);
+    writeJsonAtomic(this.schedulePath, this.scheduledItems, { backup: true });
     if (typeof this.eventBus?.subscribe === 'function') {
       this.eventBus.publish?.(EVENTS.SCHEDULE_CHANGED, this.getScheduleSnapshot());
     }
+  }
+
+  _compactSchedules(items = []) {
+    const seenById = new Map();
+    for (const raw of items) {
+      const item = this._normalizeStoredSchedule(raw);
+      if (!item) continue;
+      seenById.set(item.id, item);
+    }
+
+    const normalized = Array.from(seenById.values());
+    const active = normalized.filter(item => ['scheduled', 'paused', 'due', 'running'].includes(item.status));
+    const inactive = normalized
+      .filter(item => !active.includes(item))
+      .sort((a, b) => Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0));
+    return [
+      ...active.slice(-MAX_ACTIVE_SCHEDULES),
+      ...inactive.slice(0, Math.max(0, MAX_SCHEDULES - Math.min(active.length, MAX_ACTIVE_SCHEDULES)))
+    ];
   }
 
   _scheduleTaskName(kind) {
@@ -709,15 +862,31 @@ class SchedulerController {
   _normalizeStoredSchedule(item) {
     if (!item || typeof item !== 'object') return null;
     const next = { ...item };
+    next.kind = normalizeScheduleKind(next.kind || next.type || 'Reminder');
     if (next.id) next.id = String(next.id).replace(/^JARVIS_/i, `${PRODUCT_NAME}_`);
     if (next.taskName) next.taskName = String(next.taskName).replace(/^JARVIS_/i, `${PRODUCT_NAME}_`);
     if (!next.id && next.taskName) next.id = next.taskName;
     if (!next.taskName && next.id) next.taskName = next.id;
+    if (!next.id || !next.taskName) return null;
+    const dueAt = new Date(next.dueAt || 0);
+    if (next.kind !== 'Stopwatch' && !Number.isFinite(dueAt.getTime())) return null;
+    if (next.kind !== 'Stopwatch') next.dueAt = dueAt.toISOString();
     if (next.title) {
-      next.title = String(next.title)
+      next.title = sanitizeText(next.title, MAX_TITLE_LENGTH)
         .replace(/^JARVIS\b/i, PRODUCT_NAME)
         .replace(/^OpenX\s+Reminder\s+Reminder$/i, `${PRODUCT_NAME} Reminder`);
     }
+    next.title = sanitizeText(next.title || `${PRODUCT_NAME} ${next.kind}`, MAX_TITLE_LENGTH);
+    next.message = sanitizeText(next.message || next.title, MAX_MESSAGE_LENGTH);
+    next.category = sanitizeText(next.category || next.kind.toLowerCase(), MAX_CATEGORY_LENGTH);
+    next.symbol = sanitizeText(next.symbol, 8) || null;
+    next.status = normalizeScheduleStatus(next.status, next.kind === 'Stopwatch' ? 'running' : 'scheduled');
+    next.recurrence = this._normalizeRecurrence(next.recurrence);
+    next.createdAt = Number.isFinite(Date.parse(next.createdAt)) ? next.createdAt : new Date().toISOString();
+    next.updatedAt = Number.isFinite(Date.parse(next.updatedAt)) ? next.updatedAt : next.createdAt;
+    if (Number.isFinite(Number(next.durationMinutes))) next.durationMinutes = Number(next.durationMinutes);
+    if (Number.isFinite(Number(next.durationMs))) next.durationMs = Number(next.durationMs);
+    if (Number.isFinite(Number(next.remainingMs))) next.remainingMs = Math.max(0, Number(next.remainingMs));
     return next;
   }
 
@@ -727,10 +896,10 @@ class SchedulerController {
     if (existing) clearTimeout(existing);
     const remaining = new Date(item.dueAt).getTime() - Date.now();
     if (!Number.isFinite(remaining)) return;
-    const delay = Math.max(0, Math.min(remaining, 2147483647));
+    const delay = Math.max(1, Math.min(remaining, MAX_TIMEOUT_MS));
     const timer = setTimeout(() => {
       this.timers.delete(item.id);
-      if (remaining > 2147483647) {
+      if (remaining > MAX_TIMEOUT_MS) {
         this._arm(item);
         return;
       }
@@ -742,6 +911,7 @@ class SchedulerController {
   _publishDue(item) {
     if (!item || item.status !== 'scheduled') return;
     item.status = 'due';
+    item.updatedAt = new Date().toISOString();
     this._saveScheduledItems();
     this.eventBus?.publish?.(EVENTS.SCHEDULE_DUE, { ...item });
   }
@@ -749,11 +919,15 @@ class SchedulerController {
   snooze(id, minutes = 5) {
     const item = this.scheduledItems.find(entry => entry.id === id || entry.taskName === id);
     if (!item) return { success: false, error: 'Schedule not found' };
+    const existingTimer = this.timers.get(item.id);
+    if (existingTimer) clearTimeout(existingTimer);
+    this.timers.delete(item.id);
     item.status = 'scheduled';
     item.dueAt = new Date(Date.now() + (Math.max(1, Number(minutes) || 5) * 60 * 1000)).toISOString();
+    item.updatedAt = new Date().toISOString();
     this._saveScheduledItems();
     this._arm(item);
-    return { success: true, data: { ...item } };
+    return this._stateResult(item, 'snooze', 'schedule-snoozed');
   }
 
   complete(id) {
@@ -769,8 +943,9 @@ class SchedulerController {
     } else {
       item.status = 'completed';
     }
+    item.updatedAt = new Date().toISOString();
     this._saveScheduledItems();
-    return { success: true, data: { ...item } };
+    return this._stateResult(item, item.status === 'scheduled' ? 'reschedule' : 'complete', 'schedule-completed');
   }
 
   upsertSyncedSchedule(input = {}, metadata = {}) {
@@ -778,6 +953,7 @@ class SchedulerController {
     if (!normalized) return { success: false, error: 'Invalid schedule item' };
 
     const existingIndex = this.scheduledItems.findIndex(item => item.id === normalized.id || item.taskName === normalized.taskName);
+    let operation = 'sync-add';
     if (existingIndex >= 0) {
       const existing = this.scheduledItems[existingIndex];
       const existingTimer = this.timers.get(existing.id);
@@ -788,6 +964,7 @@ class SchedulerController {
         ...normalized,
         updatedAt: new Date().toISOString()
       };
+      operation = 'sync-update';
     } else {
       this.scheduledItems.push(normalized);
     }
@@ -795,7 +972,19 @@ class SchedulerController {
     const item = existingIndex >= 0 ? this.scheduledItems[existingIndex] : normalized;
     this._saveScheduledItems();
     if (item.status === 'scheduled') this._arm(item);
-    return { success: true, data: { ...item } };
+    return {
+      success: true,
+      data: {
+        ...this._publicScheduleData(item),
+        operation,
+        verified: this._hasSchedule(item.id),
+        verification: scheduleVerification(
+          this._hasSchedule(item.id) ? 'passed' : 'failed',
+          'schedule-sync-persisted',
+          { id: item.id, kind: item.kind, dueAt: item.dueAt }
+        )
+      }
+    };
   }
 
   getScheduleSnapshot(scope = 'all') {
@@ -817,8 +1006,9 @@ class SchedulerController {
     this.timers.delete(item.id);
     item.remainingMs = Math.max(0, new Date(item.dueAt).getTime() - Date.now());
     item.status = 'paused';
+    item.updatedAt = new Date().toISOString();
     this._saveScheduledItems();
-    return { success: true, data: { ...item } };
+    return this._stateResult(item, 'pause', 'schedule-paused');
   }
 
   resumeActiveTimer() {
@@ -827,9 +1017,10 @@ class SchedulerController {
     item.dueAt = new Date(Date.now() + Math.max(1000, Number(item.remainingMs) || 1000)).toISOString();
     item.status = 'scheduled';
     delete item.remainingMs;
+    item.updatedAt = new Date().toISOString();
     this._saveScheduledItems();
     this._arm(item);
-    return { success: true, data: { ...item } };
+    return this._stateResult(item, 'resume', 'schedule-resumed');
   }
 
   resetActiveTimer() {
@@ -841,9 +1032,10 @@ class SchedulerController {
     item.dueAt = new Date(Date.now() + Number(item.durationMinutes) * 60000).toISOString();
     item.status = 'scheduled';
     delete item.remainingMs;
+    item.updatedAt = new Date().toISOString();
     this._saveScheduledItems();
     this._arm(item);
-    return { success: true, data: { ...item } };
+    return this._stateResult(item, 'reset', 'schedule-reset');
   }
 
   getRemainingTimer() {
@@ -907,7 +1099,18 @@ class SchedulerController {
       if (scope === 'all') return item.status !== 'dismissed';
       return ['scheduled', 'paused', 'due'].includes(item.status);
     });
-    return { success: true, data: { kind: kind || 'Schedule', scope, count: entries.length, entries: entries.map(item => ({ ...item })) } };
+    return {
+      success: true,
+      data: {
+        kind: kind || 'Schedule',
+        scope,
+        count: entries.length,
+        entries: entries.map(item => ({ ...item })),
+        operation: 'list',
+        verified: true,
+        verification: scheduleVerification('passed', 'schedule-list', { count: entries.length, scope })
+      }
+    };
   }
 
   cancelLatest(kind) {
@@ -925,9 +1128,19 @@ class SchedulerController {
       if (timer) clearTimeout(timer);
       this.timers.delete(item.id);
       item.status = 'completed';
+      item.updatedAt = new Date().toISOString();
     }
     this._saveScheduledItems();
-    return { success: true, data: { kind, count: targets.length } };
+    return {
+      success: true,
+      data: {
+        kind,
+        count: targets.length,
+        operation: 'clear',
+        verified: true,
+        verification: scheduleVerification('passed', 'schedule-cleared', { kind, count: targets.length })
+      }
+    };
   }
 
   snoozeLatestAlarm(minutes = 5) {
@@ -970,15 +1183,15 @@ class SchedulerController {
 
   _normalizeIncomingSchedule(input = {}, metadata = {}) {
     if (!input || typeof input !== 'object') return null;
-    const kind = String(input.kind || input.type || 'Reminder').trim();
+    const kind = normalizeScheduleKind(input.kind || input.type || 'Reminder');
     const normalizedKind = kind.toLowerCase();
     if (!/^(?:reminder|alarm|timer)$/i.test(kind)) return null;
     const dueAt = new Date(input.dueAt || input.time || input.when || 0);
     if (!Number.isFinite(dueAt.getTime())) return null;
-    const message = String(input.message || input.title || `${kind} from phone`).replace(/\s+/g, ' ').trim().slice(0, 500);
+    const message = sanitizeText(input.message || input.title || `${kind} from phone`, MAX_MESSAGE_LENGTH);
     if (!message) return null;
-    const sourceDeviceId = String(metadata.deviceId || input.sourceDeviceId || input.deviceId || '').trim().slice(0, 128);
-    const baseId = String(input.id || input.taskName || '').trim();
+    const sourceDeviceId = sanitizeText(metadata.deviceId || input.sourceDeviceId || input.deviceId || '', 128);
+    const baseId = sanitizeText(input.id || input.taskName || '', 128);
     const taskName = baseId && /^OpenX_/i.test(baseId)
       ? baseId
       : `${PRODUCT_NAME}_${kind}_${IdGenerator.short()}`;
@@ -987,20 +1200,19 @@ class SchedulerController {
       ...input,
       id: taskName,
       taskName,
-      kind: kind.charAt(0).toUpperCase() + normalizedKind.slice(1),
-      title: String(input.title || `${PRODUCT_NAME} ${kind}`).replace(/\s+/g, ' ').trim().slice(0, 160),
+      kind,
+      title: sanitizeText(input.title || `${PRODUCT_NAME} ${kind}`, MAX_TITLE_LENGTH),
       message,
-      category: String(input.category || normalizedKind).trim().slice(0, 60),
-      symbol: input.symbol || (normalizedKind === 'alarm' ? '\u23F0' : normalizedKind === 'timer' ? '\u23F1\uFE0F' : '\u{1F4DD}'),
+      category: sanitizeText(input.category || normalizedKind, MAX_CATEGORY_LENGTH),
+      symbol: sanitizeText(input.symbol || (normalizedKind === 'alarm' ? '\u23F0' : normalizedKind === 'timer' ? '\u23F1\uFE0F' : '\u{1F4DD}'), 8),
+      recurrence: this._normalizeRecurrence(input.recurrence),
       dueAt: dueAt.toISOString(),
-      status: ['scheduled', 'paused', 'due', 'completed'].includes(String(input.status || '').toLowerCase())
-        ? String(input.status).toLowerCase()
-        : 'scheduled',
+      status: normalizeScheduleStatus(input.status, 'scheduled'),
       createdAt: input.createdAt || now,
       updatedAt: now,
       source: 'phone',
       sourceDeviceId: sourceDeviceId || undefined,
-      sourceDeviceName: metadata.deviceName || input.sourceDeviceName || undefined
+      sourceDeviceName: sanitizeText(metadata.deviceName || input.sourceDeviceName || '', 120) || undefined
     });
   }
 
@@ -1051,6 +1263,23 @@ class SchedulerController {
     else if (key.includes('evening')) next.setHours(18, 0, 0, 0);
     else if (key.includes('night')) next.setHours(21, 0, 0, 0);
     return next;
+  }
+
+  _normalizeRecurrence(value) {
+    const key = sanitizeText(value, 120).toLowerCase().replace(/\s+/g, '-');
+    if (!key) return '';
+    if (['daily', 'weekly', 'hourly', 'weekday', 'weekdays', 'weekday-morning', 'every-2-hours'].includes(key)) {
+      return key === 'weekdays' ? 'weekday' : key;
+    }
+    if (key.startsWith('weekly:')) {
+      const days = key
+        .slice('weekly:'.length)
+        .split(',')
+        .map(day => day.trim().replace(/[^a-z]/g, ''))
+        .filter(day => Number.isInteger(WEEKDAY_INDEX[day]));
+      return days.length ? `weekly:${Array.from(new Set(days)).join(',')}` : '';
+    }
+    return key;
   }
 
   _alignRecurringDueDate(recurrence, dueAt) {

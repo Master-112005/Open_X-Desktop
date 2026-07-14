@@ -1,4 +1,5 @@
 const assert = require('assert');
+const ActionVerifier = require('../../core/automation/common/action-verification');
 
 describe('Browser Controller', function() {
   let BrowserController;
@@ -97,6 +98,67 @@ describe('Browser Controller', function() {
 
     assert.equal(result.success, true);
     assert.ok(openedUrl.includes('google.com/search'));
+  });
+
+  it('should launch URLs through an injectable launcher with structured dispatch metadata', function() {
+    const launched = [];
+    const controller = new BrowserController({
+      browser: {
+        launchTarget(target, args) {
+          launched.push({ target, args });
+        }
+      }
+    });
+    controller.defaultBrowser = { path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', name: 'chrome' };
+    controller._resolveBrowserExecutable = () => null;
+
+    const result = controller.open('example.com', { browserName: 'chrome' });
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.url, 'https://example.com');
+    assert.equal(result.data.browserName, 'chrome');
+    assert.equal(result.data.launchMethod, 'browser-executable');
+    assert.equal(result.data.controllerVerified, false);
+    assert.equal(result.data.verification.status, 'unknown');
+    assert.deepEqual(launched, [{
+      target: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      args: ['https://example.com']
+    }]);
+  });
+
+  it('should verify existing-window tab opens but keep process launches as dispatch-only', function() {
+    const verifier = new ActionVerifier({});
+    const controller = new BrowserController({
+      browser: {
+        launchTarget() {}
+      }
+    });
+    controller.defaultBrowser = { path: 'chrome.exe', name: 'chrome' };
+    controller._resolveBrowserExecutable = () => null;
+    controller.windowSession.listWindows = () => ([{
+      handle: 100,
+      id: 10,
+      processName: 'chrome',
+      title: 'Existing - Google Chrome'
+    }]);
+    controller.windowSession.navigateWindowToUrl = (windowName) => ({
+      success: true,
+      data: { matchedWindow: windowName }
+    });
+
+    const observed = verifier.verify('browser.open', { url: 'https://example.com' }, controller.open('https://example.com', {
+      browserName: 'chrome',
+      newTab: true
+    }));
+    const dispatched = verifier.verify('browser.open', { url: 'https://example.org' }, controller.open('https://example.org', {
+      browserName: 'firefox'
+    }));
+
+    assert.equal(observed.verification.status, 'passed');
+    assert.equal(observed.verification.check, 'browser-existing-tab-opened');
+    assert.equal(dispatched.verification.status, 'unknown');
+    assert.equal(dispatched.verification.check, 'browser-launch-dispatch');
+    assert.equal(dispatched.verification.blocking, false);
   });
 
   it('should open exactly one tab in the existing Chrome window', function() {

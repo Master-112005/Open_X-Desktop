@@ -772,4 +772,106 @@ describe('App Controller', function() {
     const target = controller.findVisibleApp('chrome', { allowWindowFallback: false });
     assert.equal(target.Id, 902);
   });
+
+  it('should reject invalid app names before automation starts', function() {
+    const controller = new AppController({});
+    let processListed = false;
+    controller._getRunningProcessDetails = () => {
+      processListed = true;
+      return [];
+    };
+
+    const result = controller.open('bad\u0000app');
+
+    assert.equal(result.success, false);
+    assert.equal(result.code, 'app.open.validation');
+    assert.equal(processListed, false);
+  });
+
+  it('should not report selected close success when verification fails', function() {
+    const controller = new AppController({});
+    controller._resolveProcessCandidates = () => ['notepad'];
+    controller._findRunningProcesses = () => ([{
+      Id: 42,
+      ProcessName: 'notepad',
+      MainWindowTitle: 'Untitled - Notepad',
+      MainWindowHandle: 123
+    }]);
+    controller._closeProcessesGracefully = () => true;
+    controller._forceTerminateProcesses = () => true;
+    controller._sleep = () => {};
+
+    const result = controller.close('notepad', { processId: 42 });
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /Could not verify/);
+    assert.equal(result.data.verified, false);
+  });
+
+  it('should switch apps without shell-interpolating the app name', function() {
+    const childProcess = require('child_process');
+    const appsPath = require.resolve('../../core/automation/apps');
+    const originalExecFileSync = childProcess.execFileSync;
+    const previousApps = require.cache[appsPath];
+    let commandArgs = null;
+
+    try {
+      delete require.cache[appsPath];
+      childProcess.execFileSync = (command, args) => {
+        assert.equal(command, 'powershell.exe');
+        commandArgs = args;
+        return '';
+      };
+      const FreshAppController = require('../../core/automation/apps');
+      const controller = new FreshAppController({});
+      controller.findVisibleApp = () => ({
+        ProcessName: 'notepad',
+        MainWindowTitle: "Bob's Notes - Notepad"
+      });
+      controller._resolveProcessCandidates = () => ['notepad'];
+
+      const result = controller.switchTo('notepad');
+
+      assert.equal(result.success, true);
+      assert.ok(Array.isArray(commandArgs));
+      assert.ok(commandArgs.includes('-Command'));
+      assert.match(commandArgs[commandArgs.length - 1], /Bob''s Notes - Notepad/);
+    } finally {
+      childProcess.execFileSync = originalExecFileSync;
+      delete require.cache[appsPath];
+      if (previousApps) require.cache[appsPath] = previousApps;
+    }
+  });
+
+  it('should return structured running app window metadata', function() {
+    const childProcess = require('child_process');
+    const appsPath = require.resolve('../../core/automation/apps');
+    const originalExecFileSync = childProcess.execFileSync;
+    const previousApps = require.cache[appsPath];
+
+    try {
+      delete require.cache[appsPath];
+      childProcess.execFileSync = () => JSON.stringify([{
+        Id: 10,
+        ProcessName: 'notepad',
+        MainWindowTitle: 'Notes - Notepad',
+        MainWindowHandle: 100,
+        Path: 'C:\\Windows\\System32\\notepad.exe'
+      }]);
+      const FreshAppController = require('../../core/automation/apps');
+      const controller = new FreshAppController({});
+
+      const result = controller.getRunningApps();
+
+      assert.equal(result.success, true);
+      assert.equal(result.data.count, 1);
+      assert.deepEqual(result.data.processes, ['notepad']);
+      assert.equal(result.data.windows[0].title, 'Notes - Notepad');
+      assert.equal(result.data.verified, true);
+    } finally {
+      childProcess.execFileSync = originalExecFileSync;
+      delete require.cache[appsPath];
+      if (previousApps) require.cache[appsPath] = previousApps;
+    }
+  });
 });

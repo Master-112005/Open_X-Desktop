@@ -33,6 +33,20 @@ const PROTECTED_PATH_SEGMENTS = new Set([
   'windows'
 ]);
 
+const WINDOWS_RESERVED_NAMES = new Set([
+  'con',
+  'conin$',
+  'conout$',
+  'prn',
+  'aux',
+  'nul',
+  ...Array.from({ length: 10 }, (_, index) => `com${index}`),
+  ...Array.from({ length: 10 }, (_, index) => `lpt${index}`)
+]);
+
+const WINDOWS_INVALID_NAME_CHARS = /[<>:"/\\|?*\x00-\x1f]/;
+const DEFAULT_MAX_WINDOWS_PATH_LENGTH = 260;
+
 function cleanEntityName(value, options = {}) {
   const { stripTypeWords = false } = options;
   if (!value || typeof value !== 'string') return null;
@@ -99,6 +113,34 @@ function isPathInside(parent, child) {
   return childKey === parentKey || childKey.startsWith(`${parentKey}${path.sep}`);
 }
 
+function nearestExistingPath(candidate) {
+  let current = path.resolve(candidate);
+  while (current && current !== path.dirname(current)) {
+    if (fs.existsSync(current)) {
+      return current;
+    }
+    current = path.dirname(current);
+  }
+  return fs.existsSync(current) ? current : null;
+}
+
+function realPathForSafety(candidate) {
+  const existing = nearestExistingPath(candidate);
+  if (!existing) return null;
+
+  try {
+    const realExisting = fs.realpathSync.native
+      ? fs.realpathSync.native(existing)
+      : fs.realpathSync(existing);
+    const unresolvedTail = path.relative(existing, path.resolve(candidate));
+    return unresolvedTail
+      ? path.resolve(realExisting, unresolvedTail)
+      : realExisting;
+  } catch (error) {
+    return null;
+  }
+}
+
 function hasProtectedSegment(candidate, roots = []) {
   const resolved = path.resolve(candidate);
   const matchingRoot = roots.find(root => root && isPathInside(root, resolved));
@@ -108,6 +150,60 @@ function hasProtectedSegment(candidate, roots = []) {
     .map(segment => segment.trim().toLowerCase())
     .filter(Boolean);
   return segments.some(segment => PROTECTED_PATH_SEGMENTS.has(segment));
+}
+
+function sanitizeWindowsName(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function validateWindowsName(input, options = {}) {
+  const label = options.label || 'name';
+  const raw = String(input || '').trim();
+  if (!raw) {
+    return { valid: false, error: `Invalid ${label}` };
+  }
+  if (raw.length > 255) {
+    return { valid: false, error: `Invalid ${label}: Windows names cannot exceed 255 characters` };
+  }
+  if (WINDOWS_INVALID_NAME_CHARS.test(raw)) {
+    return { valid: false, error: `Invalid ${label}: Windows names cannot contain < > : " / \\ | ? *` };
+  }
+  if (/[ .]$/.test(raw)) {
+    return { valid: false, error: `Invalid ${label}: Windows names cannot end with a space or dot` };
+  }
+
+  const safeName = sanitizeWindowsName(raw);
+  if (!safeName || safeName === '.' || safeName === '..') {
+    return { valid: false, error: `Invalid ${label}` };
+  }
+
+  const baseName = path.basename(safeName, path.extname(safeName)).toLowerCase();
+  if (WINDOWS_RESERVED_NAMES.has(baseName)) {
+    return { valid: false, error: `Invalid ${label}: "${safeName}" is a reserved Windows device name` };
+  }
+
+  return { valid: true, name: safeName };
+}
+
+function validateWindowsPathLength(candidate, options = {}) {
+  if (!candidate || options.allowLongPaths) {
+    return { valid: true };
+  }
+
+  const maxPathLength = Number(options.maxPathLength) || DEFAULT_MAX_WINDOWS_PATH_LENGTH;
+  if (path.resolve(candidate).length >= maxPathLength) {
+    return {
+      valid: false,
+      error: 'That path is too long for the current Windows file configuration'
+    };
+  }
+
+  return { valid: true };
 }
 
 function getSafeUserRoots() {
@@ -120,6 +216,9 @@ function getSafeUserRoots() {
 function pathSafety(candidate, options = {}) {
   if (!candidate || typeof candidate !== 'string') {
     return { safe: false, reason: 'Path is empty' };
+  }
+  if (/[\x00-\x1f\x7f]/.test(candidate)) {
+    return { safe: false, reason: 'Path contains unsupported control characters' };
   }
 
   const resolved = path.resolve(candidate);
@@ -139,7 +238,20 @@ function pathSafety(candidate, options = {}) {
   if (!insideSafeRoot) {
     return { safe: false, reason: 'Path is outside allowed user folders' };
   }
+
+  const realResolved = realPathForSafety(resolved);
+  if (realResolved) {
+    const realRoots = roots.map(root => realPathForSafety(root) || path.resolve(root));
+    const realInsideSafeRoot = realRoots.some(root => root && isPathInside(root, realResolved));
+    if (!realInsideSafeRoot) {
+      return { safe: false, reason: 'Path resolves outside allowed user folders' };
+    }
+  }
+
   if (hasProtectedSegment(resolved, roots)) {
+    return { safe: false, reason: 'Protected system paths are not allowed' };
+  }
+  if (realResolved && hasProtectedSegment(realResolved, roots)) {
     return { safe: false, reason: 'Protected system paths are not allowed' };
   }
 
@@ -380,7 +492,10 @@ module.exports = {
   requireSafeUserPath,
   resolveDestinationPath,
   resolveDirectory,
+  sanitizeWindowsName,
   shouldDescendIntoSearchDirectory,
   splitNameAndLocation,
+  validateWindowsName,
+  validateWindowsPathLength,
   cleanEntityName
 };

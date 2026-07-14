@@ -1,124 +1,235 @@
-const { execSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+const { execFileSync } = require('child_process');
 const Logger = require('../assistant/Data').Logger;
 
-function psExec(script) {
-  try {
-    const psFile = path.join(os.tmpdir(), `bright_${Date.now()}.ps1`);
-    fs.writeFileSync(psFile, script, 'utf8');
-    try {
-      const result = execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${psFile}"`, {
-        encoding: 'utf8',
-        timeout: 5000,
-        shell: 'cmd.exe',
-        stdio: ['pipe', 'pipe', 'pipe']
-      }).trim();
-      return result;
-    } finally {
-      try { fs.unlinkSync(psFile); } catch (e) {}
-    }
-  } catch (err) {
-    return null;
+const BRIGHTNESS_TIMEOUT_MS = 5500;
+const DEFAULT_STEP = 10;
+const DEFAULT_BRIGHTNESS = 50;
+const MAX_PERCENT = 100;
+
+function clampPercent(value, fallback = DEFAULT_BRIGHTNESS) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return fallback;
   }
+  return Math.max(0, Math.min(MAX_PERCENT, Math.round(number)));
 }
 
-function parseNumber(output) {
-  if (!output) return null;
+function normalizeStep(value, fallback = DEFAULT_STEP) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) {
+    return fallback;
+  }
+  return Math.max(1, Math.min(MAX_PERCENT, Math.round(number)));
+}
 
-  const lines = output
+function parseOutputLines(output) {
+  return String(output || '')
     .split(/\r?\n/)
     .map(line => line.trim())
     .filter(Boolean);
+}
 
+function parseNumber(output) {
+  const lines = parseOutputLines(output);
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const value = Number.parseInt(lines[index], 10);
-    if (!Number.isNaN(value)) {
-      return Math.max(0, Math.min(100, value));
+    if (Number.isFinite(value)) {
+      return clampPercent(value);
     }
   }
-
   return null;
 }
 
+function verification(status, check, detail = {}) {
+  return { status, check, ...detail };
+}
+
 class BrightnessController {
-  constructor(config) {
+  constructor(config = {}) {
     this.logger = new Logger(config?.logging || { level: 'info' });
-    this.step = config?.system?.brightnessStep || 10;
+    this.step = normalizeStep(config?.system?.brightnessStep, DEFAULT_STEP);
+    this.lastKnownBrightness = null;
+    this.lastSetAt = 0;
+    this.timeoutMs = Number.isFinite(config?.system?.brightnessTimeoutMs)
+      ? Math.max(1000, Number(config.system.brightnessTimeoutMs))
+      : BRIGHTNESS_TIMEOUT_MS;
+    this.commandRunner = config?.system?.brightnessCommandRunner || null;
+  }
+
+  _run(script) {
+    const wrapped = `
+$ErrorActionPreference = 'Stop'
+${script}
+`;
+    try {
+      if (typeof this.commandRunner === 'function') {
+        return this.commandRunner(wrapped);
+      }
+      return execFileSync('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        wrapped
+      ], {
+        encoding: 'utf8',
+        timeout: this.timeoutMs,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
+      }).trim();
+    } catch (error) {
+      this.logger.warn('Windows brightness command failed', error.message);
+      return null;
+    }
+  }
+
+  _failure(error, operation, detail = {}) {
+    return {
+      success: false,
+      error,
+      data: {
+        operation,
+        supported: false,
+        verified: false,
+        verification: verification('failed', `${operation}-failed`, {
+          message: error,
+          ...detail
+        })
+      }
+    };
+  }
+
+  _success(operation, data = {}) {
+    return {
+      success: true,
+      data: {
+        operation,
+        method: 'WmiMonitorBrightnessMethods.WmiSetBrightness',
+        source: 'windows-wmi',
+        supported: true,
+        verified: true,
+        ...data,
+        verification: verification('passed', data.verificationCheck || 'brightness-readback', {
+          value: data.value,
+          requestedValue: data.requestedValue
+        })
+      }
+    };
+  }
+
+  _readBrightness() {
+    const output = this._run(`
+$brightness = Get-CimInstance -Namespace "root/WMI" -ClassName WmiMonitorBrightness -ErrorAction Stop |
+  Where-Object { $_.Active -eq $true } |
+  Select-Object -First 1
+if (-not $brightness) {
+  $brightness = Get-CimInstance -Namespace "root/WMI" -ClassName WmiMonitorBrightness -ErrorAction Stop |
+    Select-Object -First 1
+}
+if (-not $brightness) {
+  throw "Brightness readback unavailable"
+}
+Write-Output $brightness.CurrentBrightness
+`);
+    const value = parseNumber(output);
+    if (value !== null) {
+      this.lastKnownBrightness = value;
+    }
+    return value;
   }
 
   getCurrentBrightness() {
     try {
-      const script = `
-\$brightness = Get-WmiObject -Namespace "root/wmi" -Class WmiMonitorBrightness -ErrorAction SilentlyContinue | Select-Object -First 1
-if (\$brightness) {
-  \$brightness.CurrentBrightness
-} else {
-  -1
-}
-`;
-      const out = psExec(script);
-      const val = parseNumber(out);
-      if (val !== null && val >= 0) {
-        return val;
-      }
-      return null;
-    } catch (err) {
-      this.logger.warn('Failed to get brightness', err.message);
+      return this._readBrightness();
+    } catch (error) {
+      this.logger.warn('Failed to get brightness', error.message);
       return null;
     }
   }
 
+  getState() {
+    const value = this.getCurrentBrightness();
+    if (value === null) {
+      return this._failure('Brightness control not supported', 'brightness.get');
+    }
+    return this._success('brightness.get', {
+      value,
+      verificationCheck: 'brightness-readback'
+    });
+  }
+
   setBrightness(value) {
+    const requestedValue = clampPercent(value, DEFAULT_BRIGHTNESS);
     try {
-      const clamped = Math.max(0, Math.min(100, value));
       const script = `
-\$monitor = Get-WmiObject -Namespace "root/wmi" -Class WmiMonitorBrightnessMethods -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not \$monitor) {
+$monitor = Get-CimInstance -Namespace "root/WMI" -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop |
+  Select-Object -First 1
+if (-not $monitor) {
   throw "Brightness control not supported"
 }
-\$null = \$monitor.WmiSetBrightness(1, ${clamped})
-Start-Sleep -Milliseconds 150
-\$current = Get-WmiObject -Namespace "root/wmi" -Class WmiMonitorBrightness -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not \$current) {
+Invoke-CimMethod -InputObject $monitor -MethodName WmiSetBrightness -Arguments @{ Timeout = 1; Brightness = ${requestedValue} } | Out-Null
+Start-Sleep -Milliseconds 120
+$current = Get-CimInstance -Namespace "root/WMI" -ClassName WmiMonitorBrightness -ErrorAction Stop |
+  Where-Object { $_.Active -eq $true } |
+  Select-Object -First 1
+if (-not $current) {
+  $current = Get-CimInstance -Namespace "root/WMI" -ClassName WmiMonitorBrightness -ErrorAction Stop |
+    Select-Object -First 1
+}
+if (-not $current) {
   throw "Brightness readback unavailable"
 }
-\$current.CurrentBrightness
+Write-Output $current.CurrentBrightness
 `;
-
-      const actual = parseNumber(psExec(script));
+      const actual = parseNumber(this._run(script));
       if (actual === null) {
-        throw new Error('No brightness level returned from Windows');
+        return this._failure('No brightness level returned from Windows', 'brightness.set', { requestedValue });
       }
 
+      this.lastKnownBrightness = actual;
+      this.lastSetAt = Date.now();
       this.logger.info(`Brightness set to ${actual}%`);
-      return { success: true, data: { value: actual } };
-    } catch (err) {
-      this.logger.error('Failed to set brightness', err.message);
-      return { success: false, error: 'Brightness control not supported on this display' };
+      return this._success('brightness.set', {
+        value: actual,
+        requestedValue,
+        verificationCheck: actual === requestedValue ? 'brightness-set' : 'brightness-readback-adjusted'
+      });
+    } catch (error) {
+      this.logger.error('Failed to set brightness', error.message);
+      return this._failure('Brightness control not supported on this display', 'brightness.set', { requestedValue });
     }
   }
 
   increaseBrightness(amount = null) {
-    const step = amount || this.step;
-    const current = this.getCurrentBrightness();
+    const step = normalizeStep(amount, this.step);
+    const current = this._getBrightnessBaseline();
     if (current === null) {
-      return { success: false, error: 'Brightness control not supported' };
+      return this._failure('Brightness control not supported', 'brightness.up');
     }
-    const newBrightness = Math.min(100, current + step);
-    return this.setBrightness(newBrightness);
+    return this.setBrightness(current + step);
   }
 
   decreaseBrightness(amount = null) {
-    const step = amount || this.step;
-    const current = this.getCurrentBrightness();
+    const step = normalizeStep(amount, this.step);
+    const current = this._getBrightnessBaseline();
     if (current === null) {
-      return { success: false, error: 'Brightness control not supported' };
+      return this._failure('Brightness control not supported', 'brightness.down');
     }
-    const newBrightness = Math.max(0, current - step);
-    return this.setBrightness(newBrightness);
+    return this.setBrightness(current - step);
+  }
+
+  _getBrightnessBaseline() {
+    if (Date.now() - this.lastSetAt <= 1500 && this.lastKnownBrightness !== null) {
+      return this.lastKnownBrightness;
+    }
+    return this.getCurrentBrightness();
   }
 }
 
 module.exports = BrightnessController;
+module.exports._private = {
+  clampPercent,
+  normalizeStep,
+  parseNumber
+};

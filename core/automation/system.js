@@ -1,11 +1,14 @@
 const os = require('os');
-const { execFileSync, execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const Logger = require('../assistant/Data').Logger;
 
 class SystemController {
   constructor(config) {
     this.logger = new Logger(config?.logging || { level: 'info' });
     this.cache = new Map();
+    this.commandTimeoutMs = Number(config?.system?.commandTimeoutMs || 5000);
+    this.processListLimit = Number(config?.system?.processListLimit || 25);
+    this.powershellRunner = config?.system?.powershellRunner || execFileSync;
   }
 
   _getCached(key, ttlMs, producer) {
@@ -29,28 +32,95 @@ class SystemController {
     }
   }
 
+  _runPowerShell(script, options = {}) {
+    return this.powershellRunner('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      script
+    ], {
+      encoding: 'utf8',
+      timeout: Number(options.timeoutMs || this.commandTimeoutMs),
+      windowsHide: true
+    });
+  }
+
+  _parseJson(output, fallback = []) {
+    const text = String(output || '').trim();
+    if (!text) return fallback;
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      return fallback;
+    }
+  }
+
+  _toRows(parsed) {
+    if (Array.isArray(parsed)) return parsed;
+    return parsed ? [parsed] : [];
+  }
+
+  _safeNumber(value, fallback = 0) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  }
+
+  _success(action, data = {}, options = {}) {
+    const check = options.check || `system-${action}`;
+    const verified = options.controllerVerified !== false;
+    return {
+      success: true,
+      data: {
+        ...data,
+        operation: action,
+        platform: os.platform(),
+        metricSource: options.metricSource || data.metricSource || null,
+        controllerVerified: verified,
+        verification: options.verification || {
+          status: verified ? 'passed' : 'unknown',
+          check
+        },
+        responseVariantSeed: options.responseVariantSeed || `${action}:${Date.now()}`
+      }
+    };
+  }
+
+  _failure(error, action, data = {}) {
+    return {
+      success: false,
+      error: error?.message || error || 'System command failed',
+      data: {
+        ...data,
+        operation: action,
+        platform: os.platform(),
+        controllerVerified: false,
+        verification: {
+          status: 'failed',
+          check: `system-${action}`
+        }
+      }
+    };
+  }
+
   getTime(now = new Date()) {
     try {
-      return {
-        success: true,
-        data: {
+      return this._success('time', {
           time: now.toLocaleTimeString(undefined, {
             hour: 'numeric',
             minute: '2-digit'
           }),
           iso: now.toISOString()
-        }
-      };
+        }, { metricSource: 'javascript-date', responseVariantSeed: 'time' });
     } catch (err) {
-      return { success: false, error: err.message };
+      return this._failure(err, 'time');
     }
   }
 
   getDate(now = new Date()) {
     try {
-      return {
-        success: true,
-        data: {
+      return this._success('date', {
           date: now.toLocaleDateString(undefined, {
             weekday: 'long',
             year: 'numeric',
@@ -59,10 +129,9 @@ class SystemController {
           }),
           day: now.toLocaleDateString(undefined, { weekday: 'long' }),
           iso: now.toISOString()
-        }
-      };
+        }, { metricSource: 'javascript-date', responseVariantSeed: 'date' });
     } catch (err) {
-      return { success: false, error: err.message };
+      return this._failure(err, 'date');
     }
   }
 
@@ -83,14 +152,11 @@ class SystemController {
         return { success: false, error: 'Invalid calculation result' };
       }
 
-      return {
-        success: true,
-        data: {
-          expression: source,
-          normalizedExpression: normalized,
-          result: Number.isInteger(result) ? result : Number(result.toFixed(10))
-        }
-      };
+      return this._success('calculate', {
+        expression: source,
+        normalizedExpression: normalized,
+        result: Number.isInteger(result) ? result : Number(result.toFixed(10))
+      }, { check: 'calculation-result', metricSource: 'local-parser', responseVariantSeed: `calculate:${normalized}` });
     } catch (err) {
       return { success: false, error: 'Invalid calculation expression' };
     }
@@ -223,12 +289,13 @@ class SystemController {
 
   _getCPUUsageNow() {
     try {
-      const result = execSync(
-        'powershell -Command "Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average"',
-        { encoding: 'utf8', timeout: 5000 }
+      const result = this._runPowerShell(
+        'Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average'
       );
       const cpu = parseInt(result.trim(), 10);
-      return { success: true, data: { cpu: isNaN(cpu) ? 0 : cpu } };
+      return this._success('cpu', {
+        cpu: isNaN(cpu) ? 0 : cpu
+      }, { metricSource: 'cim-win32-processor', responseVariantSeed: `cpu:${cpu}` });
     } catch (err) {
       const cpus = os.cpus();
       let totalIdle = 0, totalTick = 0;
@@ -239,7 +306,10 @@ class SystemController {
         totalIdle += cpu.times.idle;
       });
       const usage = Math.round(100 - (totalIdle / totalTick) * 100);
-      return { success: true, data: { cpu: usage } };
+      return this._success('cpu', {
+        cpu: Number.isFinite(usage) ? usage : 0,
+        sampleCount: cpus.length
+      }, { metricSource: 'node-os-fallback', responseVariantSeed: `cpu:fallback:${usage}` });
     }
   }
 
@@ -252,17 +322,14 @@ class SystemController {
       const totalGB = (totalMem / 1024 / 1024 / 1024).toFixed(1);
       const percent = Math.round((usedMem / totalMem) * 100);
 
-      return {
-        success: true,
-        data: {
-          ram: percent,
-          used: usedGB,
-          total: totalGB,
-          percent
-        }
-      };
+      return this._success('memory', {
+        ram: percent,
+        used: usedGB,
+        total: totalGB,
+        percent
+      }, { metricSource: 'node-os', responseVariantSeed: `memory:${percent}:${usedGB}:${totalGB}` });
     } catch (err) {
-      return { success: false, error: err.message };
+      return this._failure(err, 'memory');
     }
   }
 
@@ -272,17 +339,25 @@ class SystemController {
 
   _getBatteryStatusNow() {
     try {
-      const result = execSync(
-        'powershell -Command "Get-CimInstance Win32_Battery | Select-Object -ExpandProperty EstimatedChargeRemaining"',
-        { encoding: 'utf8', timeout: 5000 }
+      const result = this._runPowerShell(
+        'Get-CimInstance Win32_Battery | Select-Object -First 1 -ExpandProperty EstimatedChargeRemaining'
       );
       const battery = parseInt(result.trim(), 10);
       if (isNaN(battery)) {
-        return { success: true, data: { battery: 'N/A', message: 'No battery detected' } };
+        return this._success('battery', {
+          battery: 'N/A',
+          message: 'No battery detected'
+        }, { metricSource: 'cim-win32-battery', controllerVerified: false, responseVariantSeed: 'battery:missing' });
       }
-      return { success: true, data: { battery } };
+      return this._success('battery', { battery }, {
+        metricSource: 'cim-win32-battery',
+        responseVariantSeed: `battery:${battery}`
+      });
     } catch (err) {
-      return { success: true, data: { battery: 'N/A', message: 'No battery detected' } };
+      return this._success('battery', {
+        battery: 'N/A',
+        message: 'No battery detected'
+      }, { metricSource: 'cim-win32-battery', controllerVerified: false, responseVariantSeed: 'battery:missing' });
     }
   }
 
@@ -292,31 +367,24 @@ class SystemController {
 
   _getDiskSpaceNow() {
     try {
-      const result = execSync(
-        'powershell -Command "Get-CimInstance Win32_LogicalDisk -Filter DriveType=3 | Select-Object DeviceID, @{N=\'FreeGB\';E={[math]::Round($_.FreeSpace/1GB,1)}}, @{N=\'TotalGB\';E={[math]::Round($_.Size/1GB,1)}} | ConvertTo-Json"',
-        { encoding: 'utf8', timeout: 5000 }
+      const result = this._runPowerShell(
+        "Get-CimInstance Win32_LogicalDisk -Filter DriveType=3 | Select-Object DeviceID, @{N='FreeGB';E={[math]::Round($_.FreeSpace/1GB,1)}}, @{N='TotalGB';E={[math]::Round($_.Size/1GB,1)}} | ConvertTo-Json -Compress"
       );
-
-      let disks;
-      try {
-        disks = JSON.parse(result.trim());
-      } catch (e) {
-        disks = [{ DeviceID: 'C:', FreeGB: 0, TotalGB: 0 }];
-      }
-
-      if (!Array.isArray(disks)) disks = [disks];
+      const disks = this._toRows(this._parseJson(result, [{ DeviceID: 'C:', FreeGB: 0, TotalGB: 0 }]));
 
       const primaryDisk = disks.find(d => d.DeviceID === 'C:') || disks[0] || {};
-      return {
-        success: true,
-        data: {
-          label: primaryDisk.DeviceID || 'C:',
-          free: primaryDisk.FreeGB || 0,
-          total: primaryDisk.TotalGB || 0
-        }
-      };
+      return this._success('disk', {
+        label: primaryDisk.DeviceID || 'C:',
+        free: this._safeNumber(primaryDisk.FreeGB, 0),
+        total: this._safeNumber(primaryDisk.TotalGB, 0),
+        drives: disks.slice(0, 8).map(disk => ({
+          label: String(disk.DeviceID || '').trim(),
+          free: this._safeNumber(disk.FreeGB, 0),
+          total: this._safeNumber(disk.TotalGB, 0)
+        })).filter(disk => disk.label)
+      }, { metricSource: 'cim-win32-logicaldisk', responseVariantSeed: `disk:${primaryDisk.DeviceID}:${primaryDisk.FreeGB}:${primaryDisk.TotalGB}` });
     } catch (err) {
-      return { success: false, error: err.message };
+      return this._failure(err, 'disk');
     }
   }
 
@@ -326,14 +394,14 @@ class SystemController {
 
   _getProcessCountNow() {
     try {
-      const result = execSync(
-        'powershell -Command "(Get-Process).Count"',
-        { encoding: 'utf8', timeout: 5000 }
-      );
+      const result = this._runPowerShell('(Get-Process).Count');
       const count = parseInt(result.trim(), 10);
-      return { success: true, data: { count: isNaN(count) ? 0 : count } };
+      return this._success('processes', {
+        count: isNaN(count) ? 0 : count,
+        target: 'processes'
+      }, { metricSource: 'powershell-get-process', responseVariantSeed: `processes:${count}` });
     } catch (err) {
-      return { success: false, error: err.message };
+      return this._failure(err, 'processes');
     }
   }
 
@@ -344,9 +412,7 @@ class SystemController {
 
   _getRunningAppsNow(options = {}) {
     try {
-      const output = execFileSync('powershell.exe', [
-        '-NoProfile',
-        '-Command',
+      const output = this._runPowerShell(
         [
           "$apps = Get-Process |",
           "Where-Object { $_.MainWindowTitle -and $_.MainWindowTitle.Trim().Length -gt 0 } |",
@@ -354,12 +420,8 @@ class SystemController {
           "Sort-Object ProcessName, MainWindowTitle -Unique;",
           "$apps | ConvertTo-Json -Compress"
         ].join(' ')
-      ], {
-        encoding: 'utf8',
-        timeout: 5000
-      });
-      const parsed = JSON.parse(output || '[]');
-      const rows = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+      );
+      const rows = this._toRows(this._parseJson(output, []));
       const apps = rows
         .map(row => ({
           name: String(row.ProcessName || '').trim(),
@@ -376,18 +438,18 @@ class SystemController {
           })
         : [];
 
-      return {
-        success: true,
-        data: {
-          target: 'apps',
-          count: apps.length,
-          apps,
-          names: Array.from(new Set(apps.map(app => app.name))).slice(0, 8),
-          queryApp: queryApp || undefined,
-          isOpen: queryApp ? matchedApps.length > 0 : undefined,
-          matchedApps: queryApp ? matchedApps.slice(0, 8) : undefined
-        }
-      };
+      return this._success('runningApps', {
+        target: 'apps',
+        count: apps.length,
+        apps: apps.slice(0, this.processListLimit),
+        names: Array.from(new Set(apps.map(app => app.name))).slice(0, 8),
+        queryApp: queryApp || undefined,
+        isOpen: queryApp ? matchedApps.length > 0 : undefined,
+        matchedApps: queryApp ? matchedApps.slice(0, 8) : undefined
+      }, {
+        metricSource: 'powershell-get-process-visible-windows',
+        responseVariantSeed: `apps:${queryApp}:${apps.length}:${matchedApps.length}`
+      });
     } catch (err) {
       return { success: false, error: 'Running apps are not available' };
     }
@@ -434,7 +496,6 @@ class SystemController {
         data: {
           insightType: 'systemSummary',
           ...(status.data || {}),
-          platform: os.platform(),
           release: os.release(),
           arch: os.arch(),
           hostname: os.hostname()
@@ -447,21 +508,25 @@ class SystemController {
   _getGpuSnapshot() {
     return this._getCached('gpuSnapshot', 30000, () => {
       try {
-        const output = execFileSync('powershell.exe', [
-          '-NoProfile',
-          '-Command',
+        const output = this._runPowerShell(
           'Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM, DriverVersion | ConvertTo-Json -Compress'
-        ], { encoding: 'utf8', timeout: 5000 });
-        const parsed = JSON.parse(output || '[]');
-        const rows = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+        );
+        const rows = this._toRows(this._parseJson(output, []));
         const gpus = rows.map(row => ({
           name: String(row.Name || '').trim(),
           memoryMB: Number((Number(row.AdapterRAM || 0) / 1024 / 1024).toFixed(1)),
           driverVersion: String(row.DriverVersion || '').trim()
         })).filter(row => row.name);
-        return { success: true, data: { insightType: 'gpuUsage', gpus } };
+        return this._success('insight', { insightType: 'gpuUsage', gpus }, {
+          metricSource: 'cim-win32-videocontroller',
+          responseVariantSeed: `insight:gpu:${gpus.length}`
+        });
       } catch (err) {
-        return { success: true, data: { insightType: 'gpuUsage', gpus: [], message: 'GPU details are not available' } };
+        return this._success('insight', {
+          insightType: 'gpuUsage',
+          gpus: [],
+          message: 'GPU details are not available'
+        }, { metricSource: 'cim-win32-videocontroller', controllerVerified: false, responseVariantSeed: 'insight:gpu:missing' });
       }
     });
   }
@@ -469,22 +534,26 @@ class SystemController {
   _getNetworkSnapshot() {
     return this._getCached('networkSnapshot', 30000, () => {
       try {
-        const output = execFileSync('powershell.exe', [
-          '-NoProfile',
-          '-Command',
+        const output = this._runPowerShell(
           'Get-NetAdapter | Where-Object Status -eq Up | Select-Object Name, InterfaceDescription, LinkSpeed, Status | ConvertTo-Json -Compress'
-        ], { encoding: 'utf8', timeout: 5000 });
-        const parsed = JSON.parse(output || '[]');
-        const rows = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+        );
+        const rows = this._toRows(this._parseJson(output, []));
         const adapters = rows.map(row => ({
           name: String(row.Name || '').trim(),
           description: String(row.InterfaceDescription || '').trim(),
           linkSpeed: String(row.LinkSpeed || '').trim(),
           status: String(row.Status || '').trim()
         })).filter(row => row.name);
-        return { success: true, data: { insightType: 'networkUsage', adapters } };
+        return this._success('insight', { insightType: 'networkUsage', adapters }, {
+          metricSource: 'powershell-get-netadapter',
+          responseVariantSeed: `insight:network:${adapters.length}`
+        });
       } catch (err) {
-        return { success: true, data: { insightType: 'networkUsage', adapters: [], message: 'Network details are not available' } };
+        return this._success('insight', {
+          insightType: 'networkUsage',
+          adapters: [],
+          message: 'Network details are not available'
+        }, { metricSource: 'powershell-get-netadapter', controllerVerified: false, responseVariantSeed: 'insight:network:missing' });
       }
     });
   }
@@ -492,19 +561,23 @@ class SystemController {
   _getTemperatureSnapshot() {
     return this._getCached('temperatureSnapshot', 30000, () => {
       try {
-        const output = execFileSync('powershell.exe', [
-          '-NoProfile',
-          '-Command',
+        const output = this._runPowerShell(
           'Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object CurrentTemperature | ConvertTo-Json -Compress'
-        ], { encoding: 'utf8', timeout: 5000 });
-        const parsed = JSON.parse(output || '[]');
-        const rows = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+        );
+        const rows = this._toRows(this._parseJson(output, []));
         const temperatures = rows
           .map(row => Number(((Number(row.CurrentTemperature || 0) / 10) - 273.15).toFixed(1)))
           .filter(value => Number.isFinite(value) && value > -50);
-        return { success: true, data: { insightType: 'temperature', temperatures } };
+        return this._success('insight', { insightType: 'temperature', temperatures }, {
+          metricSource: 'cim-thermal-zone-temperature',
+          responseVariantSeed: `insight:temperature:${temperatures.length}`
+        });
       } catch (err) {
-        return { success: true, data: { insightType: 'temperature', temperatures: [], message: 'Temperature sensors are not available' } };
+        return this._success('insight', {
+          insightType: 'temperature',
+          temperatures: [],
+          message: 'Temperature sensors are not available'
+        }, { metricSource: 'cim-thermal-zone-temperature', controllerVerified: false, responseVariantSeed: 'insight:temperature:missing' });
       }
     });
   }
@@ -515,16 +588,13 @@ class SystemController {
 
   _getTopProcessByNow(property, metric) {
     try {
-      const output = execFileSync('powershell.exe', [
-        '-NoProfile',
-        '-Command',
+      const output = this._runPowerShell(
         [
-          `$items = Get-Process | Where-Object { $_.${property} -ne $null } | Sort-Object ${property} -Descending | Select-Object -First 8 ProcessName, Id, CPU, WorkingSet64, MainWindowTitle;`,
+          `$items = Get-Process | Where-Object { $_.${property} -ne $null } | Sort-Object ${property} -Descending | Select-Object -First ${Math.max(1, Math.min(this.processListLimit, 12))} ProcessName, Id, CPU, WorkingSet64, MainWindowTitle;`,
           '$items | ConvertTo-Json -Compress'
         ].join(' ')
-      ], { encoding: 'utf8', timeout: 6000 });
-      const parsed = JSON.parse(output || '[]');
-      const rows = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+      , { timeoutMs: 6000 });
+      const rows = this._toRows(this._parseJson(output, []));
       const processes = rows.map(row => ({
         name: String(row.ProcessName || '').trim(),
         id: Number(row.Id || 0),
@@ -533,15 +603,15 @@ class SystemController {
         title: String(row.MainWindowTitle || '').trim()
       })).filter(row => row.name);
 
-      return {
-        success: true,
-        data: {
-          insightType: metric === 'memory' ? 'topMemoryApp' : 'topCpuProcess',
-          metric,
-          top: processes[0] || null,
-          processes
-        }
-      };
+      return this._success('insight', {
+        insightType: metric === 'memory' ? 'topMemoryApp' : 'topCpuProcess',
+        metric,
+        top: processes[0] || null,
+        processes: processes.slice(0, this.processListLimit)
+      }, {
+        metricSource: 'powershell-get-process',
+        responseVariantSeed: `insight:${metric}:${processes[0]?.name || 'none'}`
+      });
     } catch (err) {
       return { success: false, error: `${metric === 'memory' ? 'Memory' : 'CPU'} usage by process is not available` };
     }
@@ -566,18 +636,17 @@ class SystemController {
         '};',
         '$items | Sort-Object SizeBytes -Descending | ConvertTo-Json -Compress'
       ].join(' ');
-      const output = execFileSync('powershell.exe', ['-NoProfile', '-Command', script], {
-        encoding: 'utf8',
-        timeout: 12000
-      });
-      const parsed = JSON.parse(output || '[]');
-      const rows = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+      const output = this._runPowerShell(script, { timeoutMs: 12000 });
+      const rows = this._toRows(this._parseJson(output, []));
       const folderRows = rows.map(row => ({
         name: String(row.Name || '').trim(),
         path: String(row.Path || '').trim(),
         sizeMB: Number((Number(row.SizeBytes || 0) / 1024 / 1024).toFixed(1))
       })).filter(row => row.name);
-      return { success: true, data: { insightType: 'storageUsage', folders: folderRows } };
+      return this._success('insight', { insightType: 'storageUsage', folders: folderRows }, {
+        metricSource: 'powershell-get-childitem-user-folders',
+        responseVariantSeed: `insight:storage:${folderRows.length}:${folderRows[0]?.sizeMB || 0}`
+      });
     } catch (err) {
       return { success: false, error: 'Storage usage by folder is not available' };
     }
@@ -594,18 +663,17 @@ class SystemController {
         '$apps = foreach ($root in $roots) { Get-ItemProperty $root -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName } | Select-Object DisplayName, InstallDate, Publisher };',
         '$apps | Sort-Object InstallDate -Descending | Select-Object -First 10 | ConvertTo-Json -Compress'
       ].join(' ');
-      const output = execFileSync('powershell.exe', ['-NoProfile', '-Command', script], {
-        encoding: 'utf8',
-        timeout: 8000
-      });
-      const parsed = JSON.parse(output || '[]');
-      const rows = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+      const output = this._runPowerShell(script, { timeoutMs: 8000 });
+      const rows = this._toRows(this._parseJson(output, []));
       const apps = rows.map(row => ({
         name: String(row.DisplayName || '').trim(),
         installDate: String(row.InstallDate || '').trim(),
         publisher: String(row.Publisher || '').trim()
       })).filter(row => row.name);
-      return { success: true, data: { insightType: 'recentlyInstalledApps', apps } };
+      return this._success('insight', { insightType: 'recentlyInstalledApps', apps }, {
+        metricSource: 'windows-uninstall-registry',
+        responseVariantSeed: `insight:installed:${apps.length}:${apps[0]?.name || ''}`
+      });
     } catch (err) {
       return { success: false, error: 'Recently installed applications are not available' };
     }
@@ -614,14 +682,15 @@ class SystemController {
   _getSystemSlowdownSnapshot() {
     const cpu = this._getTopProcessBy('CPU', 'cpu');
     const memory = this._getTopProcessBy('WorkingSet64', 'memory');
-    return {
-      success: true,
-      data: {
+    return this._success('insight', {
         insightType: 'systemSlowdown',
         cpu: cpu.data?.top || null,
         memory: memory.data?.top || null
-      }
-    };
+      }, {
+        metricSource: 'powershell-get-process',
+        controllerVerified: cpu.success || memory.success,
+        responseVariantSeed: `insight:slowdown:${cpu.data?.top?.name || ''}:${memory.data?.top?.name || ''}`
+      });
   }
 
   bluetooth(enabled = undefined) {
@@ -634,9 +703,7 @@ class SystemController {
 
   _getBluetoothState() {
     try {
-      const output = execFileSync('powershell.exe', [
-        '-NoProfile',
-        '-Command',
+      const output = this._runPowerShell(
         [
           "$devices = Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue |",
           "Where-Object { $_.FriendlyName -and $_.FriendlyName -notmatch 'Enumerator|Protocol|Service|Generic Attribute|RFCOMM' };",
@@ -644,15 +711,15 @@ class SystemController {
           "if (-not $device) { @{ available = $false } | ConvertTo-Json -Compress; exit }",
           "@{ available = $true; enabled = ($device.Status -eq 'OK'); status = $device.Status; name = $device.FriendlyName } | ConvertTo-Json -Compress"
         ].join(' ')
-      ], {
-        encoding: 'utf8',
-        timeout: 8000
-      });
-      const data = JSON.parse(output || '{}');
+      , { timeoutMs: 8000 });
+      const data = this._parseJson(output, {});
       if (!data.available) {
         return { success: false, error: 'Bluetooth device not found' };
       }
-      return { success: true, data };
+      return this._success('bluetooth', data, {
+        metricSource: 'powershell-get-pnpdevice',
+        responseVariantSeed: `bluetooth:${data.enabled}:${data.status || ''}:${data.name || ''}`
+      });
     } catch (err) {
       return { success: false, error: 'Bluetooth status is not available' };
     }
@@ -661,9 +728,7 @@ class SystemController {
   _setBluetoothState(enabled) {
     const verb = enabled ? 'Enable-PnpDevice' : 'Disable-PnpDevice';
     try {
-      const output = execFileSync('powershell.exe', [
-        '-NoProfile',
-        '-Command',
+      const output = this._runPowerShell(
         [
           "$devices = Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue |",
           "Where-Object { $_.FriendlyName -and $_.FriendlyName -notmatch 'Enumerator|Protocol|Service|Generic Attribute|RFCOMM' };",
@@ -674,15 +739,15 @@ class SystemController {
           "Sort-Object { if ($_.Status -eq 'OK') { 0 } else { 1 } } | Select-Object -First 1;",
           `@{ success = $true; enabled = ${enabled ? '$true' : '$false'}; status = $after.Status; name = $after.FriendlyName } | ConvertTo-Json -Compress`
         ].join(' ')
-      ], {
-        encoding: 'utf8',
-        timeout: 15000
-      });
-      const data = JSON.parse(output || '{}');
+      , { timeoutMs: 15000 });
+      const data = this._parseJson(output, {});
       if (!data.success) {
         return { success: false, error: data.error || 'Bluetooth could not be changed' };
       }
-      return { success: true, data };
+      return this._success('bluetooth', data, {
+        metricSource: 'powershell-pnpdevice',
+        responseVariantSeed: `bluetooth:set:${enabled}:${data.status || ''}`
+      });
     } catch (err) {
       return {
         success: false,
@@ -698,17 +763,23 @@ class SystemController {
     const battery = this.getBatteryStatus();
     const disk = this.getDiskSpace();
 
-    return {
-      success: true,
-      data: {
-        cpu: cpu.data?.cpu || 0,
-        ram: mem.data?.percent || 0,
-        battery: battery.data?.battery || 'N/A',
-        disk: disk.data?.free || 0,
-        diskTotal: disk.data?.total || 0,
-        diskLabel: disk.data?.label || 'C:'
+    return this._success('status', {
+      cpu: cpu.data?.cpu || 0,
+      ram: mem.data?.percent || 0,
+      battery: battery.data?.battery || 'N/A',
+      disk: disk.data?.free || 0,
+      diskTotal: disk.data?.total || 0,
+      diskLabel: disk.data?.label || 'C:',
+      sources: {
+        cpu: cpu.data?.metricSource || null,
+        memory: mem.data?.metricSource || null,
+        battery: battery.data?.metricSource || null,
+        disk: disk.data?.metricSource || null
       }
-    };
+    }, {
+      metricSource: 'system-controller-cache',
+      responseVariantSeed: `status:${cpu.data?.cpu || 0}:${mem.data?.percent || 0}:${disk.data?.free || 0}`
+    });
   }
 }
 

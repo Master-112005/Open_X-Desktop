@@ -1,7 +1,8 @@
 'use strict';
 
 const { LearningManager, createDefaultLearningManager } = require('./LearningManager');
-const LEARNING_LAYER_VERSION = '12.1.0';
+const learningConstitution = require('./LearningConstitution');
+const LEARNING_LAYER_VERSION = '12.2.0';
 
 module.exports = {
   LEARNING_LAYER_VERSION,
@@ -34,6 +35,11 @@ module.exports = {
   LearningStorage: require('./LearningStorage'),
   LearningValidator: require('./LearningValidator'),
   LearningAnalytics: require('./LearningAnalytics'),
+  LearningConstitution: learningConstitution.LearningConstitution,
+  createDefaultLearningConstitution: learningConstitution.createDefaultLearningConstitution,
+  DEFAULT_LEARNING_PRINCIPLES: learningConstitution.DEFAULT_PRINCIPLES,
+  normalizeLearningSubject: learningConstitution.normalizeSubject,
+  PersonalizationProfileStore: require('./PersonalizationProfileStore'),
   LearningConfiguration: require('./LearningConfiguration'),
   LearningDiagnostics: require('./LearningDiagnostics'),
   LearningLogger: require('./LearningLogger'),

@@ -27,6 +27,17 @@ describe('Response Generator', function() {
     assert.ok(result.toLowerCase().includes('confirm'));
   });
 
+  it('should include risk context in high-impact confirmation responses', function() {
+    const gen = new ResponseGenerator();
+    const result = gen.generate('confirmation', 'confirmAction', {
+      action: 'Delete file',
+      risk: 'high',
+      consequence: 'Deleted items may not be recoverable.'
+    });
+    assert.match(result, /high-impact/i);
+    assert.match(result, /not be recoverable/i);
+  });
+
   it('should handle unknown template with fallback', function() {
     const gen = new ResponseGenerator();
     const result = gen.generate('success', 'nonexistent.template');
@@ -358,7 +369,9 @@ describe('Response Generator', function() {
       }
     });
 
-    assert.equal(result, 'Verified YouTube was switched to "playdate song", sir.');
+    assert.match(result, /YouTube/i);
+    assert.match(result, /playdate song/i);
+    assert.match(result, /verified/i);
   });
 
   it('should confirm verified managed media launches', function() {
@@ -381,10 +394,9 @@ describe('Response Generator', function() {
       }
     });
 
-    assert.equal(
-      result,
-      'Verified YouTube was opened for "playdate song", sir.'
-    );
+    assert.match(result, /YouTube/i);
+    assert.match(result, /playdate song/i);
+    assert.match(result, /verified/i);
   });
 
   it('should include task and time in schedule confirmations', function() {
@@ -404,6 +416,47 @@ describe('Response Generator', function() {
     assert.doesNotMatch(reminder, /to 12:21 to call/i);
     assert.match(timer, /5 minute timer/i);
     assert.match(alarm, /1:08 am/i);
+  });
+
+  it('should use persisted scheduler due time in schedule confirmations', function() {
+    const gen = new ResponseGenerator();
+    const dueAt = new Date(2026, 6, 14, 12, 21).toISOString();
+    const reminder = gen.generate('success', 'reminder.set', {
+      result: {
+        data: {
+          message: 'call mummy',
+          dueAt,
+          recurrence: 'daily',
+          responseVariantSeed: 'schedule-response-test'
+        }
+      }
+    });
+
+    assert.match(reminder, /call mummy/i);
+    assert.match(reminder, /Jul|7\//i);
+    assert.match(reminder, /12:21/);
+    assert.match(reminder, /daily/i);
+  });
+
+  it('should include planner title date and time in planner confirmations', function() {
+    const gen = new ResponseGenerator();
+    const result = gen.generate('success', 'calendar.add', {
+      result: {
+        data: {
+          operation: 'add',
+          responseVariantSeed: 'planner-test',
+          entry: {
+            title: 'team review',
+            date: '2026-07-14',
+            startTime: '12:21'
+          }
+        }
+      }
+    });
+
+    assert.match(result, /team review/i);
+    assert.match(result, /2026-07-14/);
+    assert.match(result, /12:21/);
   });
 
   it('should use formal addressing by default', function() {

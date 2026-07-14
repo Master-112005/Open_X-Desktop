@@ -72,6 +72,7 @@ function decodeHtml(input) {
 class BrowserController {
   constructor(config) {
     this.logger = new Logger(config?.logging || { level: 'info' });
+    this.launchTarget = config?.browser?.launchTarget || launchTarget;
     this.defaultBrowser = this._detectBrowser();
     this.windowSession = new WindowsSessionController(config);
     this.lastSearch = null;
@@ -80,6 +81,73 @@ class BrowserController {
     this._connectivityStatus = {
       checkedAt: 0,
       online: null
+    };
+  }
+
+  _browserProcessName(browserName) {
+    const normalized = this._normalizeBrowserName(browserName);
+    return normalized === 'edge' ? 'msedge' : normalized;
+  }
+
+  _normalizeUrl(url, browserName = this.defaultBrowser.name) {
+    const source = String(url || '').trim();
+    if (!source) {
+      return '';
+    }
+
+    const isBlankTabRequest = this._isBlankTabUrl(source);
+    if (isBlankTabRequest) {
+      return this._nativeNewTabUrl(browserName);
+    }
+
+    if (
+      !/^https?:\/\//i.test(source) &&
+      !/^(?:about|chrome|edge|file|mailto):/i.test(source)
+    ) {
+      return `https://${source}`;
+    }
+
+    return source;
+  }
+
+  _isBlankTabUrl(url) {
+    return /^(?:about:newtab|about:blank|chrome:\/\/newtab\/?|edge:\/\/newtab\/?)$/i.test(String(url || '').trim());
+  }
+
+  _success(operation, data = {}, options = {}) {
+    const check = options.check || `browser-${operation}`;
+    const verified = options.controllerVerified === true;
+    return {
+      success: true,
+      data: {
+        ...data,
+        operation,
+        platform: process.platform,
+        controllerVerified: verified,
+        verification: options.verification || {
+          status: verified ? 'passed' : 'unknown',
+          check,
+          ...(verified ? {} : { reason: options.reason || 'Browser command was dispatched; final browser state may require UI verification.' })
+        },
+        responseVariantSeed: options.responseVariantSeed || `browser:${operation}:${Date.now()}`
+      }
+    };
+  }
+
+  _failure(error, operation, data = {}) {
+    return {
+      success: false,
+      error: error?.message || error || 'Browser command failed',
+      data: {
+        ...data,
+        operation,
+        platform: process.platform,
+        controllerVerified: false,
+        verification: {
+          status: 'failed',
+          check: `browser-${operation}`
+        }
+      }
     };
   }
 
@@ -186,24 +254,15 @@ class BrowserController {
     }
 
     const blankTabBrowser = this._normalizeBrowserName(options.browserName);
-    const requestedUrl = url.trim();
-    const isBlankTabRequest = /^(?:about:newtab|about:blank|chrome:\/\/newtab\/?|edge:\/\/newtab\/?)$/i.test(requestedUrl);
+    const requestedUrl = String(url || '').trim();
+    const isBlankTabRequest = this._isBlankTabUrl(requestedUrl);
     const isNewTabRequest = Boolean(options.newTab) || isBlankTabRequest;
-    let formattedUrl = isBlankTabRequest
-      ? this._nativeNewTabUrl(blankTabBrowser)
-      : requestedUrl;
-    if (
-      !formattedUrl.startsWith('http://') &&
-      !formattedUrl.startsWith('https://') &&
-      !/^(?:about|chrome|edge|file):/i.test(formattedUrl)
-    ) {
-      formattedUrl = 'https://' + formattedUrl;
-    }
+    const formattedUrl = this._normalizeUrl(requestedUrl, blankTabBrowser);
 
     if (isNewTabRequest) {
       const existingWindow = this._findBrowserWindow(blankTabBrowser);
       if (existingWindow) {
-        const processName = blankTabBrowser === 'edge' ? 'msedge' : blankTabBrowser;
+        const processName = this._browserProcessName(blankTabBrowser);
         const opened = isBlankTabRequest
           ? this.windowSession.sendKeys(existingWindow.title, '^t', {
               preferredProcessNames: [processName]
@@ -215,21 +274,24 @@ class BrowserController {
         if (!opened?.success) {
           return {
             success: false,
-            error: `Chrome is open, but I could not open a new tab in its existing window.`
+            error: `${blankTabBrowser} is open, but I could not open a new tab in its existing window.`
           };
         }
-        return {
-          success: true,
-          data: {
-            url: formattedUrl,
-            browserName: blankTabBrowser,
-            launchMethod: 'existing-window-shortcut',
-            matchedWindow: opened.data?.matchedWindow || existingWindow.title,
-            openedNewWindow: false,
-            openedNewTab: true,
-            verified: true
-          }
-        };
+        return this._success('open', {
+          url: formattedUrl,
+          requestedUrl,
+          browserName: blankTabBrowser,
+          launchMethod: isBlankTabRequest ? 'existing-window-shortcut' : 'existing-window-navigation',
+          matchedWindow: opened.data?.matchedWindow || existingWindow.title,
+          openedNewWindow: false,
+          openedNewTab: true,
+          verified: true,
+          newTab: true
+        }, {
+          controllerVerified: true,
+          check: 'browser-existing-tab-opened',
+          responseVariantSeed: `browser.open:${blankTabBrowser}:tab:${formattedUrl}`
+        });
       }
     }
 
@@ -238,14 +300,35 @@ class BrowserController {
         ? this._resolveBrowserExecutable(blankTabBrowser)
         : null;
       const browserPath = requestedBrowserPath || this.defaultBrowser.path;
+      const actualBrowserName = requestedBrowserPath
+        ? blankTabBrowser
+        : this._normalizeBrowserName(this.defaultBrowser.name);
       if (browserPath) {
-        launchTarget(browserPath, [formattedUrl]);
+        this.launchTarget(browserPath, [formattedUrl]);
       } else {
-        launchTarget(formattedUrl);
+        this.launchTarget(formattedUrl);
       }
-      return { success: true, data: { url: formattedUrl, browserName: blankTabBrowser } };
+      return this._success('open', {
+        url: formattedUrl,
+        requestedUrl,
+        browserName: actualBrowserName,
+        requestedBrowserName: blankTabBrowser,
+        launchMethod: browserPath ? 'browser-executable' : 'default-url-handler',
+        browserPath: browserPath || null,
+        openedNewWindow: !isNewTabRequest,
+        openedNewTab: false,
+        newTab: Boolean(options.newTab)
+      }, {
+        check: 'browser-launch-dispatch',
+        reason: 'Browser process launch was requested; window verification happens outside this dispatch path.',
+        responseVariantSeed: `browser.open:${blankTabBrowser}:launch:${formattedUrl}`
+      });
     } catch (err) {
-      return { success: false, error: `Failed to open: ${formattedUrl}` };
+      return this._failure(`Failed to open: ${formattedUrl}`, 'open', {
+        url: formattedUrl,
+        requestedUrl,
+        browserName: blankTabBrowser
+      });
     }
   }
 
@@ -257,7 +340,7 @@ class BrowserController {
 
   _findBrowserWindow(requestedBrowser) {
     const browserName = this._normalizeBrowserName(requestedBrowser);
-    const processName = browserName === 'edge' ? 'msedge' : browserName;
+    const processName = this._browserProcessName(browserName);
     return this.windowSession.listWindows().find(window => {
       const process = String(window?.processName || '').trim().toLowerCase();
       return process === processName && Number(window?.handle || 0) !== 0;
@@ -294,17 +377,20 @@ class BrowserController {
     this.lastSearch = { query, searchUrl, results };
     const answer = this._deriveAnswer(query, results);
     const searchSummary = this._buildSearchSummary(query, results, answer);
-    return {
-      success: true,
-      data: {
-        query,
-        searchUrl,
-        background: true,
-        results,
-        answer,
-        searchSummary
-      }
-    };
+    return this._success('search', {
+      query,
+      searchUrl,
+      background: true,
+      results,
+      resultCount: Array.isArray(results) ? results.length : 0,
+      answer,
+      searchSummary,
+      launchMethod: 'background-search'
+    }, {
+      controllerVerified: Array.isArray(results),
+      check: 'browser-background-search',
+      responseVariantSeed: `browser.search:${query}:${Array.isArray(results) ? results.length : 0}:${answer?.sourceTitle || ''}`
+    });
   }
 
   siteSearch(site, query) {
@@ -321,14 +407,17 @@ class BrowserController {
     const url = target.buildUrl(cleanQuery);
     const opened = this.open(url);
     return opened?.success
-      ? {
-          success: true,
-          data: {
-            site: target.key,
-            query: cleanQuery,
-            url
-          }
-        }
+      ? this._success('siteSearch', {
+          ...(opened.data || {}),
+          site: target.key,
+          query: cleanQuery,
+          url,
+          launchMethod: opened.data?.launchMethod || 'site-search-open'
+        }, {
+          controllerVerified: opened.data?.controllerVerified === true,
+          check: opened.data?.verification?.check || 'browser-site-search-dispatch',
+          responseVariantSeed: `browser.siteSearch:${target.key}:${cleanQuery}`
+        })
       : opened;
   }
 
@@ -363,15 +452,18 @@ class BrowserController {
       const firstResultUrl = `https://www.google.com/search?btnI=1&q=${encodeURIComponent(requestedQuery)}`;
       const opened = this.open(firstResultUrl);
       return opened?.success
-        ? {
-            success: true,
-            data: {
-              query: requestedQuery,
-              title: 'First Google result',
-              url: firstResultUrl,
-              googleFirstResult: true
-            }
-          }
+        ? this._success('openFirstResult', {
+            ...(opened.data || {}),
+            query: requestedQuery,
+            title: 'First Google result',
+            url: firstResultUrl,
+            googleFirstResult: true,
+            launchMethod: opened.data?.launchMethod || 'google-im-feeling-lucky'
+          }, {
+            controllerVerified: opened.data?.controllerVerified === true,
+            check: opened.data?.verification?.check || 'browser-first-result-dispatch',
+            responseVariantSeed: `browser.openFirstResult:google:${requestedQuery}`
+          })
         : opened;
     }
 
@@ -391,15 +483,18 @@ class BrowserController {
           source: 'trusted-web-target'
         }]
       };
-      return {
-        success: true,
-        data: {
-          query: requestedQuery,
-          title: trusted.title,
-          url: trusted.url,
-          trusted: true
-        }
-      };
+      return this._success('openFirstResult', {
+        ...(opened.data || {}),
+        query: requestedQuery,
+        title: trusted.title,
+        url: trusted.url,
+        trusted: true,
+        launchMethod: opened.data?.launchMethod || 'trusted-web-target'
+      }, {
+        controllerVerified: opened.data?.controllerVerified === true,
+        check: opened.data?.verification?.check || 'browser-trusted-target-dispatch',
+        responseVariantSeed: `browser.openFirstResult:trusted:${trusted.url}`
+      });
     }
 
     const cachedResults = this.lastSearch?.query === requestedQuery && Array.isArray(this.lastSearch.results)
@@ -422,14 +517,17 @@ class BrowserController {
     const url = this._normalizeResultUrl(first.url);
     const opened = this.open(url);
     return opened?.success
-      ? {
-          success: true,
-          data: {
-            query: requestedQuery,
-            title: first.title || '',
-            url
-          }
-        }
+      ? this._success('openFirstResult', {
+          ...(opened.data || {}),
+          query: requestedQuery,
+          title: first.title || '',
+          url,
+          launchMethod: opened.data?.launchMethod || 'ranked-search-result'
+        }, {
+          controllerVerified: opened.data?.controllerVerified === true,
+          check: opened.data?.verification?.check || 'browser-first-result-dispatch',
+          responseVariantSeed: `browser.openFirstResult:ranked:${requestedQuery}:${first.title || ''}`
+        })
       : opened;
   }
 

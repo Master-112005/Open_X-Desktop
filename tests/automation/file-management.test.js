@@ -57,6 +57,26 @@ describe('File Management Automation', function() {
     assert.equal(fs.existsSync(expectedPath), true);
   });
 
+  it('should reject reserved Windows device names before creating files', function() {
+    const result = engine.files.create('CON.txt', 'desktop');
+    const expectedPath = path.join(tempProfile, 'Desktop', 'CON.txt');
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /reserved Windows device name/i);
+    assert.equal(fs.existsSync(expectedPath), false);
+    assert.equal(result.data.controllerVerified, false);
+  });
+
+  it('should reject filenames that Windows cannot safely create', function() {
+    const trailingDot = engine.files.create('project.', 'desktop');
+    const invalidCharacter = engine.files.create('bad?name.txt', 'desktop');
+
+    assert.equal(trailingDot.success, false);
+    assert.match(trailingDot.error, /cannot end with a space or dot/i);
+    assert.equal(invalidCharacter.success, false);
+    assert.match(invalidCharacter.error, /cannot contain/i);
+  });
+
   it('should delete a file from the desktop from a natural-language command', async function() {
     const targetPath = path.join(tempProfile, 'Desktop', 'practice.java');
     fs.writeFileSync(targetPath, 'class Practice {}', 'utf8');
@@ -83,6 +103,21 @@ describe('File Management Automation', function() {
     assert.equal(fs.existsSync(destinationPath), true);
   });
 
+  it('should return controller verification details for copied files', function() {
+    const sourcePath = path.join(tempProfile, 'Desktop', 'notes.txt');
+    const destinationPath = path.join(tempProfile, 'Downloads', 'notes.txt');
+    fs.writeFileSync(sourcePath, 'todo', 'utf8');
+
+    const result = engine.files.copy('notes.txt from desktop', 'downloads');
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.controllerVerified, true);
+    assert.equal(result.data.verification.status, 'passed');
+    assert.equal(result.data.source, sourcePath);
+    assert.equal(result.data.destination, destinationPath);
+    assert.equal(fs.existsSync(destinationPath), true);
+  });
+
   it('should move a file when the command includes a leading article', async function() {
     const sourcePath = path.join(tempProfile, 'Desktop', 'practice.java');
     const destinationPath = path.join(tempProfile, 'Downloads', 'practice.java');
@@ -94,6 +129,8 @@ describe('File Management Automation', function() {
     assert.equal(result.intent, 'file.move');
     assert.equal(fs.existsSync(sourcePath), false);
     assert.equal(fs.existsSync(destinationPath), true);
+    assert.equal(result.data.controllerVerified, true);
+    assert.equal(result.data.verification.status, 'passed');
   });
 
   it('should list files on the desktop from a local question', async function() {
@@ -190,6 +227,28 @@ describe('File Management Automation', function() {
     assert.equal(result.entities.path, 'desktop');
     assert.equal(fs.existsSync(expectedPath), true);
     assert.equal(fs.statSync(expectedPath).isDirectory(), true);
+    assert.equal(result.data.controllerVerified, true);
+    assert.equal(result.data.verification.status, 'passed');
+  });
+
+  it('should reject reserved Windows device names before creating folders', function() {
+    const result = engine.folders.create('CON', 'desktop');
+    const expectedPath = path.join(tempProfile, 'Desktop', 'CON');
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /reserved Windows device name/i);
+    assert.equal(fs.existsSync(expectedPath), false);
+    assert.equal(result.data.controllerVerified, false);
+  });
+
+  it('should reject folder names that Windows cannot safely create', function() {
+    const trailingDot = engine.folders.create('Project.', 'desktop');
+    const invalidCharacter = engine.folders.create('bad?folder', 'desktop');
+
+    assert.equal(trailingDot.success, false);
+    assert.match(trailingDot.error, /cannot end with a space or dot/i);
+    assert.equal(invalidCharacter.success, false);
+    assert.match(invalidCharacter.error, /cannot contain/i);
   });
 
   it('should delete a folder from the desktop', async function() {
@@ -204,6 +263,8 @@ describe('File Management Automation', function() {
     assert.equal(result.entities.folderName, 'Practice');
     assert.equal(result.entities.path, 'desktop');
     assert.equal(fs.existsSync(targetPath), false);
+    assert.equal(result.data.controllerVerified, true);
+    assert.equal(result.data.verification.status, 'passed');
   });
 
   it('should move a folder between special folders', async function() {
@@ -219,6 +280,21 @@ describe('File Management Automation', function() {
     assert.equal(fs.existsSync(sourcePath), false);
     assert.equal(fs.existsSync(destinationPath), true);
     assert.equal(fs.existsSync(path.join(destinationPath, 'keep.txt')), true);
+    assert.equal(result.data.controllerVerified, true);
+    assert.equal(result.data.verification.status, 'passed');
+  });
+
+  it('should block moving a folder inside itself', function() {
+    const sourcePath = path.join(tempProfile, 'Desktop', 'Archive');
+    const childPath = path.join(sourcePath, 'Nested');
+    fs.mkdirSync(childPath, { recursive: true });
+
+    const result = engine.folders.move(sourcePath, childPath);
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /inside itself/i);
+    assert.equal(fs.existsSync(sourcePath), true);
+    assert.equal(fs.existsSync(childPath), true);
   });
 
   it('should ask which same-name folder to open across subfolders', function() {

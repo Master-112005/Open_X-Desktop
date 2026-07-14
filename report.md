@@ -67,6 +67,22 @@ npx mocha tests/core/assistant.test.js --grep "plural app follow-ups|polite refe
 npx mocha tests/core/router.test.js --grep "arbitrary app|app-list|close failure" --timeout 120000
 ```
 
+Passed learning-model validation:
+
+```powershell
+npx mocha tests/core/learning-engine.test.js --timeout 180000
+npx mocha tests/core/active-learning-v2.test.js --timeout 180000
+npx mocha tests/core/learning.test.js --timeout 180000
+```
+
+Result:
+
+```text
+10 passing
+9 passing
+14 passing
+```
+
 Known caveat:
 
 - Full `tests/core/assistant.test.js` still has unrelated expectation failures around normalized casing, time punctuation, and feedback prompt behavior. Those failures existed outside the latest plural-app follow-up change and should be handled in a dedicated cleanup pass.
@@ -314,6 +330,61 @@ The learning layer includes:
 - learning policy, guard, validation, diagnostics, analytics, and storage.
 
 The assistant can record corrections, learn safe preferences, remember non-sensitive facts, and avoid storing unsafe secrets. Learning is designed to improve future routing without bypassing validation, confirmation, or security checks.
+
+#### Fresh Learning Model
+
+The learning layer now has a reference-informed local personalization model:
+
+```text
+assistant response + raw input metadata
+  -> learning modules produce candidate events
+  -> LearningValidator cleans and bounds each event
+  -> LearningPolicy checks category, confidence, and constitution
+  -> LearningStorage persists approved event records
+  -> PersonalizationProfileStore updates the user-facing profile
+  -> LearningAnalytics reports learned, rejected, prompt, and profile counts
+```
+
+New model files:
+
+- `LearningConstitution.js`
+  - Defines the durable learning principles.
+  - Scores candidate learning events using confidence, source quality, category impact, and repeated evidence.
+  - Rejects incomplete, sensitive, or weak events before storage.
+  - Decides when the assistant should ask for feedback instead of silently strengthening a memory.
+- `PersonalizationProfileStore.js`
+  - Stores a compact local profile in `learning/v3/personalization_profile.json`.
+  - Keeps per-category records for preferences, aliases, corrections, habits, patterns, workflows, feedback, and conversation style.
+  - Tracks value, confidence, score, source, evidence count, first/last seen timestamps, principle, reason, and sanitized metadata.
+  - Maintains bounded audit, rejected, and feedback-prompt lists.
+  - Applies time decay so old weak signals naturally lose influence.
+
+Learning principles implemented:
+
+1. Local-first personalization.
+2. User-visible and forgettable memories.
+3. No secret or private identifier learning.
+4. Evidence-weighted learning, where explicit corrections and repeated successful behavior beat one-off guesses.
+5. Selective active-learning prompts only for useful uncertain behavior.
+6. No learned preference or workflow can bypass confirmation, security, validation, or permissions.
+
+Event sources are weighted differently:
+
+- explicit user correction: strongest signal;
+- explicit user preference: strongest signal;
+- explicit feedback: strong signal;
+- repeated successful use: medium-high signal;
+- long-term usage pattern: medium signal;
+- response metadata or conversation style: low signal.
+
+The current implementation intentionally avoids opaque self-training. It stores auditable structured signals instead of retraining a model or saving full private chat text. This keeps learning useful for command routing and personalization while staying inspectable and reversible.
+
+Reference basis:
+
+- OpenAI learning from human preferences and memory control concepts.
+- Anthropic Constitutional AI / Collective Constitutional AI style principle-first filtering.
+- Google federated/on-device learning patterns for local-first personalization.
+- Apple privacy and differential-privacy guidance for minimizing personal data retention.
 
 ### Response System
 
@@ -1626,6 +1697,7 @@ OpenX/
 |   |   |   |-- index.js
 |   |   |   |-- LearningAnalytics.js
 |   |   |   |-- LearningConfiguration.js
+|   |   |   |-- LearningConstitution.js
 |   |   |   |-- LearningContext.js
 |   |   |   |-- LearningDiagnostics.js
 |   |   |   |-- LearningErrors.js
@@ -1641,6 +1713,7 @@ OpenX/
 |   |   |   |-- LearningStorage.js
 |   |   |   |-- LearningValidator.js
 |   |   |   |-- PatternLearning.js
+|   |   |   |-- PersonalizationProfileStore.js
 |   |   |   |-- PreferenceLearning.js
 |   |   |   |-- PreferenceStore.js
 |   |   |   |-- UsageLearning.js

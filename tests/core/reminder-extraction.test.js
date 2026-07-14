@@ -62,7 +62,7 @@ describe('Reminder Extraction', function() {
     {
       input: 'set a reminder on 12/12/2026 at 5 30 pm to call the office',
       text: 'call the office',
-      time: '12/12/2026 at 5 30 pm'
+      time: '12/12/2026 at 5:30 pm'
     },
     {
       input: 'remind me every saturday monday to eat lunch at 8pm',

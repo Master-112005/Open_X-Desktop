@@ -91,4 +91,83 @@ describe('Windows Session Controller', function() {
     assert.equal(result.data.action, 'minimizeAll');
     assert.match(script, /MinimizeAll/);
   });
+
+  it('should run PowerShell through hidden non-interactive execution options', function() {
+    const calls = [];
+    const controller = new WindowsSessionController({
+      windows: {
+        sessionCommandRunner: (file, args, options) => {
+          calls.push({ file, args, options });
+          return '[]';
+        }
+      }
+    });
+
+    const result = controller.listWindows();
+
+    assert.deepEqual(result, []);
+    assert.equal(calls[0].file, 'powershell.exe');
+    assert.ok(calls[0].args.includes('-NoLogo'));
+    assert.ok(calls[0].args.includes('-NonInteractive'));
+    assert.ok(calls[0].args.includes('Bypass'));
+    assert.equal(calls[0].options.windowsHide, true);
+    assert.equal(calls[0].options.encoding, 'utf8');
+  });
+
+  it('should reject unsafe window handles before building control scripts', function() {
+    const controller = new WindowsSessionController({});
+    controller.listWindows = () => ([{
+      handle: '1); Stop-Computer #',
+      title: 'Unsafe',
+      processName: 'notepad',
+      id: 10
+    }]);
+    controller._getForegroundWindowHandle = () => 0;
+    controller._runScript = () => {
+      throw new Error('script should not run');
+    };
+
+    const result = controller.closeWindow('unsafe');
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /Invalid window handle/);
+  });
+
+  it('should reject invalid process ids before sending keys', function() {
+    const controller = new WindowsSessionController({});
+    controller.listWindows = () => ([{
+      handle: 100,
+      title: 'Unsafe',
+      processName: 'notepad',
+      id: '10); Stop-Process -Id 4 #'
+    }]);
+    controller._getForegroundWindowHandle = () => 0;
+    controller._runScript = () => {
+      throw new Error('script should not run');
+    };
+
+    const result = controller.sendKeys('unsafe', '^l');
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /Invalid process id/);
+  });
+
+  it('should validate navigation URLs before reusing a window', function() {
+    const controller = new WindowsSessionController({});
+    controller.listWindows = () => ([{
+      handle: 100,
+      title: 'Chrome',
+      processName: 'chrome',
+      id: 10
+    }]);
+    controller._getForegroundWindowHandle = () => 0;
+    controller._runScript = () => {
+      throw new Error('script should not run');
+    };
+
+    const result = controller.navigateWindowToUrl('chrome', 'not a url');
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /valid URL/);
+  });
 });

@@ -23,8 +23,10 @@ class LearningConfiguration {
     this.maxEventsPerRun = clampNumber(input.maxEventsPerRun, 100, 1, 1000);
     this.maxDiagnostics = clampNumber(input.maxDiagnostics, 100, 10, 1000);
     this.maxMetadataEntries = clampNumber(input.maxMetadataEntries, 40, 1, 200);
+    this.activeFeedbackPrompts = input.activeFeedbackPrompts !== false;
     this.privacy = {
       learnConversationContent: false,
+      localPersonalizationProfile: true,
       ...(input.privacy || {})
     };
     this.storage = { ...(input.storage || {}) };
@@ -55,6 +57,7 @@ class LearningConfiguration {
       maxEventsPerRun: this.maxEventsPerRun,
       maxDiagnostics: this.maxDiagnostics,
       maxMetadataEntries: this.maxMetadataEntries,
+      activeFeedbackPrompts: this.activeFeedbackPrompts,
       privacy: { ...this.privacy },
       storage: { ...this.storage }
     };

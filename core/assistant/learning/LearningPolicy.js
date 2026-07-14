@@ -1,6 +1,7 @@
 'use strict';
 
 const LearningGuard = require('./LearningGuard');
+const { createDefaultLearningConstitution } = require('./LearningConstitution');
 
 const CATEGORY_FILES = Object.freeze({
   preference: 'preferences',
@@ -18,6 +19,7 @@ class LearningPolicy {
   constructor(options = {}) {
     this.allowedCategories = new Set(options.allowedCategories || Object.keys(CATEGORY_FILES));
     this.minConfidence = Number.isFinite(options.minConfidence) ? Number(options.minConfidence) : 0.7;
+    this.constitution = options.constitution || createDefaultLearningConstitution(options.constitutionOptions || {});
   }
 
   check(event = {}) {
@@ -30,7 +32,26 @@ class LearningPolicy {
     if (Number(event.confidence ?? 1) < this.minConfidence) {
       return { allowed: false, reason: 'Learning confidence is below threshold.' };
     }
-    return { allowed: true, storageCategory: CATEGORY_FILES[category] };
+    const constitutional = this.constitution.evaluateEvent({
+      ...event,
+      category,
+      confidence: Number(event.confidence ?? 1)
+    });
+    if (!constitutional.allowed) {
+      return {
+        allowed: false,
+        reason: constitutional.reason,
+        principle: constitutional.principle,
+        score: constitutional.score
+      };
+    }
+    return {
+      allowed: true,
+      storageCategory: CATEGORY_FILES[category],
+      principle: constitutional.principle,
+      score: constitutional.score,
+      shouldAskFeedback: constitutional.shouldAskFeedback
+    };
   }
 
   isCategoryAllowed(category) {

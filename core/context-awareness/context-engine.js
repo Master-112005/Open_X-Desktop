@@ -2,9 +2,62 @@ const Logger = require('../assistant/Data').Logger;
 const signals = require('./signals');
 
 const ACTIVITY_HISTORY_LIMIT = 200;
+const MAX_TEXT_LENGTH = 260;
+const MAX_PATH_LENGTH = 4096;
+const MAX_HISTORY_PAYLOAD_KEYS = 24;
+
+function compactText(value, maxLength = MAX_TEXT_LENGTH) {
+  const text = String(value ?? '').replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length > maxLength ? `${text.slice(0, Math.max(0, maxLength - 3))}...` : text;
+}
+
+function safeTimestamp(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function normalizeProcessName(value) {
+  return compactText(value, 180);
+}
+
+function normalizePid(value) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
 
 function processNameFromPayload(payload = {}) {
-  return payload.name || payload.app || payload.processName || null;
+  return normalizeProcessName(payload.name || payload.app || payload.processName || '');
+}
+
+function normalizePayloadForHistory(payload = {}) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const safe = {};
+  Object.entries(payload).slice(0, MAX_HISTORY_PAYLOAD_KEYS).forEach(([key, value]) => {
+    if (typeof value === 'string') {
+      safe[key] = compactText(value, key.toLowerCase().includes('path') ? MAX_PATH_LENGTH : MAX_TEXT_LENGTH);
+    } else if (typeof value === 'number' || typeof value === 'boolean' || value === null) {
+      safe[key] = value;
+    } else if (Array.isArray(value)) {
+      safe[key] = value.slice(0, 20).map(item => (
+        typeof item === 'string' ? compactText(item, MAX_TEXT_LENGTH) : item
+      ));
+    }
+  });
+  return safe;
+}
+
+function normalizeRunningApps(apps = []) {
+  const result = [];
+  const seen = new Set();
+  apps.forEach(app => {
+    const name = normalizeProcessName(app);
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) return;
+    seen.add(key);
+    result.push(name);
+  });
+  return result;
 }
 
 class ContextEngine {
@@ -45,7 +98,13 @@ class ContextEngine {
   }
 
   stop() {
-    this.unsubscribers.forEach(unsubscribe => unsubscribe());
+    this.unsubscribers.forEach(unsubscribe => {
+      try {
+        unsubscribe();
+      } catch (error) {
+        this.logger.warn('[Context] Failed to remove signal subscription', error.message);
+      }
+    });
     this.unsubscribers = [];
   }
 
@@ -60,12 +119,14 @@ class ContextEngine {
 
   update(partial = {}, eventType = 'context-updated') {
     const previousActiveApp = this.state.activeApp;
-    const nextTimestamp = partial.timestamp || this.now();
-    const activeAppChanged = Object.prototype.hasOwnProperty.call(partial, 'activeApp') && partial.activeApp !== previousActiveApp;
+    const now = this.now();
+    const nextTimestamp = safeTimestamp(partial.timestamp, now);
+    const normalizedPartial = this._normalizePartial(partial, nextTimestamp);
+    const activeAppChanged = Object.prototype.hasOwnProperty.call(normalizedPartial, 'activeApp') && normalizedPartial.activeApp !== previousActiveApp;
 
     this.state = {
       ...this.state,
-      ...partial,
+      ...normalizedPartial,
       timestamp: nextTimestamp
     };
 
@@ -76,7 +137,7 @@ class ContextEngine {
     }
 
     this._lastTimestamp = nextTimestamp;
-    this._recordActivity(eventType, partial);
+    this._recordActivity(eventType, normalizedPartial);
     this._publish(eventType);
   }
 
@@ -106,6 +167,8 @@ class ContextEngine {
     return {
       activeApp: this.state.activeApp,
       activeTitle: this.state.activeTitle,
+      activePath: this.state.activePath,
+      activePid: this.state.activePid,
       runningApps: [...this.state.runningApps],
       microphoneActive: this.state.microphoneActive,
       fullscreen: this.state.fullscreen,
@@ -154,10 +217,39 @@ class ContextEngine {
     }, 'microphone-activity');
   }
 
+  _normalizePartial(partial = {}, timestamp = this.now()) {
+    const normalized = { ...partial };
+
+    if (Object.prototype.hasOwnProperty.call(normalized, 'activeApp')) {
+      normalized.activeApp = compactText(normalized.activeApp) || null;
+    }
+    if (Object.prototype.hasOwnProperty.call(normalized, 'activeTitle')) {
+      normalized.activeTitle = compactText(normalized.activeTitle);
+    }
+    if (Object.prototype.hasOwnProperty.call(normalized, 'activePath')) {
+      normalized.activePath = compactText(normalized.activePath, MAX_PATH_LENGTH) || null;
+    }
+    if (Object.prototype.hasOwnProperty.call(normalized, 'activePid')) {
+      normalized.activePid = normalizePid(normalized.activePid);
+    }
+    if (Object.prototype.hasOwnProperty.call(normalized, 'runningApps')) {
+      normalized.runningApps = normalizeRunningApps(normalized.runningApps);
+    }
+    if (Object.prototype.hasOwnProperty.call(normalized, 'fullscreen')) {
+      normalized.fullscreen = Boolean(normalized.fullscreen);
+    }
+    if (Object.prototype.hasOwnProperty.call(normalized, 'microphoneActive')) {
+      normalized.microphoneActive = Boolean(normalized.microphoneActive);
+    }
+    normalized.timestamp = timestamp;
+
+    return normalized;
+  }
+
   _recordActivity(eventType, payload) {
     this.activityHistory.push({
-      eventType,
-      payload,
+      eventType: compactText(eventType, 80) || 'context-updated',
+      payload: normalizePayloadForHistory(payload),
       activeApp: this.state.activeApp,
       timestamp: this.state.timestamp
     });
@@ -169,7 +261,13 @@ class ContextEngine {
 
   _publish(eventType) {
     const snapshot = this.getSnapshot();
-    this.subscribers.forEach(callback => callback(snapshot, eventType));
+    this.subscribers.forEach(callback => {
+      try {
+        callback(snapshot, eventType);
+      } catch (error) {
+        this.logger.warn('[Context] Subscriber failed', error.message);
+      }
+    });
   }
 }
 
@@ -177,7 +275,10 @@ const defaultEngine = new ContextEngine();
 
 module.exports = {
   ACTIVITY_HISTORY_LIMIT,
+  MAX_TEXT_LENGTH,
+  MAX_PATH_LENGTH,
   ContextEngine,
+  processNameFromPayload,
   createEngine: options => new ContextEngine(options),
   start: defaultEngine.start.bind(defaultEngine),
   stop: defaultEngine.stop.bind(defaultEngine),

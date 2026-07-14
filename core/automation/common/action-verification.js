@@ -1,8 +1,49 @@
 const fs = require('fs');
 const Normalizer = require('../../assistant/Data').Normalizer;
 
+const MAX_TEXT_LENGTH = 240;
+const STATUS_CONFIDENCE = Object.freeze({
+  passed: 0.95,
+  failed: 0.9,
+  unknown: 0.45
+});
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function sanitizeText(value, fallback = '') {
+  return String(value ?? fallback ?? '')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_TEXT_LENGTH);
+}
+
+function safeStat(targetPath) {
+  const pathValue = String(targetPath || '').trim();
+  if (!pathValue) {
+    return { exists: false, error: 'No path provided' };
+  }
+
+  try {
+    if (!fs.existsSync(pathValue)) {
+      return { exists: false };
+    }
+    const stats = fs.statSync(pathValue);
+    return {
+      exists: true,
+      isFile: stats.isFile(),
+      isDirectory: stats.isDirectory(),
+      size: stats.size
+    };
+  } catch (error) {
+    return {
+      exists: true,
+      readable: false,
+      error: sanitizeText(error.message, 'Could not inspect path')
+    };
+  }
 }
 
 function cloneResult(result) {
@@ -16,16 +57,77 @@ function cloneResult(result) {
   };
 }
 
+function normalizeDetail(detail = {}) {
+  const normalized = {};
+  for (const [key, value] of Object.entries(detail || {})) {
+    if (typeof value === 'string') {
+      normalized[key] = sanitizeText(value);
+    } else {
+      normalized[key] = value;
+    }
+  }
+  return normalized;
+}
+
+function evidenceFrom(detail = {}) {
+  const evidence = [];
+  const fields = [
+    ['target', 'target'],
+    ['path', 'path'],
+    ['url', 'url'],
+    ['app', 'app'],
+    ['matchedWindow', 'window'],
+    ['processName', 'process'],
+    ['method', 'method'],
+    ['value', 'value'],
+    ['count', 'count'],
+    ['dueAt', 'time'],
+    ['status', 'state']
+  ];
+
+  for (const [field, type] of fields) {
+    const value = detail[field];
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      evidence.push({ type, value: typeof value === 'string' ? sanitizeText(value) : value });
+    }
+  }
+
+  return evidence.slice(0, 8);
+}
+
+function makeResult(status, check, detail = {}) {
+  const normalized = normalizeDetail(detail);
+  const {
+    status: detailStatus,
+    confidence: detailConfidence,
+    evidence: detailEvidence,
+    ...safeDetail
+  } = normalized;
+  delete safeDetail.check;
+  const resolvedStatus = ['passed', 'failed', 'unknown'].includes(status) ? status : 'unknown';
+  return {
+    status: resolvedStatus,
+    check: sanitizeText(check, 'postcondition'),
+    confidence: Number.isFinite(Number(detailConfidence))
+      ? Number(detailConfidence)
+      : STATUS_CONFIDENCE[resolvedStatus],
+    ...(resolvedStatus === 'failed' && safeDetail.blocking === undefined ? { blocking: true } : {}),
+    ...safeDetail,
+    ...(detailStatus !== undefined ? { state: detailStatus } : {}),
+    evidence: Array.isArray(detailEvidence) ? detailEvidence : evidenceFrom(normalized)
+  };
+}
+
 function ok(check, detail = {}) {
-  return { status: 'passed', check, ...detail };
+  return makeResult('passed', check, detail);
 }
 
 function fail(check, detail = {}) {
-  return { status: 'failed', check, ...detail };
+  return makeResult('failed', check, detail);
 }
 
 function warn(check, detail = {}) {
-  return { status: 'unknown', check, ...detail };
+  return makeResult('unknown', check, { blocking: false, ...detail });
 }
 
 class ActionVerifier {
@@ -37,12 +139,15 @@ class ActionVerifier {
     const verified = cloneResult(result);
     const validation = this._validate(actionId, entities, verified);
     const verification = this._verify(actionId, entities, verified);
+    const verificationSummary = this._buildVerificationSummary(actionId, validation, verification);
 
     verified.validation = validation;
     verified.verification = verification;
+    verified.verificationSummary = verificationSummary;
     if (isPlainObject(verified.data)) {
       verified.data.validation = validation;
       verified.data.verification = verification;
+      verified.data.verificationSummary = verificationSummary;
     }
 
     if (verified.success && validation.status === 'failed') {
@@ -56,6 +161,25 @@ class ActionVerifier {
     }
 
     return verified;
+  }
+
+  _buildVerificationSummary(actionId, validation, verification) {
+    const validationPassed = validation.status === 'passed';
+    const verificationPassed = verification.status === 'passed';
+    const verificationFailed = verification.status === 'failed';
+    return {
+      actionId: sanitizeText(actionId, 'action'),
+      validationStatus: validation.status,
+      verificationStatus: verification.status,
+      confidence: Math.min(
+        Number(validation.confidence ?? STATUS_CONFIDENCE[validation.status] ?? 0.45),
+        Number(verification.confidence ?? STATUS_CONFIDENCE[verification.status] ?? 0.45)
+      ),
+      verified: validationPassed && verificationPassed,
+      blockingFailure: verificationFailed && verification.blocking !== false,
+      evidenceCount: Array.isArray(verification.evidence) ? verification.evidence.length : 0,
+      check: verification.check
+    };
   }
 
   _validate(actionId, entities, result) {
@@ -99,6 +223,10 @@ class ActionVerifier {
       return fail('calculation-result', { message: 'Calculation did not produce a finite number' });
     }
 
+    if ((actionId === 'volume.set' || actionId === 'brightness.set') && !Number.isFinite(Number(result.data?.value))) {
+      return fail('device-value', { message: `${actionId} did not return a readable device value` });
+    }
+
     return ok('required-entities');
   }
 
@@ -107,10 +235,18 @@ class ActionVerifier {
       return warn('postcondition', { reason: result.error || 'action failed before verification' });
     }
 
-    if (result.data?.verified === true && !actionId.startsWith('app.')) {
-      return ok('controller-verification', { method: 'controller', target: this._targetLabel(actionId, entities, result) });
+    const usesDomainVerifier = actionId.startsWith('calendar.') ||
+      actionId.startsWith('timetable.') ||
+      actionId.startsWith('volume.') ||
+      actionId.startsWith('brightness.');
+    if (result.data?.verified === true && !actionId.startsWith('app.') && !usesDomainVerifier) {
+      return ok(result.data?.verification?.check || 'controller-verification', {
+        method: result.data?.launchMethod || 'controller',
+        target: this._targetLabel(actionId, entities, result),
+        ...(result.data?.matchedWindow ? { matchedWindow: result.data.matchedWindow } : {})
+      });
     }
-    if (result.data?.verified === false && !actionId.startsWith('app.')) {
+    if (result.data?.verified === false && !actionId.startsWith('app.') && !usesDomainVerifier) {
       return fail('controller-verification', {
         method: 'controller',
         target: this._targetLabel(actionId, entities, result),
@@ -160,10 +296,12 @@ class ActionVerifier {
       return this._verifyBrowserAction(actionId, result);
     }
 
+    if (actionId.startsWith('calendar.') || actionId.startsWith('timetable.')) {
+      return this._verifyPlannerAction(actionId, result);
+    }
+
     if (actionId.startsWith('volume.') || actionId.startsWith('brightness.')) {
-      return Number.isFinite(Number(result.data?.value))
-        ? ok('device-value', { value: Number(result.data.value) })
-        : warn('device-value', { reason: 'No readable value returned', blocking: false });
+      return this._verifyDeviceAction(actionId, entities, result);
     }
 
     if (actionId.startsWith('window.')) {
@@ -182,11 +320,8 @@ class ActionVerifier {
         : warn('media-command', { reason: 'Media command was dispatched without a readable playback state', blocking: false });
     }
 
-    if (actionId.startsWith('timer.') || actionId.startsWith('alarm.') || actionId.startsWith('reminder.')) {
-      const dueAt = Date.parse(result.data?.dueAt || '');
-      return Number.isFinite(dueAt) && dueAt > Date.now()
-        ? ok('scheduled-time', { dueAt: result.data.dueAt })
-        : fail('scheduled-time', { message: 'Scheduled task does not have a future due time' });
+    if (actionId.startsWith('timer.') || actionId.startsWith('alarm.') || actionId.startsWith('reminder.') || actionId.startsWith('stopwatch.')) {
+      return this._verifyScheduleAction(actionId, result);
     }
 
     if (actionId === 'message.compose' || actionId === 'email.compose' || actionId === 'call.start') {
@@ -219,10 +354,151 @@ class ActionVerifier {
         : ok('bluetooth-state', { enabled: data.enabled, status: data.status });
     }
 
+    if (actionId === 'system.screenshot') {
+      if (isPlainObject(data.verification) && data.verification.status === 'passed') {
+        return ok(data.verification.check || 'screenshot-file-created', {
+          filePath: data.filePath,
+          size: data.size,
+          method: data.method || 'screenshot-controller'
+        });
+      }
+      return fail(data.verification?.check || 'screenshot-file-created', {
+        message: data.verification?.message || result.error || 'Screenshot file was not created'
+      });
+    }
+
+    if (isPlainObject(data.verification)) {
+      return data.verification.status === 'failed'
+        ? fail(data.verification.check || 'system-postcondition', {
+            message: data.verification.message || result.error || 'System command could not be verified',
+            ...data.verification
+          })
+        : warn(data.verification.check || 'system-postcondition', {
+            reason: data.verification.reason || 'System command was dispatched without a safe immediate postcondition',
+            blocking: false,
+            ...data.verification
+          });
+    }
+
     return warn('system-postcondition', {
       reason: 'System command was dispatched; Windows does not expose a safe immediate postcondition here',
       blocking: false
     });
+  }
+
+  _verifyPlannerAction(actionId, result) {
+    const data = result.data || {};
+    if (actionId.endsWith('.open')) {
+      return data.view
+        ? ok(data.verification?.check || 'planner-open', { view: data.view, count: data.count || 0 })
+        : warn('planner-open', { reason: 'Planner window open request did not return a view', blocking: false });
+    }
+
+    if (actionId.endsWith('.add')) {
+      const entry = data.entry || {};
+      return entry.id && entry.title && entry.date && data.verified !== false
+        ? ok(data.verification?.check || 'planner-entry-persisted', {
+            entryId: entry.id,
+            view: entry.type || data.view,
+            date: entry.date,
+            startTime: entry.startTime || '',
+            operation: data.operation || 'add'
+          })
+        : fail('planner-entry-persisted', {
+            message: 'Planner entry was not persisted with the required title and date'
+          });
+    }
+
+    return warn('planner-postcondition', { blocking: false });
+  }
+
+  _verifyDeviceAction(actionId, entities, result) {
+    const data = result.data || {};
+    const value = Number(data.value);
+    const requested = Number.isFinite(Number(data.requestedValue))
+      ? Number(data.requestedValue)
+      : Number(entities.value);
+    const deviceVerification = isPlainObject(data.verification) ? data.verification : null;
+
+    if (deviceVerification?.status === 'failed') {
+      return fail(deviceVerification.check || 'device-postcondition', {
+        message: deviceVerification.message || result.error || 'Windows did not confirm the device state',
+        ...deviceVerification
+      });
+    }
+
+    if (!Number.isFinite(value)) {
+      return warn('device-value', {
+        reason: data.supported === false ? 'Device control is not supported on this system' : 'No readable value returned',
+        blocking: data.supported === false
+      });
+    }
+
+    if (value < 0 || value > 100) {
+      return fail('device-value-range', {
+        value,
+        message: 'Device value is outside the expected 0-100 range'
+      });
+    }
+
+    if (actionId.endsWith('.set') && Number.isFinite(requested) && Math.abs(value - requested) > 5) {
+      return warn('device-readback-adjusted', {
+        value,
+        requestedValue: requested,
+        reason: 'Windows or display hardware reported a nearby supported level',
+        blocking: false
+      });
+    }
+
+    if (actionId === 'volume.mute' && data.muted !== true) {
+      return fail('volume-muted', { message: 'Windows did not report the endpoint as muted' });
+    }
+
+    if (actionId === 'volume.unmute' && data.muted === true) {
+      return fail('volume-unmuted', { message: 'Windows still reports the endpoint as muted' });
+    }
+
+    return ok(deviceVerification?.check || 'device-readback', {
+      value,
+      requestedValue: Number.isFinite(requested) ? requested : undefined,
+      muted: data.muted,
+      method: data.method || 'windows-device-control',
+      source: data.source || 'windows'
+    });
+  }
+
+  _verifyScheduleAction(actionId, result) {
+    const data = result.data || {};
+    if (isPlainObject(data.verification) && data.verification.status === 'passed') {
+      return ok(data.verification.check || 'schedule-state', {
+        id: data.id || data.taskName,
+        kind: data.kind,
+        status: data.status,
+        dueAt: data.dueAt,
+        operation: data.operation
+      });
+    }
+
+    if (/\.(?:list|clear)$/.test(actionId)) {
+      return Number.isFinite(Number(data.count))
+        ? ok(actionId.endsWith('.list') ? 'schedule-list' : 'schedule-cleared', { count: Number(data.count) })
+        : warn('schedule-count', { reason: 'Schedule count was not returned', blocking: false });
+    }
+
+    if (actionId.startsWith('stopwatch.')) {
+      return Number.isFinite(Number(data.elapsedMs ?? 0)) || data.status
+        ? ok('stopwatch-state', { status: data.status, elapsedMs: data.elapsedMs })
+        : warn('stopwatch-state', { reason: 'Stopwatch state was not returned', blocking: false });
+    }
+
+    const dueAt = Date.parse(data.dueAt || '');
+    if (['paused', 'completed', 'due'].includes(String(data.status || '').toLowerCase())) {
+      return ok('schedule-state', { status: data.status, id: data.id || data.taskName });
+    }
+
+    return Number.isFinite(dueAt) && dueAt > Date.now()
+      ? ok('scheduled-time', { dueAt: data.dueAt, id: data.id || data.taskName })
+      : fail('scheduled-time', { message: 'Scheduled task does not have a future due time' });
   }
 
   _verifyFileAction(actionId, result) {
@@ -231,19 +507,22 @@ class ActionVerifier {
     const source = data.source || data.oldPath;
 
     if (actionId === 'file.delete') {
-      return source || data.path
-        ? (!fs.existsSync(source || data.path)
-            ? ok('file-deleted', { path: source || data.path })
-            : fail('file-deleted', { path: source || data.path, message: 'File still exists after delete' }))
+      const deletedPath = source || data.path;
+      const state = safeStat(deletedPath);
+      return deletedPath
+        ? (!state.exists
+            ? ok('file-deleted', { path: deletedPath })
+            : fail('file-deleted', { path: deletedPath, message: 'File still exists after delete' }))
         : warn('file-deleted', { reason: 'No deleted path returned', blocking: false });
     }
 
     if (actionId === 'file.move') {
       if (!target) return warn('file-moved', { reason: 'No destination returned', blocking: false });
-      if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
+      const targetState = safeStat(target);
+      if (!targetState.exists || targetState.readable === false || !targetState.isFile) {
         return fail('file-moved', { path: target, message: 'Destination file was not found after move' });
       }
-      if (source && fs.existsSync(source)) {
+      if (source && safeStat(source).exists) {
         return fail('file-moved', { path: source, message: 'Source file still exists after move' });
       }
       return ok('file-moved', { path: target });
@@ -251,14 +530,19 @@ class ActionVerifier {
 
     if (actionId === 'file.copy' || actionId === 'file.rename' || actionId === 'file.create') {
       if (!target) return warn('file-exists', { reason: 'No target path returned', blocking: false });
-      return fs.existsSync(target) && fs.statSync(target).isFile()
-        ? ok('file-exists', { path: target })
+      const targetState = safeStat(target);
+      if (targetState.readable === false) {
+        return fail('file-exists', { path: target, message: `Could not inspect target file: ${targetState.error}` });
+      }
+      return targetState.exists && targetState.isFile
+        ? ok('file-exists', { path: target, size: targetState.size })
         : fail('file-exists', { path: target, message: 'Expected file was not found' });
     }
 
     if (actionId === 'file.open') {
-      return data.path && fs.existsSync(data.path) && fs.statSync(data.path).isFile()
-        ? ok('file-target', { path: data.path })
+      const targetState = safeStat(data.path);
+      return data.path && targetState.exists && targetState.isFile
+        ? ok('file-target', { path: data.path, size: targetState.size })
         : fail('file-target', { path: data.path, message: 'Opened file target no longer exists' });
     }
 
@@ -277,8 +561,9 @@ class ActionVerifier {
     const source = data.source;
 
     if (actionId === 'folder.delete') {
+      const targetState = safeStat(target);
       return target
-        ? (!fs.existsSync(target)
+        ? (!targetState.exists
             ? ok('folder-deleted', { path: target })
             : fail('folder-deleted', { path: target, message: 'Folder still exists after delete' }))
         : warn('folder-deleted', { reason: 'No deleted path returned', blocking: false });
@@ -286,17 +571,19 @@ class ActionVerifier {
 
     if (actionId === 'folder.move') {
       if (!target) return warn('folder-moved', { reason: 'No destination returned', blocking: false });
-      if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
+      const targetState = safeStat(target);
+      if (!targetState.exists || targetState.readable === false || !targetState.isDirectory) {
         return fail('folder-moved', { path: target, message: 'Destination folder was not found after move' });
       }
-      if (source && fs.existsSync(source)) {
+      if (source && safeStat(source).exists) {
         return fail('folder-moved', { path: source, message: 'Source folder still exists after move' });
       }
       return ok('folder-moved', { path: target });
     }
 
     if (actionId === 'folder.create' || actionId === 'folder.open') {
-      return target && fs.existsSync(target) && fs.statSync(target).isDirectory()
+      const targetState = safeStat(target);
+      return target && targetState.exists && targetState.isDirectory
         ? ok('folder-exists', { path: target })
         : fail('folder-exists', { path: target, message: 'Expected folder was not found' });
     }
@@ -308,7 +595,8 @@ class ActionVerifier {
     const appName = Normalizer.normalizeText(entities.appName || result.data?.app || result.data?.appName || '');
     const wantsNewWindow = entities.forceNewWindow === true || entities.requestedOperation === 'open-new-window';
     if (result.data?.launchMethod === 'folder' && result.data?.path) {
-      return fs.existsSync(result.data.path)
+      const targetState = safeStat(result.data.path);
+      return targetState.exists
         ? ok('folder-fallback-target', { path: result.data.path })
         : fail('folder-fallback-target', { path: result.data.path, message: 'Folder fallback target does not exist' });
     }
@@ -414,14 +702,25 @@ class ActionVerifier {
         : warn('browser-tabs-read', { reason: 'No browser tab count returned', blocking: false });
     }
 
-    if (data.url && this._looksLikeUrl(data.url)) {
-      return ok('browser-target-url', { url: data.url, method: 'launch-dispatch' });
-    }
-
     if (actionId === 'browser.search' && data.background) {
       return Array.isArray(data.results)
         ? ok('background-search-results', { count: data.results.length })
         : warn('background-search-results', { reason: 'No search results array returned', blocking: false });
+    }
+
+    if (data.url && this._looksLikeUrl(data.url)) {
+      return data.controllerVerified === true
+        ? ok(data.verification?.check || 'browser-target-url', {
+            url: data.url,
+            method: data.launchMethod || 'launch-dispatch',
+            matchedWindow: data.matchedWindow || undefined
+          })
+        : warn(data.verification?.check || 'browser-launch-dispatch', {
+            url: data.url,
+            method: data.launchMethod || 'launch-dispatch',
+            reason: data.verification?.reason || 'Browser launch was dispatched, but the final tab was not observed.',
+            blocking: false
+          });
     }
 
     return warn('browser-postcondition', { blocking: false });
@@ -458,12 +757,15 @@ class ActionVerifier {
       return null;
     }
 
-    const windows = this.controllers.windows?.listWindows?.() || [];
+    const windows = this._listWindows();
     const normalized = Normalizer.normalizeText(appName);
     const windowMatch = windows.find(window => {
       const title = Normalizer.normalizeText(window.title || '');
       const processName = Normalizer.normalizeText(window.processName || '');
-      return title.includes(normalized) || processName.includes(normalized) || normalized.includes(processName);
+      const titleMatch = Boolean(title) && title.includes(normalized);
+      const processMatch = Boolean(processName) &&
+        (processName.includes(normalized) || normalized.includes(processName));
+      return titleMatch || processMatch;
     });
     if (windowMatch) {
       return windowMatch;
@@ -481,6 +783,15 @@ class ActionVerifier {
     }
 
     return null;
+  }
+
+  _listWindows() {
+    try {
+      const windows = this.controllers.windows?.listWindows?.() || [];
+      return Array.isArray(windows) ? windows : [];
+    } catch (error) {
+      return [];
+    }
   }
 
   _requiredFields(actionId) {

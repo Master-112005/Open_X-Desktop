@@ -67,6 +67,22 @@ describe('Permission Validator', function() {
     assert.ok(result.confirmationMessage.includes('Delete file'));
   });
 
+  it('should add risk and consequence metadata to confirmation checks', function() {
+    const validator = new PermissionValidator({
+      permissions: {
+        levels: {
+          medium: { requiresConfirmation: true, requiresAuth: false }
+        }
+      }
+    });
+    const intent = { id: 'file.delete', permissionLevel: 'medium', description: 'Delete file' };
+    const result = validator.validate(intent, { filename: 'bad\u0000name.txt' });
+
+    assert.equal(result.risk, 'high');
+    assert.match(result.consequence, /not be recoverable/i);
+    assert.doesNotMatch(result.confirmationMessage, /\u0000/);
+  });
+
   it('should keep confirmations enabled when user chooses critical full access', function() {
     const validator = new PermissionValidator({
       permissions: {

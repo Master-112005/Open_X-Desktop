@@ -16,6 +16,21 @@ const CLOSE_INTENTS = new Set([
   'window.close'
 ]);
 
+const RISK_BY_PERMISSION = Object.freeze({
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  critical: 'critical'
+});
+
+function cleanLabel(value) {
+  return String(value || '')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160);
+}
+
 class PermissionValidator {
   constructor(config) {
     this.logger = new Logger(config?.logging || { level: 'info' });
@@ -70,7 +85,9 @@ class PermissionValidator {
     return {
       allowed: true,
       requiresConfirmation,
-      confirmationMessage
+      confirmationMessage,
+      risk: this._riskFor(intent),
+      consequence: this._consequenceFor(intent)
     };
   }
 
@@ -82,13 +99,29 @@ class PermissionValidator {
   }
 
   _buildConfirmationMessage(intent, entities) {
-    const parts = [intent.description || 'Perform action'];
+    const parts = [cleanLabel(intent.description || 'Perform action')];
     if (entities) {
       for (const [key, value] of Object.entries(entities)) {
-        if (value) parts.push(`${key}: ${value}`);
+        if (value) parts.push(`${cleanLabel(key)}: ${cleanLabel(value)}`);
       }
     }
     return parts.join(' - ');
+  }
+
+  _riskFor(intent = {}) {
+    const level = String(intent.permissionLevel || 'low').toLowerCase();
+    if (intent.id === 'system.shutdown' || intent.id === 'system.restart') return 'critical';
+    if (/\b(?:delete|remove|clear|format|permanent)\b/i.test(`${intent.id || ''} ${intent.description || ''}`)) return 'high';
+    return RISK_BY_PERMISSION[level] || 'low';
+  }
+
+  _consequenceFor(intent = {}) {
+    const id = String(intent.id || intent.action || '').toLowerCase();
+    if (id === 'system.shutdown') return 'Open apps may close and unsaved work can be lost.';
+    if (id === 'system.restart') return 'The computer will restart and unsaved work can be lost.';
+    if (id === 'file.delete' || id === 'folder.delete') return 'Deleted items may not be recoverable from OpenX.';
+    if (id === 'app.close' || id === 'window.close') return 'Unsaved changes in that window may be lost.';
+    return '';
   }
 
   authenticate(password) {
