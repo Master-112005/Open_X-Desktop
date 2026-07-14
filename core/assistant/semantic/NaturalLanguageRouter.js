@@ -2,7 +2,7 @@ const { Normalizer } = require('../Data');
 const EntityExtractor = require('../entities/EntityExtractor');
 const { FILLER_WORDS } = require('../normalization/CommandPreprocessor');
 const { parseLearningDirective } = require('../learning/LearningLanguage');
-const { analyzeDiscourse, buildWordRelations, splitCommandClauses } = require('../linguistic/LanguageAnalysis');
+const { analyzeDiscourse, buildWordRelations, parseIntentPhrase, splitCommandClauses } = require('../linguistic/LanguageAnalysis');
 
 const ACTION_ALIASES = new Map([
   ['add', 'set'],
@@ -105,6 +105,7 @@ class NaturalLanguageRouter {
     const frames = clauses.map((clause, index) => this._parseClause(clause, index));
     const executableFrames = frames.filter(frame => frame.validation.status === 'passed' && frame.intentId);
     const discourse = preparedInput?.discourse || analyzeDiscourse(rawText);
+    const intentPhrase = preparedInput?.intentPhrase || parseIntentPhrase(rawText);
     const tokens = Normalizer.tokenize(corrected || raw);
 
     return {
@@ -114,6 +115,7 @@ class NaturalLanguageRouter {
       multiIntent: frames.length > 1,
       clauses,
       relations: buildWordRelations(tokens),
+      intentPhrase,
       frames,
       discourse,
       validation: {
@@ -168,6 +170,7 @@ class NaturalLanguageRouter {
       ? prepared.tokens
       : Normalizer.tokenize(correctedText);
     const learningDirective = prepared?.learningDirective || parseLearningDirective(clause);
+    const intentPhrase = prepared?.intentPhrase || parseIntentPhrase(clause);
     if (learningDirective?.kind === 'repair-learning') {
       return {
         index,
@@ -190,9 +193,15 @@ class NaturalLanguageRouter {
     }
     const action = this._findAction(tokens, correctedText);
     const value = this._extractValue(correctedText);
-    const domain = this._inferDomain(tokens, correctedText, action?.verb || '', value);
+    const inferredDomain = this._inferDomain(tokens, correctedText, action?.verb || '', value);
+    const phraseDomain = intentPhrase.domain && intentPhrase.domain !== 'conversation'
+      ? this._domainFromIntentPhrase(intentPhrase.domain, intentPhrase.objectText || correctedText)
+      : '';
+    const domain = this._shouldPreferInferredDomain(inferredDomain, phraseDomain, correctedText, action?.verb || '')
+      ? inferredDomain
+      : (phraseDomain || inferredDomain);
     const targetTokens = this._extractTargetTokens(tokens, action?.index ?? -1);
-    const targetText = this._cleanTargetText(targetTokens.join(' '));
+    const targetText = intentPhrase.objectText || this._cleanTargetText(targetTokens.join(' '));
     const intentId = this._intentForFrame(action?.verb || '', domain, tokens, correctedText, value);
     const intent = intentId ? this.intentRegistry?.get?.(intentId) : null;
     const entities = intent ? this._extractEntities(intent, clause, {
@@ -218,6 +227,7 @@ class NaturalLanguageRouter {
       action: action?.verb || null,
       actionToken: action?.token || null,
       targetText,
+      intentPhrase,
       domain,
       intentId,
       entities,
@@ -278,7 +288,7 @@ class NaturalLanguageRouter {
     const has = domain => tokens.some(token => DOMAIN_TERMS[domain]?.has(token));
     const appMatch = this._findKnownApp(tokens);
 
-    if (action === 'open' && /\bnew\s+(?:chrome\s+)?tab\b/.test(text)) {
+    if (action === 'open' && /\b(?:new|fresh|blank)\s+(?:chrome\s+)?tab\b/.test(text)) {
       return 'browser-tab';
     }
     if (['next', 'previous'].includes(action) && /\bjump\s+to\s+(?:end|ending|last|beginning|start|first)\b/.test(text)) {
@@ -418,12 +428,12 @@ class NaturalLanguageRouter {
     }
 
     if (intent.id === 'media.play') {
-      entities.mediaQuery = entities.mediaQuery || this._extractMediaQuery(rawText, frame);
+      entities.mediaQuery = frame.intentPhrase?.objectText || entities.mediaQuery || this._extractMediaQuery(rawText, frame);
       entities.mediaPlatform = entities.mediaPlatform || this._extractMediaPlatform(frame.correctedText) || 'youtube';
     }
 
     if (intent.id === 'browser.search') {
-      entities.query = entities.query || this._extractSearchQuery(rawText, frame);
+      entities.query = frame.intentPhrase?.objectText || entities.query || this._extractSearchQuery(rawText, frame);
     }
 
     if (intent.id === 'file.search' || intent.id === 'folder.search') {
@@ -511,6 +521,38 @@ class NaturalLanguageRouter {
     if (domain && domain !== 'unknown') confidence += 0.1;
     if (intentId) confidence += 0.08;
     return Math.min(0.99, confidence);
+  }
+
+  _domainFromIntentPhrase(domain, text = '') {
+    if (domain === 'utility') {
+      return /\b(?:brightness|screen)\b/i.test(text) ? 'brightness' : 'volume';
+    }
+    return {
+      transfer: 'phone-transfer',
+      web: 'web',
+      media: 'media',
+      schedule: 'schedule',
+      app: 'app',
+      'local-file': 'local-file'
+    }[String(domain || '').toLowerCase()] || domain;
+  }
+
+  _shouldPreferInferredDomain(inferredDomain, phraseDomain, text = '', action = '') {
+    if (!phraseDomain || !inferredDomain || inferredDomain === 'unknown' || inferredDomain === phraseDomain) {
+      return Boolean(inferredDomain && inferredDomain !== 'unknown' && !phraseDomain);
+    }
+    if (inferredDomain === 'browser-tab') {
+      return true;
+    }
+    if (inferredDomain === 'media' && phraseDomain === 'volume' &&
+      /\b(?:youtube|spotify|vlc|soundcloud|gaana|jiosaavn)\b/i.test(text) &&
+      ['increase', 'decrease', 'mute', 'unmute'].includes(action)) {
+      return true;
+    }
+    if (inferredDomain === 'phone-transfer' && phraseDomain === 'local-file') {
+      return true;
+    }
+    return false;
   }
 
   _extractValue(text) {

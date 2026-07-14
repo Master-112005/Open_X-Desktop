@@ -57,6 +57,45 @@ class LearningContext {
     return normalized;
   }
 
+  predictedCount(category, key, pendingCategory = null) {
+    const storageCategory = String(category || '').trim();
+    const eventKey = String(key || '').trim();
+    if (!storageCategory || !eventKey) return 0;
+
+    const persisted = Number(this.storage?.getCount?.(storageCategory, eventKey) || 0);
+    const pending = this.acceptedEvents.filter(event => {
+      const eventStorageCategory = event.storageCategory || this.policy?.storageCategory?.(event.category);
+      const storedKey = `${event.category}:${event.key}`;
+      return eventStorageCategory === storageCategory &&
+        storedKey === eventKey &&
+        (!pendingCategory || event.category === pendingCategory);
+    }).length;
+    if (pending > 0) {
+      return persisted + pending;
+    }
+
+    const currentActionCount = this._currentSuccessfulActionCount(storageCategory, eventKey);
+    return persisted + currentActionCount;
+  }
+
+  _currentSuccessfulActionCount(storageCategory, eventKey) {
+    if (storageCategory !== 'statistics' || !eventKey.startsWith('statistic:command.')) {
+      return 0;
+    }
+    const route = eventKey.replace(/^statistic:command\./, '');
+    const actions = this.assistantResponse?.verificationResult?.successfulActions || [];
+    return actions.filter(action => {
+      const actionRoute = String(action.route || action.action || action.taskId || '')
+        .trim()
+        .toLowerCase()
+        .replace(/["'`]/g, '')
+        .replace(/[^\w\s.:-]/g, ' ')
+        .replace(/\s+/g, '.')
+        .slice(0, 120);
+      return actionRoute === route;
+    }).length;
+  }
+
   addRejected(item = {}) {
     pushBounded(this.itemsRejected, LearningGuard.sanitizeForLearning({
       category: item.category || 'unknown',

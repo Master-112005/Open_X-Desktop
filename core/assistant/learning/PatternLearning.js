@@ -9,7 +9,7 @@ class PatternLearning extends BaseLearningModule {
     for (const action of actions) {
       const route = normalizeLearningKey(action.route || action.action || action.taskId);
       if (!route) continue;
-      if (context.storage.getCount('statistics', `statistic:command.${route}`) + 1 >= context.configuration.patternThreshold) {
+      if (context.predictedCount('statistics', `statistic:command.${route}`, 'statistic') >= context.configuration.patternThreshold) {
         context.addEvent({
           category: 'pattern',
           key: `frequent.command.${route}`,

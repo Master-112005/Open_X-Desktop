@@ -900,8 +900,10 @@ class EntityExtractor {
       rawDateMatch.index < recurrenceMatch.index + recurrenceMatch.phrase.length;
     const dateMatch = dateInsideRecurrence ? null : rawDateMatch;
     const date = addMatch('date', dateMatch);
-    const explicitTimePattern = String.raw`(?:\d{1,2}(?:(?::|\s+)\d{2})?\s*(?:am|pm)|${SCHEDULE_SPOKEN_HOUR_PATTERN}\s*(?:am|pm)|noon|midnight|(?:half|quarter)\s+(?:past|to)\s+\w+)`;
-    const leadingTimeMatch = source.match(new RegExp(`\\b(?:at|by)\\s+(${explicitTimePattern})\\b`, 'i'));
+    const clockWithPeriodPattern = String.raw`\d{1,2}(?:(?::|\s+)\d{1,2})?\s*(?:am|pm)`;
+    const clockAfterTimePrepositionPattern = String.raw`\d{1,2}(?:(?::|\s+)\d{1,2})?\s*(?:am|pm)?`;
+    const explicitTimePattern = String.raw`(?:${clockWithPeriodPattern}|${SCHEDULE_SPOKEN_HOUR_PATTERN}\s*(?:am|pm)|noon|midnight|(?:half|quarter)\s+(?:past|to)\s+\w+)`;
+    const leadingTimeMatch = source.match(new RegExp(`\\b(?:at|by)\\s+(${clockAfterTimePrepositionPattern}|${SCHEDULE_SPOKEN_HOUR_PATTERN}\\s*(?:am|pm)?|noon|midnight|(?:half|quarter)\\s+(?:past|to)\\s+\\w+)\\b`, 'i'));
     const bareTimeMatch = source.match(new RegExp(`\\b(${explicitTimePattern})\\b`, 'i'));
     const dayPeriodTimeMatch = source.match(/\b(?:morning|afternoon|evening|night)\s+(?:at\s+)?(\d{1,2}(?::\d{2})?)\b/i);
     const timeMatch = leadingTimeMatch || bareTimeMatch || dayPeriodTimeMatch;
@@ -911,11 +913,21 @@ class EntityExtractor {
       : '';
     const timeAfterReminderText = /\b(?:to|say|about|that)\b.+/i.test(textBetweenDateAndTime);
     const timeSeparator = leadingTimeMatch && timeMatch === leadingTimeMatch && !timeAfterReminderText ? ' at ' : ' ';
-    const renderedTime = timeAfterReminderText ? time.replace(/^(\d{1,2})\s+(am|pm)$/i, '$1$2') : time;
+    const normalizeLooseClock = value => String(value || '')
+      .replace(/^(\d{1,2})\s+(\d{1,2})(\s*(?:am|pm)?)$/i, (_match, hour, minute, suffix) => {
+        const paddedMinute = String(minute || '').padStart(2, '0');
+        return `${hour}:${paddedMinute}${suffix || ''}`.trim();
+      })
+      .replace(/^(\d{1,2}):(\d)(\s*(?:am|pm)?)$/i, (_match, hour, minute, suffix) => `${hour}:0${minute}${suffix || ''}`.trim())
+      .replace(/\s+/g, ' ')
+      .trim();
+    const renderedTime = timeAfterReminderText
+      ? normalizeLooseClock(time).replace(/^(\d{1,2})\s+(am|pm)$/i, '$1$2')
+      : normalizeLooseClock(time);
 
     const timeExpression = date
       ? `${time && timeMatch.index < dateMatch.index ? `${renderedTime} ` : ''}${date}${time && timeMatch.index >= dateMatch.index && !new RegExp(`\\b${time.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(date) ? `${timeSeparator}${renderedTime}` : ''}`
-      : (duration || time || '');
+      : (duration || renderedTime || '');
     if (!timeExpression && /^\s*(?:remember|note|save)\b/i.test(source)) {
       return {};
     }
@@ -938,6 +950,8 @@ class EntityExtractor {
     reminderText = reminderText
       .replace(/\s+/g, ' ')
       .trim()
+      .replace(/^(?:\d{1,2})(?::|\s+)\d{1,2}\s*(?:am|pm)?\s+(?:to|that|about|for|say)\b/i, ' ')
+      .replace(/^(?:\d{1,2})(?::|\s+)\d{1,2}\s*(?:am|pm)?\b/i, ' ')
       .replace(/^(?:me|to|that|about|for|on|at|in|after|by|say|t)\b\s*/i, ' ')
       .replace(/^(?:me|to|that|about|for|on|at|in|after|by|say|t)\b\s*/i, ' ')
       .replace(/\s+(?:me|to|that|about|for|on|at|in|after|by|say|t)$/i, ' ')

@@ -2,7 +2,7 @@ const Normalizer = require('../Data').Normalizer;
 const Logger = require('../Data').Logger;
 const { stripLeadIns } = require('../normalization/CommandPreprocessor');
 const { parseLearningDirective } = require('../learning/LearningLanguage');
-const { analyzeDiscourse, buildWordRelations, splitCommandClauses } = require('./LanguageAnalysis');
+const { analyzeDiscourse, buildWordRelations, parseIntentPhrase, splitCommandClauses } = require('./LanguageAnalysis');
 
 class InputParser {
   constructor(config) {
@@ -18,7 +18,8 @@ class InputParser {
         rawCommandText: '',
         wakeWordDetected: false,
         hasCommand: false,
-        discourse: analyzeDiscourse('')
+        discourse: analyzeDiscourse(''),
+        intentPhrase: parseIntentPhrase('')
       };
     }
 
@@ -29,6 +30,7 @@ class InputParser {
     const hasCommand = rawCommandText.length > 0;
     const learningDirective = parseLearningDirective(rawCommandText);
     const discourse = analyzeDiscourse(rawCommandText);
+    const intentPhrase = parseIntentPhrase(rawCommandText);
     const commandTokens = Normalizer.tokenize(commandText);
     const commandClauses = this._buildCommandClauses(commandText);
 
@@ -41,6 +43,7 @@ class InputParser {
       hasCommand,
       learningDirective,
       discourse,
+      intentPhrase,
       isCorrection: discourse.isCorrection === true,
       clauseCount: commandClauses.length,
       commandTokens,
@@ -110,7 +113,7 @@ module.exports = InputParser;
 const CommandFrameParser = (() => {
 const { Normalizer } = require('../Data');
 const { parseLearningDirective } = require('../learning/LearningLanguage');
-const { analyzeDiscourse, buildWordRelations, splitCommandClauses } = require('./LanguageAnalysis');
+const { analyzeDiscourse, buildWordRelations, parseIntentPhrase, splitCommandClauses } = require('./LanguageAnalysis');
 
 const ACTION_ALIASES = new Map([
   ['close', 'close'],
@@ -236,6 +239,7 @@ class CommandFrameParser {
       ? preparedInput.tokens.map(token => String(token || '').toLowerCase()).filter(Boolean)
       : Normalizer.tokenize(corrected || raw);
     const learningDirective = preparedInput?.learningDirective || parseLearningDirective(raw);
+    const intentPhrase = preparedInput?.intentPhrase || parseIntentPhrase(raw);
 
     if (learningDirective?.kind === 'repair-learning') {
       return {
@@ -281,6 +285,7 @@ class CommandFrameParser {
     return {
       rawText: raw,
       correctedText: corrected,
+      intentPhrase,
       tokens,
       tokenRoles,
       relations: buildWordRelations(tokens, { actionIndex, targetTokens }),

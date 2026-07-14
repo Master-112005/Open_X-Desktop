@@ -83,6 +83,14 @@ class ContextManager {
       validation: this._compactStatus(result?.validation || result?.data?.validation, ['status', 'check', 'reason']),
       verification: this._compactStatus(result?.verification || result?.data?.verification, ['status', 'check', 'reason'])
     };
+    const appTargets = this._appTargetsFromResult(result);
+    if (appTargets.length > 0) {
+      entry.entities.appNames = appTargets.map(item => item.name);
+      entry.entities.appAction = appTargets[0].intent;
+      if (!entry.entities.appName && appTargets.length === 1) {
+        entry.entities.appName = appTargets[0].name;
+      }
+    }
     entry.domain = this._domainFromIntent(entry.intent);
     entry.target = this._entryTarget(entry);
     entry.actionSummary = this._lastActionSummary(entry);
@@ -348,6 +356,24 @@ class ContextManager {
       (!intent || entry.intent === intent) &&
       entry.entities?.appName
     );
+  }
+
+  getLastAppGroup(intent = null) {
+    const targetIntent = String(intent || '').trim();
+    return this.findRecent(entry => {
+      if (!entry?.success || entry?.requiresConfirmation || entry?.needsClarification) {
+        return false;
+      }
+      const appNames = Array.isArray(entry.entities?.appNames) ? entry.entities.appNames : [];
+      if (appNames.length === 0) {
+        return false;
+      }
+      if (!targetIntent) {
+        return true;
+      }
+      return entry.entities?.appAction === targetIntent ||
+        (entry.intent === targetIntent && entry.entities?.appName);
+    }, 30);
   }
 
   getPreviousAppOpen() {
@@ -677,6 +703,7 @@ class ContextManager {
     return [
       entities.query,
       entities.mediaQuery,
+      Array.isArray(entities.appNames) ? entities.appNames.join(', ') : '',
       entities.appName,
       entities.windowName,
       entities.folderName,
@@ -749,6 +776,41 @@ class ContextManager {
     if (Array.isArray(data.entries)) compact.entries = data.entries.slice(0, MAX_HISTORY_DATA_ITEMS).map(item => this._compactFileCandidate(item));
     if (Array.isArray(data.results)) compact.results = data.results.slice(0, MAX_HISTORY_DATA_ITEMS).map(item => this._compactFileCandidate(item));
     return Object.keys(compact).length > 0 ? compact : null;
+  }
+
+  _appTargetsFromResult(result) {
+    const directEntities = result?.entities || {};
+    const directIntent = String(result?.intent || '');
+    if (directIntent.startsWith('app.') && directEntities.appName) {
+      return [{
+        intent: directIntent,
+        name: compactSentence(directEntities.appName, 120)
+      }];
+    }
+
+    const steps = Array.isArray(result?.steps) ? result.steps : [];
+    const targets = [];
+    const seen = new Set();
+    for (const step of steps) {
+      const intent = String(step?.intent || '');
+      const appName = compactSentence(step?.entities?.appName || step?.entities?.targetApp || '', 120);
+      if (!step?.success || !intent.startsWith('app.') || !appName) {
+        continue;
+      }
+      const key = `${intent}:${normalizeText(appName)}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      targets.push({ intent, name: appName });
+    }
+
+    if (targets.length === 0) {
+      return [];
+    }
+
+    const uniqueIntents = new Set(targets.map(item => item.intent));
+    return uniqueIntents.size === 1 ? targets : [];
   }
 
   _compactFileCandidate(value) {

@@ -339,6 +339,104 @@ describe('Action Router', function() {
     assert.equal(result.intent, 'multi.command');
     assert.deepEqual(executed.map(step => step.actionId), ['media.stop', 'app.open']);
     assert.equal(executed[1].entities.appName, 'chrome');
+    assert.match(result.response, /stopped playback/i);
+    assert.match(result.response, /opened chrome/i);
+    assert.doesNotMatch(result.response, /completed 2 commands/i);
+  });
+
+  it('should describe natural multi-command results instead of only counting commands', async function() {
+    const config = {
+      permissions: {
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false },
+          medium: { requiresConfirmation: false, requiresAuth: false }
+        }
+      }
+    };
+    const stubEngine = {
+      execute(actionId, entities) {
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const media = await router.process('can you play the sars andstrips song and set the vol 100', 'chat');
+    const utility = await router.process('can you set the vol and brightness at 10', 'chat');
+    const apps = await router.process('can you open instagran and linkdin', 'chat');
+
+    assert.match(media.response, /started/i);
+    assert.match(media.response, /set the volume to 100%/i);
+    assert.doesNotMatch(media.response, /completed 2 commands/i);
+    assert.match(utility.response, /set the volume and brightness to 10%/i);
+    assert.doesNotMatch(utility.response, /completed 2 commands/i);
+    assert.match(apps.response, /opened Instagram and LinkedIn/i);
+    assert.doesNotMatch(apps.response, /opened Instagram and opened LinkedIn/i);
+    assert.doesNotMatch(apps.response, /completed 2 commands/i);
+  });
+
+  it('should preserve app-list multi commands through noisy repair', async function() {
+    const config = {
+      permissions: {
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false },
+          medium: { requiresConfirmation: false, requiresAuth: false }
+        }
+      }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const chromeWhatsApp = await router.process('open chrome and whatsapp', 'chat');
+    assert.equal(chromeWhatsApp.intent, 'multi.command');
+    assert.deepEqual(chromeWhatsApp.entities.commands, ['open chrome', 'open whatsapp']);
+    assert.deepEqual(executed.map(step => step.entities.appName), ['chrome', 'whatsapp']);
+    assert.match(chromeWhatsApp.response, /opened Chrome and WhatsApp/i);
+
+    executed.length = 0;
+    const linkedInWhatsApp = await router.process('open linkdin and whatsapp', 'chat');
+    assert.equal(linkedInWhatsApp.intent, 'multi.command');
+    assert.deepEqual(linkedInWhatsApp.entities.commands, ['open linkedin', 'open whatsapp']);
+    assert.deepEqual(executed.map(step => step.entities.appName), ['linkedin', 'whatsapp']);
+    assert.match(linkedInWhatsApp.response, /opened LinkedIn and WhatsApp/i);
+  });
+
+  it('should continue app-list multi commands after one close failure and word the failure naturally', async function() {
+    const config = {
+      permissions: {
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false },
+          medium: { requiresConfirmation: false, requiresAuth: false }
+        }
+      }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        if (actionId === 'app.close' && entities.appName === 'instagram') {
+          return {
+            success: false,
+            error: 'instagram still appears to be open'
+          };
+        }
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+    const result = await router.process('close instagram and chrome', 'chat');
+
+    assert.equal(result.intent, 'multi.command');
+    assert.equal(result.success, false);
+    assert.deepEqual(executed.map(step => step.entities.appName), ['instagram', 'chrome']);
+    assert.match(result.response, /closed Chrome/i);
+    assert.match(result.response, /could not close Instagram/i);
+    assert.doesNotMatch(result.response, /could not finish closed Instagram/i);
   });
 
   it('should route generic video stop controls to media.stop before app.close', async function() {
@@ -481,6 +579,15 @@ describe('Action Router', function() {
     assert.deepEqual(executed.map(step => step.actionId), ['volume.set', 'brightness.set']);
     assert.equal(executed[0].entities.value, 40);
     assert.equal(executed[1].entities.value, 60);
+
+    executed.length = 0;
+    const sharedValue = await router.process('set the vol and brighness to 40', 'chat');
+
+    assert.equal(sharedValue.intent, 'multi.command');
+    assert.deepEqual(sharedValue.entities.commands, ['set volume to 40', 'set brightness to 40']);
+    assert.deepEqual(executed.map(step => step.actionId), ['volume.set', 'brightness.set']);
+    assert.equal(executed[0].entities.value, 40);
+    assert.equal(executed[1].entities.value, 40);
   });
 
   it('should route command-corpus folder suffixes and maximum brightness without clarification', async function() {
@@ -946,6 +1053,44 @@ describe('Action Router', function() {
     const result = await router.process('open google chat', 'chat');
     assert.equal(result.intent, 'app.open');
     assert.equal(result.entities.appName, 'google chat');
+  });
+
+  it('should open and close arbitrary app names in single and multi-command requests', async function() {
+    const config = {
+      permissions: {
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false },
+          medium: { requiresConfirmation: false, requiresAuth: false }
+        }
+      }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        if (actionId === 'app.close' && entities.appName === 'obsidian') {
+          return { success: false, error: 'obsidian still appears to be open' };
+        }
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const singleOpen = await router.process('open obsidian', 'chat');
+    const multiOpen = await router.process('open obsidian and figma', 'chat');
+    const singleClose = await router.process('close obsidian', 'chat');
+    const multiClose = await router.process('close obsidian and figma', 'chat');
+
+    assert.equal(singleOpen.intent, 'app.open');
+    assert.equal(singleOpen.entities.appName, 'obsidian');
+    assert.equal(multiOpen.intent, 'multi.command');
+    assert.deepEqual(multiOpen.steps.map(step => step.entities.appName), ['obsidian', 'figma']);
+    assert.equal(singleClose.intent, 'app.close');
+    assert.equal(singleClose.response, 'I could not close Obsidian because Obsidian still appears to be open, sir.');
+    assert.equal(multiClose.intent, 'multi.command');
+    assert.deepEqual(multiClose.steps.map(step => step.entities.appName), ['obsidian', 'figma']);
+    assert.match(multiClose.response, /closed Figma/i);
+    assert.match(multiClose.response, /could not close Obsidian because Obsidian still appears to be open/i);
   });
 
   it('should route saved mode commands before generic app opening', async function() {
@@ -2270,6 +2415,8 @@ describe('Action Router', function() {
     assert.equal(result.intent, 'media.play');
     assert.equal(result.entities.mediaQuery, 'stars and stripes forever');
     assert.equal(result.entities.mediaPlatform, 'youtube');
+    assert.equal(result.languageUnderstanding.intentPhrase.objectText, 'stars and stripes forever');
+    assert.equal(result.languageUnderstanding.semanticParse.frames[0].intentPhrase.domain, 'media');
   });
 
   it('should preserve playdate title in natural media playback wording', async function() {

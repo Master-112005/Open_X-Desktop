@@ -10,7 +10,7 @@ class WorkflowLearning extends BaseLearningModule {
     const sequence = actions.map(action => normalizeLearningKey(action.route || action.action || action.taskId)).filter(Boolean);
     if (sequence.length < 2) return context;
     const key = `workflow.${sequence.join('>')}`;
-    if (context.storage.getCount('workflows', `workflow:${key}`) + 1 >= context.configuration.workflowThreshold) {
+    if (context.predictedCount('workflows', `workflow:${key}`, 'workflow') + 1 >= context.configuration.workflowThreshold) {
       context.addEvent({
         category: 'workflow',
         key,

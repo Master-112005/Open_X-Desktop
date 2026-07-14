@@ -668,7 +668,9 @@ class ActionRouter {
       /\b(?:set|start|create|add|pause|resume|reset|stop|cancel|delete|show|list|snooze|wake|remind)\b/.test(text);
     const networkCommand = /\b(?:wifi|wi\s*fi|bluetooth|blue\s*tooth)\b/.test(text) &&
       /\b(?:open|show|check|connect|disconnect|forget|enable|disable|turn|switch|settings|status)\b/.test(text);
-    return fileCommand || renameCommand || phoneTransferCommand || scheduleCommand || networkCommand;
+    const appListCommand = /^(?:open|launch|start|run|close|quit|exit|terminate|switch|focus)\s+[a-z0-9 ._-]+(?:\s+(?:and|then|also|plus)\s+[a-z0-9 ._-]+)+$/i.test(String(rawText || '').trim()) &&
+      !/\b(?:file|folder|document|song|video|music|search|find|remind|timer|alarm)\b/i.test(text);
+    return fileCommand || renameCommand || phoneTransferCommand || scheduleCommand || networkCommand || appListCommand;
   }
 
   _resolveCapabilityCommandIntent(rawText, preparedInput = {}, options = {}) {
@@ -1384,6 +1386,11 @@ class ActionRouter {
       return null;
     }
 
+    const coordinatedUtilityPlan = this._splitCoordinatedUtilitySetCommand(text);
+    if (coordinatedUtilityPlan) {
+      return coordinatedUtilityPlan;
+    }
+
     if (this._looksLikeSingleMediaPlatformRequest(text)) {
       return null;
     }
@@ -1486,6 +1493,48 @@ class ActionRouter {
       return simpleAnd.slice(0, 6);
     }
     return null;
+  }
+
+  _splitCoordinatedUtilitySetCommand(text) {
+    const source = String(text || '').trim();
+    const prepared = this._safePrepareInput(source);
+    const correctedSource = String(prepared?.correctedText || source).trim();
+    const match = correctedSource.match(
+      /^(?:(?:please|kindly|can\s+you|could\s+you|would\s+you)\s+)?(?:set|change|make|put|keep|adjust|turn)\s+(?:the\s+)?(.+?)\s+(?:to|at)\s+(\d{1,3})(?:\s*%|\s+percent)?$/i
+    ) || source.match(
+      /^(?:(?:please|kindly|can\s+you|could\s+you|would\s+you)\s+)?(?:set|change|make|put|keep|adjust|turn)\s+(?:the\s+)?(.+?)\s+(?:to|at)\s+(\d{1,3})(?:\s*%|\s+percent)?$/i
+    );
+    if (!match?.[1] || !match?.[2]) {
+      return null;
+    }
+
+    const value = Math.max(0, Math.min(100, Number(match[2])));
+    if (!Number.isFinite(value)) {
+      return null;
+    }
+
+    const targetText = match[1]
+      .replace(/\b(?:level|levels|percent|percentage)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    if (/\b(?:to|at)\s+\d{1,3}(?:\s*%|\s+percent)?\b/.test(targetText)) {
+      return null;
+    }
+    const targets = [];
+    if (/\b(?:vol|volume|sound|audio)\b/.test(targetText)) {
+      targets.push('volume');
+    }
+    if (/\b(?:brightness|bright|screen|display)\b/.test(targetText)) {
+      targets.push('brightness');
+    }
+
+    const uniqueTargets = [...new Set(targets)];
+    if (uniqueTargets.length < 2) {
+      return null;
+    }
+
+    return uniqueTargets.map(target => `set ${target} to ${value}`);
   }
 
   _looksLikeSingleMediaPlatformRequest(text) {
@@ -1696,7 +1745,7 @@ class ActionRouter {
       });
       browserContext = this._deriveBrowserContextFromResult(result, browserContext);
 
-      if (result.requiresConfirmation || !result.success) {
+      if (result.requiresConfirmation || result.needsClarification) {
         const pendingIndex = steps.length - 1;
         const needsClarification = Boolean(result.needsClarification);
         return {
@@ -1726,9 +1775,10 @@ class ActionRouter {
       }
     }
 
+    const failedSteps = steps.filter(step => !step.success);
     return {
       commandId,
-      success: true,
+      success: failedSteps.length === 0,
       intent: 'multi.command',
       confidence: 1,
       entities: { commands: clauses },
@@ -1840,13 +1890,227 @@ class ActionRouter {
   }
 
   _buildMultiCommandResponse(steps) {
-    const completed = steps.filter(step => step.success).length;
+    const completedSteps = steps.filter(step => step.success);
+    const completed = completedSteps.length;
     const failed = steps.find(step => !step.success);
+    const completedSummary = this._summarizeMultiCommandSteps(completedSteps);
     if (failed) {
-      return `${completed} command${completed === 1 ? '' : 's'} completed. ${failed.response || failed.error || 'One command failed.'}`;
+      const failedSummary = this._summarizeFailedMultiCommandStep(failed) || failed.input || 'one request';
+      const reason = this._formatMultiFailureReason(failed, this._stripResponseHonorific(failed.response || failed.error || 'I could not finish it'));
+      return completedSummary
+        ? `Done, sir. I ${completedSummary}, but I could not ${failedSummary} because ${reason}.`
+        : `I could not ${failedSummary} because ${reason}, sir.`;
     }
 
-    return `Completed ${completed} command${completed === 1 ? '' : 's'}.`;
+    return completedSummary
+      ? `Done, sir. I ${completedSummary}.`
+      : `Done, sir. I completed ${completed} command${completed === 1 ? '' : 's'}.`;
+  }
+
+  _summarizeMultiCommandSteps(steps = []) {
+    const remaining = Array.isArray(steps) ? [...steps] : [];
+    if (remaining.length === 0) return '';
+
+    const utilitySummary = this._summarizeUtilitySetSteps(remaining);
+    const summaries = utilitySummary.summary ? [utilitySummary.summary] : [];
+    const consumed = new Set(utilitySummary.consumed);
+    const appActionSummary = this._summarizeAppActionSteps(remaining, consumed);
+    if (appActionSummary.summary) {
+      summaries.push(appActionSummary.summary);
+      appActionSummary.consumed.forEach(index => consumed.add(index));
+    }
+
+    remaining.forEach((step, index) => {
+      if (consumed.has(index)) return;
+      const summary = this._summarizeMultiCommandStep(step);
+      if (summary) summaries.push(summary);
+    });
+
+    return this._joinHumanList(summaries);
+  }
+
+  _summarizeAppActionSteps(steps = [], alreadyConsumed = new Set()) {
+    const apps = [];
+    steps.forEach((step, index) => {
+      if (alreadyConsumed.has(index) || !['app.open', 'app.close', 'app.switch'].includes(step?.intent)) return;
+      const name = this._formatDisplayName(this._entityValue(step, 'appName') || this._entityValue(step, 'targetApp') || step.input || '');
+      if (name) {
+        apps.push({ index, name, intent: step.intent });
+      }
+    });
+    const uniqueIntents = new Set(apps.map(item => item.intent));
+    if (uniqueIntents.size !== 1) {
+      return { summary: '', consumed: new Set() };
+    }
+
+    const uniqueNames = [];
+    const consumed = new Set();
+    apps.forEach(item => {
+      if (!uniqueNames.includes(item.name)) {
+        uniqueNames.push(item.name);
+      }
+      consumed.add(item.index);
+    });
+    const intent = apps[0]?.intent;
+    const verb = intent === 'app.close'
+      ? 'closed'
+      : intent === 'app.switch'
+        ? 'switched to'
+        : 'opened';
+
+    return uniqueNames.length >= 2
+      ? { summary: `${verb} ${this._joinHumanList(uniqueNames)}`, consumed }
+      : { summary: '', consumed: new Set() };
+  }
+
+  _summarizeUtilitySetSteps(steps = []) {
+    const utility = [];
+    steps.forEach((step, index) => {
+      if (!['volume.set', 'brightness.set'].includes(step?.intent)) return;
+      const value = this._entityValue(step, 'value');
+      if (value === null || value === undefined || value === '') return;
+      utility.push({ index, intent: step.intent, value: Number(value) });
+    });
+
+    const hasVolume = utility.find(item => item.intent === 'volume.set');
+    const hasBrightness = utility.find(item => item.intent === 'brightness.set');
+    if (!hasVolume || !hasBrightness || hasVolume.value !== hasBrightness.value) {
+      return { summary: '', consumed: new Set() };
+    }
+
+    return {
+      summary: `set the volume and brightness to ${hasVolume.value}%`,
+      consumed: new Set([hasVolume.index, hasBrightness.index])
+    };
+  }
+
+  _summarizeMultiCommandStep(step = {}) {
+    const intent = String(step.intent || '');
+    const entity = name => this._entityValue(step, name);
+
+    if (intent === 'volume.set') return `set the volume to ${entity('value')}%`;
+    if (intent === 'brightness.set') return `set the brightness to ${entity('value')}%`;
+    if (intent === 'volume.up') return 'raised the volume';
+    if (intent === 'volume.down') return 'lowered the volume';
+    if (intent === 'volume.mute') return 'muted the audio';
+    if (intent === 'volume.unmute') return 'unmuted the audio';
+    if (intent === 'brightness.up') return 'increased the brightness';
+    if (intent === 'brightness.down') return 'lowered the brightness';
+    if (intent === 'media.play') {
+      const query = entity('mediaQuery') || entity('query') || entity('title') || 'your media';
+      const platform = this._formatDisplayName(entity('mediaPlatform') || entity('platform') || 'YouTube');
+      return `started ${this._quoteHumanValue(query)} on ${platform}`;
+    }
+    if (intent === 'media.pause') return 'paused playback';
+    if (intent === 'media.resume') return 'resumed playback';
+    if (intent === 'media.stop') return 'stopped playback';
+    if (intent === 'media.next') return 'skipped to the next track';
+    if (intent === 'media.previous') return 'went back to the previous track';
+    if (intent === 'app.open') return `opened ${this._formatDisplayName(entity('appName') || entity('targetApp') || step.input || 'the app')}`;
+    if (intent === 'app.close') return `closed ${this._formatDisplayName(entity('appName') || entity('targetApp') || 'the app')}`;
+    if (intent === 'app.switch') return `switched to ${this._formatDisplayName(entity('appName') || entity('targetApp') || 'the app')}`;
+    if (intent === 'browser.search') return `searched for ${this._quoteHumanValue(entity('query') || step.input || 'that')}`;
+    if (intent === 'browser.open') return `opened ${this._formatDisplayName(entity('browserName') || entity('url') || 'the browser')}`;
+    if (intent === 'timer.set') {
+      const duration = entity('duration');
+      return duration ? `started a ${duration} minute timer` : 'started the timer';
+    }
+    if (intent === 'alarm.set') return `set an alarm for ${entity('timeExpression') || 'the requested time'}`;
+    if (intent === 'reminder.set') {
+      const text = entity('reminderText') || 'that';
+      const time = entity('timeExpression');
+      const duration = entity('duration');
+      const when = time ? ` at ${time}` : duration ? ` in ${duration} minute${duration === 1 ? '' : 's'}` : '';
+      return `set a reminder to ${text}${when}`;
+    }
+
+    return this._stripResponseHonorific(step.response || '').replace(/[.!?]+$/g, '').trim();
+  }
+
+  _summarizeFailedMultiCommandStep(step = {}) {
+    const intent = String(step.intent || '');
+    const entity = name => this._entityValue(step, name);
+
+    if (intent === 'app.open') return `open ${this._formatDisplayName(entity('appName') || entity('targetApp') || 'the app')}`;
+    if (intent === 'app.close') return `close ${this._formatDisplayName(entity('appName') || entity('targetApp') || 'the app')}`;
+    if (intent === 'app.switch') return `switch to ${this._formatDisplayName(entity('appName') || entity('targetApp') || 'the app')}`;
+    if (intent === 'volume.set') return `set the volume to ${entity('value')}%`;
+    if (intent === 'brightness.set') return `set the brightness to ${entity('value')}%`;
+    if (intent === 'browser.search') return `search for ${this._quoteHumanValue(entity('query') || step.input || 'that')}`;
+    if (intent === 'media.play') return `play ${this._quoteHumanValue(entity('mediaQuery') || entity('query') || 'that')}`;
+    return String(step.input || '').replace(/\s+/g, ' ').trim();
+  }
+
+  _formatMultiFailureReason(step = {}, reason = '') {
+    const clean = String(reason || 'it did not complete').replace(/[.!?]+$/g, '').trim();
+    const rawAppName = String(this._entityValue(step, 'appName') || this._entityValue(step, 'targetApp') || '').trim();
+    const appName = this._formatDisplayName(rawAppName);
+    if (appName) {
+      const appPattern = new RegExp(`^${this._escapeRegExp(appName)}\\b`, 'i');
+      if (appPattern.test(clean)) {
+        return clean.replace(appPattern, appName);
+      }
+      if (rawAppName) {
+        const rawPattern = new RegExp(`^${this._escapeRegExp(rawAppName)}\\b`, 'i');
+        if (rawPattern.test(clean)) {
+          return clean.replace(rawPattern, appName);
+        }
+      }
+    }
+    return clean.charAt(0).toLowerCase() + clean.slice(1);
+  }
+
+  _escapeRegExp(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  _entityValue(step = {}, name) {
+    const entities = step.entities || {};
+    const data = step.data || {};
+    return entities[name] ?? data[name] ?? data?.data?.[name] ?? null;
+  }
+
+  _stripResponseHonorific(value) {
+    return String(value || '')
+      .replace(/\s*,?\s*(?:sir|master|boss|commander)\s*[.!?]?$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  _formatDisplayName(value) {
+    const source = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!source) return '';
+    const normalized = source.toLowerCase();
+    const names = {
+      instagram: 'Instagram',
+      instagran: 'Instagram',
+      linkedin: 'LinkedIn',
+      linkdin: 'LinkedIn',
+      youtube: 'YouTube',
+      chrome: 'Chrome',
+      edge: 'Edge',
+      firefox: 'Firefox',
+      spotify: 'Spotify',
+      whatsapp: 'WhatsApp'
+    };
+    if (names[normalized]) return names[normalized];
+    return source.split(' ').map(part => {
+      if (/^[A-Z0-9]{2,}$/.test(part)) return part;
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    }).join(' ');
+  }
+
+  _quoteHumanValue(value) {
+    const source = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!source) return 'that';
+    return `"${source}"`;
+  }
+
+  _joinHumanList(items = []) {
+    const clean = items.map(item => String(item || '').trim()).filter(Boolean);
+    if (clean.length <= 1) return clean[0] || '';
+    if (clean.length === 2) return `${clean[0]} and ${clean[1]}`;
+    return `${clean.slice(0, -1).join(', ')}, and ${clean[clean.length - 1]}`;
   }
 
   _recordRoutingEvidence(entry = {}) {
@@ -2091,7 +2355,8 @@ class ActionRouter {
             })
           : this._buildResponse('error', 'executionFailed', {
               error: result.error,
-              intent: intentResult.intent
+              intent: intentResult.intent,
+              entities
         }),
         error: result.error || null,
         languageUnderstanding,
@@ -2185,6 +2450,7 @@ class ActionRouter {
       correctedText: preparedInput?.correctedText || '',
       intentText: preparedInput?.intentText || '',
       discourse: preparedInput?.discourse || null,
+      intentPhrase: preparedInput?.intentPhrase || null,
       contextualRewrite: preparedInput?.contextualRewrite || null,
       resolvedContext: this._summarizeResolvedContext(preparedInput?.resolvedContext),
       commandFrame: commandFrame ? {
@@ -2207,6 +2473,7 @@ class ActionRouter {
           action: frame.action || null,
           actionToken: frame.actionToken || null,
           targetText: frame.targetText || '',
+          intentPhrase: frame.intentPhrase || null,
           domain: frame.domain || 'unknown',
           intentId: frame.intentId || null,
           confidence: Number(frame.confidence || 0),

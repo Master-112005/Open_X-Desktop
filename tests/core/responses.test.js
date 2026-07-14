@@ -52,6 +52,17 @@ describe('Response Generator', function() {
     assert.ok(result.toLowerCase().includes('cannot find the java app'));
   });
 
+  it('should humanize single app close verification failures with the target app', function() {
+    const gen = new ResponseGenerator();
+    const result = gen.generate('error', 'executionFailed', {
+      error: 'obsidian still appears to be open',
+      intent: { id: 'app.close' },
+      entities: { appName: 'obsidian' }
+    });
+
+    assert.equal(result, 'I could not close Obsidian because Obsidian still appears to be open, sir.');
+  });
+
   it('should humanize verification failures', function() {
     const gen = new ResponseGenerator();
     const result = gen.generate('error', 'executionFailed', {
@@ -374,6 +385,25 @@ describe('Response Generator', function() {
       result,
       'Verified YouTube was opened for "playdate song", sir.'
     );
+  });
+
+  it('should include task and time in schedule confirmations', function() {
+    const gen = new ResponseGenerator();
+    const reminder = gen.generate('success', 'reminder.set', {
+      entities: { reminderText: 'call mummy', timeExpression: '12:21' }
+    });
+    const timer = gen.generate('success', 'timer.set', {
+      entities: { duration: 5 }
+    });
+    const alarm = gen.generate('success', 'alarm.set', {
+      entities: { timeExpression: '1:08 am' }
+    });
+
+    assert.match(reminder, /call mummy/i);
+    assert.match(reminder, /12:21/);
+    assert.doesNotMatch(reminder, /to 12:21 to call/i);
+    assert.match(timer, /5 minute timer/i);
+    assert.match(alarm, /1:08 am/i);
   });
 
   it('should use formal addressing by default', function() {
