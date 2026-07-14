@@ -58,29 +58,22 @@ class AutomationEngine {
       files: this.files,
       folders: this.folders,
       windows: this.windows,
-      system: this.system
+      system: this.system,
+      volume: this.volume,
+      brightness: this.brightness
     });
 
     this._actionMap = {
-      'volume.up': (entities) => entities.value ? this.volume.setVolume(entities.value) : this.volume.increaseVolume(),
-      'volume.down': (entities) => entities.value ? this.volume.setVolume(entities.value) : this.volume.decreaseVolume(),
-      'volume.set': (entities) => this.volume.setVolume(entities.value || 50),
-      'volume.get': () => {
-        const current = this.volume.getCurrentVolume();
-        return { success: true, data: { value: current } };
-      },
+      'volume.up': (entities) => Number.isFinite(Number(entities.value)) ? this.volume.setVolume(entities.value) : this.volume.increaseVolume(),
+      'volume.down': (entities) => Number.isFinite(Number(entities.value)) ? this.volume.setVolume(entities.value) : this.volume.decreaseVolume(),
+      'volume.set': (entities) => this.volume.setVolume(Number.isFinite(Number(entities.value)) ? entities.value : 50),
+      'volume.get': () => this.volume.getState(),
       'volume.mute': () => this.volume.mute(),
       'volume.unmute': () => this.volume.unmute(),
-      'brightness.up': (entities) => entities.value ? this.brightness.setBrightness(entities.value) : this.brightness.increaseBrightness(),
-      'brightness.down': (entities) => entities.value ? this.brightness.setBrightness(entities.value) : this.brightness.decreaseBrightness(),
-      'brightness.set': (entities) => this.brightness.setBrightness(entities.value || 50),
-      'brightness.get': () => {
-        const current = this.brightness.getCurrentBrightness();
-        if (current === null) {
-          return { success: false, error: 'Brightness control not supported' };
-        }
-        return { success: true, data: { value: current } };
-      },
+      'brightness.up': (entities) => Number.isFinite(Number(entities.value)) ? this.brightness.setBrightness(entities.value) : this.brightness.increaseBrightness(),
+      'brightness.down': (entities) => Number.isFinite(Number(entities.value)) ? this.brightness.setBrightness(entities.value) : this.brightness.decreaseBrightness(),
+      'brightness.set': (entities) => this.brightness.setBrightness(Number.isFinite(Number(entities.value)) ? entities.value : 50),
+      'brightness.get': () => this.brightness.getState(),
       'app.open': async (entities) => {
         const appResult = await this.apps.open(entities.appName, entities);
         if (appResult?.success) {

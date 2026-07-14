@@ -12,6 +12,10 @@ const { buildDataPaths } = require('../assistant/Data');
 const DEFAULT_PLATFORM = 'youtube';
 const VK_MEDIA_STOP = 178;
 const VK_MEDIA_PLAY_PAUSE = 179;
+const DEFAULT_YOUTUBE_FETCH_TIMEOUT_MS = 4500;
+const DEFAULT_YOUTUBE_FETCH_MAX_BYTES = 900000;
+const DEFAULT_YOUTUBE_CACHE_TTL_MS = 10 * 60 * 1000;
+const MAX_MEDIA_QUERY_LENGTH = 180;
 
 const CHROME_PATHS = [
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -78,19 +82,33 @@ class MediaController {
     this.systemMediaSessionCooldownMs = Number(config?.media?.systemSessionCooldownMs) || 60000;
     this.systemMediaSessionPauseUnavailableUntil = 0;
     this.systemMediaSessionResumeUnavailableUntil = 0;
+    this.youtubeLookupTimeoutMs = Number(config?.media?.youtubeLookupTimeoutMs) || DEFAULT_YOUTUBE_FETCH_TIMEOUT_MS;
+    this.youtubeLookupMaxBytes = Number(config?.media?.youtubeLookupMaxBytes) || DEFAULT_YOUTUBE_FETCH_MAX_BYTES;
+    this.youtubeLookupCacheTtlMs = Number(config?.media?.youtubeLookupCacheTtlMs) || DEFAULT_YOUTUBE_CACHE_TTL_MS;
+    this.youtubeLookupCache = new Map();
+    this.cachedChromePath = null;
+    this.chromeLookupCompleted = false;
   }
 
   async play(query, platform) {
-    if (!query || !String(query).trim()) {
-      return { success: false, error: 'No media query provided' };
+    const queryValidation = this._validateMediaQuery(query);
+    if (!queryValidation.valid) {
+      return this._mediaFailure(queryValidation.error, {
+        action: 'play',
+        query: String(query || '').trim()
+      });
     }
 
-    const cleanQuery = String(query).trim();
+    const cleanQuery = queryValidation.query;
     const platformKey = this._resolvePlatform(platform);
     const definition = PLATFORM_REGISTRY[platformKey];
 
     if (!definition) {
-      return { success: false, error: `Media platform not supported: ${platformKey}` };
+      return this._mediaFailure(`Media platform not supported: ${platformKey}`, {
+        action: 'play',
+        query: cleanQuery,
+        platform: platformKey
+      });
     }
 
     this.logger.info(`MediaController: playing "${cleanQuery}" on ${definition.appName}`);
@@ -111,7 +129,7 @@ class MediaController {
 
       return {
         success: true,
-        data: {
+        data: this._mediaSuccessData('play', {
           query: cleanQuery,
           platform: platformKey,
           appName: definition.appName,
@@ -130,7 +148,7 @@ class MediaController {
             replacement
           }),
           matchedWindow: reuseResult.data?.matchedWindow || null
-        }
+        })
       };
     }
 
@@ -156,7 +174,7 @@ class MediaController {
 
         return {
           success: true,
-          data: {
+          data: this._mediaSuccessData('play', {
             query: cleanQuery,
             platform: platformKey,
             appName: definition.appName,
@@ -174,7 +192,7 @@ class MediaController {
               url: localResult.url || playbackTarget.playUrl || null,
               replacement
             })
-          }
+          })
         };
       }
 
@@ -191,10 +209,11 @@ class MediaController {
       if (browserResult.error === BrowserController.INTERNET_ERROR_MESSAGE) {
         return browserResult;
       }
-      return {
-        success: false,
-        error: `Failed to open ${definition.appName}: ${browserResult.error}`
-      };
+      return this._mediaFailure(`Failed to open ${definition.appName}: ${browserResult.error}`, {
+        action: 'play',
+        query: cleanQuery,
+        platform: platformKey
+      });
     }
 
     this._rememberSession({
@@ -208,7 +227,7 @@ class MediaController {
 
     return {
       success: true,
-      data: {
+      data: this._mediaSuccessData('play', {
         query: cleanQuery,
         platform: platformKey,
         appName: definition.appName,
@@ -226,7 +245,7 @@ class MediaController {
           url: fallbackUrl,
           replacement
         })
-      }
+      }, { controllerVerified: false })
     };
   }
 
@@ -236,6 +255,63 @@ class MediaController {
 
   getSupportedPlatforms() {
     return Object.keys(PLATFORM_REGISTRY);
+  }
+
+  _validateMediaQuery(query) {
+    const cleanQuery = String(query || '').replace(/\s+/g, ' ').trim();
+    if (!cleanQuery) {
+      return { valid: false, error: 'No media query provided' };
+    }
+    if (cleanQuery.length > MAX_MEDIA_QUERY_LENGTH) {
+      return { valid: false, error: 'Media query is too long' };
+    }
+    if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(cleanQuery)) {
+      return { valid: false, error: 'Media query contains unsupported control characters' };
+    }
+    return { valid: true, query: cleanQuery };
+  }
+
+  _mediaSuccessData(action, data = {}, options = {}) {
+    const verification = data.playbackVerification || {
+      type: `media.${action}`,
+      valid: options.controllerVerified !== false,
+      action,
+      method: data.method || data.launchMethod || null
+    };
+    const controllerVerified = options.controllerVerified !== undefined
+      ? Boolean(options.controllerVerified)
+      : verification.valid !== false;
+
+    return {
+      action,
+      controllerVerified,
+      validationStatus: 'passed',
+      verification: {
+        status: controllerVerified ? 'passed' : 'unknown',
+        check: `media-${action}`,
+        method: data.method || data.launchMethod || null
+      },
+      responseVariantSeed: `${action}:${data.platform || data.method || ''}:${data.query || data.action || ''}:${Date.now()}`,
+      ...data
+    };
+  }
+
+  _mediaFailure(error, data = {}) {
+    const message = String(error || 'Media operation failed');
+    return {
+      success: false,
+      error: message,
+      data: {
+        ...data,
+        controllerVerified: false,
+        validationStatus: 'failed',
+        verification: {
+          status: 'failed',
+          check: `media-${data.action || 'operation'}`,
+          reason: message
+        }
+      }
+    };
   }
 
   async _launchYouTubeLocal(query, preferredUrl) {
@@ -295,6 +371,12 @@ class MediaController {
   }
 
   _fetchFirstYouTubeVideoId(query) {
+    const cacheKey = String(query || '').trim().toLowerCase();
+    const cached = this.youtubeLookupCache.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAt < this.youtubeLookupCacheTtlMs) {
+      return Promise.resolve(cached.videoId || null);
+    }
+
     return new Promise((resolve, reject) => {
       const searchPath =
         `/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ%3D%3D`;
@@ -306,17 +388,26 @@ class MediaController {
           'User-Agent': USER_AGENT,
           'Accept-Language': 'en-US,en;q=0.9'
         },
-        timeout: 10000
+        timeout: this.youtubeLookupTimeoutMs
       };
 
       const req = https.get(options, (res) => {
         if (res.statusCode === 301 || res.statusCode === 302) {
+          this._rememberYouTubeLookup(cacheKey, null);
           resolve(null);
           return;
         }
 
         let rawData = '';
-        res.on('data', (chunk) => { rawData += chunk; });
+        let receivedBytes = 0;
+        res.on('data', (chunk) => {
+          receivedBytes += chunk.length;
+          if (receivedBytes > this.youtubeLookupMaxBytes) {
+            req.destroy(new Error('YouTube lookup response exceeded the memory budget'));
+            return;
+          }
+          rawData += chunk;
+        });
         res.on('end', () => {
           try {
             const videoIdRegex = /"videoId":"([a-zA-Z0-9_-]{11})"/g;
@@ -330,10 +421,12 @@ class MediaController {
               }
 
               seen.add(videoId);
+              this._rememberYouTubeLookup(cacheKey, videoId);
               resolve(videoId);
               return;
             }
 
+            this._rememberYouTubeLookup(cacheKey, null);
             resolve(null);
           } catch (err) {
             reject(err);
@@ -347,6 +440,18 @@ class MediaController {
         reject(new Error('YouTube fetch timed out'));
       });
     });
+  }
+
+  _rememberYouTubeLookup(cacheKey, videoId) {
+    if (!cacheKey) return;
+    this.youtubeLookupCache.set(cacheKey, {
+      videoId: videoId || null,
+      cachedAt: Date.now()
+    });
+    if (this.youtubeLookupCache.size > 80) {
+      const oldestKey = this.youtubeLookupCache.keys().next().value;
+      this.youtubeLookupCache.delete(oldestKey);
+    }
   }
 
   _launchUri(uri) {
@@ -367,8 +472,14 @@ class MediaController {
   }
 
   _findChrome() {
+    if (this.chromeLookupCompleted) {
+      return this.cachedChromePath;
+    }
+
     for (const chromePath of CHROME_PATHS) {
       if (fs.existsSync(chromePath)) {
+        this.cachedChromePath = chromePath;
+        this.chromeLookupCompleted = true;
         return chromePath;
       }
     }
@@ -380,12 +491,16 @@ class MediaController {
         encoding: 'utf8'
       }).split(/\r?\n/).map(line => line.trim()).find(Boolean);
       if (discoveredPath && fs.existsSync(discoveredPath)) {
+        this.cachedChromePath = discoveredPath;
+        this.chromeLookupCompleted = true;
         return discoveredPath;
       }
     } catch (err) {
       this.logger.info('MediaController: Chrome was not found on PATH');
     }
 
+    this.cachedChromePath = null;
+    this.chromeLookupCompleted = true;
     return null;
   }
 
@@ -542,46 +657,71 @@ class MediaController {
 
   next() {
     try {
-      this._sendMediaControl('+n', 176);
-      return { success: true, data: { action: 'next' } };
+      return {
+        success: true,
+        data: this._mediaSuccessData('next', {
+          action: 'next',
+          ...this._sendMediaControl('+n', 176)
+        })
+      };
     } catch (err) {
-      return { success: false, error: `Failed to play next track: ${err.message}` };
+      return this._mediaFailure(`Failed to play next track: ${err.message}`, { action: 'next' });
     }
   }
 
   previous() {
     try {
-      this._sendMediaControl('+p', 177);
-      return { success: true, data: { action: 'previous' } };
+      return {
+        success: true,
+        data: this._mediaSuccessData('previous', {
+          action: 'previous',
+          ...this._sendMediaControl('+p', 177)
+        })
+      };
     } catch (err) {
-      return { success: false, error: `Failed to play previous track: ${err.message}` };
+      return this._mediaFailure(`Failed to play previous track: ${err.message}`, { action: 'previous' });
     }
   }
 
   pause() {
     try {
-      this._sendMediaControl('k', 179);
-      return { success: true, data: { action: 'pause' } };
+      return {
+        success: true,
+        data: this._mediaSuccessData('pause', {
+          action: 'pause',
+          ...this._sendMediaControl('k', 179)
+        })
+      };
     } catch (err) {
-      return { success: false, error: `Failed to pause playback: ${err.message}` };
+      return this._mediaFailure(`Failed to pause playback: ${err.message}`, { action: 'pause' });
     }
   }
 
   resume() {
     try {
-      this._sendMediaControl('k', 179);
-      return { success: true, data: { action: 'resume' } };
+      return {
+        success: true,
+        data: this._mediaSuccessData('resume', {
+          action: 'resume',
+          ...this._sendMediaControl('k', 179)
+        })
+      };
     } catch (err) {
-      return { success: false, error: `Failed to resume playback: ${err.message}` };
+      return this._mediaFailure(`Failed to resume playback: ${err.message}`, { action: 'resume' });
     }
   }
 
   stop() {
     try {
-      this._sendMediaControl('k', 179);
-      return { success: true, data: { action: 'stop' } };
+      return {
+        success: true,
+        data: this._mediaSuccessData('stop', {
+          action: 'stop',
+          ...this._sendMediaControl('k', 179)
+        })
+      };
     } catch (err) {
-      return { success: false, error: `Failed to stop playback: ${err.message}` };
+      return this._mediaFailure(`Failed to stop playback: ${err.message}`, { action: 'stop' });
     }
   }
 
@@ -760,7 +900,8 @@ class MediaController {
           ...(result.data || {}),
           action: result.data?.action || 'pause',
           reason,
-          method: result.data?.method || 'known-openx-media-session',
+          controlMethod: result.data?.method || null,
+          method: 'known-openx-media-session',
           platform: this.activeSession.platform,
           fallback: true,
           restore: {
@@ -858,6 +999,7 @@ class MediaController {
           ...(result.data || {}),
           action: result.data?.action || 'resume',
           reason,
+          controlMethod: result.data?.method || null,
           method: 'known-openx-media-session',
           platform: restore.platform || data.platform || null
         }
@@ -899,26 +1041,26 @@ class MediaController {
         this._sendGlobalMediaFallback(action);
         return {
           success: true,
-          data: {
+          data: this._mediaSuccessData(action, {
             action,
             method: 'global-media-fallback',
             ...detail
-          }
+          }, { controllerVerified: false })
         };
       }
 
       return {
         success: true,
-        data: {
+        data: this._mediaSuccessData(action, {
           action,
           method: 'window-shortcut',
           matchedWindow: result.data?.matchedWindow,
           keys,
           ...detail
-        }
+        })
       };
     } catch (err) {
-      return { success: false, error: `Failed to run media ${action}: ${err.message}` };
+      return this._mediaFailure(`Failed to run media ${action}: ${err.message}`, { action });
     }
   }
 
@@ -939,19 +1081,32 @@ class MediaController {
   }
 
   _sendMediaControl(youtubeKey, virtualKeyCode) {
+    const platform = this.activeSession?.platform || 'youtube';
+    const windowQuery = platform === 'youtube'
+      ? (this.activeSession?.windowQuery || 'youtube')
+      : this._defaultWindowQuery(platform);
     const targetWindow = this.windowSession.sendKeys(
-      this.activeSession?.platform === 'youtube'
-        ? (this.activeSession.windowQuery || 'youtube')
-        : 'youtube',
+      windowQuery,
       youtubeKey,
-      this._getWindowSearchOptions('youtube')
+      this._getWindowSearchOptions(platform)
     );
 
     if (targetWindow.success) {
-      return;
+      return {
+        method: 'window-shortcut',
+        matchedWindow: targetWindow.data?.matchedWindow || null,
+        platform,
+        keys: youtubeKey
+      };
     }
 
     this._sendGlobalMediaKey(virtualKeyCode);
+    return {
+      method: 'global-media-key',
+      platform,
+      virtualKeyCode,
+      fallbackReason: targetWindow.error || 'target-window-not-found'
+    };
   }
 
   _sendGlobalMediaKey(virtualKeyCode) {

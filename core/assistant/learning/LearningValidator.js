@@ -25,7 +25,14 @@ class LearningValidator {
         key,
         value,
         confidence: Math.max(0, Math.min(1, Number(event.confidence ?? 1))),
-        metadata: LearningGuard.sanitizeForLearning(event.metadata || {})
+        metadata: LearningGuard.sanitizeForLearning({
+          ...(event.metadata || {}),
+          learningDecision: {
+            principle: policy.principle || null,
+            score: Number.isFinite(policy.score) ? Number(policy.score.toFixed(4)) : null,
+            shouldAskFeedback: policy.shouldAskFeedback === true
+          }
+        })
       }
     };
   }

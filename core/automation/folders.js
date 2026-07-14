@@ -12,7 +12,9 @@ const {
   requireSafeUserPath,
   resolveDestinationPath,
   resolveDirectory,
-  splitNameAndLocation
+  splitNameAndLocation,
+  validateWindowsName,
+  validateWindowsPathLength
 } = require('./common/path-utils');
 const { launchTarget } = require('./common/launcher');
 
@@ -40,6 +42,8 @@ const FOLDER_SEARCH_LIMITS = Object.freeze({
   maxElapsedMs: 1200,
   maxResults: 40
 });
+
+const DEFAULT_MAX_WINDOWS_PATH_LENGTH = 260;
 
 function uniquePaths(paths) {
   const seen = new Set();
@@ -76,7 +80,74 @@ function pathLocationLabel(folderPath) {
 
 class FolderController {
   constructor(config) {
+    this.config = config || {};
     this.logger = new Logger(config?.logging || { level: 'info' });
+    this.folderOptions = {
+      allowLongPaths: Boolean(config?.folders?.allowLongPaths),
+      maxPathLength: Number(config?.folders?.maxPathLength) || DEFAULT_MAX_WINDOWS_PATH_LENGTH
+    };
+  }
+
+  _normalizeFsError(error, fallback = 'Folder operation failed') {
+    const code = error?.code || '';
+    const message = String(error?.message || fallback);
+    if (code === 'ENOENT') return 'Folder not found';
+    if (code === 'EEXIST') return 'That folder already exists';
+    if (code === 'EACCES' || code === 'EPERM') return 'Permission denied for that folder operation';
+    if (code === 'ENAMETOOLONG') return 'That folder path is too long for this system';
+    if (code === 'ENOSPC') return 'There is not enough disk space to complete that folder operation';
+    if (code === 'EBUSY') return 'That folder is currently busy or locked by another app';
+    if (/directory not empty/i.test(message)) return 'That folder could not be removed because it is still not empty';
+    return message;
+  }
+
+  _failure(error, fallback, data = {}) {
+    const message = typeof error === 'string'
+      ? error
+      : this._normalizeFsError(error, fallback);
+    return {
+      success: false,
+      error: message,
+      data: {
+        ...data,
+        controllerVerified: false,
+        validationStatus: 'failed',
+        verification: {
+          status: 'failed',
+          check: `folder-${data.operation || 'operation'}`,
+          reason: message
+        }
+      }
+    };
+  }
+
+  _validateWindowsFolderName(input, label = 'folder name') {
+    return validateWindowsName(input, { label });
+  }
+
+  _validateFolderPathLength(candidate) {
+    const validation = validateWindowsPathLength(candidate, this.folderOptions);
+    return validation.valid ? validation : {
+      ...validation,
+      error: validation.error.replace(/^That path/, 'That folder path')
+    };
+  }
+
+  _verifiedData(operation, folderPath, extra = {}) {
+    const primaryPath = folderPath || extra.destination || extra.path || extra.source || '';
+    return {
+      operation,
+      controllerVerified: true,
+      validationStatus: 'passed',
+      verification: {
+        status: 'passed',
+        check: `folder-${operation}`,
+        path: primaryPath || null
+      },
+      location: primaryPath ? pathLocationLabel(primaryPath) : null,
+      responseVariantSeed: `${operation}:${primaryPath || extra.folderName || ''}:${Date.now()}`,
+      ...extra
+    };
   }
 
   search(query, options = {}) {
@@ -115,6 +186,8 @@ class FolderController {
       .filter(entry => entry.score > 0)
       .sort((left, right) => right.score - left.score || left.depth - right.depth || left.path.localeCompare(right.path))
       .slice(0, Math.min(maxResults, 20));
+    const partialByTime = !hasSearchTimeRemaining(startedAt, limits.maxElapsedMs);
+    const partialByDirectory = visitedDirectories.size >= limits.maxDirectories;
 
     return {
       success: true,
@@ -133,8 +206,8 @@ class FolderController {
           kind: 'folder.search',
           roots: roots.length,
           visitedDirectories: visitedDirectories.size,
-          partial: !hasSearchTimeRemaining(startedAt, limits.maxElapsedMs),
-          partialReason: !hasSearchTimeRemaining(startedAt, limits.maxElapsedMs) ? 'time-budget' : null,
+          partial: partialByTime || partialByDirectory,
+          partialReason: partialByTime ? 'time-budget' : partialByDirectory ? 'directory-limit' : null,
           elapsedMs: Date.now() - startedAt
         }
       }
@@ -183,23 +256,56 @@ class FolderController {
       return { success: false, error: 'No folder name provided' };
     }
 
-    const safeName = Validator.sanitizePath(folderName);
-    if (!Validator.isValidFilename(safeName)) {
-      return { success: false, error: 'Invalid folder name' };
+    const validation = this._validateWindowsFolderName(folderName);
+    if (!validation.valid) {
+      return this._failure(validation.error, 'Invalid folder name', {
+        operation: 'create',
+        folderName: String(folderName || '').trim()
+      });
     }
 
     try {
       const dir = requireSafeUserPath(resolveDirectory(targetPath, { mustExist: false }) || getHomeDirectory(), { allowRoot: true });
-      const fullPath = path.join(dir, safeName);
+      const fullPath = path.join(dir, validation.name);
+      const pathValidation = this._validateFolderPathLength(fullPath);
+      if (!pathValidation.valid) {
+        return this._failure(pathValidation.error, pathValidation.error, {
+          operation: 'create',
+          path: fullPath,
+          folderName: validation.name
+        });
+      }
+
       if (fs.existsSync(fullPath)) {
-        return { success: false, error: 'Folder already exists' };
+        return this._failure('Folder already exists', 'Folder already exists', {
+          operation: 'create',
+          path: fullPath,
+          folderName: validation.name
+        });
       }
 
       fs.mkdirSync(fullPath, { recursive: true });
-      return { success: true, data: { path: fullPath, folderName: safeName } };
+      if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isDirectory()) {
+        return this._failure('Could not verify that the folder was created', 'Could not verify folder creation', {
+          operation: 'create',
+          path: fullPath,
+          folderName: validation.name
+        });
+      }
+
+      return {
+        success: true,
+        data: this._verifiedData('create', fullPath, {
+          path: fullPath,
+          folderName: validation.name
+        })
+      };
     } catch (err) {
       this.logger.error('Failed to create folder', err);
-      return { success: false, error: err.message };
+      return this._failure(err, 'Failed to create folder', {
+        operation: 'create',
+        folderName: validation.name
+      });
     }
   }
 
@@ -221,10 +327,24 @@ class FolderController {
       }
 
       fs.rmSync(fullPath, { recursive: true, force: true });
-      return { success: true, data: { path: fullPath, folderName: path.basename(fullPath) } };
+      if (fs.existsSync(fullPath)) {
+        return this._failure('Could not verify that the folder was deleted', 'Could not verify folder deletion', {
+          operation: 'delete',
+          path: fullPath,
+          folderName: path.basename(fullPath)
+        });
+      }
+
+      return {
+        success: true,
+        data: this._verifiedData('delete', fullPath, {
+          path: fullPath,
+          folderName: path.basename(fullPath)
+        })
+      };
     } catch (err) {
       this.logger.error('Failed to delete folder', err);
-      return { success: false, error: err.message };
+      return this._failure(err, 'Failed to delete folder', { operation: 'delete', folderName });
     }
   }
 
@@ -245,8 +365,33 @@ class FolderController {
         return { success: false, error: 'Destination could not be resolved' };
       }
       requireSafeUserPath(finalPath);
+      const pathValidation = this._validateFolderPathLength(finalPath);
+      if (!pathValidation.valid) {
+        return this._failure(pathValidation.error, pathValidation.error, {
+          operation: 'move',
+          source: sourcePath,
+          destination: finalPath
+        });
+      }
+
+      if (path.resolve(sourcePath).toLowerCase() === path.resolve(finalPath).toLowerCase()) {
+        return this._failure('Source and destination are the same folder', 'Invalid move destination', {
+          operation: 'move',
+          source: sourcePath,
+          destination: finalPath
+        });
+      }
+
+      if (path.resolve(finalPath).toLowerCase().startsWith(`${path.resolve(sourcePath).toLowerCase()}${path.sep}`)) {
+        return this._failure('Cannot move a folder inside itself', 'Invalid move destination', {
+          operation: 'move',
+          source: sourcePath,
+          destination: finalPath
+        });
+      }
 
       fs.mkdirSync(path.dirname(finalPath), { recursive: true });
+      const overwroteExisting = fs.existsSync(finalPath);
 
       try {
         fs.renameSync(sourcePath, finalPath);
@@ -255,10 +400,31 @@ class FolderController {
         fs.rmSync(sourcePath, { recursive: true, force: true });
       }
 
-      return { success: true, data: { source: sourcePath, destination: finalPath } };
+      if (fs.existsSync(sourcePath) || !fs.existsSync(finalPath) || !fs.statSync(finalPath).isDirectory()) {
+        return this._failure('Could not verify the folder move because the original folder is still there', 'Could not verify folder move', {
+          operation: 'move',
+          source: sourcePath,
+          destination: finalPath
+        });
+      }
+
+      return {
+        success: true,
+        data: this._verifiedData('move', finalPath, {
+          source: sourcePath,
+          destination: finalPath,
+          folderName: path.basename(sourcePath),
+          destinationName: path.basename(finalPath),
+          overwroteExisting
+        })
+      };
     } catch (err) {
       this.logger.error('Failed to move folder', err);
-      return { success: false, error: err.message };
+      return this._failure(err, 'Failed to move folder', {
+        operation: 'move',
+        source,
+        destination
+      });
     }
   }
 
@@ -272,7 +438,14 @@ class FolderController {
       if (selectedPath && path.isAbsolute(selectedPath) && fs.existsSync(selectedPath) && fs.statSync(selectedPath).isDirectory()) {
         const safeSelectedPath = requireSafeUserPath(selectedPath, { allowRoot: true });
         this._openFolderPath(safeSelectedPath, options);
-        return { success: true, data: { path: safeSelectedPath, folderName: path.basename(safeSelectedPath), openWith: options.openWith || null } };
+        return {
+          success: true,
+          data: this._verifiedData('open', safeSelectedPath, {
+            path: safeSelectedPath,
+            folderName: path.basename(safeSelectedPath),
+            openWith: options.openWith || null
+          })
+        };
       }
 
       const matches = this._findFolderMatches(folderName);
@@ -321,7 +494,14 @@ class FolderController {
 
         const matchedPath = requireSafeUserPath(matches[0], { allowRoot: true });
         this._openFolderPath(matchedPath, options);
-        return { success: true, data: { path: matchedPath, folderName: path.basename(matchedPath), openWith: options.openWith || null } };
+        return {
+          success: true,
+          data: this._verifiedData('open', matchedPath, {
+            path: matchedPath,
+            folderName: path.basename(matchedPath),
+            openWith: options.openWith || null
+          })
+        };
       }
 
       const fullPath = this._resolveFolderPath(folderName);
@@ -331,10 +511,17 @@ class FolderController {
       requireSafeUserPath(fullPath, { allowRoot: true });
 
       this._openFolderPath(fullPath, options);
-      return { success: true, data: { path: fullPath, folderName: path.basename(fullPath), openWith: options.openWith || null } };
+      return {
+        success: true,
+        data: this._verifiedData('open', fullPath, {
+          path: fullPath,
+          folderName: path.basename(fullPath),
+          openWith: options.openWith || null
+        })
+      };
     } catch (err) {
       this.logger.error('Failed to open folder', err);
-      return { success: false, error: err.message };
+      return this._failure(err, 'Failed to open folder', { operation: 'open', folderName });
     }
   }
 

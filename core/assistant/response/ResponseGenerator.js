@@ -112,6 +112,40 @@ function locationLabel(entry) {
   return entry?.location || pathLabel(entry?.path) || '';
 }
 
+function responseSeed(context, fallback) {
+  return context?.result?.data?.responseVariantSeed || fallback;
+}
+
+function verifiedPrefix(context) {
+  const verification = context?.result?.data?.verification;
+  return verification?.status === 'passed' ? 'Verified. ' : '';
+}
+
+function plannerWhen(entry = {}) {
+  const date = entry?.date || '';
+  const time = entry?.startTime || '';
+  if (date && time) return ` for ${date} at ${time}`;
+  if (date) return ` for ${date}`;
+  if (time) return ` at ${time}`;
+  return '';
+}
+
+function scheduleWhen(context, fallback = '') {
+  const dueAt = valueFromContext(context, 'dueAt', '');
+  if (dueAt) {
+    const date = new Date(dueAt);
+    if (Number.isFinite(date.getTime())) {
+      return date.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+      });
+    }
+  }
+  return fallback;
+}
+
 function formatSearchEntry(entry) {
   const name = entry?.name || basenameOrValue(entry?.path);
   const location = locationLabel(entry);
@@ -302,26 +336,29 @@ const RESPONSE_BUILDERS = {
   success: {
     'volume.up': context => {
       const val = valueFromContext(context, 'value');
-      return chooseVariant(`vol.up:${val}`, [
-        `Turned the volume up to ${val}%.`,
-        `Volume increased to ${val}%.`,
-        `Volume is now at ${val}%.`
+      const prefix = verifiedPrefix(context);
+      return chooseVariant(responseSeed(context, `vol.up:${val}`), [
+        `${prefix}I raised the volume to ${val}%.`,
+        `${prefix}Volume is now ${val}%.`,
+        `${prefix}The system volume is at ${val}%.`
       ]);
     },
     'volume.down': context => {
       const val = valueFromContext(context, 'value');
-      return chooseVariant(`vol.down:${val}`, [
-        `Turned the volume down to ${val}%.`,
-        `Volume decreased to ${val}%.`,
-        `Volume is now at ${val}%.`
+      const prefix = verifiedPrefix(context);
+      return chooseVariant(responseSeed(context, `vol.down:${val}`), [
+        `${prefix}I lowered the volume to ${val}%.`,
+        `${prefix}Volume is now ${val}%.`,
+        `${prefix}The system volume is at ${val}%.`
       ]);
     },
     'volume.set': context => {
       const val = valueFromContext(context, 'value');
-      return chooseVariant(`vol.set:${val}`, [
-        `I've set the volume to ${val}%.`,
-        `Volume set to ${val}%.`,
-        `Volume is now at ${val}%.`
+      const prefix = verifiedPrefix(context);
+      return chooseVariant(responseSeed(context, `vol.set:${val}`), [
+        `${prefix}I set the volume to ${val}%.`,
+        `${prefix}Volume is now ${val}%.`,
+        `${prefix}The system volume is at ${val}%.`
       ]);
     },
     'volume.get': context => {
@@ -330,43 +367,50 @@ const RESPONSE_BUILDERS = {
     },
     'brightness.up': context => {
       const val = valueFromContext(context, 'value');
-      return chooseVariant(`bri.up:${val}`, [
-        `Brighter now. Screen is at ${val}%.`,
-        `Brightness increased to ${val}%.`,
-        `Screen brightness is now ${val}%.`
+      const prefix = verifiedPrefix(context);
+      return chooseVariant(responseSeed(context, `bri.up:${val}`), [
+        `${prefix}I raised the brightness to ${val}%.`,
+        `${prefix}Screen brightness is now ${val}%.`,
+        `${prefix}The display is at ${val}%.`
       ]);
     },
     'brightness.down': context => {
       const val = valueFromContext(context, 'value');
-      return chooseVariant(`bri.down:${val}`, [
-        `Dimmed the screen to ${val}%.`,
-        `Brightness decreased to ${val}%.`,
-        `Screen brightness is now ${val}%.`
+      const prefix = verifiedPrefix(context);
+      return chooseVariant(responseSeed(context, `bri.down:${val}`), [
+        `${prefix}I dimmed the screen to ${val}%.`,
+        `${prefix}Screen brightness is now ${val}%.`,
+        `${prefix}The display is at ${val}%.`
       ]);
     },
     'brightness.set': context => {
       const val = valueFromContext(context, 'value');
-      return chooseVariant(`bri.set:${val}`, [
-        `Screen brightness set to ${val}%.`,
-        `I've set the brightness to ${val}%.`,
-        `Brightness is now at ${val}%.`
+      const prefix = verifiedPrefix(context);
+      return chooseVariant(responseSeed(context, `bri.set:${val}`), [
+        `${prefix}I set the brightness to ${val}%.`,
+        `${prefix}Screen brightness is now ${val}%.`,
+        `${prefix}The display is at ${val}%.`
       ]);
     },
     'brightness.get': context => {
       const val = valueFromContext(context, 'value');
       return `Screen brightness is currently at ${val}%.`;
     },
-    'volume.mute': () => chooseVariant('vol.mute', [
-      `I have muted the audio for you.`,
-      `Your system audio has been silenced.`,
-      `Audio muted, sir.`
-    ]),
+    'volume.mute': context => {
+      const prefix = verifiedPrefix(context);
+      return chooseVariant(responseSeed(context, 'vol.mute'), [
+        `${prefix}I muted the system audio.`,
+        `${prefix}Your system audio is muted.`,
+        `${prefix}Audio is muted now.`
+      ]);
+    },
     'volume.unmute': context => {
       const val = valueFromContext(context, 'value', 50);
-      return chooseVariant(`vol.unmute:${val}`, [
-        `Sound has been restored to ${val}%.`,
-        `Audio unmuted. Volume is now at ${val}%.`,
-        `Unmuted. Your audio is at ${val}%.`
+      const prefix = verifiedPrefix(context);
+      return chooseVariant(responseSeed(context, `vol.unmute:${val}`), [
+        `${prefix}I unmuted the audio at ${val}%.`,
+        `${prefix}Audio is back on at ${val}%.`,
+        `${prefix}Sound is restored at ${val}%.`
       ]);
     },
     'app.open': context => {
@@ -439,50 +483,67 @@ const RESPONSE_BUILDERS = {
       const filePath = valueFromContext(context, 'path', valueFromContext(context, 'filename'));
       const fileName = valueFromContext(context, 'filename', basenameOrValue(filePath));
       const location = pathLabel(filePath);
-      return chooseVariant(`file.create:${fileName}`, [
-        `The file "${fileName}" has been created in your ${location || 'active'} folder.`,
-        `"${fileName}" is ready in ${location || 'active'}.`,
-        `I have created "${fileName}" in ${location || 'active'} for you.`
+      const prefix = verifiedPrefix(context);
+      return chooseVariant(responseSeed(context, `file.create:${fileName}`), [
+        `${prefix}I created "${fileName}" in ${location || 'the selected folder'}.`,
+        `${prefix}"${fileName}" is ready in ${location || 'the selected folder'}.`,
+        `${prefix}The new file is "${fileName}", saved in ${location || 'the selected folder'}.`
       ]);
     },
     'file.open': context => {
       const fileName = valueFromContext(context, 'filename', basenameOrValue(valueFromContext(context, 'path')));
-      return chooseVariant(`file.open:${fileName}`, [
-        `Opening "${fileName}" for you now.`,
-        `"${fileName}" will open shortly.`,
-        `Your file "${fileName}" is being launched.`
+      const location = pathLabel(valueFromContext(context, 'path'));
+      return chooseVariant(responseSeed(context, `file.open:${fileName}`), [
+        `Opening "${fileName}"${location ? ` from ${location}` : ''}.`,
+        `"${fileName}" is launching now${location ? ` from ${location}` : ''}.`,
+        `I found "${fileName}"${location ? ` in ${location}` : ''} and opened it.`
       ]);
     },
     'file.delete': context => {
       const fileName = valueFromContext(context, 'filename');
-      return chooseVariant(`file.delete:${fileName}`, [
-        `"${fileName}" has been removed as requested.`,
-        `The file "${fileName}" has been deleted.`,
-        `I have permanently removed "${fileName}" for you.`
+      const location = pathLabel(valueFromContext(context, 'path'));
+      const prefix = verifiedPrefix(context);
+      return chooseVariant(responseSeed(context, `file.delete:${fileName}`), [
+        `${prefix}I deleted "${fileName}"${location ? ` from ${location}` : ''}.`,
+        `${prefix}"${fileName}" has been removed${location ? ` from ${location}` : ''}.`,
+        `${prefix}The file "${fileName}" is no longer there${location ? ` in ${location}` : ''}.`
       ]);
     },
     'file.rename': context => {
       const name = valueFromContext(context, 'filename', basenameOrValue(valueFromContext(context, 'path')));
-      return chooseVariant(`file.rename:${name}`, [
-        `The file has been renamed to "${name}" as you requested.`,
-        `Renaming complete. The file is now "${name}".`,
-        `Done. The file is now called "${name}".`
+      const oldName = valueFromContext(context, 'oldFilename', '');
+      const location = pathLabel(valueFromContext(context, 'newPath', valueFromContext(context, 'path')));
+      const prefix = verifiedPrefix(context);
+      return chooseVariant(responseSeed(context, `file.rename:${name}`), [
+        `${prefix}I renamed ${oldName ? `"${oldName}"` : 'the file'} to "${name}"${location ? ` in ${location}` : ''}.`,
+        `${prefix}The file is now called "${name}"${location ? ` in ${location}` : ''}.`,
+        `${prefix}Rename complete: ${oldName ? `"${oldName}" is now ` : ''}"${name}".`
       ]);
     },
     'file.copy': context => {
       const src = basenameOrValue(valueFromContext(context, 'source'));
-      return chooseVariant(`file.copy:${src}`, [
-        `I have copied "${src}" to the destination for you.`,
-        `A copy of "${src}" is now in place.`,
-        `"${src}" has been duplicated successfully.`
+      const destination = valueFromContext(context, 'destination');
+      const location = pathLabel(destination);
+      const overwritten = valueFromContext(context, 'overwroteExisting', false);
+      const prefix = verifiedPrefix(context);
+      const overwriteNote = overwritten ? ' and replaced the existing file there' : '';
+      return chooseVariant(responseSeed(context, `file.copy:${src}:${destination}`), [
+        `${prefix}I copied "${src}" to ${location || 'the destination'}${overwriteNote}.`,
+        `${prefix}A copy of "${src}" is now in ${location || 'the destination'}${overwriteNote}.`,
+        `${prefix}"${src}" has been duplicated to ${location || 'the destination'}${overwriteNote}.`
       ]);
     },
     'file.move': context => {
       const src = basenameOrValue(valueFromContext(context, 'source'));
-      return chooseVariant(`file.move:${src}`, [
-        `"${src}" has been moved to its new location.`,
-        `The file "${src}" is now in place.`,
-        `I have relocated "${src}" as requested.`
+      const destination = valueFromContext(context, 'destination');
+      const location = pathLabel(destination);
+      const overwritten = valueFromContext(context, 'overwroteExisting', false);
+      const prefix = verifiedPrefix(context);
+      const overwriteNote = overwritten ? ' and replaced the existing file there' : '';
+      return chooseVariant(responseSeed(context, `file.move:${src}:${destination}`), [
+        `${prefix}I moved "${src}" to ${location || 'the destination'}${overwriteNote}.`,
+        `${prefix}"${src}" is now in ${location || 'the destination'}${overwriteNote}.`,
+        `${prefix}The file "${src}" has been relocated to ${location || 'the destination'}${overwriteNote}.`
       ]);
     },
     'file.search': context => {
@@ -571,34 +632,45 @@ const RESPONSE_BUILDERS = {
       const folderPath = valueFromContext(context, 'path');
       const folderName = valueFromContext(context, 'folderName', basenameOrValue(folderPath));
       const location = pathLabel(folderPath);
-      return chooseVariant(`folder.create:${folderName}`, [
-        `The folder "${folderName}" has been created in your ${location || 'active'} directory.`,
-        `"${folderName}" is ready in ${location || 'active'}.`,
-        `I have created the folder "${folderName}" in ${location || 'active'} for you.`
+      const prefix = verifiedPrefix(context);
+      return chooseVariant(responseSeed(context, `folder.create:${folderName}`), [
+        `${prefix}I created the folder "${folderName}" in ${location || 'the selected location'}.`,
+        `${prefix}"${folderName}" is ready in ${location || 'the selected location'}.`,
+        `${prefix}The new folder is "${folderName}", saved in ${location || 'the selected location'}.`
       ]);
     },
     'folder.delete': context => {
       const name = valueFromContext(context, 'folderName');
-      return chooseVariant(`folder.delete:${name}`, [
-        `The folder "${name}" and all of its contents have been removed.`,
-        `"${name}" has been deleted as requested.`,
-        `I have permanently removed "${name}" and everything inside it.`
+      const location = pathLabel(valueFromContext(context, 'path'));
+      const prefix = verifiedPrefix(context);
+      return chooseVariant(responseSeed(context, `folder.delete:${name}`), [
+        `${prefix}I deleted the folder "${name}"${location ? ` from ${location}` : ''}.`,
+        `${prefix}"${name}" and its contents have been removed${location ? ` from ${location}` : ''}.`,
+        `${prefix}The folder "${name}" is no longer there${location ? ` in ${location}` : ''}.`
       ]);
     },
     'folder.move': context => {
       const src = basenameOrValue(valueFromContext(context, 'source'));
-      return chooseVariant(`folder.move:${src}`, [
-        `The "${src}" folder has been moved to its new location.`,
-        `"${src}" is now in its destination.`,
-        `I have relocated the "${src}" folder as requested.`
+      const destination = valueFromContext(context, 'destination');
+      const location = pathLabel(destination);
+      const overwritten = valueFromContext(context, 'overwroteExisting', false);
+      const overwriteNote = overwritten ? ' and replaced the existing folder there' : '';
+      const prefix = verifiedPrefix(context);
+      return chooseVariant(responseSeed(context, `folder.move:${src}:${destination}`), [
+        `${prefix}I moved "${src}" to ${location || 'the destination'}${overwriteNote}.`,
+        `${prefix}"${src}" is now in ${location || 'the destination'}${overwriteNote}.`,
+        `${prefix}The folder "${src}" has been relocated to ${location || 'the destination'}${overwriteNote}.`
       ]);
     },
     'folder.open': context => {
       const name = valueFromContext(context, 'folderName');
-      return chooseVariant(`folder.open:${name}`, [
-        `Opening the "${name}" folder in File Explorer for you.`,
-        `The "${name}" folder will open shortly.`,
-        `Your folder "${name}" is being launched.`
+      const openWith = valueFromContext(context, 'openWith', null);
+      const location = pathLabel(valueFromContext(context, 'path'));
+      const target = openWith ? `${openWith}` : 'File Explorer';
+      return chooseVariant(responseSeed(context, `folder.open:${name}:${target}`), [
+        `Opening "${name}"${location ? ` from ${location}` : ''} in ${target}.`,
+        `"${name}" will open in ${target}${location ? ` from ${location}` : ''}.`,
+        `I found "${name}"${location ? ` in ${location}` : ''} and opened it in ${target}.`
       ]);
     },
     'folder.search': context => {
@@ -625,9 +697,12 @@ const RESPONSE_BUILDERS = {
         }
         return `Opening a new ${browserLabel} tab.`;
       }
-      return chooseVariant(`browser.open:${url}`, [
+      const launchMethod = valueFromContext(context, 'launchMethod', '');
+      return chooseVariant(responseSeed(context, `browser.open:${url}:${launchMethod}`), [
         `Opening ${url} in your browser.`,
-        `Opening that link for you now.`,
+        launchMethod === 'browser-executable'
+          ? `Opening ${url} in ${browserName}.`
+          : `Opening that link for you now.`,
         `${url} is opening in the browser.`
       ]);
     },
@@ -656,7 +731,7 @@ const RESPONSE_BUILDERS = {
           : `I found results for "${query}".`;
       }
 
-      return chooseVariant(`browser.search:${query}`, [
+      return chooseVariant(responseSeed(context, `browser.search:${query}`), [
         `I checked the web for "${query}".`,
         `I looked that up in the background.`,
         `I searched for "${query}".`
@@ -666,14 +741,21 @@ const RESPONSE_BUILDERS = {
       const site = valueFromContext(context, 'site', 'that site');
       const query = valueFromContext(context, 'query', '');
       return query
-        ? `Searching ${site} for "${query}".`
+        ? chooseVariant(responseSeed(context, `browser.siteSearch:${site}:${query}`), [
+            `Searching ${site} for "${query}".`,
+            `I opened ${site} search for "${query}".`,
+            `${site} is searching for "${query}".`
+          ])
         : `Opening ${site}.`;
     },
     'browser.openFirstResult': context => {
       const title = valueFromContext(context, 'title', '');
       const url = valueFromContext(context, 'url', '');
+      const trusted = valueFromContext(context, 'trusted', false) === true;
       if (title) {
-        return `Opening the first result: ${title}.`;
+        return trusted
+          ? `Opening ${title}.`
+          : `Opening the first result: ${title}.`;
       }
       return url ? `Opening the first search result: ${url}.` : 'Opening the first search result.';
     },
@@ -686,7 +768,7 @@ const RESPONSE_BUILDERS = {
           ? `Closed ${closedCount} ${query} tabs in ${win}.`
           : `Closed the ${query} tab in ${win}.`;
       }
-      return chooseVariant(`browser.closeTab:${win}`, [
+      return chooseVariant(responseSeed(context, `browser.closeTab:${win}`), [
         `Closed the current tab in ${win}.`,
         `Closed that browser tab.`,
         `The current browser tab is closed.`
@@ -736,7 +818,15 @@ const RESPONSE_BUILDERS = {
     },
     'system.screenshot': context => {
       const filePath = valueFromContext(context, 'filePath');
-      return filePath ? `Screenshot saved to ${filePath}.` : 'Screenshot captured.';
+      const filename = valueFromContext(context, 'filename', filePath ? basenameOrValue(filePath) : '');
+      const directory = valueFromContext(context, 'directory', '');
+      const prefix = verifiedPrefix(context);
+      if (!filePath) return 'I could not confirm the screenshot file.';
+      return chooseVariant(responseSeed(context, `screenshot:${filename}`), [
+        `${prefix}I saved the screenshot as ${filename || 'a PNG'}${directory ? ` in ${directory}` : ''}.`,
+        `${prefix}Screenshot captured: ${filename || filePath}.`,
+        `${prefix}The screenshot is ready at ${filePath}.`
+      ]);
     },
     'media.play': context => {
       const query = valueFromContext(context, 'query', valueFromContext(context, 'mediaQuery', ''));
@@ -747,36 +837,102 @@ const RESPONSE_BUILDERS = {
       const replacedExisting = Boolean(valueFromContext(context, 'replacedExisting', false));
       const verification = valueFromContext(context, 'playbackVerification', null);
       const verified = Boolean(verification?.valid);
+      const seed = responseSeed(context, `media.play:${displayName}:${query}:${method}:${replacedExisting}`);
       if (method === 'existing-window') {
         if (verified) {
-          return replacedExisting
-            ? `Verified ${displayName} was switched to "${query}".`
-            : `Verified ${displayName} is ready for "${query}".`;
+          return chooseVariant(seed, replacedExisting
+            ? [
+                `Verified ${displayName} was switched to "${query}".`,
+                `${displayName} is now set to "${query}" and the switch was verified.`,
+                `I verified the existing ${displayName} session is on "${query}".`
+              ]
+            : [
+                `Verified ${displayName} is ready for "${query}".`,
+                `${displayName} is ready with "${query}" and I verified the session.`,
+                `I found the active ${displayName} session and set it up for "${query}".`
+              ]);
         }
-        return replacedExisting
-          ? `I have replaced the current playback with "${query}" on ${displayName}.`
-          : `Switched the ${displayName} session to "${query}" for you.`;
+        return chooseVariant(seed, replacedExisting
+          ? [
+              `I replaced the current playback with "${query}" on ${displayName}.`,
+              `${displayName} was switched to "${query}".`,
+              `The active ${displayName} session is being used for "${query}".`
+            ]
+          : [
+              `Switched the ${displayName} session to "${query}".`,
+              `${displayName} is handling "${query}" now.`,
+              `I sent "${query}" to the current ${displayName} session.`
+            ]);
       }
       if (verified) {
-        return `Verified ${displayName} was opened for "${query}".`;
+        return chooseVariant(seed, [
+          `Verified ${displayName} was opened for "${query}".`,
+          `${displayName} opened for "${query}" and the launch was verified.`,
+          `I verified ${displayName} is ready for "${query}".`
+        ]);
       }
       if (method === 'browser') {
-        return `Opening ${displayName} for "${query}" in your browser now.`;
+        return chooseVariant(seed, [
+          `Opening ${displayName} for "${query}" in your browser now.`,
+          `I opened a browser playback page for "${query}" on ${displayName}.`,
+          `${displayName} search playback is opening for "${query}".`
+        ]);
       }
-      return `"${query}" is now playing on ${displayName}.`;
+      return chooseVariant(seed, [
+        `"${query}" is now playing on ${displayName}.`,
+        `Started "${query}" on ${displayName}.`,
+        `${displayName} is starting "${query}".`
+      ]);
     },
-    'media.next': () => 'Skipping to the next track for you.',
-    'media.previous': () => 'Going back to the previous track.',
-    'media.pause': () => 'Playback has been paused.',
-    'media.resume': () => 'Resuming playback for you.',
-    'media.stop': () => 'Playback has been stopped.',
-    'media.mute': () => 'Media playback has been muted.',
-    'media.unmute': () => 'Media playback has been unmuted.',
-    'media.volumeUp': () => 'Turned the media volume up.',
-    'media.volumeDown': () => 'Turned the media volume down.',
-    'media.fullscreen': () => 'Switched the media player to fullscreen.',
-    'media.exitFullscreen': () => 'Exited fullscreen mode.',
-    'media.replay': () => 'Replaying the previous part.',
+    'media.next': context => chooseVariant(responseSeed(context, 'media.next'), [
+      'Skipping to the next track.',
+      'Next track requested.',
+      'Moving playback forward.'
+    ]),
+    'media.previous': context => chooseVariant(responseSeed(context, 'media.previous'), [
+      'Going back to the previous track.',
+      'Previous track requested.',
+      'Moving playback back.'
+    ]),
+    'media.pause': context => {
+      const method = valueFromContext(context, 'method', '');
+      return method === 'global-media-key'
+        ? 'Playback pause was sent through the Windows media key.'
+        : 'Playback has been paused.';
+    },
+    'media.resume': context => {
+      const method = valueFromContext(context, 'method', '');
+      return method === 'global-media-key'
+        ? 'Playback resume was sent through the Windows media key.'
+        : 'Resuming playback.';
+    },
+    'media.stop': context => {
+      const method = valueFromContext(context, 'method', '');
+      return method === 'global-media-key'
+        ? 'Playback stop was sent through the Windows media key.'
+        : 'Playback has been stopped.';
+    },
+    'media.mute': context => valueFromContext(context, 'method') === 'global-media-fallback'
+      ? 'Media mute was sent through Windows media controls.'
+      : 'Media playback has been muted.',
+    'media.unmute': context => valueFromContext(context, 'method') === 'global-media-fallback'
+      ? 'Media unmute was sent through Windows media controls.'
+      : 'Media playback has been unmuted.',
+    'media.volumeUp': context => valueFromContext(context, 'method') === 'global-media-fallback'
+      ? 'Media volume up was sent through Windows media controls.'
+      : 'Turned the media volume up.',
+    'media.volumeDown': context => valueFromContext(context, 'method') === 'global-media-fallback'
+      ? 'Media volume down was sent through Windows media controls.'
+      : 'Turned the media volume down.',
+    'media.fullscreen': context => valueFromContext(context, 'matchedWindow')
+      ? 'Switched the media player to fullscreen.'
+      : 'Fullscreen was requested for the media player.',
+    'media.exitFullscreen': context => valueFromContext(context, 'matchedWindow')
+      ? 'Exited fullscreen mode.'
+      : 'Exit fullscreen was requested for the media player.',
+    'media.replay': context => valueFromContext(context, 'method') === 'global-media-fallback'
+      ? 'Replay was sent through Windows media controls.'
+      : 'Replaying the previous part.',
     'media.repeat': context => {
       const limitation = valueFromContext(context, 'limitation');
       return limitation
@@ -842,49 +998,60 @@ const RESPONSE_BUILDERS = {
       return `Calling ${contactName} now.`;
     },
     'timer.set': context => {
-      const duration = valueFromContext(context, 'duration');
+      const duration = valueFromContext(context, 'duration', valueFromContext(context, 'durationMinutes'));
       const label = valueFromContext(context, 'timerLabel', '');
       const target = label ? ` for ${label}` : '';
+      const due = scheduleWhen(context);
       if (!duration) {
         return 'I started the timer.';
       }
-      return chooseVariant(`timer.set:${duration}`, [
-        `I started a ${duration} minute timer${target}.`,
-        `Your ${duration} minute timer${target} is running now.`,
-        `Done. The ${duration} minute timer${target} starts now.`
+      return chooseVariant(responseSeed(context, `timer.set:${duration}:${due}`), [
+        `I started a ${duration} minute timer${target}${due ? `, ending at ${due}` : ''}.`,
+        `Your ${duration} minute timer${target} is running now${due ? ` until ${due}` : ''}.`,
+        `Done. The ${duration} minute timer${target} starts now${due ? ` and ends at ${due}` : ''}.`
       ]);
     },
     'alarm.set': context => {
       const time = valueFromContext(context, 'timeExpression');
+      const due = scheduleWhen(context, time);
+      const label = valueFromContext(context, 'alarmLabel', valueFromContext(context, 'message', ''));
       const recurrence = valueFromContext(context, 'recurrence', null);
-      const repeat = recurrence ? `${recurrence.replace(/-/g, ' ')} ` : '';
-      return chooseVariant(`alarm.set:${time}`, [
-        `I set a ${repeat}alarm for ${time}.`,
-        `Your ${repeat}alarm is set for ${time}.`,
-        `Done. I will alert you at ${time}${recurrence ? ` ${repeat.trim()}` : ''}.`
+      const repeat = recurrence ? `, repeating ${String(recurrence).replace(/[:-]/g, ' ')}` : '';
+      const labelPart = label && !/^alarm\b/i.test(label) ? ` "${label}"` : '';
+      return chooseVariant(responseSeed(context, `alarm.set:${due}:${recurrence || ''}:${label}`), [
+        `I set${labelPart} alarm for ${due}${repeat}.`,
+        `Your${labelPart} alarm is set for ${due}${repeat}.`,
+        `Done. I will alert you at ${due}${repeat}.`
       ]);
     },
     'reminder.set': context => {
-      const txt = valueFromContext(context, 'reminderText');
+      const txt = valueFromContext(context, 'reminderText', valueFromContext(context, 'message', 'that'));
       const time = valueFromContext(context, 'timeExpression', '');
       const duration = valueFromContext(context, 'duration', null);
       const recurrence = valueFromContext(context, 'recurrence', null);
-      const repeat = recurrence ? `${recurrence.replace(/-/g, ' ')} ` : '';
-      const when = time
-        ? ` at ${time}`
+      const repeat = recurrence ? `, repeating ${String(recurrence).replace(/[:-]/g, ' ')}` : '';
+      const due = scheduleWhen(context, time);
+      const when = due
+        ? ` at ${due}`
         : duration
           ? ` in ${duration} minute${duration === 1 ? '' : 's'}`
           : '';
-      return chooseVariant(`reminder.set:${txt}`, [
-        `I added a ${repeat}reminder to ${txt}${when}.`,
-        `Okay, I will remind you ${recurrence ? repeat : ''}to ${txt}${when}.`,
-        `Reminder added: ${txt}${when}.`
+      const action = valueFromContext(context, 'operation') === 'update' ? 'Updated' : 'Added';
+      return chooseVariant(responseSeed(context, `reminder.set:${txt}:${due}:${recurrence || ''}`), [
+        `${action} reminder: ${txt}${when}${repeat}.`,
+        `Okay, I will remind you to ${txt}${when}${repeat}.`,
+        `Reminder saved for ${txt}${when}${repeat}.`
       ]);
     },
-    'timer.pause': () => 'Paused the active timer.',
-    'timer.resume': () => 'Resumed the timer.',
+    'timer.pause': context => {
+      const remaining = Number(valueFromContext(context, 'remainingMs', 0));
+      return remaining > 0
+        ? `Paused the active timer with ${Math.ceil(remaining / 60000)} minute${Math.ceil(remaining / 60000) === 1 ? '' : 's'} remaining.`
+        : 'Paused the active timer.';
+    },
+    'timer.resume': context => `Resumed the timer${scheduleWhen(context) ? ` until ${scheduleWhen(context)}` : ''}.`,
     'timer.cancel': () => 'Stopped the active timer.',
-    'timer.reset': () => 'Reset and restarted the timer.',
+    'timer.reset': context => `Reset and restarted the timer${scheduleWhen(context) ? ` until ${scheduleWhen(context)}` : ''}.`,
     'timer.remaining': context => {
       const minutes = valueFromContext(context, 'remainingMinutes', 0);
       return `${minutes} minute${minutes === 1 ? '' : 's'} remaining on the active timer.`;
@@ -921,73 +1088,102 @@ const RESPONSE_BUILDERS = {
         `I sent ${transferredName} to ${deviceName}.`
       ]);
     },
-    'reminder.cancel': () => 'Cancelled the latest reminder.',
+    'reminder.cancel': context => {
+      const message = valueFromContext(context, 'message', '');
+      return message ? `Cancelled reminder: ${message}.` : 'Cancelled the latest reminder.';
+    },
     'reminder.clear': context => `Cancelled ${valueFromContext(context, 'count', 0)} reminder${valueFromContext(context, 'count', 0) === 1 ? '' : 's'}.`,
-    'reminder.snooze': () => 'Snoozed the reminder.',
-    'alarm.snooze': () => 'Snoozed the alarm.',
-    'alarm.cancel': () => 'Stopped the active alarm.',
+    'reminder.snooze': context => `Snoozed the reminder${scheduleWhen(context) ? ` until ${scheduleWhen(context)}` : ''}.`,
+    'alarm.snooze': context => `Snoozed the alarm${scheduleWhen(context) ? ` until ${scheduleWhen(context)}` : ''}.`,
+    'alarm.cancel': context => {
+      const message = valueFromContext(context, 'message', '');
+      return message ? `Stopped alarm: ${message}.` : 'Stopped the active alarm.';
+    },
     'alarm.list': context => {
       const count = valueFromContext(context, 'count', 0);
       return count ? `You have ${count} active alarm${count === 1 ? '' : 's'}.` : 'You have no active alarms.';
     },
     'alarm.clear': context => `Cancelled ${valueFromContext(context, 'count', 0)} alarm${valueFromContext(context, 'count', 0) === 1 ? '' : 's'}.`,
-    'calendar.open': () => 'Opening your calendar.',
-    'timetable.open': () => 'Opening your timetable.',
+    'calendar.open': context => chooseVariant(responseSeed(context, 'planner.open:calendar'), [
+      'Opening your calendar.',
+      'Your calendar is open.',
+      'Bringing up the calendar.'
+    ]),
+    'timetable.open': context => chooseVariant(responseSeed(context, 'planner.open:timetable'), [
+      'Opening your timetable.',
+      'Your timetable is open.',
+      'Bringing up the timetable.'
+    ]),
     'calendar.add': context => {
       const entry = valueFromContext(context, 'entry', {});
       const title = entry?.title || valueFromContext(context, 'plannerText', 'that item');
-      return `Added ${title} to your calendar.`;
+      const action = valueFromContext(context, 'operation') === 'update' ? 'Updated' : 'Added';
+      return chooseVariant(responseSeed(context, `planner.calendar:${title}:${entry?.date}:${entry?.startTime}`), [
+        `${action} "${title}"${plannerWhen(entry)} in your calendar.`,
+        `${action} your calendar item "${title}"${plannerWhen(entry)}.`,
+        `${title} is now on your calendar${plannerWhen(entry)}.`
+      ]);
     },
     'timetable.add': context => {
       const entry = valueFromContext(context, 'entry', {});
       const title = entry?.title || valueFromContext(context, 'plannerText', 'that item');
-      return `Added ${title} to your timetable.`;
+      const action = valueFromContext(context, 'operation') === 'update' ? 'Updated' : 'Added';
+      return chooseVariant(responseSeed(context, `planner.timetable:${title}:${entry?.date}:${entry?.startTime}`), [
+        `${action} "${title}"${plannerWhen(entry)} in your timetable.`,
+        `${action} your timetable item "${title}"${plannerWhen(entry)}.`,
+        `${title} is now on your timetable${plannerWhen(entry)}.`
+      ]);
     },
-    'system.shutdown': () => chooseVariant('sys.shutdown', [
-      `Initiating system shutdown now.`,
-      `The system will power down shortly.`,
-      `Shutting down the computer as requested.`
+    'system.shutdown': context => chooseVariant(responseSeed(context, 'sys.shutdown'), [
+      `Shutdown has been requested. The computer will power down shortly.`,
+      `I sent the shutdown request to Windows.`,
+      `The system shutdown request is now in progress.`
     ]),
-    'system.restart': () => chooseVariant('sys.restart', [
-      `Restarting the computer now.`,
-      `The system will reboot shortly.`,
-      `Initiating restart as requested.`
+    'system.restart': context => chooseVariant(responseSeed(context, 'sys.restart'), [
+      `Restart has been requested. Windows will reboot shortly.`,
+      `I sent the restart request to Windows.`,
+      `The system restart request is now in progress.`
     ]),
-    'system.sleep': () => chooseVariant('sys.sleep', [
-      `Putting the computer to sleep now.`,
-      `The system will enter sleep mode shortly.`,
-      `Alright, putting your system to sleep.`
+    'system.sleep': context => chooseVariant(responseSeed(context, 'sys.sleep'), [
+      `Sleep mode has been requested.`,
+      `I sent the sleep request to Windows.`,
+      `The computer should enter sleep mode now.`
     ]),
-    'system.lock': () => chooseVariant('sys.lock', [
-      `Your screen has been locked.`,
-      `The computer is now secured.`,
-      `Screen locked for your security.`
+    'system.lock': context => chooseVariant(responseSeed(context, 'sys.lock'), [
+      `The lock request has been sent.`,
+      `I asked Windows to lock the screen.`,
+      `Your screen should be locked now.`
     ]),
     'system.status': context => {
       const cpu = valueFromContext(context, 'cpu');
       const ram = valueFromContext(context, 'ram');
-      return chooseVariant(`sys.status:${cpu}:${ram}`, [
-        `Everything is looking good! Your CPU is at ${cpu}% and memory is at ${ram}%.`,
-        `Your system is running smoothly. CPU usage is ${cpu}% and memory usage is ${ram}%.`,
-        `Status looks good: CPU is at ${cpu}%, and memory is at ${ram}%.`
+      const battery = valueFromContext(context, 'battery', 'N/A');
+      const disk = valueFromContext(context, 'disk');
+      const diskLabel = valueFromContext(context, 'diskLabel', 'C:');
+      const batteryPart = battery === 'N/A' ? '' : ` Battery is ${battery}%.`;
+      const diskPart = disk !== '' && disk !== undefined ? ` ${diskLabel} has ${disk} GB free.` : '';
+      return chooseVariant(responseSeed(context, `sys.status:${cpu}:${ram}:${battery}:${disk}`), [
+        `System status: CPU ${cpu}%, memory ${ram}%.${batteryPart}${diskPart}`,
+        `I checked the machine: CPU is ${cpu}%, memory is ${ram}%.${batteryPart}${diskPart}`,
+        `Current health reads CPU ${cpu}% and memory ${ram}%.${batteryPart}${diskPart}`
       ]);
     },
     'system.cpu': context => {
       const cpu = valueFromContext(context, 'cpu');
-      return chooseVariant(`sys.cpu:${cpu}`, [
-        `CPU usage is currently at ${cpu}%.`,
-        `The CPU utilization is at ${cpu}%.`,
-        `CPU is running at ${cpu}%.`
+      return chooseVariant(responseSeed(context, `sys.cpu:${cpu}`), [
+        `CPU usage is ${cpu}% right now.`,
+        `The processor is currently at ${cpu}%.`,
+        `Current CPU load is ${cpu}%.`
       ]);
     },
     'system.memory': context => {
       const ram = valueFromContext(context, 'ram');
       const used = valueFromContext(context, 'used');
       const total = valueFromContext(context, 'total');
-      return chooseVariant(`sys.memory:${ram}:${used}:${total}`, [
-        `Memory usage is at ${ram}%, utilizing ${used} gigabytes of your total ${total} gigabytes.`,
-        `Memory usage is currently ${ram}%. You're using ${used} GB out of ${total} GB.`,
-        `Memory utilization is at ${ram}%, using ${used} GB of ${total} GB.`
+      return chooseVariant(responseSeed(context, `sys.memory:${ram}:${used}:${total}`), [
+        `Memory is at ${ram}%, using ${used} GB of ${total} GB.`,
+        `RAM usage is ${ram}% right now: ${used} GB used out of ${total} GB.`,
+        `You're using ${used} GB of ${total} GB of memory, about ${ram}%.`
       ]);
     },
     'system.battery': context => {
@@ -996,18 +1192,18 @@ const RESPONSE_BUILDERS = {
         const message = valueFromContext(context, 'message');
         return message || 'No battery was detected.';
       }
-      return chooseVariant(`sys.battery:${bat}`, [
-        `Battery is currently at ${bat}%.`,
-        `Your battery level is ${bat}%.`,
-        `You have ${bat}% battery remaining.`
+      return chooseVariant(responseSeed(context, `sys.battery:${bat}`), [
+        `Battery is at ${bat}%.`,
+        `You have ${bat}% battery remaining.`,
+        `The battery level is currently ${bat}%.`
       ]);
     },
     'system.disk': context => {
       const lbl = valueFromContext(context, 'label');
       const free = valueFromContext(context, 'free');
       const total = valueFromContext(context, 'total');
-      return chooseVariant(`sys.disk:${lbl}:${free}:${total}`, [
-        `Drive ${lbl} has ${free} gigabytes free out of a total ${total} gigabytes.`,
+      return chooseVariant(responseSeed(context, `sys.disk:${lbl}:${free}:${total}`), [
+        `Drive ${lbl} has ${free} GB free out of ${total} GB.`,
         `Your ${lbl} drive has ${free} GB of free space left, out of ${total} GB.`,
         `Drive ${lbl} has ${free} GB free out of ${total} GB total capacity.`
       ]);
@@ -1032,10 +1228,10 @@ const RESPONSE_BUILDERS = {
           : '';
         return `I see ${count} visible app${count === 1 ? '' : 's'} running${list}.`;
       }
-      return chooseVariant(`sys.proc:${count}`, [
-        `There are currently ${count} active processes running.`,
-        `You've got ${count} active processes at the moment.`,
-        `There are ${count} active processes right now.`
+      return chooseVariant(responseSeed(context, `sys.proc:${count}`), [
+        `There are ${count} active processes running.`,
+        `I found ${count} active processes right now.`,
+        `Windows is reporting ${count} active processes.`
       ]);
     },
     'system.insight': context => {
@@ -1047,7 +1243,7 @@ const RESPONSE_BUILDERS = {
         }
         return insightType === 'topMemoryApp'
           ? `${top.name} is using the most memory right now, about ${top.memoryMB} MB.`
-          : `${top.name} is the highest CPU process right now.`;
+          : `${top.name} is currently the highest CPU process.`;
       }
 
       if (insightType === 'storageUsage') {
@@ -1078,16 +1274,48 @@ const RESPONSE_BUILDERS = {
           : 'I could not identify a clear slowdown source right now.';
       }
 
+      if (insightType === 'gpuUsage') {
+        const gpus = valueFromContext(context, 'gpus', context.result?.data?.gpus || []);
+        if (!Array.isArray(gpus) || gpus.length === 0) {
+          return valueFromContext(context, 'message', 'GPU details are not available right now.');
+        }
+        return `Detected GPU: ${gpus.slice(0, 2).map(gpu => gpu.name).join(', ')}.`;
+      }
+
+      if (insightType === 'networkUsage') {
+        const adapters = valueFromContext(context, 'adapters', context.result?.data?.adapters || []);
+        if (!Array.isArray(adapters) || adapters.length === 0) {
+          return valueFromContext(context, 'message', 'Network details are not available right now.');
+        }
+        return `Active network adapter: ${adapters[0].name}${adapters[0].linkSpeed ? ` at ${adapters[0].linkSpeed}` : ''}.`;
+      }
+
+      if (insightType === 'temperature') {
+        const temperatures = valueFromContext(context, 'temperatures', context.result?.data?.temperatures || []);
+        if (!Array.isArray(temperatures) || temperatures.length === 0) {
+          return valueFromContext(context, 'message', 'Temperature sensors are not available right now.');
+        }
+        return `Temperature sensors report ${temperatures.slice(0, 3).join(', ')} degrees Celsius.`;
+      }
+
       return 'I checked the system insight.';
     },
     'system.bluetooth': context => {
       const enabled = valueFromContext(context, 'enabled', null);
       const name = valueFromContext(context, 'name', 'Bluetooth');
       if (enabled === true) {
-        return `${name} is on.`;
+        return chooseVariant(responseSeed(context, `bluetooth:on:${name}`), [
+          `${name} is on.`,
+          `${name} is enabled.`,
+          `${name} is currently available.`
+        ]);
       }
       if (enabled === false) {
-        return `${name} is off.`;
+        return chooseVariant(responseSeed(context, `bluetooth:off:${name}`), [
+          `${name} is off.`,
+          `${name} is disabled.`,
+          `${name} is currently unavailable.`
+        ]);
       }
       const status = valueFromContext(context, 'status', '');
       return status ? `${name} status is ${status}.` : 'Bluetooth status is not available.';
@@ -1229,7 +1457,15 @@ const RESPONSE_BUILDERS = {
     confirmRestart: () => 'Please confirm before I restart the computer.',
     confirmAction: context => {
       const details = valueFromContext(context, 'details', valueFromContext(context, 'action'));
-      return `Before I proceed, please confirm: ${details}. Say yes to continue or no to cancel.`;
+      const risk = String(valueFromContext(context, 'risk', '') || '').toLowerCase();
+      const consequence = valueFromContext(context, 'consequence', '');
+      const riskText = risk === 'critical' || risk === 'high'
+        ? ' This is a high-impact action.'
+        : risk === 'medium'
+        ? ' This may change your current session.'
+        : '';
+      const consequenceText = consequence ? ` ${consequence}` : '';
+      return `Before I proceed, please confirm: ${details}.${riskText}${consequenceText} Say yes to continue or no to cancel.`;
     },
     awaitingDecision: () => 'Please say proceed or cancel.',
     cancelled: () => 'Understood. I cancelled it.',

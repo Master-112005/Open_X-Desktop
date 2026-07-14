@@ -1,4 +1,5 @@
-const { execFileSync, execSync } = require('child_process');
+const fs = require('fs');
+const { execFileSync } = require('child_process');
 const Logger = require('../assistant/Data').Logger;
 const Normalizer = require('../assistant/Data').Normalizer;
 const { launchTarget } = require('./common/launcher');
@@ -97,6 +98,11 @@ const SPECIAL_LAUNCHERS = {
 
 const BROWSER_APP_NAMES = new Set(['chrome', 'msedge', 'edge', 'firefox']);
 const COMMAND_FIRST_APPS = new Set(['chrome', 'msedge', 'edge', 'firefox']);
+const APP_NAME_MAX_LENGTH = 120;
+const POWERSHELL_TIMEOUT_MS = 10000;
+const PROCESS_STOP_TIMEOUT_MS = 8000;
+const START_APPS_CACHE_TTL_MS = 60_000;
+const START_APPS_FAILURE_TTL_MS = 15_000;
 
 const APP_ALIASES = new Map([
   ['google chrome', 'chrome'],
@@ -131,6 +137,15 @@ const PROTECTED_HOST_PROCESSES = new Set([
   'startmenuexperiencehost'
 ]);
 
+function escapePowerShell(value) {
+  return String(value ?? '').replace(/'/g, "''");
+}
+
+function parseJsonObjectArray(output) {
+  const parsed = JSON.parse(output || '[]');
+  return Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+}
+
 class AppController {
   constructor(config) {
     this.config = config || {};
@@ -141,12 +156,10 @@ class AppController {
   }
 
   open(appName, options = {}) {
-    if (!appName) {
-      return { success: false, error: 'No application name provided' };
-    }
+    const validation = this._validateAppName(appName);
+    if (!validation.valid) return this._failure(validation.error, 'app.open.validation');
 
-    const displayName = Normalizer.normalizeText(appName);
-    const name = this._normalizeAppName(appName);
+    const { displayName, name } = validation;
     const app = KNOWN_APPS[name];
     const forceNewWindow = Boolean(options.forceNewWindow);
     const requestedOperation = forceNewWindow
@@ -173,7 +186,7 @@ class AppController {
       }
 
       if (app && app.path) {
-        if (require('fs').existsSync(app.path)) {
+        if (fs.existsSync(app.path)) {
           launchTarget(app.path, launchArgs);
           return this._completeAppOpen(name, {
             success: true,
@@ -233,7 +246,11 @@ class AppController {
       return { success: false, error: `Could not find app: ${displayName}` };
     } catch (err) {
       this.logger.error(`Failed to open app: ${name}`, err);
-      return { success: false, error: `Could not find or open: ${displayName}` };
+      return this._failure(`Could not find or open: ${displayName}`, 'app.open.failed', {
+        app: displayName,
+        appId: name,
+        reason: err.message
+      });
     }
   }
 
@@ -307,10 +324,10 @@ class AppController {
   }
 
   openNewTab(appName) {
-    if (!appName) return { success: false, error: 'No application name provided' };
+    const validation = this._validateAppName(appName);
+    if (!validation.valid) return this._failure(validation.error, 'app.newTab.validation');
 
-    const displayName = Normalizer.normalizeText(appName);
-    const name = this._normalizeAppName(appName);
+    const { displayName, name } = validation;
     const app = KNOWN_APPS[name];
     if (!app?.newTabShortcut) {
       return { success: false, error: `${displayName} does not have a supported new-tab command` };
@@ -352,11 +369,10 @@ class AppController {
   }
 
   close(appName, options = {}) {
-    if (!appName) {
-      return { success: false, error: 'No application name provided' };
-    }
+    const validation = this._validateAppName(appName);
+    if (!validation.valid) return this._failure(validation.error, 'app.close.validation');
 
-    const name = this._normalizeAppName(appName);
+    const { name } = validation;
     const app = KNOWN_APPS[name];
     try {
       const selectedClose = this._closeSelectedProcess(name, options);
@@ -400,7 +416,8 @@ class AppController {
               data: {
                 app: name,
                 closedCount: requestedCloseCount,
-                closeMethod: 'window'
+                closeMethod: 'window',
+                verified: true
               }
             };
           }
@@ -421,8 +438,9 @@ class AppController {
             success: true,
             data: {
               app: name,
-              closedCount: processNames.length,
-              closeMethod: 'process'
+              closedCount: requestedCloseCount,
+              closeMethod: 'process',
+              verified: true
             }
           };
         }
@@ -460,7 +478,8 @@ class AppController {
         app: name,
         closeMethod: 'window',
         matchedWindow: closeResult.data?.matchedWindow || null,
-        processName: closeResult.data?.processName || null
+        processName: closeResult.data?.processName || null,
+        verified: true
       }
     };
   }
@@ -478,11 +497,10 @@ class AppController {
         'Get-StartApps | Select-Object Name,AppID | ConvertTo-Json -Compress'
       ], {
         encoding: 'utf8',
-        timeout: 15000
+        timeout: POWERSHELL_TIMEOUT_MS + 5000
       });
 
-      const parsed = JSON.parse(output || '[]');
-      const apps = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+      const apps = parseJsonObjectArray(output);
       this._startAppsCache = apps
         .filter(candidate => candidate && candidate.Name && candidate.AppID)
         .map(candidate => ({
@@ -490,12 +508,12 @@ class AppController {
           appId: String(candidate.AppID).trim(),
           normalizedName: Normalizer.normalizeText(candidate.Name)
         }));
-      this._startAppsCacheExpiresAt = now + 60_000;
+      this._startAppsCacheExpiresAt = now + START_APPS_CACHE_TTL_MS;
       return this._startAppsCache;
     } catch (err) {
       this.logger.warn('Failed to load Start menu apps', err.message);
       this._startAppsCache = [];
-      this._startAppsCacheExpiresAt = now + 15_000;
+      this._startAppsCacheExpiresAt = now + START_APPS_FAILURE_TTL_MS;
       return this._startAppsCache;
     }
   }
@@ -506,14 +524,16 @@ class AppController {
 
     const apps = this._getStartApps();
     const exact = apps.find(candidate => candidate.normalizedName === normalizedName);
-    if (exact) {
-      return exact;
-    }
+    if (exact) return exact;
 
-    const containsMatch = apps.find(candidate => candidate.normalizedName.includes(normalizedName));
-    if (containsMatch) {
-      return containsMatch;
-    }
+    const scored = apps
+      .map(candidate => ({
+        candidate,
+        score: this._scoreStartAppCandidate(normalizedName, candidate)
+      }))
+      .filter(item => item.score >= 75)
+      .sort((left, right) => right.score - left.score);
+    if (scored[0]) return scored[0].candidate;
 
     const closest = Normalizer.findClosestOption(
       normalizedName,
@@ -528,18 +548,54 @@ class AppController {
     return apps.find(candidate => candidate.normalizedName === closest.normalizedMatch) || null;
   }
 
+  _scoreStartAppCandidate(normalizedName, candidate) {
+    const target = String(normalizedName || '').trim();
+    const candidateName = String(candidate?.normalizedName || '').trim();
+    const appId = Normalizer.normalizeText(candidate?.appId || '');
+    if (!target || !candidateName) return 0;
+    if (candidateName === target) return 100;
+    if (candidateName.startsWith(`${target} `)) return 92;
+    if (candidateName.endsWith(` ${target}`)) return 88;
+
+    const targetTokens = target.split(/\s+/).filter(token => token.length >= 2);
+    const candidateTokens = new Set(candidateName.split(/\s+/).filter(Boolean));
+    if (targetTokens.length > 0 && targetTokens.every(token => candidateTokens.has(token))) {
+      return targetTokens.length === candidateTokens.size ? 90 : 82;
+    }
+
+    if (target.length >= 4 && candidateName.includes(target)) return 76;
+    if (target.length >= 4 && appId.includes(target.replace(/\s+/g, ''))) return 75;
+    return 0;
+  }
+
   _launchStartApp(startApp) {
     const appId = startApp.appId;
     if (!appId) {
       throw new Error('Missing Start menu app identifier');
     }
+    if (!this._isSafeStartAppId(appId)) {
+      throw new Error('Unsafe Start menu app identifier');
+    }
 
     if (/^[A-Za-z]:\\/.test(appId) || /\\[^\\]+\.exe$/i.test(appId)) {
+      if (!fs.existsSync(appId)) {
+        throw new Error('Start menu executable target does not exist');
+      }
       launchTarget(appId);
       return;
     }
 
     launchTarget('C:\\Windows\\explorer.exe', [`shell:AppsFolder\\${appId}`]);
+  }
+
+  _isSafeStartAppId(appId) {
+    const value = String(appId || '').trim();
+    if (!value || value.length > 500 || /[\x00-\x1f\x7f]/.test(value)) return false;
+    if (/[;&|`]/.test(value)) return false;
+    if (/^[A-Za-z]:\\/.test(value) || /\\[^\\]+\.exe$/i.test(value)) {
+      return /^[A-Za-z]:\\[^<>:"|?*]+\.exe$/i.test(value);
+    }
+    return /^[\w\s.!\-\\{}]+$/.test(value);
   }
 
   _launchSpecialApp(name) {
@@ -748,6 +804,20 @@ class AppController {
       this._sleep(700);
     }
 
+    const verifiedClosed = !this._findRunningProcesses(name, processNames)
+      .some(process => Number(process?.Id) === Number(target.Id));
+    if (!verifiedClosed) {
+      return {
+        success: false,
+        error: `Could not verify that ${name} closed`,
+        data: {
+          app: name,
+          targetProcessId: Number(target.Id) || null,
+          verified: false
+        }
+      };
+    }
+
     return {
       success: true,
       data: {
@@ -755,7 +825,8 @@ class AppController {
         closedCount: 1,
         closeMethod: 'window',
         matchedWindow: String(target.MainWindowTitle || '').trim() || null,
-        processName: String(target.ProcessName || '').trim() || null
+        processName: String(target.ProcessName || '').trim() || null,
+        verified: true
       }
     };
   }
@@ -831,6 +902,38 @@ class AppController {
 
   _isBrowserAppName(name) {
     return BROWSER_APP_NAMES.has(this._normalizeAppName(name));
+  }
+
+  _failure(error, code = 'app.error', data = {}) {
+    return {
+      success: false,
+      error,
+      code,
+      data: {
+        verified: false,
+        validation: 'failed',
+        ...data
+      }
+    };
+  }
+
+  _validateAppName(appName) {
+    const raw = String(appName ?? '').trim();
+    if (!raw) {
+      return { valid: false, error: 'No application name provided' };
+    }
+    if (raw.length > APP_NAME_MAX_LENGTH) {
+      return { valid: false, error: 'Application name is too long' };
+    }
+    if (/[\x00-\x1f\x7f]/.test(raw)) {
+      return { valid: false, error: 'Application name contains invalid characters' };
+    }
+    const displayName = Normalizer.normalizeText(raw);
+    const name = this._normalizeAppName(raw);
+    if (!name) {
+      return { valid: false, error: 'No application name provided' };
+    }
+    return { valid: true, raw, displayName, name };
   }
 
   _normalizeAppName(appName) {
@@ -943,13 +1046,12 @@ class AppController {
           '-NoProfile',
           '-Command',
           'Get-Process | Select-Object Id,ProcessName,MainWindowTitle,MainWindowHandle,Path | ConvertTo-Json -Compress'
-        ], {
+      ], {
           encoding: 'utf8',
-          timeout: 10000
+          timeout: POWERSHELL_TIMEOUT_MS
         });
 
-      const parsed = JSON.parse(output || '[]');
-      return Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+      return parseJsonObjectArray(output);
     } catch (err) {
       this.logger.warn('Failed to list running processes', err.message);
       return [];
@@ -986,7 +1088,7 @@ class AppController {
         '-Command',
         gracefulScript
       ], {
-        timeout: 8000,
+        timeout: PROCESS_STOP_TIMEOUT_MS,
         stdio: 'ignore'
       });
       return true;
@@ -1025,7 +1127,7 @@ class AppController {
       try {
         if (Number.isFinite(processId) && processId > 0) {
           execFileSync('taskkill.exe', ['/PID', String(processId), '/T', '/F'], {
-            timeout: 8000,
+            timeout: PROCESS_STOP_TIMEOUT_MS,
             stdio: 'ignore'
           });
           terminated = true;
@@ -1048,32 +1150,84 @@ class AppController {
   }
 
   switchTo(appName) {
-    if (!appName) {
-      return { success: false, error: 'No application name provided' };
-    }
+    const validation = this._validateAppName(appName);
+    if (!validation.valid) return this._failure(validation.error, 'app.switch.validation');
 
-    const name = appName.toLowerCase().trim();
+    const { name, displayName } = validation;
     const app = KNOWN_APPS[name];
-    const processName = app?.cmd || name;
+    const processCandidates = this._resolveProcessCandidates(name);
+    const target = this.findVisibleApp(name, { allowWindowFallback: true });
+    const activationTarget = String(target?.MainWindowTitle || app?.windowQuery || app?.cmd || name).trim();
 
     try {
-      execSync(`powershell -Command "(New-Object -ComObject WScript.Shell).AppActivate('${processName}')"`, { timeout: 5000 });
-      return { success: true, data: { app: name } };
+      execFileSync('powershell.exe', [
+        '-NoProfile',
+        '-Command',
+        [
+          '$ErrorActionPreference = \'Stop\'',
+          `$target = '${escapePowerShell(activationTarget)}'`,
+          '$shell = New-Object -ComObject WScript.Shell',
+          'if (-not $shell.AppActivate($target)) { exit 2 }'
+        ].join('; ')
+      ], {
+        timeout: 5000,
+        stdio: 'ignore'
+      });
+      return {
+        success: true,
+        data: {
+          app: displayName,
+          appId: name,
+          matchedWindow: target?.MainWindowTitle || null,
+          processName: target?.ProcessName || processCandidates[0] || null,
+          verified: true
+        }
+      };
     } catch (err) {
-      return { success: false, error: `Could not switch to: ${name}` };
+      return this._failure(`Could not switch to: ${displayName}`, 'app.switch.failed', {
+        app: displayName,
+        appId: name
+      });
     }
   }
 
   getRunningApps() {
     try {
-      const result = execSync('powershell -Command "Get-Process | Where-Object { $_.MainWindowTitle -ne \"\" } | Select-Object -ExpandProperty ProcessName"', {
+      const output = execFileSync('powershell.exe', [
+        '-NoProfile',
+        '-Command',
+        [
+          'Get-Process |',
+          'Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle } |',
+          'Select-Object Id,ProcessName,MainWindowTitle,MainWindowHandle,Path |',
+          'ConvertTo-Json -Compress'
+        ].join(' ')
+      ], {
         encoding: 'utf8',
-        timeout: 5000
+        timeout: POWERSHELL_TIMEOUT_MS
       });
-      const processes = result.trim().split('\n').filter(p => p.trim());
-      return { success: true, data: { processes, count: processes.length } };
+      const processes = parseJsonObjectArray(output)
+        .map(process => ({
+          id: Number(process.Id) || null,
+          processName: String(process.ProcessName || '').trim(),
+          title: String(process.MainWindowTitle || '').trim(),
+          handle: Number(process.MainWindowHandle || 0),
+          path: String(process.Path || '').trim()
+        }))
+        .filter(process => process.processName && process.title);
+      return {
+        success: true,
+        data: {
+          processes: processes.map(process => process.processName),
+          windows: processes,
+          count: processes.length,
+          verified: true
+        }
+      };
     } catch (err) {
-      return { success: false, error: err.message };
+      return this._failure('Could not list running applications', 'app.list.failed', {
+        reason: err.message
+      });
     }
   }
 }

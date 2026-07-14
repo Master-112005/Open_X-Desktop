@@ -31,6 +31,23 @@ describe('Action Router', function() {
     assert.ok(result.entities.appName);
   });
 
+  it('should stop invalid action details before automation execution', async function() {
+    const router = new ActionRouter({
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    }, {
+      execute() {
+        throw new Error('Automation should not execute invalid action details.');
+      }
+    });
+
+    const result = await router.process('set volume to 150', 'chat');
+
+    assert.equal(result.success, false);
+    assert.equal(result.validation.valid, false);
+    assert.equal(result.validation.errors[0].id, 'validation.percentRange');
+    assert.match(result.response, /between 0 and 100/i);
+  });
+
   it('should preserve and route multi-word rename commands', async function() {
     const executed = [];
     const config = {

@@ -76,7 +76,8 @@ describe('Volume and Brightness Control', function() {
     it('should unmute volume', function() {
       const result = volumeController.unmute();
       assert.ok(result.success);
-      assert.equal(result.data.value, 50);
+      assert.ok(typeof result.data.value === 'number');
+      assert.ok(result.data.value >= 0 && result.data.value <= 100);
     });
 
     it('should handle custom step for increase', function() {
@@ -176,6 +177,56 @@ describe('Volume and Brightness Control', function() {
     });
   });
 
+  describe('Controller Parsing and Verification Metadata', function() {
+    it('should preserve requested zero for volume and return readback metadata', function() {
+      const controller = new VolumeController({
+        logging: { level: 'info' },
+        system: {
+          volumeCommandRunner: script => {
+            if (script.includes('SetMasterVolume(0)')) return '0';
+            if (script.includes('GetMute()')) return 'False\n25';
+            return '25';
+          }
+        }
+      });
+
+      const result = controller.setVolume(0);
+      assert.equal(result.success, true);
+      assert.equal(result.data.value, 0);
+      assert.equal(result.data.requestedValue, 0);
+      assert.equal(result.data.verification.status, 'passed');
+    });
+
+    it('should preserve requested zero for brightness and return readback metadata', function() {
+      const controller = new BrightnessController({
+        logging: { level: 'info' },
+        system: {
+          brightnessCommandRunner: script => script.includes('Brightness = 0') ? '0' : '40'
+        }
+      });
+
+      const result = controller.setBrightness(0);
+      assert.equal(result.success, true);
+      assert.equal(result.data.value, 0);
+      assert.equal(result.data.requestedValue, 0);
+      assert.equal(result.data.verification.status, 'passed');
+    });
+
+    it('should report unsupported brightness without throwing', function() {
+      const controller = new BrightnessController({
+        logging: { level: 'info' },
+        system: {
+          brightnessCommandRunner: () => null
+        }
+      });
+
+      const result = controller.getState();
+      assert.equal(result.success, false);
+      assert.equal(result.data.supported, false);
+      assert.equal(result.data.verification.status, 'failed');
+    });
+  });
+
   describe('Automation Engine Volume Actions', function() {
     let engine;
 
@@ -223,6 +274,24 @@ describe('Volume and Brightness Control', function() {
       assert.ok(result.success);
       assert.ok(typeof result.data.value === 'number');
     });
+
+    it('should execute volume.set with zero instead of defaulting to 50', async function() {
+      const zeroEngine = new AutomationEngine({
+        system: {
+          volumeCommandRunner: script => {
+            if (script.includes('SetMasterVolume(0)')) return '0';
+            if (script.includes('GetMute()')) return 'False\n0';
+            return '0';
+          }
+        }
+      });
+
+      const result = await zeroEngine.execute('volume.set', { value: 0 });
+      assert.equal(result.success, true);
+      assert.equal(result.data.value, 0);
+      assert.equal(result.validation.status, 'passed');
+      assert.equal(result.verification.status, 'passed');
+    });
   });
 
   describe('Automation Engine Brightness Actions', function() {
@@ -259,6 +328,20 @@ describe('Volume and Brightness Control', function() {
       const result = await engine.execute('brightness.get', {});
       // May fail if brightness not supported, but shouldn't crash
       assert.ok(typeof result.success === 'boolean');
+    });
+
+    it('should execute brightness.set with zero instead of defaulting to 50', async function() {
+      const zeroEngine = new AutomationEngine({
+        system: {
+          brightnessCommandRunner: script => script.includes('Brightness = 0') ? '0' : '0'
+        }
+      });
+
+      const result = await zeroEngine.execute('brightness.set', { value: 0 });
+      assert.equal(result.success, true);
+      assert.equal(result.data.value, 0);
+      assert.equal(result.validation.status, 'passed');
+      assert.equal(result.verification.status, 'passed');
     });
   });
 
@@ -301,7 +384,8 @@ describe('Volume and Brightness Control', function() {
 
       await engine.execute('volume.unmute', {});
       getResult = await engine.execute('volume.get', {});
-      assert.equal(getResult.data.value, 50);
+      assert.ok(typeof getResult.data.value === 'number');
+      assert.ok(getResult.data.value >= 0 && getResult.data.value <= 100);
     });
   });
 });

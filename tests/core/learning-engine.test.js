@@ -50,6 +50,8 @@ describe('Assistant Learning Engine', function() {
     assert.equal(result.completed, true);
     assert.deepEqual(result.updatedPreferences, [{ key: 'browser', value: 'Chrome' }]);
     assert.ok(fs.existsSync(path.join(baseDir, 'preferences.json')));
+    assert.ok(fs.existsSync(path.join(baseDir, 'personalization_profile.json')));
+    assert.equal(result.metadata.personalization.counts.preference, 1);
   });
 
   it('rejects sensitive learning events before storage', async function() {
@@ -169,7 +171,7 @@ describe('Assistant Learning Engine', function() {
       metadata: { rawInput: 'preferred browser is Chrome', source: 'chat' }
     });
 
-    assert.equal(LEARNING_LAYER_VERSION, '12.1.0');
+    assert.equal(LEARNING_LAYER_VERSION, '12.2.0');
     assert.equal(result.completed, true);
     assert.ok(result.diagnostics.errors.some(error => error.code === 'PipelineError' || error.code === 'module_timeout'));
     assert.ok(Array.isArray(result.metadata.analytics.slowModules));
@@ -196,5 +198,71 @@ describe('Assistant Learning Engine', function() {
     const record = Object.values(snapshot.records)[0];
     assert.equal(record.metadata.token, '[redacted]');
     assert.equal(record.metadata.note, 'safe note');
+  });
+
+  it('builds a local personalization profile with confidence and audit data', async function() {
+    const { createDefaultLearningManager } = require('../../core/assistant/learning/index.js');
+    const baseDir = tempDir();
+    const manager = createDefaultLearningManager({
+      configuration: {
+        clock: () => '2026-07-09T00:00:00.000Z',
+        habitThreshold: 1,
+        patternThreshold: 1,
+        storage: { baseDir }
+      }
+    });
+
+    const result = await manager.learn(await assistantResponse('preferred browser is Chrome'), {
+      metadata: { rawInput: 'preferred browser is Chrome', source: 'chat' }
+    });
+    const profile = manager.getPersonalizationProfile();
+    const preference = Object.values(profile.profile.preference)[0];
+
+    assert.equal(result.metadata.analytics.personalization.counts.preference, 1);
+    assert.equal(preference.value, 'Chrome');
+    assert.ok(preference.confidence >= 0.9);
+    assert.equal(preference.principle, 'user-control');
+    assert.ok(profile.audit.some(item => item.decision === 'accepted'));
+  });
+
+  it('uses the constitution to reject secrets from the personalization profile', async function() {
+    const { createDefaultLearningManager } = require('../../core/assistant/learning/index.js');
+    const baseDir = tempDir();
+    const manager = createDefaultLearningManager({
+      configuration: {
+        clock: () => '2026-07-09T00:00:00.000Z',
+        storage: { baseDir }
+      }
+    });
+
+    await manager.learn(await assistantResponse('remember password means correct horse battery staple'), {
+      metadata: { rawInput: 'remember password means correct horse battery staple', source: 'chat' }
+    });
+
+    const profile = manager.getPersonalizationProfile();
+    assert.equal(Object.keys(profile.profile.alias).length, 0);
+    assert.ok(profile.rejected.some(item => item.principle === 'no-secrets'));
+  });
+
+  it('records selective feedback prompts for uncertain high-impact learning', function() {
+    const { PersonalizationProfileStore } = require('../../core/assistant/learning/index.js');
+    const store = new PersonalizationProfileStore({
+      baseDir: tempDir(),
+      clock: () => '2026-07-09T00:00:00.000Z'
+    });
+
+    const result = store.applyEvents([{
+      category: 'workflow',
+      key: 'morning.start',
+      value: 'open calendar, show reminders',
+      confidence: 0.72,
+      source: 'command-sequence',
+      module: 'test',
+      metadata: {}
+    }], { now: '2026-07-09T00:00:00.000Z' });
+
+    assert.equal(result.accepted.length, 1);
+    assert.equal(result.prompts.length, 1);
+    assert.equal(result.prompts[0].principle, 'ask-selectively');
   });
 });

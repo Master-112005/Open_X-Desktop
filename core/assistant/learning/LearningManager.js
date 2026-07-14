@@ -63,14 +63,33 @@ class LearningManager {
   }
 
   getStatus() {
+    if (!this.pipeline) {
+      this.pipeline = new LearningPipeline({
+        registry: this.registry,
+        configuration: this.configuration,
+        storage: this.storage || undefined
+      });
+    }
     return {
       enabled: this.configuration.enabled,
       version: this.configuration.version,
       moduleCount: this.registry.count({ includeDisabled: true }),
       activeModuleCount: this.registry.count({ includeDisabled: false }),
       configuration: this.configuration.toJSON(),
+      personalization: this.pipeline.personalization?.summarize?.() || null,
       modules: this.registry.health()
     };
+  }
+
+  getPersonalizationProfile() {
+    if (!this.pipeline) {
+      this.pipeline = new LearningPipeline({
+        registry: this.registry,
+        configuration: this.configuration,
+        storage: this.storage || undefined
+      });
+    }
+    return this.pipeline.personalization?.snapshot?.() || null;
   }
 
   async destroy() {

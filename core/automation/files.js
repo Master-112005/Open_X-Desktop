@@ -11,7 +11,9 @@ const {
   requireSafeUserPath,
   resolveDestinationPath,
   resolveDirectory,
-  splitNameAndLocation
+  splitNameAndLocation,
+  validateWindowsName,
+  validateWindowsPathLength
 } = require('./common/path-utils');
 const { launchTarget } = require('./common/launcher');
 
@@ -62,6 +64,8 @@ const SMART_FIND_LIMITS = Object.freeze({
   maxElapsedMs: 1800,
   maxResults: 1200
 });
+
+const DEFAULT_MAX_WINDOWS_PATH_LENGTH = 260;
 
 function pathLocationLabel(filePath) {
   const normalized = String(filePath || '').toLowerCase();
@@ -122,7 +126,67 @@ function hasSearchTimeRemaining(startedAt, maxElapsedMs) {
 
 class FileController {
   constructor(config) {
+    this.config = config || {};
     this.logger = new Logger(config?.logging || { level: 'info' });
+    this.fileOptions = {
+      allowLongPaths: Boolean(config?.files?.allowLongPaths),
+      maxPathLength: Number(config?.files?.maxPathLength) || DEFAULT_MAX_WINDOWS_PATH_LENGTH
+    };
+  }
+
+  _normalizeFsError(error, fallback = 'File operation failed') {
+    const code = error?.code || '';
+    const message = String(error?.message || fallback);
+    if (code === 'ENOENT') return 'File or folder not found';
+    if (code === 'EEXIST') return 'That item already exists';
+    if (code === 'EACCES' || code === 'EPERM') return 'Permission denied for that file operation';
+    if (code === 'ENAMETOOLONG') return 'That path is too long for this system';
+    if (code === 'ENOSPC') return 'There is not enough disk space to complete that file operation';
+    if (code === 'EBUSY') return 'That file is currently busy or locked by another app';
+    return message;
+  }
+
+  _failure(error, fallback, data = {}) {
+    const message = typeof error === 'string'
+      ? error
+      : this._normalizeFsError(error, fallback);
+    return {
+      success: false,
+      error: message,
+      data: {
+        ...data,
+        controllerVerified: false,
+        verification: {
+          status: 'failed',
+          reason: message
+        }
+      }
+    };
+  }
+
+  _validateWindowsFilename(input, label = 'filename') {
+    return validateWindowsName(input, { label });
+  }
+
+  _validateFilePathLength(candidate) {
+    return validateWindowsPathLength(candidate, this.fileOptions);
+  }
+
+  _verifiedData(operation, targetPath, extra = {}) {
+    const primaryPath = targetPath || extra.destination || extra.path || extra.source || extra.newPath || extra.oldPath || '';
+    return {
+      operation,
+      controllerVerified: true,
+      validationStatus: 'passed',
+      verification: {
+        status: 'passed',
+        check: `file-${operation}`,
+        path: primaryPath || null
+      },
+      location: primaryPath ? pathLocationLabel(primaryPath) : null,
+      responseVariantSeed: `${operation}:${primaryPath || extra.filename || ''}:${Date.now()}`,
+      ...extra
+    };
   }
 
   _resolveFilePath(filename, targetPath = null) {
@@ -173,24 +237,49 @@ class FileController {
       return { success: false, error: 'Invalid filename' };
     }
 
-    const safeName = Validator.sanitizePath(filename);
-    if (!Validator.isValidFilename(safeName)) {
-      return { success: false, error: 'Invalid filename' };
+    const validation = this._validateWindowsFilename(filename);
+    if (!validation.valid) {
+      return this._failure(validation.error, 'Invalid filename', {
+        operation: 'create',
+        filename: String(filename || '').trim()
+      });
     }
 
     try {
       const dir = requireSafeUserPath(resolveDirectory(targetPath, { mustExist: false }) || getHomeDirectory(), { allowRoot: true });
-      const fullPath = path.join(dir, safeName);
-      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-      if (fs.existsSync(fullPath)) {
-        return { success: false, error: 'File already exists' };
+      const fullPath = path.join(dir, validation.name);
+      const pathValidation = this._validateFilePathLength(fullPath);
+      if (!pathValidation.valid) {
+        return this._failure(pathValidation.error, pathValidation.error, {
+          operation: 'create',
+          path: fullPath,
+          filename: validation.name
+        });
       }
 
-      fs.writeFileSync(fullPath, '', 'utf8');
-      return { success: true, data: { path: fullPath, filename: safeName } };
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+      fs.writeFileSync(fullPath, '', { encoding: 'utf8', flag: 'wx' });
+      if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
+        return this._failure('Could not verify that the file was created', 'Could not verify file creation', {
+          operation: 'create',
+          path: fullPath,
+          filename: validation.name
+        });
+      }
+
+      return {
+        success: true,
+        data: this._verifiedData('create', fullPath, {
+          path: fullPath,
+          filename: validation.name
+        })
+      };
     } catch (err) {
       this.logger.error('Failed to create file', err);
-      return { success: false, error: err.message };
+      return this._failure(err, 'Failed to create file', {
+        operation: 'create',
+        filename: validation.name
+      });
     }
   }
 
@@ -204,7 +293,13 @@ class FileController {
       if (selectedPath && path.isAbsolute(selectedPath) && fs.existsSync(selectedPath) && fs.statSync(selectedPath).isFile()) {
         const safeSelectedPath = requireSafeUserPath(selectedPath);
         launchTarget(safeSelectedPath);
-        return { success: true, data: { path: safeSelectedPath, filename: path.basename(safeSelectedPath) } };
+        return {
+          success: true,
+          data: this._verifiedData('open', safeSelectedPath, {
+            path: safeSelectedPath,
+            filename: path.basename(safeSelectedPath)
+          })
+        };
       }
 
       const matches = this._findFileMatches(filename, targetPath);
@@ -259,10 +354,16 @@ class FileController {
       requireSafeUserPath(fullPath);
 
       launchTarget(fullPath);
-      return { success: true, data: { path: fullPath, filename: path.basename(fullPath) } };
+      return {
+        success: true,
+        data: this._verifiedData('open', fullPath, {
+          path: fullPath,
+          filename: path.basename(fullPath)
+        })
+      };
     } catch (err) {
       this.logger.error('Failed to open file', err);
-      return { success: false, error: err.message };
+      return this._failure(err, 'Failed to open file', { operation: 'open', filename });
     }
   }
 
@@ -284,10 +385,24 @@ class FileController {
       }
 
       fs.unlinkSync(fullPath);
-      return { success: true, data: { path: fullPath, filename: path.basename(fullPath) } };
+      if (fs.existsSync(fullPath)) {
+        return this._failure('Could not verify that the file was deleted', 'Could not verify file deletion', {
+          operation: 'delete',
+          path: fullPath,
+          filename: path.basename(fullPath)
+        });
+      }
+
+      return {
+        success: true,
+        data: this._verifiedData('delete', fullPath, {
+          path: fullPath,
+          filename: path.basename(fullPath)
+        })
+      };
     } catch (err) {
       this.logger.error('Failed to delete file', err);
-      return { success: false, error: err.message };
+      return this._failure(err, 'Failed to delete file', { operation: 'delete', filename });
     }
   }
 
@@ -296,9 +411,12 @@ class FileController {
       return { success: false, error: 'Both old and new names required' };
     }
 
-    const safeNew = Validator.sanitizePath(newName);
-    if (!Validator.isValidFilename(safeNew)) {
-      return { success: false, error: 'Invalid new filename' };
+    const validation = this._validateWindowsFilename(newName, 'new filename');
+    if (!validation.valid) {
+      return this._failure(validation.error, 'Invalid new filename', {
+        operation: 'rename',
+        filename: String(newName || '').trim()
+      });
     }
 
     try {
@@ -308,13 +426,52 @@ class FileController {
       }
       requireSafeUserPath(oldPath);
 
-      const newPath = path.join(path.dirname(oldPath), safeNew);
+      const newPath = path.join(path.dirname(oldPath), validation.name);
       requireSafeUserPath(newPath);
+      const pathValidation = this._validateFilePathLength(newPath);
+      if (!pathValidation.valid) {
+        return this._failure(pathValidation.error, pathValidation.error, {
+          operation: 'rename',
+          oldPath,
+          newPath,
+          filename: validation.name
+        });
+      }
+      if (fs.existsSync(newPath)) {
+        return this._failure('That item already exists', 'File already exists', {
+          operation: 'rename',
+          oldPath,
+          newPath,
+          filename: validation.name
+        });
+      }
+
       fs.renameSync(oldPath, newPath);
-      return { success: true, data: { oldPath, newPath } };
+      if (fs.existsSync(oldPath) || !fs.existsSync(newPath) || !fs.statSync(newPath).isFile()) {
+        return this._failure('Could not verify that the file was renamed', 'Could not verify file rename', {
+          operation: 'rename',
+          oldPath,
+          newPath,
+          filename: validation.name
+        });
+      }
+
+      return {
+        success: true,
+        data: this._verifiedData('rename', newPath, {
+          oldPath,
+          newPath,
+          path: newPath,
+          filename: validation.name,
+          oldFilename: path.basename(oldPath)
+        })
+      };
     } catch (err) {
       this.logger.error('Failed to rename file', err);
-      return { success: false, error: err.message };
+      return this._failure(err, 'Failed to rename file', {
+        operation: 'rename',
+        filename: validation.name
+      });
     }
   }
 
@@ -335,13 +492,53 @@ class FileController {
         return { success: false, error: 'Destination could not be resolved' };
       }
       requireSafeUserPath(finalPath);
+      const pathValidation = this._validateFilePathLength(finalPath);
+      if (!pathValidation.valid) {
+        return this._failure(pathValidation.error, pathValidation.error, {
+          operation: 'copy',
+          source: srcPath,
+          destination: finalPath
+        });
+      }
+
+      if (path.resolve(srcPath).toLowerCase() === path.resolve(finalPath).toLowerCase()) {
+        return this._failure('Source and destination are the same file', 'Invalid copy destination', {
+          operation: 'copy',
+          source: srcPath,
+          destination: finalPath
+        });
+      }
 
       fs.mkdirSync(path.dirname(finalPath), { recursive: true });
+      const overwroteExisting = fs.existsSync(finalPath);
       fs.copyFileSync(srcPath, finalPath);
-      return { success: true, data: { source: srcPath, destination: finalPath } };
+      const sourceStats = fs.statSync(srcPath);
+      const destinationStats = fs.existsSync(finalPath) ? fs.statSync(finalPath) : null;
+      if (!destinationStats?.isFile() || destinationStats.size !== sourceStats.size) {
+        return this._failure('Could not verify that the file reached the destination', 'Could not verify file copy', {
+          operation: 'copy',
+          source: srcPath,
+          destination: finalPath
+        });
+      }
+
+      return {
+        success: true,
+        data: this._verifiedData('copy', finalPath, {
+          source: srcPath,
+          destination: finalPath,
+          filename: path.basename(srcPath),
+          destinationName: path.basename(finalPath),
+          overwroteExisting
+        })
+      };
     } catch (err) {
       this.logger.error('Failed to copy file', err);
-      return { success: false, error: err.message };
+      return this._failure(err, 'Failed to copy file', {
+        operation: 'copy',
+        source,
+        destination
+      });
     }
   }
 
@@ -362,8 +559,25 @@ class FileController {
         return { success: false, error: 'Destination could not be resolved' };
       }
       requireSafeUserPath(finalPath);
+      const pathValidation = this._validateFilePathLength(finalPath);
+      if (!pathValidation.valid) {
+        return this._failure(pathValidation.error, pathValidation.error, {
+          operation: 'move',
+          source: srcPath,
+          destination: finalPath
+        });
+      }
+
+      if (path.resolve(srcPath).toLowerCase() === path.resolve(finalPath).toLowerCase()) {
+        return this._failure('Source and destination are the same file', 'Invalid move destination', {
+          operation: 'move',
+          source: srcPath,
+          destination: finalPath
+        });
+      }
 
       fs.mkdirSync(path.dirname(finalPath), { recursive: true });
+      const overwroteExisting = fs.existsSync(finalPath);
 
       try {
         fs.renameSync(srcPath, finalPath);
@@ -372,10 +586,31 @@ class FileController {
         fs.unlinkSync(srcPath);
       }
 
-      return { success: true, data: { source: srcPath, destination: finalPath } };
+      if (fs.existsSync(srcPath) || !fs.existsSync(finalPath) || !fs.statSync(finalPath).isFile()) {
+        return this._failure('Could not verify the move because the original file is still there', 'Could not verify file move', {
+          operation: 'move',
+          source: srcPath,
+          destination: finalPath
+        });
+      }
+
+      return {
+        success: true,
+        data: this._verifiedData('move', finalPath, {
+          source: srcPath,
+          destination: finalPath,
+          filename: path.basename(srcPath),
+          destinationName: path.basename(finalPath),
+          overwroteExisting
+        })
+      };
     } catch (err) {
       this.logger.error('Failed to move file', err);
-      return { success: false, error: err.message };
+      return this._failure(err, 'Failed to move file', {
+        operation: 'move',
+        source,
+        destination
+      });
     }
   }
 

@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 
 const SchedulerController = require('../../core/automation/scheduler');
+const ActionVerifier = require('../../core/automation/common/action-verification');
 
 describe('Scheduler Alert Delivery', function() {
   it('should persist schedules and publish due events without terminal scripts', async function() {
@@ -204,6 +205,75 @@ describe('Scheduler Alert Delivery', function() {
     scheduler.complete(result.data.taskName);
     assert.equal(scheduler.scheduledItems[0].status, 'scheduled');
     assert.ok(new Date(scheduler.scheduledItems[0].dueAt) > new Date(firstDueAt));
+
+    scheduler.destroy();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('should update duplicate active reminders instead of creating repeated alerts', function() {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-scheduler-dedupe-'));
+    const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
+
+    const first = scheduler.setReminder('call mummy', { duration: 30 });
+    const second = scheduler.setReminder('call mummy', { duration: 30 });
+
+    assert.equal(first.success, true);
+    assert.equal(second.success, true);
+    assert.equal(second.data.operation, 'update');
+    assert.equal(second.data.duplicate, true);
+    assert.equal(scheduler.listSchedules('Reminder').data.count, 1);
+
+    scheduler.destroy();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('should keep active schedules when compacting old completed history', function() {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-scheduler-compact-'));
+    const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
+
+    scheduler.scheduledItems = Array.from({ length: 190 }, (_, index) => ({
+      id: `OpenX_Reminder_old_${index}`,
+      taskName: `OpenX_Reminder_old_${index}`,
+      kind: 'Reminder',
+      title: 'Old reminder',
+      message: `old ${index}`,
+      dueAt: new Date(Date.now() + 60000 + index).toISOString(),
+      status: 'completed',
+      createdAt: new Date(Date.now() - index * 1000).toISOString()
+    }));
+    scheduler.scheduledItems.push({
+      id: 'OpenX_Reminder_active',
+      taskName: 'OpenX_Reminder_active',
+      kind: 'Reminder',
+      title: 'Active reminder',
+      message: 'active',
+      dueAt: new Date(Date.now() + 60000).toISOString(),
+      status: 'scheduled',
+      createdAt: new Date().toISOString()
+    });
+
+    scheduler._saveScheduledItems();
+
+    assert.ok(scheduler.scheduledItems.some(item => item.id === 'OpenX_Reminder_active'));
+    assert.ok(scheduler.scheduledItems.length <= 160);
+
+    scheduler.destroy();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('should verify schedule state actions without requiring future due time for clears', function() {
+    const verifier = new ActionVerifier({});
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-scheduler-verify-'));
+    const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
+
+    scheduler.setTimer(5);
+    const paused = verifier.verify('timer.pause', {}, scheduler.pauseActiveTimer());
+    const cleared = verifier.verify('timer.clear', {}, scheduler.clearSchedules('Timer'));
+
+    assert.equal(paused.verification.status, 'passed');
+    assert.equal(paused.verification.check, 'schedule-paused');
+    assert.equal(cleared.verification.status, 'passed');
+    assert.equal(cleared.verification.check, 'schedule-cleared');
 
     scheduler.destroy();
     fs.rmSync(dataDir, { recursive: true, force: true });

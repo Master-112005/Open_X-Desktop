@@ -7,6 +7,7 @@ const LearningPolicy = require('./LearningPolicy');
 const LearningValidator = require('./LearningValidator');
 const LearningStorage = require('./LearningStorage');
 const LearningAnalytics = require('./LearningAnalytics');
+const PersonalizationProfileStore = require('./PersonalizationProfileStore');
 const { withTimeout } = require('../utils/AsyncHelpers');
 const { PipelineError, ModuleTimeoutError } = require('./LearningErrors');
 
@@ -21,6 +22,12 @@ class LearningPipeline {
     this.storage = options.storage || new LearningStorage({
       ...(this.configuration.storage || {}),
       maxRecords: this.configuration.maxRecords
+    });
+    this.personalization = options.personalization || new PersonalizationProfileStore({
+      ...(this.configuration.storage || {}),
+      maxRecords: this.configuration.maxRecords,
+      clock: this.configuration.clock,
+      constitution: this.policy.constitution
     });
     this.analytics = options.analytics || new LearningAnalytics();
   }
@@ -70,6 +77,16 @@ class LearningPipeline {
     }
 
     const storageResult = this.storage.commit(context.acceptedEvents.slice(0, this.configuration.maxEventsPerRun));
+    const personalizationResult = this.personalization.applyEvents(
+      context.acceptedEvents.slice(0, this.configuration.maxEventsPerRun),
+      {
+        now: context.now(),
+        feedbackPrompts: this.configuration.activeFeedbackPrompts !== false
+      }
+    );
+    const rejectedProfileResult = this.personalization.recordRejected(context.itemsRejected, { now: context.now() });
+    context.metadata.personalization = rejectedProfileResult.summary || personalizationResult.summary;
+    context.metadata.learningPrompts = personalizationResult.prompts;
     const analytics = this.analytics.summarize(context, storageResult);
     context.metadata.analytics = analytics;
     context.applyStorageResult(storageResult);

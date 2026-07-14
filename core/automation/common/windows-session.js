@@ -2,8 +2,58 @@ const { execFileSync } = require('child_process');
 const Logger = require('../../assistant/Data').Logger;
 const Normalizer = require('../../assistant/Data').Normalizer;
 
+const POWERSHELL_EXECUTABLE = 'powershell.exe';
+const DEFAULT_POWERSHELL_TIMEOUT_MS = 6000;
+const WINDOW_ENUMERATION_TIMEOUT_MS = 10000;
+const BROWSER_UIA_TIMEOUT_MS = 12000;
+const PROCESS_WINDOW_TIMEOUT_MS = 3000;
+const FOREGROUND_TIMEOUT_MS = 5000;
+const MAX_WINDOW_QUERY_LENGTH = 240;
+const MAX_SEND_KEYS_LENGTH = 512;
+const MAX_URL_LENGTH = 4096;
+const PROCESS_NAME_PATTERN = /^[a-z0-9._-]+$/;
+const URI_PATTERN = /^[a-z][a-z0-9+.-]*:/i;
+
 function escapePowerShell(value) {
   return String(value ?? '').replace(/'/g, "''");
+}
+
+function parseJsonArray(output) {
+  const text = String(output || '').trim();
+  if (!text) return [];
+  const parsed = JSON.parse(text);
+  return Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+}
+
+function parseJsonObject(output) {
+  const text = String(output || '').trim();
+  if (!text) return {};
+  const parsed = JSON.parse(text);
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+}
+
+function normalizeProcessNames(processNames = []) {
+  const values = Array.isArray(processNames) ? processNames : [processNames];
+  return [...new Set(values
+    .map(name => Normalizer.normalizeText(name).replace(/\.exe$/i, ''))
+    .filter(name => PROCESS_NAME_PATTERN.test(name)))];
+}
+
+function normalizeLimitedText(value, label, maxLength) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  if (text.length > maxLength) {
+    throw new Error(`${label} is too long`);
+  }
+  return text;
+}
+
+function toSafeInteger(value, label) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number <= 0) {
+    throw new Error(`Invalid ${label}`);
+  }
+  return number;
 }
 
 const USER32_BOOTSTRAP = `
@@ -30,28 +80,22 @@ Add-Type -TypeDefinition $signature -ErrorAction SilentlyContinue | Out-Null
 class WindowsSessionController {
   constructor(config) {
     this.logger = new Logger(config?.logging || { level: 'info' });
+    this.commandRunner = config?.windows?.sessionCommandRunner || execFileSync;
+    this.defaultTimeoutMs = Number(config?.windows?.sessionCommandTimeoutMs || DEFAULT_POWERSHELL_TIMEOUT_MS);
   }
 
   listWindows() {
     try {
-      const output = execFileSync('powershell.exe', [
-        '-NoProfile',
-        '-Command',
-        [
-          'Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle } |',
-          'Select-Object @{Name=\'handle\';Expression={[int64]$_.MainWindowHandle}},',
-          '@{Name=\'title\';Expression={$_.MainWindowTitle}},',
-          '@{Name=\'processName\';Expression={$_.ProcessName}},',
-          '@{Name=\'id\';Expression={$_.Id}}',
-          '| ConvertTo-Json -Compress'
-        ].join(' ')
-      ], {
-        encoding: 'utf8',
-        timeout: 10000
-      });
+      const output = this._runPowerShell([
+        'Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle } |',
+        'Select-Object @{Name=\'handle\';Expression={[int64]$_.MainWindowHandle}},',
+        '@{Name=\'title\';Expression={$_.MainWindowTitle}},',
+        '@{Name=\'processName\';Expression={$_.ProcessName}},',
+        '@{Name=\'id\';Expression={$_.Id}}',
+        '| ConvertTo-Json -Compress'
+      ].join(' '), { timeout: WINDOW_ENUMERATION_TIMEOUT_MS, encoding: 'utf8' });
 
-      const parsed = JSON.parse(output || '[]');
-      return Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+      return parseJsonArray(output);
     } catch (err) {
       this.logger.warn('Failed to enumerate desktop windows', err.message);
       return [];
@@ -59,9 +103,7 @@ class WindowsSessionController {
   }
 
   listBrowserTabs(processNames = ['chrome']) {
-    const normalizedProcesses = [...new Set(processNames
-      .map(name => Normalizer.normalizeText(name))
-      .filter(name => /^[a-z0-9._-]+$/.test(name)))];
+    const normalizedProcesses = normalizeProcessNames(processNames);
     if (normalizedProcesses.length === 0) {
       return [];
     }
@@ -113,16 +155,10 @@ $tabs | ConvertTo-Json -Compress
 `;
 
     try {
-      const output = execFileSync('powershell.exe', [
-        '-NoProfile',
-        '-Command',
-        script
-      ], {
-        encoding: 'utf8',
-        timeout: 12000
-      });
-      const parsed = JSON.parse(output || '[]');
-      return Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+      return parseJsonArray(this._runPowerShell(script, {
+        timeout: BROWSER_UIA_TIMEOUT_MS,
+        encoding: 'utf8'
+      }));
     } catch (err) {
       this.logger.warn('Failed to enumerate browser tabs with UI Automation', err.message);
       return [];
@@ -130,9 +166,7 @@ $tabs | ConvertTo-Json -Compress
   }
 
   listProcessWindows(processNames = []) {
-    const normalizedProcesses = [...new Set(processNames
-      .map(name => Normalizer.normalizeText(name).replace(/\.exe$/i, ''))
-      .filter(name => /^[a-z0-9._-]+$/.test(name)))];
+    const normalizedProcesses = normalizeProcessNames(processNames);
     if (normalizedProcesses.length === 0) return [];
 
     const processFilter = normalizedProcesses.map(name => `'${escapePowerShell(name)}'`).join(',');
@@ -180,13 +214,12 @@ $result | ConvertTo-Json -Compress
 `;
 
     try {
-      const output = execFileSync('powershell.exe', ['-NoProfile', '-Command', script], {
+      const output = this._runPowerShell(script, {
         encoding: 'utf8',
-        timeout: 3000
+        timeout: PROCESS_WINDOW_TIMEOUT_MS
       });
-      const parsed = JSON.parse(output || '[]');
       this.lastProcessWindowEnumerationSucceeded = true;
-      return Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+      return parseJsonArray(output);
     } catch (err) {
       this.lastProcessWindowEnumerationSucceeded = false;
       this.logger.warn('Failed to enumerate application windows', err.message);
@@ -203,10 +236,14 @@ $result | ConvertTo-Json -Compress
   }
 
   _controlBrowserTab(tabTitle, processNames, closeAfterFocus) {
-    const normalizedProcesses = [...new Set(processNames
-      .map(name => Normalizer.normalizeText(name))
-      .filter(name => /^[a-z0-9._-]+$/.test(name)))];
-    const title = String(tabTitle || '').trim();
+    const normalizedProcesses = normalizeProcessNames(processNames);
+    let title = '';
+    try {
+      title = normalizeLimitedText(tabTitle, 'Browser tab title', MAX_WINDOW_QUERY_LENGTH);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+
     if (!title || normalizedProcesses.length === 0) {
       return { success: false, error: 'A browser tab title is required' };
     }
@@ -272,14 +309,14 @@ $matched | ConvertTo-Json -Compress
 `;
 
     try {
-      const output = execFileSync('powershell.exe', ['-NoProfile', '-Command', script], {
+      const output = this._runPowerShell(script, {
         encoding: 'utf8',
-        timeout: 12000
+        timeout: BROWSER_UIA_TIMEOUT_MS
       });
       return {
         success: true,
         data: {
-          ...JSON.parse(output),
+          ...parseJsonObject(output),
           action: closeAfterFocus ? 'closeTab' : 'focusTab'
         }
       };
@@ -337,11 +374,23 @@ $shell.MinimizeAll()
       return { success: false, error: 'No URL provided for window navigation' };
     }
 
+    let safeTarget;
+    let safeUrl;
+    try {
+      safeTarget = this._coerceWindowTarget(target);
+      safeUrl = normalizeLimitedText(url, 'URL', MAX_URL_LENGTH);
+      if (!URI_PATTERN.test(safeUrl)) {
+        return { success: false, error: 'A valid URL is required for window navigation' };
+      }
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+
     const script = `
 $ErrorActionPreference = 'Stop'
 ${USER32_BOOTSTRAP}
-$hwnd = [IntPtr]${target.handle}
-$url = '${escapePowerShell(url)}'
+$hwnd = [IntPtr]${safeTarget.handle}
+$url = '${escapePowerShell(safeUrl)}'
 if ([Win32WindowApi]::IsIconic($hwnd)) {
   [Win32WindowApi]::ShowWindowAsync($hwnd, 9) | Out-Null
 } else {
@@ -349,7 +398,7 @@ if ([Win32WindowApi]::IsIconic($hwnd)) {
 }
 [Win32WindowApi]::SetForegroundWindow($hwnd) | Out-Null
 $wshell = New-Object -ComObject WScript.Shell
-$null = $wshell.AppActivate(${target.id})
+$null = $wshell.AppActivate(${safeTarget.id})
 Start-Sleep -Milliseconds 250
 ${options.newTab === true ? "$wshell.SendKeys('^t')`nStart-Sleep -Milliseconds 120" : ''}
 Set-Clipboard -Value $url
@@ -369,13 +418,14 @@ $wshell.SendKeys('{ENTER}')
         success: true,
         data: {
           action: 'navigate',
-          url,
-          matchedWindow: target.title,
-          processName: target.processName
+          url: safeUrl,
+          matchedWindow: safeTarget.title,
+          matchedHandle: safeTarget.handle,
+          processName: safeTarget.processName
         }
       };
     } catch (err) {
-      return { success: false, error: `Unable to reuse the ${target.title} window` };
+      return { success: false, error: `Unable to reuse the ${safeTarget.title} window` };
     }
   }
 
@@ -385,10 +435,22 @@ $wshell.SendKeys('{ENTER}')
       return { success: false, error: this._missingWindowMessage(windowName, options) };
     }
 
+    let safeTarget;
+    let safeKeys;
+    try {
+      safeTarget = this._coerceWindowTarget(target);
+      safeKeys = normalizeLimitedText(keys, 'Keys', MAX_SEND_KEYS_LENGTH);
+      if (!safeKeys) {
+        return { success: false, error: 'No keys provided for window control' };
+      }
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+
     const script = `
 $ErrorActionPreference = 'Stop'
 ${USER32_BOOTSTRAP}
-$hwnd = [IntPtr]${target.handle}
+$hwnd = [IntPtr]${safeTarget.handle}
 if ([Win32WindowApi]::IsIconic($hwnd)) {
   [Win32WindowApi]::ShowWindowAsync($hwnd, 9) | Out-Null
 } else {
@@ -396,9 +458,9 @@ if ([Win32WindowApi]::IsIconic($hwnd)) {
 }
 [Win32WindowApi]::SetForegroundWindow($hwnd) | Out-Null
 $wshell = New-Object -ComObject WScript.Shell
-$null = $wshell.AppActivate(${target.id})
+$null = $wshell.AppActivate(${safeTarget.id})
 Start-Sleep -Milliseconds 220
-$wshell.SendKeys('${escapePowerShell(keys)}')
+$wshell.SendKeys('${escapePowerShell(safeKeys)}')
 `;
 
     try {
@@ -407,14 +469,14 @@ $wshell.SendKeys('${escapePowerShell(keys)}')
         success: true,
         data: {
           action: 'sendKeys',
-          keys,
-          matchedWindow: target.title,
-          matchedHandle: target.handle,
-          processName: target.processName
+          keys: safeKeys,
+          matchedWindow: safeTarget.title,
+          matchedHandle: safeTarget.handle,
+          processName: safeTarget.processName
         }
       };
     } catch (err) {
-      return { success: false, error: `Unable to control the ${target.title} window` };
+      return { success: false, error: `Unable to control the ${safeTarget.title} window` };
     }
   }
 
@@ -424,10 +486,10 @@ $wshell.SendKeys('${escapePowerShell(keys)}')
       return null;
     }
 
+    const normalizedQuery = Normalizer.normalizeText(windowName || '').slice(0, MAX_WINDOW_QUERY_LENGTH);
     const activeHandle = options.activeHandle ?? this._getForegroundWindowHandle();
-    const normalizedQuery = Normalizer.normalizeText(windowName || '');
     const preferredProcesses = Array.isArray(options.preferredProcessNames)
-      ? options.preferredProcessNames.map(value => Normalizer.normalizeText(value))
+      ? normalizeProcessNames(options.preferredProcessNames)
       : [];
     const preferredTitleTokens = Array.isArray(options.preferredTitleTokens)
       ? options.preferredTitleTokens.map(value => Normalizer.normalizeText(value)).filter(Boolean)
@@ -513,16 +575,23 @@ $wshell.SendKeys('${escapePowerShell(keys)}')
       return { success: false, error: this._missingWindowMessage(windowName, options) };
     }
 
+    let safeTarget;
+    try {
+      safeTarget = this._coerceWindowTarget(target);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+
     const actionScripts = {
       minimize: `
 $ErrorActionPreference = 'Stop'
 ${USER32_BOOTSTRAP}
-[Win32WindowApi]::ShowWindowAsync([IntPtr]${target.handle}, 6) | Out-Null
+[Win32WindowApi]::ShowWindowAsync([IntPtr]${safeTarget.handle}, 6) | Out-Null
 `,
       maximize: `
 $ErrorActionPreference = 'Stop'
 ${USER32_BOOTSTRAP}
-$hwnd = [IntPtr]${target.handle}
+$hwnd = [IntPtr]${safeTarget.handle}
 if ([Win32WindowApi]::IsIconic($hwnd)) {
   [Win32WindowApi]::ShowWindowAsync($hwnd, 9) | Out-Null
 }
@@ -532,7 +601,7 @@ if ([Win32WindowApi]::IsIconic($hwnd)) {
       focus: `
 $ErrorActionPreference = 'Stop'
 ${USER32_BOOTSTRAP}
-$hwnd = [IntPtr]${target.handle}
+$hwnd = [IntPtr]${safeTarget.handle}
 if ([Win32WindowApi]::IsIconic($hwnd)) {
   [Win32WindowApi]::ShowWindowAsync($hwnd, 9) | Out-Null
 } else {
@@ -540,12 +609,12 @@ if ([Win32WindowApi]::IsIconic($hwnd)) {
 }
 [Win32WindowApi]::SetForegroundWindow($hwnd) | Out-Null
 $wshell = New-Object -ComObject WScript.Shell
-$null = $wshell.AppActivate(${target.id})
+$null = $wshell.AppActivate(${safeTarget.id})
 `,
       close: `
 $ErrorActionPreference = 'Stop'
 ${USER32_BOOTSTRAP}
-$process = Get-Process -Id ${target.id} -ErrorAction SilentlyContinue | Select-Object -First 1
+$process = Get-Process -Id ${safeTarget.id} -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($process) {
   $closed = $process.CloseMainWindow()
   if ($closed) {
@@ -553,7 +622,7 @@ if ($process) {
     exit 0
   }
 }
-[Win32WindowApi]::PostMessage([IntPtr]${target.handle}, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+[Win32WindowApi]::PostMessage([IntPtr]${safeTarget.handle}, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
 `
     };
 
@@ -563,28 +632,30 @@ if ($process) {
         success: true,
         data: {
           action,
-          matchedWindow: target.title,
-          matchedHandle: target.handle,
-          processName: target.processName
+          matchedWindow: safeTarget.title,
+          matchedHandle: safeTarget.handle,
+          processName: safeTarget.processName,
+          controllerVerified: true,
+          verification: {
+            status: 'unknown',
+            check: `window-${action}-request`,
+            reason: 'Windows accepted the window command; final UI state is verified by the action verifier when available.'
+          }
         }
       };
     } catch (err) {
       return {
         success: false,
-        error: `Unable to ${action} the ${target.title} window`
+        error: `Unable to ${action} the ${safeTarget.title} window`
       };
     }
   }
 
   _getForegroundWindowHandle() {
     try {
-      const output = execFileSync('powershell.exe', [
-        '-NoProfile',
-        '-Command',
-        `${USER32_BOOTSTRAP}; [int64][Win32WindowApi]::GetForegroundWindow()`
-      ], {
+      const output = this._runPowerShell(`${USER32_BOOTSTRAP}; [int64][Win32WindowApi]::GetForegroundWindow()`, {
         encoding: 'utf8',
-        timeout: 5000
+        timeout: FOREGROUND_TIMEOUT_MS
       });
 
       const handle = parseInt(String(output || '').trim(), 10);
@@ -607,14 +678,34 @@ if ($process) {
     return 'No active window is available';
   }
 
+  _coerceWindowTarget(target) {
+    return {
+      ...target,
+      handle: toSafeInteger(target?.handle, 'window handle'),
+      id: toSafeInteger(target?.id ?? target?.processId, 'process id'),
+      title: normalizeLimitedText(target?.title || target?.windowTitle || 'the matched window', 'Window title', MAX_WINDOW_QUERY_LENGTH),
+      processName: normalizeLimitedText(target?.processName || 'unknown', 'Process name', MAX_WINDOW_QUERY_LENGTH)
+    };
+  }
+
   _runScript(script, timeout = 6000) {
-    execFileSync('powershell.exe', [
+    this._runPowerShell(script, { timeout, stdio: 'pipe' });
+  }
+
+  _runPowerShell(script, options = {}) {
+    return this.commandRunner(POWERSHELL_EXECUTABLE, [
+      '-NoLogo',
       '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
       '-Command',
       script
     ], {
-      timeout,
-      stdio: 'pipe'
+      timeout: Number(options.timeout || this.defaultTimeoutMs),
+      stdio: options.stdio || 'pipe',
+      encoding: options.encoding,
+      windowsHide: true
     });
   }
 }

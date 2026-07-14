@@ -29,12 +29,14 @@ function normalizeProcess(raw) {
   const name = raw.Name || raw.ImageName || raw.ProcessName || '';
   const pid = Number(raw.ProcessId || raw.PID || raw.Id || 0);
   if (!name || !pid) return null;
+  const appProfile = appRegistry.getAppProfile(name);
 
   return {
     name,
     pid,
     path: raw.ExecutablePath || raw.Path || null,
-    categories: appRegistry.getCategoriesForApp(name),
+    categories: appProfile.categories,
+    appProfile,
     timestamp: Date.now()
   };
 }

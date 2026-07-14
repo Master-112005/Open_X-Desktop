@@ -177,6 +177,13 @@ class Assistant extends EventEmitter {
   }
 
   async processCommand(input, source = 'chat', options = {}) {
+    if (this.pendingConfirmation ||
+      this.pendingClarification ||
+      this.pendingScheduleCompletion ||
+      this.pendingLearningCorrection ||
+      this.pendingLearningRepair) {
+      return this._processCommandDirect(input, source, options);
+    }
     return this.engine.processCommand(input, source, options);
   }
 
@@ -730,7 +737,7 @@ class Assistant extends EventEmitter {
   }
 
   _buildRoutedInput(input) {
-    const normalizedInput = this._normalizeCompactCommandText(input);
+    const normalizedInput = this._normalizeCompactCommandText(this._normalizeClockExpressionsForRouting(input));
     const contextual = this._resolveContextualFollowUp(normalizedInput);
     const contextualChanged = contextual && contextual !== normalizedInput;
     const personalSource = contextualChanged ? '' : this._resolvePersonalSourceRouting(normalizedInput);
@@ -740,6 +747,18 @@ class Assistant extends EventEmitter {
     this._lastRoutingLearning = learned || null;
     this._lastContextualRewrite = contextualForLearning !== input ? { input, correction: contextualForLearning } : null;
     return learned?.correction || contextualForLearning;
+  }
+
+  _normalizeClockExpressionsForRouting(input) {
+    const text = String(input || '').trim();
+    if (!text || !/\b(?:alarm|remind|reminder|schedule|calendar|meeting|timer|countdown)\b/i.test(text)) {
+      return text;
+    }
+
+    return text.replace(
+      /\b(at|by|before|after|until)\s+(\d{1,2})\s+(\d{2})(\s*(?:am|pm))?\b/gi,
+      (_match, preposition, hour, minute, meridiem = '') => `${preposition} ${hour}:${minute}${meridiem ? meridiem.toLowerCase() : ''}`
+    );
   }
 
   _normalizeCompactCommandText(input) {
@@ -1662,11 +1681,15 @@ class Assistant extends EventEmitter {
       this.pendingScheduleCompletion = null;
       return null;
     }
+    const scheduleDetail = detail.replace(/\b(\d{1,2})\s+(\d{2})\s*(am|pm)?\b/i, (_match, hour, minute, meridiem = '') =>
+      `${hour}:${minute}${meridiem ? ` ${meridiem}` : ''}`)
+      .replace(/\s+/g, ' ')
+      .trim();
     let completed = '';
     if (pending.intent === 'timer.set' && durationLike) {
       completed = `set timer for ${detail}`;
     } else if (pending.intent === 'alarm.set' && timeLike) {
-      completed = `set alarm at ${detail}${pending.entities.alarmLabel ? ` to ${pending.entities.alarmLabel}` : ''}`;
+      completed = `set alarm at ${scheduleDetail}${pending.entities.alarmLabel ? ` to ${pending.entities.alarmLabel}` : ''}`;
     } else if (pending.intent === 'reminder.set') {
       if (!pending.entities.reminderText && detail && !timeLike && !durationLike) {
         if (pending.entities.timeExpression || pending.entities.duration) {
@@ -1684,7 +1707,7 @@ class Assistant extends EventEmitter {
         return { success: false, needsClarification: true, source, response: this.personality.applyToResponse('When should I remind you?') };
       }
       if ((timeLike || durationLike) && pending.entities.reminderText) {
-        completed = `remind me ${durationLike ? 'in' : 'at'} ${detail} to ${pending.entities.reminderText}`;
+        completed = `remind me ${durationLike ? 'in' : 'at'} ${durationLike ? detail : scheduleDetail} to ${pending.entities.reminderText}`;
       }
     }
     if (!completed) {
