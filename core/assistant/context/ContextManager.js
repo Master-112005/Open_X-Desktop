@@ -412,6 +412,9 @@ class ContextManager {
     const correctiveVolume = this.resolveCorrectiveFollowUp(input);
     if (correctiveVolume) return correctiveVolume;
 
+    const omittedAppTarget = this.resolveOmittedAppTargetFollowUp(input);
+    if (omittedAppTarget) return omittedAppTarget;
+
     const match = normalized.match(/^(?:and|also|then|what about|how about)\s+(.+)$/) ||
       normalized.match(/^(?:do (?:the )?same|same(?: thing)?)\s+(?:with|for)\s+(.+)$/);
     if (!match?.[1]) return '';
@@ -440,6 +443,39 @@ class ContextManager {
       return query ? `search for ${query} in ${replacement}` : '';
     }
     return `${verb} ${replacement}`;
+  }
+
+  resolveOmittedAppTargetFollowUp(input) {
+    const normalized = normalizeText(input);
+    if (!normalized) return '';
+
+    const match = normalized.match(/^(?:i\s+(?:told|said|asked|mentioned)\s+)?(.+?)\s+(?:also|too)$/) ||
+      normalized.match(/^(?:i\s+(?:told|said|asked|mentioned)\s+)(?:also|too)\s+(.+)$/) ||
+      normalized.match(/^(?:also|too)\s+(.+?)$/);
+    if (!match?.[1]) return '';
+
+    const target = this._cleanOmittedAppTarget(match[1]);
+    if (!target || this._looksLikeNonAppOmissionTarget(target)) return '';
+
+    const recentAppGroup = this.getLastAppGroup?.() || this.getLastAppAction?.() || null;
+    const appIntent = recentAppGroup?.entities?.appAction ||
+      (String(recentAppGroup?.intent || '').startsWith('app.') ? recentAppGroup.intent : '');
+    const verbByIntent = {
+      'app.open': 'open',
+      'app.close': 'close',
+      'app.switch': 'switch to'
+    };
+    const verb = verbByIntent[appIntent];
+    if (!verb) return '';
+
+    const previousTargets = Array.isArray(recentAppGroup?.entities?.appNames)
+      ? recentAppGroup.entities.appNames
+      : [recentAppGroup?.entities?.appName].filter(Boolean);
+    if (previousTargets.some(name => normalizeText(name) === normalizeText(target))) {
+      return '';
+    }
+
+    return `${verb} ${target}`;
   }
 
   resolveCorrectiveFollowUp(input) {
@@ -720,6 +756,23 @@ class ContextManager {
       data.path,
       data.query
     ].map(value => String(value || '').trim()).find(Boolean) || '';
+  }
+
+  _cleanOmittedAppTarget(value) {
+    return normalizeText(value)
+      .replace(/^(?:the|a|an)\s+/, '')
+      .replace(/^(?:app|application|target|one|thing)\s+/, '')
+      .replace(/^(?:open|close|launch|start|run|quit|exit|terminate|switch|focus)\s+/, '')
+      .replace(/\b(?:app|application|too|also|please|sir)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  _looksLikeNonAppOmissionTarget(target) {
+    const text = normalizeText(target);
+    if (!text) return true;
+    if (text.length > 80 || text.split(/\s+/).length > 5) return true;
+    return /\b(?:volume|vol|brightness|bright|timer|alarm|reminder|file|folder|message|search|question|answer)\b/.test(text);
   }
 
   _lastActionSummary(entry) {

@@ -1678,6 +1678,53 @@ describe('Assistant Confirmation Flow', function() {
     ]);
   });
 
+  it('should resolve omitted app targets from corrective chat follow-ups', async function() {
+    const routedInputs = [];
+    const router = {
+      process: async input => {
+        routedInputs.push(input);
+        if (input === 'close whatsapp and youtube set volume to 100') {
+          return {
+            commandId: 'cmd-mixed-close',
+            success: true,
+            intent: 'multi.command',
+            confidence: 1,
+            entities: { commands: ['close whatsapp', 'set volume to 100'] },
+            steps: [
+              { success: true, intent: 'app.close', entities: { appName: 'whatsapp' }, response: 'Closed WhatsApp.' },
+              { success: true, intent: 'volume.set', entities: { value: 100 }, response: 'Volume set to 100%.' }
+            ],
+            response: 'Done, sir. I closed WhatsApp and set the volume to 100%.'
+          };
+        }
+        return {
+          commandId: 'cmd-youtube-close',
+          success: true,
+          intent: 'app.close',
+          confidence: 1,
+          entities: { appName: 'youtube' },
+          response: 'Done, sir. I closed YouTube.'
+        };
+      }
+    };
+
+    const assistant = new Assistant({}, {
+      router,
+      learning: { enabled: false },
+      automation: {},
+      eventBus: { publish() {} }
+    });
+
+    await assistant.processCommand('close whatsapp and youtube set vol to 100');
+    const followUp = await assistant.processCommand('i told also youtube');
+
+    assert.equal(followUp.success, true);
+    assert.deepEqual(routedInputs, [
+      'close whatsapp and youtube set volume to 100',
+      'close youtube'
+    ]);
+  });
+
   it('should resolve app status context before window follow-ups', async function() {
     const routedInputs = [];
     const router = {
