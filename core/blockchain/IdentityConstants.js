@@ -1,0 +1,32 @@
+'use strict';
+
+const DEVICE_TYPES = Object.freeze({
+  DESKTOP: 'desktop',
+  PHONE: 'phone',
+  TABLET: 'tablet',
+  SERVER: 'server',
+  WEB: 'web'
+});
+
+const IDENTITY_STATUS = Object.freeze({
+  REGISTERING: 'REGISTERING',
+  REGISTERED: 'REGISTERED',
+  PENDING: 'PENDING',
+  FAILED: 'FAILED',
+  REVOKED: 'REVOKED',
+  UNKNOWN: 'UNKNOWN'
+});
+
+const IDENTITY_VERSION = 'openx-identity-v1';
+const BLOCKCHAIN_IDENTITY_VERSION = 1;
+const DEVICE_ID_PREFIX = 'OPENX';
+const DEVICE_ID_RANDOM_CHARS = 16;
+
+module.exports = {
+  DEVICE_TYPES,
+  IDENTITY_STATUS,
+  IDENTITY_VERSION,
+  BLOCKCHAIN_IDENTITY_VERSION,
+  DEVICE_ID_PREFIX,
+  DEVICE_ID_RANDOM_CHARS
+};

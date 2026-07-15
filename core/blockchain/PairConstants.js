@@ -1,0 +1,22 @@
+'use strict';
+
+const PAIR_STATUS = Object.freeze({
+  PENDING: 'PENDING',
+  WAITING_APPROVAL: 'WAITING_APPROVAL',
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED',
+  EXPIRED: 'EXPIRED',
+  REVOKED: 'REVOKED',
+  FAILED: 'FAILED'
+});
+
+const PAIR_VERSION = 'openx-pair-v1';
+const PAIR_TOKEN_BYTES = 32;
+const PAIR_NONCE_BYTES = 16;
+
+module.exports = {
+  PAIR_STATUS,
+  PAIR_VERSION,
+  PAIR_TOKEN_BYTES,
+  PAIR_NONCE_BYTES
+};

@@ -47,6 +47,9 @@ class PermissionValidator {
     this.failedAttempts = 0;
     this.maxFailedAttempts = config?.permissions?.maxFailedAttempts || 3;
     this.isAuthenticated = Boolean(config?.auth?.preAuthenticated);
+    this.blockchainPermissionProvider = typeof config?.permissions?.blockchainProvider === 'function'
+      ? config.permissions.blockchainProvider
+      : null;
   }
 
   validate(intent, entities, source) {
@@ -77,6 +80,9 @@ class PermissionValidator {
       };
     }
 
+    const blockchainCheck = this._checkBlockchainPermission(intent, source, entities);
+    if (!blockchainCheck.allowed) return blockchainCheck;
+
     const confirmationMessage = this._buildConfirmationMessage(intent, entities);
 
     const requiresConfirmation = Boolean(levelConfig.requiresConfirmation) &&
@@ -96,6 +102,33 @@ class PermissionValidator {
     if (!CLOSE_CONFIRMATION_OPTIONAL_SOURCES.has(normalizedSource)) return false;
     const intentId = String(intent?.id || intent?.action || '').trim();
     return CLOSE_INTENTS.has(intentId);
+  }
+
+  _checkBlockchainPermission(intent = {}, source = 'chat', entities = {}) {
+    if (!this.blockchainPermissionProvider) return { allowed: true };
+    const permissionName = permissionNameForIntent(intent, source);
+    try {
+      const result = this.blockchainPermissionProvider({
+        permissionName,
+        operation: intent.id || intent.action || permissionName,
+        intent,
+        entities,
+        source
+      });
+      if (result?.allowed === false) {
+        return {
+          allowed: false,
+          reason: result.reason || 'Blockchain permission denied',
+          response: 'Permission denied.',
+          requiresConfirmation: false,
+          permissionDecision: result.decision,
+          permissionStatus: result.permissionStatus || result.status
+        };
+      }
+    } catch (error) {
+      this.logger.warn('Blockchain permission check failed', { error: error.message });
+    }
+    return { allowed: true };
   }
 
   _buildConfirmationMessage(intent, entities) {
@@ -156,6 +189,18 @@ class PermissionValidator {
   getLevels() {
     return Object.keys(LEVEL_HIERARCHY);
   }
+}
+
+function permissionNameForIntent(intent = {}, source = 'chat') {
+  const normalizedSource = String(source || '').toLowerCase();
+  const id = String(intent.id || intent.action || '').toLowerCase();
+  if (normalizedSource === 'voice') return 'voiceCommands';
+  if (id.includes('clipboard')) return 'clipboard';
+  if (id.includes('notification')) return 'notifications';
+  if (id.includes('file.') || id.includes('folder.')) return 'desktopAutomation';
+  if (id.includes('media') || id.includes('camera') || id.includes('photo')) return 'gallery';
+  if (id.includes('system.') || id.includes('app.') || id.includes('browser.') || id.includes('window.')) return 'desktopAutomation';
+  return 'remoteCommands';
 }
 
 module.exports = PermissionValidator;

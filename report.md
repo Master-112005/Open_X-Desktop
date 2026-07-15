@@ -10,13 +10,14 @@ Version source: `package.json`
 
 Current version: `6.9.22`
 
-Branch / commit: `visual-memory-engine` / `d233a8c`
+Branch / commit: `Avalanche` / `c2f1689`
 
 ## Scope Scanned
 
 - Desktop Electron app under `apps/desktop`.
 - Assistant core under `core/assistant`.
 - Cloud connection, E2EE, pairing, command, and file transfer modules under `core/cloud`.
+- Avalanche blockchain foundation, identity, trusted pairing, device trust, and permission policy modules under `core/blockchain`.
 - Automation, communication, context, response, learning, linguistic, semantic, validation, verification, memory, and pipeline layers under `core`.
 - Desktop renderer UI, dynamic island, chat, planner, settings, security lock, and cloud pairing surfaces.
 - Test suites under `tests`.
@@ -24,9 +25,10 @@ Branch / commit: `visual-memory-engine` / `d233a8c`
 
 Approximate scan size:
 
-- `809` files under `core`, `apps`, and `tests`.
+- `860` files under `core`, `apps`, and `tests`.
 - `68` core test files under `tests/core`.
 - Visual Memory capability and gallery work has added new runtime, gallery, vision, and test surfaces under `core/assistant/capabilities`, `core/vision`, `apps/desktop/renderer/gallery`, and `tests/core`.
+- Blockchain integration work has added Avalanche clients, local identity/pair/trust/permission stores, Solidity registry contracts, registry clients, blockchain docs, and focused blockchain tests.
 
 ## Current Working Tree
 
@@ -37,6 +39,15 @@ The repository is actively modified. Current modified areas include:
 - `apps/desktop/preload.js`
 - `apps/desktop/renderer/gallery`
 - `config.js`
+- `core/blockchain`
+- `core/cloud/CloudCommandManager.js`
+- `core/cloud/CloudCommandRouter.js`
+- `core/cloud/CloudConnectionManager.js`
+- `core/cloud/CloudFileTransferManager.js`
+- `core/cloud/CloudPairingManager.js`
+- `docs/modules/blockchain*.md`
+- `docs/modules/device-trust-engine.md`
+- `docs/setup/blockchain.md`
 - `core/assistant/capabilities`
 - `core/assistant/automation/ActionRouter.js`
 - `core/assistant/index.js`
@@ -46,6 +57,7 @@ The repository is actively modified. Current modified areas include:
 - `core/automation`
 - `core/vision`
 - Visual Memory tests under `tests/core`
+- Blockchain tests under `tests/blockchain`
 
 These modifications are not reverted or discarded. The report reflects the current workspace state.
 
@@ -129,6 +141,64 @@ Known caveat:
 
 - Full `tests/core/assistant.test.js` still has unrelated expectation failures around normalized casing, time punctuation, and feedback prompt behavior. Those failures existed outside the latest plural-app follow-up change and should be handled in a dedicated cleanup pass.
 
+Passed Avalanche blockchain, trust, permission, and cloud authorization validation:
+
+```powershell
+npx mocha "tests/blockchain/**/*.test.js"
+```
+
+Result:
+
+```text
+28 passing
+```
+
+Passed focused permission/cloud relay validation:
+
+```powershell
+npx mocha "tests/core/permissions.test.js" "tests/core/cloud-command-manager.test.js" "tests/core/cloud-file-transfer-manager.test.js" "tests/core/cloud-connection.test.js"
+```
+
+Result:
+
+```text
+27 passing
+```
+
+Passed current lint validation:
+
+```powershell
+npm run lint
+```
+
+Passed mobile syntax validation for permission-related changes:
+
+```powershell
+node -e "const babel=require('@babel/core'); for (const f of ['src/services/permissions.js','src/context/AppContext.jsx']) babel.transformFileSync(f,{presets:['babel-preset-expo'],babelrc:false,configFile:false}); console.log('mobile babel syntax ok')"
+```
+
+Result:
+
+```text
+mobile babel syntax ok
+```
+
+Passed server relay module load check:
+
+```powershell
+node -e "require('./src/websocket/RelayWebSocketServer'); console.log('server relay syntax ok')"
+```
+
+Result:
+
+```text
+server relay syntax ok
+```
+
+Additional caveat:
+
+- Full `npm test` has timed out in this workspace during recent runs. Focused blockchain, permission, cloud command, cloud file transfer, cloud connection, lint, mobile Babel syntax, and server relay checks are passing.
+
 ## Major Current Capabilities Confirmed
 
 ### Assistant App Command Handling
@@ -170,6 +240,48 @@ Done, sir. I closed Chrome, but I could not close Instagram because Instagram st
 - Desktop cloud file transfer manager is wired for incoming transfer prompts, progress, accept/reject, and presence updates.
 - Desktop cloud E2EE helpers are present under `core/cloud/CloudE2EE.js`.
 - Pair box metadata is consumed when displaying connected devices.
+- Cloud relay packets are checked against the Device Trust Engine before outbound send and before inbound packets reach higher-level command/file/profile handlers.
+- Cloud command requests, schedule sync, and cloud file-transfer control packets now pass through the blockchain permission manager before execution or relay.
+
+### Avalanche Blockchain Integration
+
+OpenX now includes optional Avalanche C-Chain integration under `core/blockchain`. Blockchain support remains disabled by default and local-first behavior is preserved when RPC or registry contracts are unavailable.
+
+Implemented phases:
+
+- Phase 1: `AvalancheClient`, `NetworkManager`, `BlockchainService`, health tracking, retry/timeout handling, and configuration for Fuji, mainnet, and local networks.
+- Phase 2: local device identity, secure wallet store abstraction, non-PII device IDs, `IdentityRegistry.sol`, and identity registration/verification APIs.
+- Phase 3: trusted pairing metadata, deterministic pair hashes, `PairRegistry.sol`, local pair store, and CloudPairingManager integration.
+- Phase 4: Device Trust Engine with `TRUSTED`, `PENDING`, `BLOCKED`, `REVOKED`, `UNKNOWN`, and `EXPIRED` states; local trust cache; `DeviceTrustRegistry.sol`; and relay authorization checks.
+- Phase 5: blockchain-backed permission policy with `GRANTED`, `DENIED`, `PENDING`, `REVOKED`, `EXPIRED`, and `UNKNOWN` states; local permission cache; `PermissionRegistry.sol`; and desktop/mobile authorization integration.
+
+Primary service APIs now include:
+
+```text
+BlockchainService.checkTrust()
+BlockchainService.refreshTrust()
+BlockchainService.verifyTrust()
+BlockchainService.cacheTrust()
+BlockchainService.invalidateTrust()
+BlockchainService.subscribeTrustUpdates()
+BlockchainService.grantPermission()
+BlockchainService.removePermission()
+BlockchainService.updatePermission()
+BlockchainService.checkPermission()
+BlockchainService.refreshPermission()
+BlockchainService.synchronizePermissions()
+BlockchainService.permissionExists()
+BlockchainService.cachePermission()
+BlockchainService.subscribePermissionUpdates()
+```
+
+Important security properties:
+
+- Contracts are hidden behind manager/client adapters and are not exposed to assistant, cloud, renderer, or mobile layers.
+- Private keys, seed phrases, passwords, and raw pair tokens are not stored in JSON caches.
+- Trust and permission decisions are cache-first for low latency and do not perform per-packet blockchain calls.
+- Empty registry addresses keep OpenX backward compatible; strict trust/permission mode can be enabled through environment variables.
+- Pairing seeds local trust and default communication permissions so newly paired devices work offline and can refresh from chain when registries are configured.
 
 ### Crash Recovery And Resource Handling
 
@@ -253,6 +365,7 @@ Input source
 | Command router | `core/assistant/automation/ActionRouter.js` | Converts normalized human commands into concrete intent IDs and entity payloads, handles multi-command splitting, app/file/media/browser/schedule/utility routing, and response summaries. |
 | Automation dispatcher | `core/automation/index.js` plus automation modules | Executes desktop actions such as app open/close, browser, files, folders, media, planner, scheduler, screenshot/recording, system, volume, brightness, and Windows actions. |
 | Response generation | `core/assistant/response/ResponseGenerator.js` | Converts success/error/clarification/confirmation states into user-facing assistant text. |
+| Blockchain security | `core/blockchain/BlockchainService.js` | Optional Avalanche-backed identity, pairing, device trust, and permission policy entry point. |
 
 ### NLP And Language Understanding
 
@@ -355,11 +468,14 @@ Key folders:
 - `core/assistant/validation`
 - `core/assistant/decision`
 - `core/assistant/verification`
+- `core/blockchain`
 - `apps/desktop/permissions.js`
 - `apps/desktop/electron/security.js`
 - `apps/desktop/security-lock.js`
 
 Validation checks constraints, permissions, confirmation requirements, safety rules, context readiness, and entity completeness.
+
+Permission checks now combine local OpenX permission levels, source-specific permission guards, Device Trust Engine results for paired devices, and blockchain-backed permission policy where configured.
 
 Verification checks whether expected outcomes appear true after execution. Examples include app/window verification, browser state verification, reminder verification, transfer verification, cloud verification, and execution verification.
 
@@ -540,11 +656,11 @@ Cloud modules live under `core/cloud`.
 
 | Module | Responsibility |
 |---|---|
-| `CloudConnectionManager.js` | Relay WebSocket lifecycle, reconnect, status, device list, notifications, relay packets. |
-| `CloudPairingManager.js` | Pair token creation, QR payloads, approval/rejection, pairing status. |
-| `CloudCommandManager.js` | Cloud assistant command requests, schedule sync, routing, execution timeout handling. |
-| `CloudCommandRouter.js` | Cloud command integration and event routing. |
-| `CloudFileTransferManager.js` | Cloud file transfer lifecycle, incoming/outgoing transfers, accept/reject, progress. |
+| `CloudConnectionManager.js` | Relay WebSocket lifecycle, reconnect, status, device list, notifications, relay packets, and cache-first device trust checks. |
+| `CloudPairingManager.js` | Pair token creation, blockchain pair metadata, QR payloads, approval/rejection, pairing status. |
+| `CloudCommandManager.js` | Cloud assistant command requests, schedule sync, permission authorization, routing, execution timeout handling. |
+| `CloudCommandRouter.js` | Cloud command integration, permission guard propagation, and event routing. |
+| `CloudFileTransferManager.js` | Cloud file transfer lifecycle, permission authorization, incoming/outgoing transfers, accept/reject, progress. |
 | `CloudFileTransferProtocol.js` | Transfer packet/message protocol. |
 | `CloudTransferIntegrity.js` | Transfer integrity and checksums. |
 | `CloudE2EE.js` | JSON/packet encryption helpers and secure packet channel. |
@@ -562,8 +678,40 @@ Desktop cloud features include:
 - mobile schedule sync;
 - phone notification display;
 - encrypted relay packet support;
+- device trust enforcement before relay packets are delivered to command/file/profile handlers;
+- permission authorization before remote commands, schedule sync, and file-transfer operations;
 - incoming cloud file-transfer prompt;
 - progress and presence updates.
+
+### Blockchain Security Layer
+
+Blockchain modules live under `core/blockchain`.
+
+| Module | Responsibility |
+|---|---|
+| `BlockchainService.js` | Public service facade for lifecycle, diagnostics, identity, pairing, trust, and permission APIs. |
+| `AvalancheClient.js` | Ethers-based Avalanche C-Chain JSON-RPC client with timeout/retry/health behavior. |
+| `IdentityManager.js` / `DeviceIdentity.js` | Local non-PII device identity and optional registry registration/verification. |
+| `BlockchainPairManager.js` / `PairRecord.js` | Pair hash creation, local pair trust state, and optional registry synchronization. |
+| `DeviceTrustEngine.js` / `TrustManager.js` | Cache-first trust checks before device communication proceeds. |
+| `PermissionManager.js` / `PermissionRecord.js` | Cache-first permission decisions combining OS, local, and blockchain policy. |
+| `TrustCache.js` / `PermissionCache.js` | Local non-secret JSON caches with TTL, expiration, invalidation, and flush behavior. |
+| `contracts/*.sol` | `IdentityRegistry`, `PairRegistry`, `DeviceTrustRegistry`, and `PermissionRegistry` Solidity contracts. |
+| `contracts/*Client.js` | Internal registry adapters used by managers; contracts are not exposed directly to app layers. |
+
+Desktop integration points:
+
+- `apps/desktop/electron/main.js` initializes blockchain stores and secure wallet storage.
+- `CloudConnectionManager` checks device trust before relay packet send/emit.
+- `CloudCommandManager` checks permission before remote command and schedule-sync execution.
+- `CloudFileTransferManager` checks permission before transfer send/control packets.
+- `apps/desktop/permissions.js` calls the blockchain permission provider after existing local level/auth checks.
+
+Mobile integration points:
+
+- `OpenX_Mobile/mobile/src/services/blockchainIdentity.js` handles mobile identity, pairing trust, and trust cache.
+- `OpenX_Mobile/mobile/src/services/permissions.js` stores blockchain-style permission records and checks cached decisions.
+- `OpenX_Mobile/mobile/src/context/AppContext.jsx` checks cached permission policy before mobile commands and file transfers.
 
 ### Crash Recovery And Stability
 
@@ -593,7 +741,10 @@ Security-sensitive areas:
 - Electron IPC validation in `apps/desktop/electron/security.js`;
 - personal security lock in `apps/desktop/security-lock.js`;
 - safe storage usage for cloud E2EE keys in Electron main;
+- Electron `safeStorage` use for blockchain wallet private key storage;
 - cloud packet encryption through `CloudE2EE.js`;
+- device trust checks before relay packets are sent or emitted;
+- blockchain permission policy checks before protected remote operations;
 - renderer security tests;
 - security critical tests;
 - lock-protected pairing controls;
@@ -602,6 +753,7 @@ Security-sensitive areas:
 Known security rule:
 
 - Sensitive values such as passwords, tokens, API keys, private keys, OTPs, PINs, and credentials must not be stored in normal assistant history or learning memory.
+- Blockchain JSON caches store public/non-secret metadata only. Private keys, seed phrases, passwords, raw pair tokens, and contract internals must not be exposed to renderer, assistant, cloud, or mobile layers.
 
 ### Test Coverage Map
 
@@ -613,6 +765,8 @@ Important test groups:
 - `tests/core/cloud-connection.test.js`: cloud connection behavior.
 - `tests/core/cloud-file-transfer-manager.test.js`: cloud transfer manager.
 - `tests/core/cloud-pairing-manager.test.js`: cloud pairing manager.
+- `tests/blockchain/blockchain.test.js`: Avalanche foundation, identity, pairing, trust, permission cache, and service API coverage.
+- `tests/core/permissions.test.js`: desktop permission validator behavior.
 - `tests/core/electron-security.test.js`: Electron IPC security.
 - `tests/core/renderer-security.test.js`: renderer safety.
 - `tests/core/security-critical.test.js`: critical security behavior.
@@ -979,12 +1133,13 @@ Confirmation phrases support natural variants:
 
 ### Permission And External Guard Workflow
 
-There are two major permission gates:
+There are now three major permission gates:
 
 1. Router permission validator.
 2. External permission guard passed through source-specific context.
+3. Blockchain-backed `PermissionManager` cache checks for protected remote/device operations.
 
-The external guard is important for phone/cloud commands. A desktop user can allow or block remote command classes without changing local chat behavior.
+The external guard is important for phone/cloud commands. A desktop user can allow or block remote command classes without changing local chat behavior. The blockchain permission manager adds a policy source that remains local-first: cached permissions are checked synchronously, Avalanche is used for refresh/synchronization, and OpenX continues safely when the network is unavailable.
 
 Possible outcomes:
 
@@ -994,6 +1149,15 @@ Possible outcomes:
 | denied | Return permission denied response. |
 | requires confirmation | Store pending confirmation. |
 | requires auth/security lock | Prompt through security lock flow. |
+
+Blockchain permission outcomes map to:
+
+| Decision | Meaning |
+|---|---|
+| `ALLOW` | OS/local/blockchain policy permits the operation. |
+| `DENY` | Local or blockchain policy denied the operation. |
+| `REQUEST` | Permission is unknown, pending, or expired and should be refreshed/requested. |
+| `BLOCK` | Permission was revoked or an OS-level gate blocked the operation. |
 
 ### Automation Engine Execution Workflow
 
@@ -1431,6 +1595,8 @@ The system records diagnostics through:
 - voice diagnostics;
 - cloud request IDs;
 - transfer IDs;
+- blockchain health and network status;
+- trust/permission decision reason and cached status;
 - operation deadlines.
 
 For production debugging, the most useful fields are:
@@ -1445,6 +1611,9 @@ For production debugging, the most useful fields are:
 - `data.matchedWindow`
 - `error`
 - `executionContext.operationId`
+- `blockchain.health.connected`
+- `trust.reason`
+- `permissions.reason`
 
 ## Blockers And Risks
 
@@ -1468,6 +1637,14 @@ For production debugging, the most useful fields are:
 
    Many assistant files are modified. Before release, run a clean full validation pass and review all changed files as one integration set.
 
+6. Blockchain registry deployment and strict mode
+
+   Identity, pair, trust, and permission registries are optional and empty by default. Production rollout needs deployed registry addresses, funded signing wallets where writes are required, and explicit decisions about strict mode versus backward-compatible unknown-device/unknown-permission behavior.
+
+7. Full test-suite runtime
+
+   Full `npm test` has timed out in this workspace. Focused blockchain, permission, cloud command, file-transfer, cloud connection, lint, mobile Babel syntax, and server relay checks are passing, but a release candidate should still get a full clean validation pass.
+
 ## Recommended Next Actions
 
 1. Normalize the full `tests/core/assistant.test.js` expectations where current behavior intentionally lowercases or normalizes routed input.
@@ -1489,6 +1666,15 @@ For production debugging, the most useful fields are:
    - cloud pairing test
    - cloud file transfer test
    - notification grouping test
+4. Deploy or mock-test Avalanche registry contracts end to end:
+   - `IdentityRegistry.sol`
+   - `PairRegistry.sol`
+   - `DeviceTrustRegistry.sol`
+   - `PermissionRegistry.sol`
+5. Decide production policy for:
+   - unknown devices when no trust registry is configured
+   - unknown permissions when no permission registry is configured
+   - expired cache behavior during offline mode
    - installer smoke test
 
 ## Latest Directory Tree Additions

@@ -32,6 +32,7 @@ class CloudFileTransferManager extends EventEmitter {
     this.timeoutMs = Number.isFinite(options.timeoutMs)
       ? Math.max(5000, Math.round(options.timeoutMs))
       : DEFAULT_TIMEOUT_MS;
+    this.permissionManager = options.permissionManager || null;
     this.outgoing = new Map();
     this.incoming = new Map();
     this.started = false;
@@ -86,6 +87,12 @@ class CloudFileTransferManager extends EventEmitter {
     if (!status.device?.deviceId || !status.owner?.id) throw new Error('Cloud device is not registered.');
     const destinationDeviceId = String(deviceId || '').trim();
     if (!destinationDeviceId) throw new Error('Destination cloud device is required.');
+    const permission = this.checkPermission({
+      deviceId: destinationDeviceId,
+      permissionName: 'fileTransfer',
+      operation: 'cloud-file-transfer-send'
+    });
+    if (!permission.allowed) throw new Error(`Permission denied: ${permission.reason || 'fileTransfer'}`);
 
     const resolvedPath = path.resolve(String(sourcePath || '').trim());
     const stats = await fs.promises.stat(resolvedPath);
@@ -430,6 +437,14 @@ class CloudFileTransferManager extends EventEmitter {
   }
 
   sendControl(transfer, action, payload) {
+    const permission = this.checkPermission({
+      deviceId: transfer.destinationDeviceId === this.getLocalDeviceId()
+        ? transfer.sourceDeviceId
+        : transfer.destinationDeviceId,
+      permissionName: 'fileTransfer',
+      operation: `cloud-file-transfer-${action}`
+    });
+    if (!permission.allowed) return false;
     const packet = {
       packetId: createId('cloud_file_packet'),
       protocolVersion: PROTOCOL_VERSION,
@@ -454,6 +469,11 @@ class CloudFileTransferManager extends EventEmitter {
       }
     };
     return this.connectionManager?.sendRelayPacket?.(packet) === true;
+  }
+
+  checkPermission(input = {}) {
+    if (!this.permissionManager?.checkPermission) return { allowed: true, reason: 'permission-manager-unavailable' };
+    return this.permissionManager.checkPermission(input);
   }
 
   sendError(transferOrPacket, transferId, code, message) {

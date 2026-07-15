@@ -40,6 +40,7 @@
   "dependencies": {
     "active-win": "8.2.1",
     "archiver": "^8.0.0",
+    "ethers": "^6.17.0",
     "fuse.js": "7.4.1",
     "playwright": "^1.61.1",
     "qrcode": "^1.5.4",

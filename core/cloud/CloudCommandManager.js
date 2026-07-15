@@ -18,6 +18,7 @@ class CloudCommandManager extends EventEmitter {
     this.serializer = options.serializer || new CloudResponseSerializer();
     this.scheduleProvider = typeof options.scheduleProvider === 'function' ? options.scheduleProvider : null;
     this.scheduleUpsertHandler = typeof options.scheduleUpsertHandler === 'function' ? options.scheduleUpsertHandler : null;
+    this.permissionManager = options.permissionManager || null;
     this.executionTimeoutMs = Number.isFinite(options.executionTimeoutMs)
       ? Math.max(1000, Math.round(options.executionTimeoutMs))
       : DEFAULT_EXECUTION_TIMEOUT_MS;
@@ -76,6 +77,20 @@ class CloudCommandManager extends EventEmitter {
     }
 
     const request = validation.request;
+    const permission = this.checkPermission(request);
+    if (!permission.allowed) {
+      this.log('warn', 'Permission Denied', {
+        requestId: request.requestId,
+        sourceDeviceId: request.sourceDeviceId,
+        permissionName: permission.permissionName,
+        reason: permission.reason
+      });
+      this.sendSerializedResponse(this.serializer.error(request, 'permission-denied', 'Permission denied.', {
+        status: 'failed',
+        permission
+      }));
+      return { accepted: false, code: 'permission-denied', permission };
+    }
     this.lifecycle.set(request.requestId, {
       requestId: request.requestId,
       state: 'received',
@@ -224,6 +239,12 @@ class CloudCommandManager extends EventEmitter {
     try {
       const result = await this.withTimeout(
         this.commandRouter.route(request.command, {
+          permissionGuard: (intent, entities) => this.checkPermission({
+            ...request,
+            intent,
+            entities,
+            permissionName: 'remoteCommands'
+          }),
           phoneContext: {
             deviceId: request.sourceDeviceId,
             deviceName: request.deviceName || null,
@@ -331,6 +352,21 @@ class CloudCommandManager extends EventEmitter {
         { status: 'failed' }
       ));
     }
+  }
+
+  checkPermission(input = {}) {
+    const feature = String(input.feature || '').trim();
+    const permissionName = input.permissionName || (feature === 'schedule-sync' ? 'calendar' : 'remoteCommands');
+    if (!this.permissionManager?.checkPermission) return { allowed: true, permissionName, reason: 'permission-manager-unavailable' };
+    const result = this.permissionManager.checkPermission({
+      deviceId: input.sourceDeviceId,
+      permissionName,
+      operation: feature || input.operation || permissionName,
+      ownerId: input.ownerId,
+      sourceDeviceId: input.sourceDeviceId,
+      destinationDeviceId: input.destinationDeviceId
+    });
+    return { permissionName, ...result };
   }
 
   sendSerializedResponse(packet) {

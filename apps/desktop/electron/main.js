@@ -28,6 +28,7 @@ const { AssistantEventBus, EVENTS, Logger } = require('../../../core/assistant/D
 const { ensureDataRoot, migrateLegacyData } = require('../../../core/assistant/Data');
 const { VisualMemoryEngine } = require('../../../core/assistant/capabilities/visual-memory');
 const { CloudCommandManager, CloudConnectionManager, CloudFileTransferManager, CloudLogger, CloudPairingManager } = require('../../../core/cloud');
+const { BlockchainService, LocalIdentityStore, LocalPairStore, SecureWalletStore, TrustCache, PermissionCache } = require('../../../core/blockchain');
 const CrashRecoveryPolicy = require('./crash-recovery');
 const OpenXSecurityLock = require('../security-lock');
 const {
@@ -207,6 +208,7 @@ let cloudPairingManager = null;
 let cloudCommandManager = null;
 let cloudFileTransferManager = null;
 let cloudProfileSyncRegistered = false;
+let blockchainService = null;
 const rendererCrashHistory = new Map();
 const recoveryTimeouts = new Set();
 const unresponsiveTimeouts = new Map();
@@ -2181,7 +2183,10 @@ function createCloudSecureKeyStore() {
 }
 
 function initializeCloudConnection() {
-  if (cloudConnectionManager) return cloudConnectionManager;
+  if (cloudConnectionManager) {
+    cloudConnectionManager.setTrustEngine?.(blockchainService);
+    return cloudConnectionManager;
+  }
   const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG.app?.dataPaths || {};
   const cloudLogger = new CloudLogger({
     logger: mainLogger,
@@ -2191,6 +2196,7 @@ function initializeCloudConnection() {
     settings: runtimeConfig?.cloud || {},
     version: app.getVersion?.() || BASE_CONFIG.app?.version || '0.0.0',
     e2eeMasterKey: loadCloudE2EEMasterKey(),
+    trustEngine: blockchainService,
     logger: cloudLogger
   });
   cloudConnectionManager.on('status', status => sendCloudStatus(status));
@@ -2207,6 +2213,7 @@ function initializeCloudPairing() {
   cloudPairingManager = new CloudPairingManager({
     connectionManager: manager,
     logger: mainLogger,
+    blockchainService,
     secureKeyStore: createCloudSecureKeyStore(),
     tokenTtlMs: runtimeConfig?.cloud?.pairTokenTtlMs || 5 * 60 * 1000
   });
@@ -2224,6 +2231,9 @@ function initializeCloudPairing() {
       type: result?.type
     });
     if (result?.type === 'cloud-pair:paired') {
+      cacheTrustFromPairingResult(result).catch(error => {
+        mainLogger.warn('[BLOCKCHAIN] Failed to cache trusted paired device', { error: error.message });
+      });
       setTimeout(() => broadcastProfileSync(), 500).unref?.();
     }
   });
@@ -2241,6 +2251,7 @@ function initializeCloudCommands() {
     logger: mainLogger,
     scheduleProvider: getScheduleSyncSnapshot,
     scheduleUpsertHandler: upsertScheduleFromPhone,
+    permissionManager: blockchainService,
     executionTimeoutMs: cloudSettings.commandExecutionTimeoutMs || 60000,
     queueMode: cloudSettings.commandQueueMode || 'queue',
     maxQueueSize: cloudSettings.commandMaxQueueSize || 25
@@ -2284,6 +2295,7 @@ function initializeCloudFileTransfers() {
     receiveDirectory: runtimeConfig?.app?.dataPaths?.cloudReceivedDir,
     tempDirectory: runtimeConfig?.app?.dataPaths?.cloudTempDir,
     chunkBytes: runtimeConfig?.cloud?.fileTransferChunkBytes || 12 * 1024,
+    permissionManager: blockchainService,
     timeoutMs: runtimeConfig?.cloud?.fileTransferTimeoutMs || 10 * 60 * 1000
   });
   cloudFileTransferManager.on('incoming-transfer', transfer => {
@@ -2991,6 +3003,15 @@ async function cleanupRuntime() {
         cloudConnectionManager = null;
       }
     }
+    if (blockchainService) {
+      try {
+        await blockchainService.shutdown('runtime-cleanup');
+      } catch (error) {
+        mainLogger.error('[BLOCKCHAIN] Cleanup failed', { error: error.message });
+      } finally {
+        blockchainService = null;
+      }
+    }
     destroyTextToSpeech();
     await destroyAssistantInstance();
     if (visualMemoryEngine) {
@@ -3319,6 +3340,10 @@ async function initializeAssistant() {
       ...(runtimeConfig.desktopActions || {}),
       openGallery: (view = 'timeline') => createGalleryWindow(view, { lowerChat: true })
     },
+    permissions: {
+      ...(runtimeConfig.permissions || {}),
+      blockchainProvider: input => checkBlockchainPermission(input)
+    },
     visualMemoryApi: getLazyVisualMemoryApi()
   };
   assistant = new Assistant(runtimeConfig, { eventBus, visualMemoryApi: runtimeConfig.visualMemoryApi });
@@ -3384,6 +3409,179 @@ function initializeCloudMobileRuntime() {
   }
   if (assistant?.automation) {
     assistant.automation.fileTransferManager = cloudTransfers;
+  }
+}
+
+async function cacheTrustFromPairingResult(result = {}) {
+  if (!blockchainService?.cacheTrust) return null;
+  const phoneDeviceId = String(result.phoneDeviceId || result.device?.deviceId || '').trim();
+  if (!phoneDeviceId) return null;
+  const trust = await blockchainService.cacheTrust({
+    deviceId: phoneDeviceId,
+    walletAddress: result.security?.phoneWallet || result.blockchain?.phoneWallet || '',
+    trustStatus: 'TRUSTED',
+    lastVerified: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + (runtimeConfig?.blockchain?.trust?.cacheTtlMs || 24 * 60 * 60 * 1000)).toISOString(),
+    network: runtimeConfig?.blockchain?.network || 'fuji',
+    source: 'pairing',
+    transactionHash: result.blockchain?.transactionHash || '',
+    blockNumber: result.blockchain?.blockNumber || null
+  });
+  if (blockchainService?.cachePermission) {
+    for (const permissionName of ['remoteCommands', 'fileTransfer', 'receiveFiles', 'sendFiles', 'notifications']) {
+      await blockchainService.cachePermission({
+        deviceId: phoneDeviceId,
+        walletAddress: trust.walletAddress || '',
+        permissionName,
+        status: 'GRANTED',
+        grantedBy: trust.walletAddress || '',
+        source: 'pairing',
+        transactionHash: trust.transactionHash || '',
+        blockNumber: trust.blockNumber || null
+      }).catch(error => {
+        mainLogger.warn('[BLOCKCHAIN] Failed to cache paired device permission', {
+          permissionName,
+          error: error.message
+        });
+      });
+    }
+  }
+  return trust;
+}
+
+function checkBlockchainPermission(input = {}) {
+  if (!blockchainService?.checkPermission) {
+    return { allowed: true, decision: 'ALLOW', status: 'UNKNOWN', reason: 'permission-manager-unavailable' };
+  }
+  const cloudStatus = cloudConnectionManager?.getStatus?.() || {};
+  const deviceId = String(
+    input.deviceId ||
+    input.sourceDeviceId ||
+    input.destinationDeviceId ||
+    cloudStatus.device?.deviceId ||
+    ''
+  ).trim();
+  return blockchainService.checkPermission({
+    ...input,
+    deviceId,
+    permissionName: input.permissionName || input.operation || 'remoteCommands'
+  });
+}
+
+function getBlockchainIdentityPath() {
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG.app?.dataPaths || {};
+  return path.join(dataPaths.securityDir || BASE_CONFIG.app.dataPaths.securityDir, 'blockchain-identity.json');
+}
+
+function getBlockchainWalletKeyPath() {
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG.app?.dataPaths || {};
+  return path.join(dataPaths.securityDir || BASE_CONFIG.app.dataPaths.securityDir, 'blockchain-wallet.key');
+}
+
+function getBlockchainPairsPath() {
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG.app?.dataPaths || {};
+  return path.join(dataPaths.securityDir || BASE_CONFIG.app.dataPaths.securityDir, 'blockchain-pairs.json');
+}
+
+function getBlockchainTrustCachePath() {
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG.app?.dataPaths || {};
+  return path.join(dataPaths.securityDir || BASE_CONFIG.app.dataPaths.securityDir, 'blockchain-trust-cache.json');
+}
+
+function getBlockchainPermissionCachePath() {
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG.app?.dataPaths || {};
+  return path.join(dataPaths.securityDir || BASE_CONFIG.app.dataPaths.securityDir, 'blockchain-permission-cache.json');
+}
+
+function createBlockchainSecureWalletStore() {
+  const keyPath = getBlockchainWalletKeyPath();
+  return new SecureWalletStore({
+    secretStore: {
+      async loadPrivateKey() {
+        if (!fs.existsSync(keyPath)) return '';
+        if (!safeStorage.isEncryptionAvailable()) {
+          throw new Error('Electron safeStorage encryption is unavailable.');
+        }
+        const encrypted = fs.readFileSync(keyPath, 'utf8').trim();
+        if (!encrypted) return '';
+        return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
+      },
+      async savePrivateKey(privateKey) {
+        if (!safeStorage.isEncryptionAvailable()) {
+          throw new Error('Electron safeStorage encryption is unavailable.');
+        }
+        fs.mkdirSync(path.dirname(keyPath), { recursive: true, mode: 0o700 });
+        const encrypted = safeStorage.encryptString(String(privateKey || ''));
+        fs.writeFileSync(keyPath, encrypted.toString('base64'), { encoding: 'utf8', mode: 0o600 });
+        try { fs.chmodSync(keyPath, 0o600); } catch (_) {}
+        return true;
+      },
+      async deletePrivateKey() {
+        if (fs.existsSync(keyPath)) fs.rmSync(keyPath, { force: true });
+        return true;
+      }
+    }
+  });
+}
+
+async function initializeBlockchainRuntime() {
+  if (blockchainService) return blockchainService.getStatus();
+  blockchainService = new BlockchainService({
+    config: runtimeConfig || BASE_CONFIG,
+    logger: mainLogger,
+    identityStore: new LocalIdentityStore({
+      filePath: getBlockchainIdentityPath(),
+      deviceType: runtimeConfig?.blockchain?.identity?.deviceType || 'desktop'
+    }),
+    pairStore: new LocalPairStore({
+      filePath: getBlockchainPairsPath()
+    }),
+    trustCache: new TrustCache({
+      filePath: getBlockchainTrustCachePath(),
+      defaultTtlMs: runtimeConfig?.blockchain?.trust?.cacheTtlMs
+    }),
+    permissionCache: new PermissionCache({
+      filePath: getBlockchainPermissionCachePath(),
+      defaultTtlMs: runtimeConfig?.blockchain?.permissions?.cacheTtlMs
+    }),
+    walletSecureStore: createBlockchainSecureWalletStore()
+  });
+  blockchainService.on('blockchain.healthChanged', status => {
+    mainLogger.info('[BLOCKCHAIN] Health changed', {
+      connected: status?.connected,
+      healthy: status?.healthy,
+      latencyMs: status?.latencyMs,
+      lastBlock: status?.lastBlock
+    });
+  });
+  blockchainService.on('blockchain.error', error => {
+    mainLogger.warn('[BLOCKCHAIN] Service warning', {
+      code: error?.code,
+      message: error?.message
+    });
+  });
+
+  try {
+    const status = await blockchainService.initialize();
+    if (status.enabled && status.initialized) {
+      mainLogger.info('[BLOCKCHAIN] Runtime initialized', {
+        network: status.network?.id,
+        chainId: status.network?.chainId
+      });
+    } else if (!status.enabled) {
+      mainLogger.info('[BLOCKCHAIN] Runtime disabled');
+    } else {
+      mainLogger.warn('[BLOCKCHAIN] Runtime unavailable; continuing without blockchain', {
+        state: status.state,
+        error: status.health?.lastError || null
+      });
+    }
+    return status;
+  } catch (error) {
+    mainLogger.warn('[BLOCKCHAIN] Runtime initialization failed; continuing without blockchain', {
+      error: error.message
+    });
+    return blockchainService.getStatus();
   }
 }
 
@@ -3571,6 +3769,7 @@ app.whenReady().then(async () => {
   registerPowerRecoveryHandlers();
   createTray();
   await initializeAssistant();
+  await initializeBlockchainRuntime();
   initializeCloudConnection();
   initializeCloudPairing();
   initializeCloudCommands();

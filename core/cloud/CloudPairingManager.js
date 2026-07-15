@@ -14,6 +14,7 @@ class CloudPairingManager extends EventEmitter {
     this.connectionManager = options.connectionManager;
     this.qrCode = options.qrCode || QRCode;
     this.secureKeyStore = options.secureKeyStore || null;
+    this.blockchainService = options.blockchainService || null;
     this.logger = options.logger || console;
     this.now = options.now || (() => Date.now());
     this.tokenTtlMs = Number(options.tokenTtlMs) || DEFAULT_TOKEN_TTL_MS;
@@ -47,11 +48,25 @@ class CloudPairingManager extends EventEmitter {
     const relayUrl = this.connectionManager.getStatus().relayUrl;
     const pairingSecret = generateSecret();
     const masterKey = generateSecret();
+    let blockchainPair = null;
+    try {
+      if (this.blockchainService?.createPair) {
+        blockchainPair = await this.blockchainService.createPair({
+          pairToken: token.token,
+          ttlMs: options.ttlMs || this.tokenTtlMs
+        });
+      }
+    } catch (error) {
+      this.logger.warn('[CLOUD] Blockchain pair registration failed; continuing with relay pairing', {
+        error: error.message
+      });
+    }
     const payload = {
       version: CLOUD_PAIR_VERSION,
       relayUrl,
       pairToken: token.token,
       expiresAt: token.expiresAt,
+      blockchain: blockchainPair?.qr || null,
       security: {
         scheme: 'openx-e2ee-v1',
         enabled: true
@@ -63,7 +78,8 @@ class CloudPairingManager extends EventEmitter {
       u: relayUrl,
       t: token.token,
       e: token.expiresAt,
-      s: pairingSecret
+      s: pairingSecret,
+      b: blockchainPair?.qr || null
     };
     const qrDataUrl = await this.qrCode.toDataURL(JSON.stringify(qrPayload), {
       errorCorrectionLevel: 'M',
@@ -76,7 +92,8 @@ class CloudPairingManager extends EventEmitter {
       tokenId: token.tokenId,
       createdAt: token.createdAt,
       pairingSecret,
-      masterKey
+      masterKey,
+      blockchainPair
     };
     this.logger.info('[CLOUD] Cloud pairing QR generated', {
       tokenId: token.tokenId,
@@ -190,6 +207,7 @@ class CloudPairingManager extends EventEmitter {
         requestId: request.requestId || request.pairRequestId,
         tokenId: request.tokenId || '',
         phoneConnectionId: request.phoneConnectionId || '',
+        blockchain: request.blockchain || null,
         device: {
           name: request.device?.name || 'OpenX Mobile',
           type: request.device?.type || 'mobile'
@@ -197,13 +215,24 @@ class CloudPairingManager extends EventEmitter {
         createdAt: request.createdAt || this.now(),
         autoApproved: true
       });
-      const result = this.approvePairing(request.pairRequestId);
       this.emit('request', this.getStatus());
-      this.logger.info('[CLOUD] Cloud pairing auto-approved from active QR', {
-        pairRequestId: request.pairRequestId,
-        tokenId: request.tokenId || '',
-        success: result.success === true
-      });
+      this.verifyBlockchainPairRequest(request, current)
+        .then(verified => {
+          if (!verified) return;
+          const result = this.approvePairing(request.pairRequestId);
+          this.logger.info('[CLOUD] Cloud pairing auto-approved from active QR', {
+            pairRequestId: request.pairRequestId,
+            tokenId: request.tokenId || '',
+            blockchainTrusted: Boolean(request.blockchain?.pairHash),
+            success: result.success === true
+          });
+        })
+        .catch(error => {
+          this.logger.warn('[CLOUD] Blockchain pair trust verification failed', {
+            pairRequestId: request.pairRequestId,
+            error: error.message
+          });
+        });
       return;
     }
 
@@ -212,6 +241,7 @@ class CloudPairingManager extends EventEmitter {
       requestId: request.requestId || request.pairRequestId,
       tokenId: request.tokenId || '',
       phoneConnectionId: request.phoneConnectionId || '',
+      blockchain: request.blockchain || null,
       device: {
         name: request.device?.name || 'OpenX Mobile',
         type: request.device?.type || 'mobile'
@@ -219,6 +249,18 @@ class CloudPairingManager extends EventEmitter {
       createdAt: request.createdAt || this.now()
     });
     this.emit('request', this.getStatus());
+  }
+
+  async verifyBlockchainPairRequest(request, current) {
+    const expected = current?.blockchainPair?.pair || null;
+    if (!expected?.pairHash || !this.blockchainService?.getPair) return true;
+    const providedHash = String(request.blockchain?.pairHash || '').trim();
+    if (providedHash !== expected.pairHash) return false;
+    if (this.blockchainService.getStatus?.().pairing?.registryConfigured !== true) {
+      return true;
+    }
+    const pair = await this.blockchainService.getPair(expected.pairHash);
+    return String(pair?.status || '').toUpperCase() === 'APPROVED';
   }
 
   handlePairingResult(result = {}) {
@@ -251,8 +293,10 @@ class CloudPairingManager extends EventEmitter {
 
   validatePayload(payload) {
     const keys = Object.keys(payload).sort();
+    const allowed = ['blockchain', 'expiresAt', 'pairToken', 'relayUrl', 'security', 'version'];
     const required = ['expiresAt', 'pairToken', 'relayUrl', 'security', 'version'];
-    if (keys.length !== required.length || keys.some((key, index) => key !== required[index])) {
+    if (!required.every(key => Object.prototype.hasOwnProperty.call(payload, key)) ||
+        keys.some(key => !allowed.includes(key))) {
       throw new TypeError('Invalid cloud pairing payload fields');
     }
     const relayUrl = new URL(payload.relayUrl);

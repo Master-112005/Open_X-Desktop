@@ -82,6 +82,7 @@ class CloudConnectionManager extends EventEmitter {
       logger: this.logger,
       now: this.now
     });
+    this.trustEngine = options.trustEngine || null;
 
     this.socket = null;
     this.state = STATES.DISCONNECTED;
@@ -147,6 +148,11 @@ class CloudConnectionManager extends EventEmitter {
       this.restartHeartbeat();
     }
     return this.getStatus();
+  }
+
+  setTrustEngine(trustEngine) {
+    this.trustEngine = trustEngine || null;
+    return Boolean(this.trustEngine);
   }
 
   async connect(settings = {}) {
@@ -228,6 +234,17 @@ class CloudConnectionManager extends EventEmitter {
   }
 
   sendRelayPacket(packet) {
+    const trust = this.checkPacketTrust(packet, 'outbound-relay-packet');
+    if (!trust.allowed) {
+      this.logger.warn('Relay packet blocked by trust engine', {
+        packetId: packet?.packetId || null,
+        destinationDeviceId: packet?.destinationDeviceId || null,
+        decision: trust.decision,
+        trustStatus: trust.trustStatus,
+        reason: trust.reason
+      });
+      return false;
+    }
     const protectedPacket = this.protectRelayPacket(packet);
     const sent = this.send({
       type: 'relay:packet',
@@ -562,7 +579,20 @@ class CloudConnectionManager extends EventEmitter {
     }
     if (payload?.type === 'relay:packet') {
       const message = this.unprotectRelayMessage(payload);
-      if (message) this.emit('relay-packet', message);
+      if (message) {
+        const trust = this.checkPacketTrust(message.packet, 'inbound-relay-packet');
+        if (!trust.allowed) {
+          this.emit('relay-error', {
+            type: 'relay:error',
+            code: 'trust-denied',
+            packetId: message?.packet?.packetId || null,
+            requestId: message?.packet?.requestId || null,
+            message: 'Device trust check denied this packet.'
+          });
+          return;
+        }
+        this.emit('relay-packet', message);
+      }
       return;
     }
     if (payload?.type === 'relay:ack') {
@@ -999,6 +1029,20 @@ class CloudConnectionManager extends EventEmitter {
     if (this.state === STATES.DISCONNECTING) return 'Disconnecting from the relay server...';
     if (this.state === STATES.ERROR) return this.lastError ? 'Unable to connect.' : 'Cloud connection needs attention.';
     return 'Cloud mode is disconnected. Local mode is active.';
+  }
+
+  checkPacketTrust(packet, operation) {
+    if (!this.trustEngine?.checkTrust) return { allowed: true, decision: 'ALLOW', trustStatus: 'UNKNOWN', reason: 'trust-engine-unavailable' };
+    const status = this.getStatus();
+    const localDeviceId = status.device?.deviceId || this.settings.deviceId || '';
+    const peerDeviceId = packet?.sourceDeviceId === localDeviceId
+      ? packet?.destinationDeviceId
+      : packet?.sourceDeviceId;
+    return this.trustEngine.checkTrust({
+      deviceId: peerDeviceId,
+      operation,
+      ownerId: packet?.ownerId || status.owner?.id || ''
+    });
   }
 }
 
