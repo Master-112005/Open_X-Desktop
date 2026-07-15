@@ -6,6 +6,10 @@ const { LinguisticUnderstandingStage } = require('../linguistic');
 const { SemanticUnderstandingStage } = require('../semantic');
 const { EntityUnderstandingStage } = require('../entities/index.js');
 const { MemoryContextStage } = require('../memory/index.js');
+const { VisualQueryUnderstandingStage } = require('../capabilities/visual-memory/runtime/query');
+const { CandidateFilteringStage } = require('../capabilities/visual-memory/runtime/filtering');
+const { MemoryIntelligenceStage } = require('../capabilities/visual-memory/runtime/intelligence');
+const { VisualMemoryCapabilityStage } = require('../capabilities');
 const { GoalIntentReasoningStage } = require('../reasoning/index.js');
 const { TaskPlanningStage } = require('../planning/index.js');
 const { AssistantExecutionStage, DecisionValidationAutomationStage } = require('../automation/index.js');
@@ -34,6 +38,10 @@ class PipelineManager {
       [new SemanticUnderstandingStage({ configuration: options.semantic || configuration.semantic || {}, logger }), { id: 'assistant.semantic.understanding', order: -25 }],
       [new EntityUnderstandingStage({ configuration: options.entities || configuration.entities || {}, logger }), { id: 'assistant.entity.understanding', order: -10 }],
       [new MemoryContextStage({ configuration: options.memory || configuration.memory || {}, logger }), { id: 'assistant.memory.context', order: -5 }],
+      [new VisualQueryUnderstandingStage({ configuration: options.visualQuery || configuration.visualQuery || {}, logger }), { id: 'assistant.visualQuery.understanding', order: -3 }],
+      [new CandidateFilteringStage({ configuration: options.visualCandidateFiltering || configuration.visualCandidateFiltering || {}, visualMemoryApi: options.visualMemoryApi || null, logger }), { id: 'assistant.visualCandidate.filtering', order: -2.5 }],
+      [new MemoryIntelligenceStage({ configuration: options.visualMemoryIntelligence || configuration.visualMemoryIntelligence || {}, visualMemoryApi: options.visualMemoryApi || null, logger }), { id: 'assistant.visualMemory.intelligence', order: -2.25 }],
+      [new VisualMemoryCapabilityStage({ configuration: options.visualMemoryCapability || configuration.visualMemoryCapability || {}, visualMemoryApi: options.visualMemoryApi || null, logger }), { id: 'assistant.capability.visualMemory', order: -2.1 }],
       [new GoalIntentReasoningStage({ configuration: options.reasoning || configuration.reasoning || {}, logger }), { id: 'assistant.goalIntent.reasoning', order: -2 }],
       [new TaskPlanningStage({ configuration: options.planning || configuration.planning || {}, logger }), { id: 'assistant.task.planning', order: -1 }],
       [new DecisionValidationAutomationStage({

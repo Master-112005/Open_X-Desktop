@@ -758,6 +758,12 @@ const openxApi = {
   closePlanner: () =>
     ipcRenderer.invoke('window:closePlanner'),
 
+  openGallery: (view = 'timeline') =>
+    ipcRenderer.invoke('window:openGallery', { view }),
+
+  closeGallery: () =>
+    ipcRenderer.invoke('window:closeGallery'),
+
   getConfig: () =>
     ipcRenderer.invoke('config:get'),
 
@@ -836,6 +842,15 @@ const openxApi = {
   deletePlannerEntry: (id) =>
     ipcRenderer.invoke('planner:deleteEntry', { id }),
 
+  getGalleryPhotos: (query = {}) =>
+    ipcRenderer.invoke('gallery:getPhotos', query),
+
+  getGalleryImageData: (photoId) =>
+    ipcRenderer.invoke('gallery:getImageData', { photoId }),
+
+  openGalleryPhoto: (photoId) =>
+    ipcRenderer.invoke('gallery:openPhoto', { photoId }),
+
   quit: () =>
     ipcRenderer.invoke('app:quit'),
 
@@ -909,6 +924,15 @@ const openxApi = {
     const handler = (_event, payload) => callback(payload);
     ipcRenderer.on('planner:entriesChanged', handler);
     return () => ipcRenderer.removeListener('planner:entriesChanged', handler);
+  },
+
+  onGalleryView: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Gallery view listener must be a function');
+    }
+    const handler = (_event, view) => callback(view);
+    ipcRenderer.on('gallery:view', handler);
+    return () => ipcRenderer.removeListener('gallery:view', handler);
   }
 };
 

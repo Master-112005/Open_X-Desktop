@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'none'; img-src 'self' file: data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+  <title>OpenX Gallery</title>
+  <link rel="stylesheet" href="./index.css">
+</head>
+<body>
+  <main class="gallery-shell">
+    <header class="titlebar">
+      <div class="window-title">
+        <span>OpenX</span>
+        <strong>Gallery</strong>
+      </div>
+      <div class="gallery-search" role="search">
+        <input id="gallery-search-input" type="search" autocomplete="off" placeholder="Search photos, dates, places">
+      </div>
+      <div class="window-controls">
+        <button class="pill-button" id="today-button" type="button">Today</button>
+        <button class="window-close" id="close-window" type="button" aria-label="Close gallery">X</button>
+      </div>
+    </header>
+
+    <section class="content-grid">
+      <aside class="navigation-panel" aria-label="Gallery sections">
+        <button class="nav-item active" type="button" data-view="timeline">Photos</button>
+        <button class="nav-item" type="button" data-view="favorites">Favorites</button>
+        <button class="nav-item" type="button" data-view="recent">Recent</button>
+        <div class="nav-summary">
+          <span id="photo-count">0 photos</span>
+          <span id="date-count">0 days</span>
+        </div>
+      </aside>
+
+      <section class="workspace" aria-label="Photo timeline">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Timeline</p>
+            <h1 id="gallery-heading">Photos</h1>
+          </div>
+          <p class="range-label" id="range-label">Loading</p>
+        </div>
+        <div class="photo-scroll" id="photo-scroll" tabindex="0">
+          <div class="empty-state" id="empty-state">No indexed photos yet.</div>
+          <div class="timeline" id="timeline"></div>
+          <button class="load-more" id="load-more" type="button" hidden>Load more</button>
+        </div>
+      </section>
+    </section>
+
+    <section class="viewer" id="viewer" aria-label="Photo viewer" hidden>
+      <button class="viewer-close" id="viewer-close" type="button" aria-label="Close viewer">X</button>
+      <img id="viewer-image" alt="">
+      <div class="viewer-meta">
+        <strong id="viewer-title">Photo</strong>
+        <span id="viewer-date"></span>
+      </div>
+    </section>
+  </main>
+
+  <script src="./index.js"></script>
+</body>
+</html>

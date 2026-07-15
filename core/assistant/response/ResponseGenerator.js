@@ -1114,6 +1114,11 @@ const RESPONSE_BUILDERS = {
       'Your timetable is open.',
       'Bringing up the timetable.'
     ]),
+    'visualMemory.openGallery': context => chooseVariant(responseSeed(context, 'visualMemory.openGallery'), [
+      'Opening OpenX Gallery.',
+      'OpenX Gallery is ready.',
+      'Bringing up your OpenX Gallery.'
+    ]),
     'calendar.add': context => {
       const entry = valueFromContext(context, 'entry', {});
       const title = entry?.title || valueFromContext(context, 'plannerText', 'that item');

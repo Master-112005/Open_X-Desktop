@@ -1,0 +1,167 @@
+'use strict';
+
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const {
+  VisualMemoryEngine,
+  VisualQueryEngine,
+  CandidateFilterEngine,
+  VisualMemoryIntelligenceEngine,
+  OUT_OF_SCOPE,
+  MemorySearchContract,
+  SearchSessionContract
+} = require('../../core/assistant/capabilities/visual-memory');
+const { PipelineManager } = require('../../core/assistant/pipeline');
+
+function ago(days) {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function candidatePool() {
+  const snapshot = {
+    photos: {
+      goaBeach: { id: 'goaBeach', fileName: 'IMG_1.jpg', filePath: 'C:/Pictures/Goa Trip/beach.jpg', fileType: 'jpg', createdAt: ago(20), folderId: 'goa' },
+      receipt: { id: 'receipt', fileName: 'receipt.png', filePath: 'C:/Pictures/Receipts/food_receipt.png', fileType: 'png', createdAt: ago(2), folderId: 'receipts' }
+    },
+    metadata: {
+      goaBeach: { id: 'goaBeach', photoId: 'goaBeach', filePath: 'C:/Pictures/Goa Trip/beach.jpg', fileType: 'jpg', createdAt: ago(20), width: 2000, height: 1200 },
+      receipt: { id: 'receipt', photoId: 'receipt', filePath: 'C:/Pictures/Receipts/food_receipt.png', fileType: 'png', createdAt: ago(2), width: 1080, height: 1400, photoType: 'receipt' }
+    },
+    folders: {
+      goa: { id: 'goa', label: 'Goa Trip', path: 'C:/Pictures/Goa Trip' },
+      receipts: { id: 'receipts', label: 'Receipts', path: 'C:/Pictures/Receipts' }
+    },
+    albums: {}
+  };
+  const visualQuery = new VisualQueryEngine().understand({
+    rawInput: 'show me photos from my Goa trip at the beach',
+    normalizedInput: 'show me photos from my goa trip at the beach',
+    resolvedContext: { confidence: 0.8 }
+  });
+  return {
+    visualQuery,
+    pool: new CandidateFilterEngine().buildCandidatePool({ visualQuery, databaseSnapshot: snapshot })
+  };
+}
+
+describe('Visual Memory Intelligence', () => {
+  it('turns visual query candidates and vision evidence into ranked memories', async () => {
+    const { visualQuery, pool } = candidatePool();
+    const engine = new VisualMemoryIntelligenceEngine();
+    const result = await engine.search({
+      visualQuery,
+      candidatePool: pool,
+      visionResults: {
+        goaBeach: {
+          scenes: [{ label: 'beach', confidence: 0.93 }],
+          objects: [{ label: 'friend', confidence: 0.8 }],
+          embeddings: [{ vector: [1, 0, 0], confidence: 0.9 }]
+        }
+      }
+    });
+
+    assert.strictEqual(result.success, true);
+    assert(result.reasoning.strategies.includes('memory-search'));
+    assert(result.reasoning.collections.some(collection => collection.id === 'trips'));
+    assert.strictEqual(result.results[0].photoId, 'goaBeach');
+    assert(result.results[0].confidence > 0.2);
+    assert.strictEqual(OUT_OF_SCOPE.includes('new-nlp'), true);
+  });
+
+  it('uses the Visual Memory API to build candidates and search memories', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-memory-intelligence-'));
+    const engine = new VisualMemoryEngine({ dataDir, logging: { console: false, file: false } });
+    await engine.api.start();
+    await engine.database.replaceTable('photos', {
+      goaBeach: { id: 'goaBeach', fileName: 'beach.jpg', filePath: 'C:/Pictures/Goa Trip/beach.jpg', fileType: 'jpg', createdAt: ago(20), folderId: 'goa' }
+    });
+    await engine.database.replaceTable('metadata', {
+      goaBeach: { id: 'goaBeach', photoId: 'goaBeach', filePath: 'C:/Pictures/Goa Trip/beach.jpg', fileType: 'jpg', createdAt: ago(20), width: 2000, height: 1200 }
+    });
+    await engine.database.replaceTable('folders', {
+      goa: { id: 'goa', label: 'Goa Trip', path: 'C:/Pictures/Goa Trip' }
+    });
+    const visualQuery = new VisualQueryEngine().understand({
+      rawInput: 'show me photos from my Goa trip',
+      normalizedInput: 'show me photos from my goa trip',
+      resolvedContext: { confidence: 0.8 }
+    });
+    const result = await engine.api.searchMemories({ visualQuery });
+
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.results[0].photoId, 'goaBeach');
+    assert(engine.api.getMemoryIntelligenceHealth().initialized);
+
+    await engine.api.shutdown();
+  });
+
+  it('integrates as an optional assistant pipeline stage through Visual Memory API', async () => {
+    let called = false;
+    const fakeApi = {
+      async buildCandidatePool() {
+        return { candidates: [{ photoId: 'one', path: 'C:/one.jpg', metadata: {}, photo: {} }], rejected: [] };
+      },
+      async searchMemories(input) {
+        called = true;
+        return {
+          success: true,
+          total: 1,
+          reasoning: { strategies: ['memory-search'] },
+          results: [{ id: 'memory:one', photoId: 'one', confidence: 0.7 }]
+        };
+      }
+    };
+    const manager = new PipelineManager({
+      visualMemoryApi: fakeApi,
+      commandExecutor: null,
+      logger: { debug() {}, info() {}, warn() {}, error() {} }
+    });
+    const ids = manager.builder.registry.list({ includeDisabled: true }).map(stage => stage.id);
+    assert(ids.indexOf('assistant.visualMemory.intelligence') > ids.indexOf('assistant.visualCandidate.filtering'));
+    assert(ids.indexOf('assistant.goalIntent.reasoning') > ids.indexOf('assistant.visualMemory.intelligence'));
+
+    const output = await manager.process({ input: 'show me photos from my goa trip', source: 'chat' });
+    const stage = output.stageResults.find(item => item.stageId === 'assistant.visualMemory.intelligence');
+    assert.strictEqual(called, true);
+    assert(stage);
+    assert.strictEqual(stage.output.total, 1);
+
+    await manager.destroy();
+  });
+
+  it('returns a valid empty result when candidate pool is missing', async () => {
+    const visualQuery = new VisualQueryEngine().understand({
+      rawInput: 'show me similar photos',
+      normalizedInput: 'show me similar photos',
+      resolvedContext: { confidence: 0.8 }
+    });
+    const engine = new VisualMemoryIntelligenceEngine();
+    const result = await engine.search({ visualQuery });
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.total, 0);
+  });
+
+  it('publishes explicit Phase 5 contracts and supports search continuation', async () => {
+    const { visualQuery, pool } = candidatePool();
+    const engine = new VisualMemoryIntelligenceEngine();
+    const result = await engine.search({
+      visualQuery,
+      candidatePool: pool,
+      options: { pageSize: 1, includeAllResults: true }
+    });
+
+    assert(MemorySearchContract.output.includes('continuationToken'));
+    assert(SearchSessionContract.supports.includes('pagination'));
+    assert.strictEqual(result.page, 1);
+    assert.strictEqual(result.pageSize, 1);
+    if (result.hasMore) {
+      const next = engine.continueSearch(result.continuationToken);
+      assert(next);
+      assert.strictEqual(next.page, 2);
+    }
+    const cancelled = engine.cancelSearch(result.session.id, 'user-request');
+    assert.strictEqual(cancelled.cancelled, true);
+  });
+});

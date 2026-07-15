@@ -1,6 +1,6 @@
 # OpenX Repository Report
 
-Report date: 2026-07-14
+Report date: 2026-07-15
 
 Repository: `OpenX`
 
@@ -8,9 +8,9 @@ Package: `openx`
 
 Version source: `package.json`
 
-Current version: `6.8.15`
+Current version: `6.9.22`
 
-Branch / commit: `main` / `a264616`
+Branch / commit: `visual-memory-engine` / `d233a8c`
 
 ## Scope Scanned
 
@@ -24,19 +24,28 @@ Branch / commit: `main` / `a264616`
 
 Approximate scan size:
 
-- `621` files under `core`, `apps`, and `tests`.
-- `58+` core test files under `tests/core`.
+- `809` files under `core`, `apps`, and `tests`.
+- `68` core test files under `tests/core`.
+- Visual Memory capability and gallery work has added new runtime, gallery, vision, and test surfaces under `core/assistant/capabilities`, `core/vision`, `apps/desktop/renderer/gallery`, and `tests/core`.
 
 ## Current Working Tree
 
 The repository is actively modified. Current modified areas include:
 
+- `apps/desktop/electron/main.js`
+- `apps/desktop/electron/security.js`
+- `apps/desktop/preload.js`
+- `apps/desktop/renderer/gallery`
+- `config.js`
+- `core/assistant/capabilities`
 - `core/assistant/automation/ActionRouter.js`
-- `core/assistant/context/ContextManager.js`
 - `core/assistant/index.js`
+- `core/assistant/pipeline/PipelineManager.js`
+- `core/assistant/reasoning/IntentRegistry.js`
 - `core/assistant/response/ResponseGenerator.js`
-- assistant learning, language, entity, semantic, parser, NLU, and tests
-- `package.json`
+- `core/automation`
+- `core/vision`
+- Visual Memory tests under `tests/core`
 
 These modifications are not reverted or discarded. The report reflects the current workspace state.
 
@@ -81,6 +90,39 @@ Result:
 10 passing
 9 passing
 14 passing
+```
+
+Passed focused Visual Memory, Gallery, and performance-regression validation:
+
+```powershell
+node -c apps/desktop/electron/main.js
+node -c apps/desktop/renderer/gallery/index.js
+node -c core/assistant/capabilities/visual-memory/runtime/engine/VisualMemoryEngine.js
+node -c core/assistant/capabilities/visual-memory/runtime/query/VisualQueryParser.js
+```
+
+Passed:
+
+```powershell
+npx eslint apps/desktop/electron/main.js apps/desktop/renderer/gallery/index.js core/assistant/capabilities/visual-memory/runtime/engine/VisualMemoryEngine.js core/assistant/capabilities/visual-memory/runtime/query/VisualQueryParser.js tests/core/visual-memory.test.js tests/core/visual-query.test.js
+```
+
+Passed:
+
+```powershell
+npx mocha tests/core/visual-memory.test.js tests/core/visual-query.test.js tests/core/openx-gallery-experience.test.js tests/core/visual-memory-capability.test.js --timeout 60000 --exit
+```
+
+Result:
+
+```text
+23 passing
+```
+
+Passed assistant smoke validation:
+
+```text
+open openx gallery -> visualMemory.openGallery -> OpenX Gallery is ready, sir.
 ```
 
 Known caveat:
@@ -133,7 +175,48 @@ Done, sir. I closed Chrome, but I could not close Instagram because Instagram st
 
 - Electron main has unresponsive-window tracking and crash recovery timers.
 - Cleanup clears recovery and unresponsive timers during shutdown.
-- Voice/runtime prewarm and overlay state are present, but full runtime profiling should be done with the app running under real workload.
+- Voice/runtime prewarm and overlay state are present.
+- Startup voice runtime prewarm is now opt-in through `voice.preloadRuntime` or `OPENX_PREWARM_VOICE_RUNTIME=1`, reducing idle startup CPU and RAM use while keeping first-use voice activation available.
+- Visual Memory runtime is now lazy-loaded and is not started during normal assistant startup unless a visual-memory or gallery path is actually used.
+
+### Assistant Performance Update - 2026-07-15
+
+The latest performance pass focused on reducing idle work, avoiding repeated initialization, and keeping gallery UI interactions smooth.
+
+Confirmed blockers found:
+
+- Visual Memory was being prepared too early for some assistant flows.
+- Plain gallery-open commands could enter the Visual Query, Candidate Filtering, and Memory Intelligence path before opening the gallery.
+- Repeated calls to the Visual Memory API could record repeated `started` diagnostics even when the engine was already running.
+- Gallery first-load indexing could block the user from seeing the window quickly.
+- Gallery image previews were using base64 data URLs, which increases renderer and IPC memory pressure for large image sets.
+- Voice capture/overlay runtime was prewarmed automatically after startup, increasing idle memory usage for users who did not use voice immediately.
+
+Changes implemented:
+
+- `apps/desktop/electron/main.js` now exposes a lazy Visual Memory API proxy to the assistant.
+- `core/assistant/capabilities/visual-memory/runtime/engine/VisualMemoryEngine.js` now treats repeated `start()` calls as idempotent.
+- `core/assistant/capabilities/visual-memory/runtime/query/VisualQueryParser.js` skips navigation-only commands such as `open openx gallery`, `open photos`, and `show pictures` so they do not trigger memory search.
+- `apps/desktop/electron/main.js` starts gallery indexing in the background when needed instead of awaiting a full refresh before returning gallery data.
+- `apps/desktop/renderer/gallery/index.js` polls only while indexing is active and disconnects timers/observers on unload.
+- `apps/desktop/electron/main.js` returns `file:` image URLs for gallery images instead of base64-encoding local image files.
+- `apps/desktop/renderer/gallery/index.html` allows `file:` image sources through the gallery CSP.
+- Voice runtime prewarm is now skipped until first use by default.
+
+Performance impact:
+
+- Lower startup memory use because Visual Memory and voice runtime do not initialize unless needed.
+- Less CPU work for simple gallery open commands.
+- Fewer duplicate lifecycle diagnostics and less repeated engine work.
+- Lower gallery memory pressure because image files are streamed by Chromium from disk rather than copied through IPC as base64 strings.
+- Better first gallery paint because indexing can continue in the background.
+
+Behavior preserved:
+
+- `open openx gallery` still routes to `visualMemory.openGallery`.
+- Visual search requests still use the Visual Query and Memory Intelligence pipeline.
+- Gallery still indexes the Windows Pictures folder and nested folders such as Screenshots.
+- Voice still starts when the user invokes the configured shortcut.
 
 ## Detailed OpenX System Information
 
@@ -1377,9 +1460,9 @@ For production debugging, the most useful fields are:
 
    E2EE primitives and packet wrapping exist, but every command, notification, schedule sync, and file-transfer path should continue to be audited for plaintext fallback.
 
-4. Performance validation
+4. Runtime performance validation
 
-   Lint and corpus routing pass. Runtime CPU/RAM validation still needs an instrumented desktop session with voice, dynamic island, cloud connection, notifications, and file transfers active.
+   Startup and gallery-specific resource blockers were reduced by lazy-loading Visual Memory, making voice runtime prewarm opt-in, moving gallery indexing to the background, and using `file:` image URLs instead of base64 image IPC. A full instrumented desktop profiling session is still recommended with voice, dynamic island, cloud connection, notifications, gallery scrolling, and file transfers active.
 
 5. Dirty working tree
 
@@ -1394,9 +1477,10 @@ For production debugging, the most useful fields are:
    - partial close failure for one app while others close
    - repeated `open them` or `switch to them` follow-ups
 3. Add runtime profiling for:
-   - idle assistant
-   - voice prewarm
+   - idle assistant before first voice use
+   - first voice activation after lazy startup
    - dynamic island notifications
+   - gallery first open and large Pictures-library scrolling
    - cloud reconnect
    - large file transfer
 4. Add a release checklist requiring:
@@ -1406,6 +1490,61 @@ For production debugging, the most useful fields are:
    - cloud file transfer test
    - notification grouping test
    - installer smoke test
+
+## Latest Directory Tree Additions
+
+The full filtered tree below is retained for repository orientation. The latest Visual Memory and Gallery work adds these important paths that should be kept in sync during future tree refreshes:
+
+```text
+apps/desktop/renderer/gallery/
+|-- index.css
+|-- index.html
+`-- index.js
+
+core/assistant/capabilities/
+`-- visual-memory/
+    |-- VisualMemoryCapabilityStage.js
+    |-- contracts/
+    |-- execution/
+    |-- responses/
+    |-- routing/
+    `-- runtime/
+        |-- api/
+        |-- candidates/
+        |-- configuration/
+        |-- contracts/
+        |-- database/
+        |-- diagnostics/
+        |-- engine/
+        |-- events/
+        |-- faces/
+        |-- filtering/
+        |-- folders/
+        |-- gallery/
+        |-- intelligence/
+        |-- learning/
+        |-- lifecycle/
+        |-- metadata/
+        |-- privacy/
+        |-- query/
+        |-- settings/
+        |-- thumbnails/
+        |-- utils/
+        `-- validation/
+
+core/vision/
+
+tests/core/
+|-- face-memory.test.js
+|-- openx-gallery-experience.test.js
+|-- vision-engine.test.js
+|-- visual-filtering.test.js
+|-- visual-memory-capability.test.js
+|-- visual-memory-intelligence.test.js
+|-- visual-memory-learning.test.js
+|-- visual-memory.test.js
+`-- visual-query.test.js
+```
 
 ## Full Filtered Directory Tree
 

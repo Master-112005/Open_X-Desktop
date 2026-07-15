@@ -458,6 +458,11 @@ class ActionRouter {
     const search = (query, confidence = 0.94) => route('browser.search', { query: String(query || raw || corrected).trim() }, confidence);
     const openApp = (appName, confidence = 0.95) => route('app.open', { appName }, confidence);
 
+    if (/\b(?:open|show|view|launch)\b.*\b(?:openx\s+)?(?:gallery|gallary|photos?|photo\s+library|memories)\b/.test(input) ||
+      /\b(?:openx\s+)?(?:gallery|gallary)\b/.test(input)) {
+      return route('visualMemory.openGallery', { view: 'timeline' }, 0.99);
+    }
+
     if (/\bumbrella\b/.test(input) &&
       /\b(?:need|take|bring|carry|rain|raining|weather|forecast)\b/.test(input)) {
       return search('weather forecast do I need an umbrella today', 0.97);
@@ -4060,6 +4065,12 @@ class ActionRouter {
     const matchedTarget = String(match[1] || '').trim();
     const framedTarget = String(preparedInput?.semanticFrame?.targetText || '').trim();
     const requestedTarget = framedTarget || matchedTarget;
+    if (this._looksLikeOpenXGalleryTarget(requestedTarget, rawText)) {
+      const visualIntent = this.intentRegistry.get('visualMemory.openGallery');
+      return visualIntent
+        ? { intent: visualIntent, confidence: 1, entities: { view: 'timeline' } }
+        : null;
+    }
     if (this._looksLikeLocalPhotosTarget(requestedTarget, rawText)) {
       const appIntent = this.intentRegistry.get('app.open');
       return appIntent
@@ -4108,6 +4119,15 @@ class ActionRouter {
       .test(String(input || ''));
   }
 
+  _looksLikeOpenXGalleryTarget(target, rawText) {
+    const normalizedTarget = String(target || '').toLowerCase();
+    const normalizedRaw = String(rawText || '').toLowerCase();
+    if (/\b(?:google|microsoft|windows)\s+photos?\b|\bphotos?\s+app\b/.test(normalizedRaw)) {
+      return false;
+    }
+    return /\b(?:openx\s+)?(?:gallery|gallary|photos?|pictures?|photo\s+library|memories)\b/.test(normalizedTarget);
+  }
+
   _looksLikeLocalPhotosTarget(target, rawText) {
     const normalizedTarget = String(target || '').toLowerCase();
     const normalizedRaw = String(rawText || '').toLowerCase();
@@ -4117,7 +4137,7 @@ class ActionRouter {
     if (!/\b(?:photos?|photesw?|phots|pictures?)\b/.test(normalizedTarget)) {
       return false;
     }
-    return /\b(?:on|in)\s+(?:my\s+)?(?:laptop|pc|computer|system|device|windows)\b|\b(?:local|offline|this\s+(?:laptop|pc|computer|system|device))\b/.test(normalizedRaw);
+    return /\b(?:microsoft|windows)\s+photos?\b|\bphotos?\s+app\b|\b(?:on|in)\s+(?:my\s+)?(?:laptop|pc|computer|system|device|windows)\b|\b(?:local|offline|this\s+(?:laptop|pc|computer|system|device))\b/.test(normalizedRaw);
   }
 
   _resolveExplicitCommunicationIntent(rawText, preparedInput) {
@@ -5684,7 +5704,7 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     }
 
     const photoLibrary = this.learningStore?.getPreference?.('photoLibrary')?.value || '';
-    const wantsGooglePhotos = /\bgoogle\s+photos?\b/.test(input) || photoLibrary === 'googlePhotos';
+    const wantsGooglePhotos = /\bgoogle\s+photos?\b/.test(input);
     if (wantsGooglePhotos) {
       const intent = this.intentRegistry.get('browser.siteSearch');
       return intent
@@ -5704,6 +5724,11 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     if (wantsWindowsPhotos) {
       const intent = this.intentRegistry.get('app.open');
       return intent ? { intent, confidence: 0.92, entities: { appName: 'photos' } } : null;
+    }
+
+    const visualIntent = this.intentRegistry.get('visualMemory.openGallery');
+    if (visualIntent) {
+      return { intent: visualIntent, confidence: 0.96, entities: { view: 'timeline' } };
     }
 
     const intent = this.intentRegistry.get('file.search');

@@ -220,6 +220,29 @@ function validatePlannerView(payload) {
   return { view };
 }
 
+function validateGalleryView(payload) {
+  requirePlainObject(payload);
+  const view = requireString(payload.view || 'timeline', 'view', { maxLength: 20 });
+  if (!['timeline', 'photos', 'favorites', 'recent'].includes(view)) throw new TypeError('gallery view is not supported');
+  return { view };
+}
+
+function validateGalleryPhotosQuery(payload) {
+  if (payload === undefined) return { page: 1, pageSize: 80 };
+  requirePlainObject(payload);
+  return {
+    page: Math.max(1, Math.min(10000, Number(payload.page) || 1)),
+    pageSize: Math.max(1, Math.min(120, Number(payload.pageSize) || 80))
+  };
+}
+
+function validateGalleryPhoto(payload) {
+  requirePlainObject(payload);
+  const photoId = requireString(payload.photoId, 'photoId', { maxLength: 160 });
+  if (!/^[A-Za-z0-9._:-]+$/.test(photoId)) throw new TypeError('photoId is invalid');
+  return { photoId };
+}
+
 function validatePlannerEntry(payload) {
   requirePlainObject(payload);
   const type = requireString(payload.type || 'calendar', 'type', { maxLength: 20 });
@@ -279,6 +302,8 @@ const IPC_VALIDATORS = Object.freeze({
   'window:openSettings': validateEmpty,
   'window:openPlanner': validatePlannerView,
   'window:closePlanner': validateEmpty,
+  'window:openGallery': validateGalleryView,
+  'window:closeGallery': validateEmpty,
   'config:get': validateEmpty,
   'settings:get': validateEmpty,
   'security:status': validateEmpty,
@@ -305,6 +330,9 @@ const IPC_VALIDATORS = Object.freeze({
   'planner:getEntries': validateEmpty,
   'planner:addEntry': validatePlannerEntry,
   'planner:deleteEntry': validatePlannerDelete,
+  'gallery:getPhotos': validateGalleryPhotosQuery,
+  'gallery:getImageData': validateGalleryPhoto,
+  'gallery:openPhoto': validateGalleryPhoto,
   'app:quit': validateEmpty
 });
 
