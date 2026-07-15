@@ -250,6 +250,7 @@ const IPC_CHANNELS = [
   'settings:save',
   'settings:reset',
   'schedule:alertAction',
+  'schedule:getSnapshot',
   'timerWidget:getState',
   'timerWidget:close',
   'timerWidget:stopStopwatch',
@@ -261,6 +262,8 @@ const IPC_CHANNELS = [
   'gallery:getPhotos',
   'gallery:getImageData',
   'gallery:openPhoto',
+  'gallery:showPhoto',
+  'gallery:toggleFavorite',
   'app:quit'
 ];
 
@@ -1072,6 +1075,15 @@ function sendPlannerEntries(view = 'calendar') {
   }
 }
 
+function sendScheduleActivitySnapshot(reason = 'schedule-changed') {
+  if (!chatWindow || chatWindow.isDestroyed()) return;
+  try {
+    chatWindow.webContents.send('schedule:changed', { reason, snapshot: getScheduleSyncSnapshot() });
+  } catch (error) {
+    mainLogger.warn('Failed to send schedule activity snapshot', { error: error.message });
+  }
+}
+
 function localPlannerDateKey(date) {
   const value = new Date(date);
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
@@ -1429,9 +1441,9 @@ async function ensureVisualMemoryGalleryIndexed() {
     const engine = await ensureVisualMemoryRuntime();
     const folders = engine.api.listFolders();
     const needsIndex = folders.some(folder => folder?.enabled !== false && !folder.lastIndexedAt);
-    const existing = engine.api.getPhotos({ pageSize: 1 });
-    if (!needsIndex && existing.total > 0) {
-      return { skipped: true, total: existing.total };
+    const existingTotal = Object.keys(engine.database.getTable('photos') || {}).length;
+    if (!needsIndex && existingTotal > 0) {
+      return { skipped: true, total: existingTotal };
     }
     return engine.api.refreshGallery({
       maxDepth: runtimeConfig?.visualMemory?.performance?.maxIndexDepth || 8,
@@ -1507,6 +1519,19 @@ function createGalleryWindow(initialView = 'timeline', options = {}) {
   return { success: true, view };
 }
 
+function sendGalleryOpenPhoto(photoId, viewer = null) {
+  if (!galleryWindow || galleryWindow.isDestroyed()) return;
+  const send = () => {
+    if (!galleryWindow || galleryWindow.isDestroyed()) return;
+    galleryWindow.webContents.send('gallery:openPhoto', { photoId, viewer });
+  };
+  if (galleryWindow.webContents.isLoading()) {
+    galleryWindow.webContents.once('did-finish-load', () => setTimeout(send, 50));
+  } else {
+    send();
+  }
+}
+
 function mimeTypeForImage(filePath) {
   const extension = path.extname(String(filePath || '')).toLowerCase();
   if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg';
@@ -1520,8 +1545,8 @@ function mimeTypeForImage(filePath) {
 async function getGalleryPhotoData(query = {}) {
   const engine = await ensureVisualMemoryRuntime();
   const folders = engine.api.listFolders();
-  const existingBeforeIndex = engine.api.getPhotos({ pageSize: 1 });
-  const needsIndex = folders.some(folder => folder?.enabled !== false && !folder.lastIndexedAt) || existingBeforeIndex.total === 0;
+  const existingTotal = Object.keys(engine.database.getTable('photos') || {}).length;
+  const needsIndex = folders.some(folder => folder?.enabled !== false && !folder.lastIndexedAt) || existingTotal === 0;
   if (needsIndex && !isVisualMemoryIndexing()) {
     ensureVisualMemoryGalleryIndexed().catch(error => {
       mainLogger.warn('[VISUAL-MEMORY] Background gallery indexing failed', { error: error.message });
@@ -1567,14 +1592,38 @@ async function getGalleryImageData(photoId) {
   if (!photo?.filePath) return { success: false, error: 'Photo not found' };
   const resolved = path.resolve(photo.filePath);
   if (!fs.existsSync(resolved)) return { success: false, error: 'Image file is missing' };
+  const favorites = await engine.api.getOpenXGalleryFavorites('images');
+  const favorite = Array.isArray(favorites?.items) && favorites.items.some(item => item.id === photo.id);
   return {
     success: true,
     data: {
       photoId: photo.id,
       mimeType: mimeTypeForImage(resolved),
+      favorite,
       src: pathToFileURL(resolved).href
     }
   };
+}
+
+async function openGalleryPhotoViewer(photoId) {
+  const engine = await ensureVisualMemoryRuntime();
+  const viewer = await engine.api.openOpenXGalleryViewer(photoId);
+  const favorites = await engine.api.getOpenXGalleryFavorites('images');
+  const favorite = Array.isArray(favorites?.items) && favorites.items.some(item => item.id === photoId);
+  return { ...viewer, favorite };
+}
+
+async function showGalleryPhoto(photoId) {
+  const viewer = await openGalleryPhotoViewer(photoId);
+  createGalleryWindow('timeline', { lowerChat: true });
+  sendGalleryOpenPhoto(photoId, viewer);
+  return { success: true, data: viewer };
+}
+
+async function toggleGalleryPhotoFavorite(photoId, value = null) {
+  const engine = await ensureVisualMemoryRuntime();
+  const favorite = await engine.api.toggleOpenXGalleryFavorite('images', photoId, value);
+  return { success: true, data: favorite };
 }
 
 function formatScheduleDueLabel(schedule = {}) {
@@ -2051,6 +2100,7 @@ function handlePlannerCommand(payload) {
   const intent = String(payload.intent);
   if (/^(?:reminder|alarm)\.(?:set|cancel|clear|snooze|list)$/.test(intent)) {
     sendPlannerEntries('calendar');
+    sendScheduleActivitySnapshot('planner-command');
     return;
   }
   if (!/^(?:calendar|timetable)\./.test(intent)) return;
@@ -2776,6 +2826,8 @@ function setupIPC() {
     return result || { success: false, error: 'Scheduler unavailable' };
   });
 
+  registerIpcHandler('schedule:getSnapshot', async () => getScheduleSyncSnapshot());
+
   registerIpcHandler('voiceOverlay:collapse', async (_event, options = {}) => {
     try {
       if (typeof voiceOverlay?.windowController?.collapseAssistantResult === 'function') {
@@ -2849,9 +2901,16 @@ function setupIPC() {
   });
 
   registerIpcHandler('gallery:openPhoto', async (_event, { photoId }) => {
-    const engine = await ensureVisualMemoryRuntime();
-    const viewer = await engine.api.openOpenXGalleryViewer(photoId);
+    const viewer = await openGalleryPhotoViewer(photoId);
     return { success: true, data: viewer };
+  });
+
+  registerIpcHandler('gallery:showPhoto', async (_event, { photoId }) => {
+    return showGalleryPhoto(photoId);
+  });
+
+  registerIpcHandler('gallery:toggleFavorite', async (_event, { photoId, favorite }) => {
+    return toggleGalleryPhotoFavorite(photoId, favorite);
   });
 
   registerIpcHandler('app:quit', async () => {
@@ -3559,9 +3618,11 @@ app.whenReady().then(async () => {
     }
     presentScheduleInDynamicIsland(envelope.payload);
     sendPlannerEntries('calendar');
+    sendScheduleActivitySnapshot('schedule-due');
   });
   eventBus.subscribe(EVENTS.SCHEDULE_CHANGED, envelope => {
     sendPlannerEntries('calendar');
+    sendScheduleActivitySnapshot('schedule-changed');
     broadcastScheduleSync(envelope.payload);
   });
   eventBus.subscribe(EVENTS.COMMAND_EXECUTED, envelope => handleTimerWidgetCommand(envelope.payload));
