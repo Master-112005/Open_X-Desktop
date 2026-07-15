@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
+const { pathToFileURL } = require('url');
 
 const BASE_CONFIG = require('../../../config');
 const Assistant = require('../../../core/assistant/index');
@@ -25,6 +26,7 @@ const {
 const { SettingsService } = require('../settings');
 const { AssistantEventBus, EVENTS, Logger } = require('../../../core/assistant/Data');
 const { ensureDataRoot, migrateLegacyData } = require('../../../core/assistant/Data');
+const { VisualMemoryEngine } = require('../../../core/assistant/capabilities/visual-memory');
 const { CloudCommandManager, CloudConnectionManager, CloudFileTransferManager, CloudLogger, CloudPairingManager } = require('../../../core/cloud');
 const CrashRecoveryPolicy = require('./crash-recovery');
 const OpenXSecurityLock = require('../security-lock');
@@ -151,8 +153,13 @@ let chatWindow = null;
 let timerWidgetWindow = null;
 let timerWidgetMode = null;
 let plannerWindow = null;
+let galleryWindow = null;
 let tray = null;
 let assistant = null;
+let visualMemoryEngine = null;
+let visualMemoryDefaultFoldersReady = false;
+let visualMemoryIndexPromise = null;
+let lazyVisualMemoryApi = null;
 let voiceSessionManager = null;
 let voiceAssistantBridge = null;
 let diagnosticsManager = null;
@@ -225,6 +232,8 @@ const IPC_CHANNELS = [
   'window:openSettings',
   'window:openPlanner',
   'window:closePlanner',
+  'window:openGallery',
+  'window:closeGallery',
   'config:get',
   'settings:get',
   'security:verifyAccess',
@@ -249,6 +258,9 @@ const IPC_CHANNELS = [
   'planner:getEntries',
   'planner:addEntry',
   'planner:deleteEntry',
+  'gallery:getPhotos',
+  'gallery:getImageData',
+  'gallery:openPhoto',
   'app:quit'
 ];
 
@@ -723,10 +735,19 @@ function prewarmVoiceRuntime(reason = 'startup') {
   }
 }
 
+function shouldPrewarmVoiceRuntime() {
+  return runtimeConfig?.voice?.preloadRuntime === true ||
+    process.env.OPENX_PREWARM_VOICE_RUNTIME === '1';
+}
+
 function scheduleVoiceRuntimePrewarm(reason = 'startup', delayMs = VOICE_IDLE_RUNTIME_PREWARM_DELAY_MS) {
   if (voiceCaptureWarmupTimer) {
     clearTimeout(voiceCaptureWarmupTimer);
     voiceCaptureWarmupTimer = null;
+  }
+  if (!shouldPrewarmVoiceRuntime()) {
+    mainLogger.info('Voice runtime prewarm skipped until first use', { reason });
+    return false;
   }
   const warmupDelayMs = Math.max(0, Number(delayMs) || 0);
   voiceCaptureWarmupTimer = setTimeout(() => {
@@ -736,6 +757,7 @@ function scheduleVoiceRuntimePrewarm(reason = 'startup', delayMs = VOICE_IDLE_RU
   if (typeof voiceCaptureWarmupTimer.unref === 'function') {
     voiceCaptureWarmupTimer.unref();
   }
+  return true;
 }
 
 function shouldPrewarmVoiceResources() {
@@ -1362,6 +1384,197 @@ function createPlannerWindow(initialView = 'calendar', options = {}) {
     plannerWindow = null;
     restoreChatWindowPriority();
   });
+}
+
+async function ensureVisualMemoryRuntime() {
+  if (!visualMemoryEngine) {
+    const dataDir = path.join(runtimeConfig?.app?.dataPaths?.root || BASE_CONFIG.app.dataPaths.root, 'visual-memory');
+    visualMemoryEngine = new VisualMemoryEngine({
+      dataDir,
+      logging: { console: false, file: false },
+      logger: mainLogger
+    });
+  }
+  await visualMemoryEngine.api.start();
+  if (!visualMemoryDefaultFoldersReady) {
+    try {
+      await visualMemoryEngine.api.addDefaultFolders();
+      visualMemoryDefaultFoldersReady = true;
+    } catch (error) {
+      mainLogger.warn('[VISUAL-MEMORY] Default Pictures folders could not be registered', { error: error.message });
+    }
+  }
+  return visualMemoryEngine;
+}
+
+function getLazyVisualMemoryApi() {
+  if (lazyVisualMemoryApi) return lazyVisualMemoryApi;
+  lazyVisualMemoryApi = new Proxy({}, {
+    get(_target, property) {
+      if (property === 'then') return undefined;
+      return async (...args) => {
+        const engine = await ensureVisualMemoryRuntime();
+        const member = engine.api[property];
+        if (typeof member === 'function') return member.apply(engine.api, args);
+        return member;
+      };
+    }
+  });
+  return lazyVisualMemoryApi;
+}
+
+async function ensureVisualMemoryGalleryIndexed() {
+  if (visualMemoryIndexPromise) return visualMemoryIndexPromise;
+  visualMemoryIndexPromise = (async () => {
+    const engine = await ensureVisualMemoryRuntime();
+    const folders = engine.api.listFolders();
+    const needsIndex = folders.some(folder => folder?.enabled !== false && !folder.lastIndexedAt);
+    const existing = engine.api.getPhotos({ pageSize: 1 });
+    if (!needsIndex && existing.total > 0) {
+      return { skipped: true, total: existing.total };
+    }
+    return engine.api.refreshGallery({
+      maxDepth: runtimeConfig?.visualMemory?.performance?.maxIndexDepth || 8,
+      maxFiles: runtimeConfig?.visualMemory?.performance?.maxIndexFiles || 50000
+    });
+  })().finally(() => {
+    visualMemoryIndexPromise = null;
+  });
+  return visualMemoryIndexPromise;
+}
+
+function isVisualMemoryIndexing() {
+  return Boolean(visualMemoryIndexPromise);
+}
+
+function createGalleryWindow(initialView = 'timeline', options = {}) {
+  const view = ['timeline', 'photos', 'favorites', 'recent'].includes(String(initialView || '').toLowerCase())
+    ? String(initialView || 'timeline').toLowerCase()
+    : 'timeline';
+  if (galleryWindow && !galleryWindow.isDestroyed()) {
+    galleryWindow.show();
+    galleryWindow.focus();
+    galleryWindow.webContents.send('gallery:view', view);
+    if (options.lowerChat) lowerChatWindowForPlanner();
+    return { success: true, view };
+  }
+
+  galleryWindow = new BrowserWindow({
+    width: 1160,
+    height: 760,
+    minWidth: 900,
+    minHeight: 620,
+    transparent: true,
+    frame: false,
+    resizable: true,
+    skipTaskbar: false,
+    alwaysOnTop: false,
+    hasShadow: true,
+    show: false,
+    paintWhenInitiallyHidden: true,
+    backgroundColor: '#00000000',
+    webPreferences: createSecureWebPreferences(PRELOAD_PATH)
+  });
+
+  const galleryFile = path.join(RENDERER_ROOT, 'gallery', 'index.html');
+  secureWindow(galleryWindow, {
+    windowType: 'gallery',
+    expectedFile: galleryFile,
+    createWindow: () => createGalleryWindow(view, options)
+  });
+  let didRevealGallery = false;
+  const revealGallery = () => {
+    if (didRevealGallery || !galleryWindow || galleryWindow.isDestroyed()) return;
+    didRevealGallery = true;
+    galleryWindow.center();
+    galleryWindow.show();
+    galleryWindow.focus();
+    if (options.lowerChat) lowerChatWindowForPlanner();
+  };
+  galleryWindow.once('ready-to-show', revealGallery);
+  galleryWindow.loadFile(galleryFile).then(() => {
+    if (galleryWindow && !galleryWindow.isDestroyed()) {
+      galleryWindow.webContents.send('gallery:view', view);
+      revealGallery();
+    }
+  }).catch(error => {
+    mainLogger.error('Failed to load gallery renderer', { error: error.message });
+  });
+  galleryWindow.on('closed', () => {
+    galleryWindow = null;
+    restoreChatWindowPriority();
+  });
+  return { success: true, view };
+}
+
+function mimeTypeForImage(filePath) {
+  const extension = path.extname(String(filePath || '')).toLowerCase();
+  if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg';
+  if (extension === '.png') return 'image/png';
+  if (extension === '.gif') return 'image/gif';
+  if (extension === '.webp') return 'image/webp';
+  if (extension === '.bmp') return 'image/bmp';
+  return 'application/octet-stream';
+}
+
+async function getGalleryPhotoData(query = {}) {
+  const engine = await ensureVisualMemoryRuntime();
+  const folders = engine.api.listFolders();
+  const existingBeforeIndex = engine.api.getPhotos({ pageSize: 1 });
+  const needsIndex = folders.some(folder => folder?.enabled !== false && !folder.lastIndexedAt) || existingBeforeIndex.total === 0;
+  if (needsIndex && !isVisualMemoryIndexing()) {
+    ensureVisualMemoryGalleryIndexed().catch(error => {
+      mainLogger.warn('[VISUAL-MEMORY] Background gallery indexing failed', { error: error.message });
+    });
+  }
+  const result = engine.api.getPhotos({
+    page: query.page,
+    pageSize: query.pageSize,
+    sortBy: 'createdAt',
+    sortDirection: 'desc'
+  });
+  const metadata = engine.database.getTable('metadata');
+  const items = (result.items || []).map(photo => ({
+    id: photo.id,
+    fileName: photo.fileName,
+    filePath: photo.filePath,
+    fileType: photo.fileType,
+    fileSize: photo.fileSize || 0,
+    createdAt: photo.createdAt || metadata[photo.id]?.createdAt || photo.indexedAt || null,
+    modifiedAt: photo.modifiedAt || null,
+    width: metadata[photo.id]?.width || null,
+    height: metadata[photo.id]?.height || null,
+    city: metadata[photo.id]?.city || '',
+    folderId: photo.folderId || '',
+    thumbnailReady: Boolean(photo.thumbnail)
+  }));
+  return {
+    success: true,
+    data: {
+      items,
+      page: result.page,
+      pageSize: result.pageSize,
+      total: result.total,
+      hasMore: result.hasMore,
+      indexing: isVisualMemoryIndexing()
+    }
+  };
+}
+
+async function getGalleryImageData(photoId) {
+  const engine = await ensureVisualMemoryRuntime();
+  const photo = engine.api.getPhoto(photoId);
+  if (!photo?.filePath) return { success: false, error: 'Photo not found' };
+  const resolved = path.resolve(photo.filePath);
+  if (!fs.existsSync(resolved)) return { success: false, error: 'Image file is missing' };
+  return {
+    success: true,
+    data: {
+      photoId: photo.id,
+      mimeType: mimeTypeForImage(resolved),
+      src: pathToFileURL(resolved).href
+    }
+  };
 }
 
 function formatScheduleDueLabel(schedule = {}) {
@@ -2382,6 +2595,15 @@ function setupIPC() {
     return { success: true };
   });
 
+  registerIpcHandler('window:openGallery', async (_event, { view }) => {
+    return createGalleryWindow(view, { lowerChat: true });
+  });
+
+  registerIpcHandler('window:closeGallery', async () => {
+    if (galleryWindow && !galleryWindow.isDestroyed()) galleryWindow.close();
+    return { success: true };
+  });
+
   registerIpcHandler('config:get', async () => {
     return runtimeConfig;
   });
@@ -2618,6 +2840,20 @@ function setupIPC() {
     return result;
   });
 
+  registerIpcHandler('gallery:getPhotos', async (_event, payload) => {
+    return getGalleryPhotoData(payload);
+  });
+
+  registerIpcHandler('gallery:getImageData', async (_event, { photoId }) => {
+    return getGalleryImageData(photoId);
+  });
+
+  registerIpcHandler('gallery:openPhoto', async (_event, { photoId }) => {
+    const engine = await ensureVisualMemoryRuntime();
+    const viewer = await engine.api.openOpenXGalleryViewer(photoId);
+    return { success: true, data: viewer };
+  });
+
   registerIpcHandler('app:quit', async () => {
     app.quit();
   });
@@ -2757,10 +2993,23 @@ async function cleanupRuntime() {
     }
     destroyTextToSpeech();
     await destroyAssistantInstance();
+    if (visualMemoryEngine) {
+      try {
+        await visualMemoryEngine.api.shutdown();
+      } catch (error) {
+        mainLogger.error('[VISUAL-MEMORY] Cleanup failed', { error: error.message });
+      } finally {
+        visualMemoryEngine = null;
+        visualMemoryDefaultFoldersReady = false;
+        visualMemoryIndexPromise = null;
+        lazyVisualMemoryApi = null;
+      }
+    }
     eventBus?.removeAllListeners?.();
     if (chatWindow && !chatWindow.isDestroyed()) chatWindow.destroy();
     if (timerWidgetWindow && !timerWidgetWindow.isDestroyed()) timerWidgetWindow.destroy();
     if (plannerWindow && !plannerWindow.isDestroyed()) plannerWindow.destroy();
+    if (galleryWindow && !galleryWindow.isDestroyed()) galleryWindow.destroy();
     destroyVoiceCaptureWindow();
     if (tray) {
       tray.destroy();
@@ -3064,7 +3313,15 @@ function registerChatShortcut() {
 async function initializeAssistant() {
   ensureDataDir();
   runtimeConfig = settingsService.buildRuntimeConfig();
-  assistant = new Assistant(runtimeConfig, { eventBus });
+  runtimeConfig = {
+    ...runtimeConfig,
+    desktopActions: {
+      ...(runtimeConfig.desktopActions || {}),
+      openGallery: (view = 'timeline') => createGalleryWindow(view, { lowerChat: true })
+    },
+    visualMemoryApi: getLazyVisualMemoryApi()
+  };
+  assistant = new Assistant(runtimeConfig, { eventBus, visualMemoryApi: runtimeConfig.visualMemoryApi });
   assistant.router.permissionValidator.setUserLevel(
     settingsService.getSettings().system.permissionLevel
   );
@@ -3204,6 +3461,7 @@ function buildCrashRecoveryMetadata(origin, error, component = 'main-process') {
       chat: Boolean(chatWindow && !chatWindow.isDestroyed()),
       voice: Boolean(voiceOverlay?.windowController?.window && !voiceOverlay.windowController.window.isDestroyed()),
       planner: Boolean(plannerWindow && !plannerWindow.isDestroyed()),
+      gallery: Boolean(galleryWindow && !galleryWindow.isDestroyed()),
       timer: Boolean(timerWidgetWindow && !timerWidgetWindow.isDestroyed())
     }
   };

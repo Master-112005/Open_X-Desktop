@@ -131,7 +131,11 @@ class Assistant extends EventEmitter {
       ...(config || {}),
       learningStore: this.learning
     };
-    this.automation = dependencies.automation || new AutomationEngine({ ...(config || {}), eventBus: this.eventBus });
+    this.automation = dependencies.automation || new AutomationEngine({
+      ...(config || {}),
+      eventBus: this.eventBus,
+      visualMemoryApi: dependencies.visualMemoryApi || config?.visualMemoryApi || null
+    });
     this.router = dependencies.router || new ActionRouter(routerConfig, this.automation);
     if (this.router && !this.router.learningStore) {
       this.router.learningStore = this.learning;
@@ -163,6 +167,7 @@ class Assistant extends EventEmitter {
       normalization: config?.assistantIntelligence?.normalization || config?.assistant?.normalization || {},
       linguistic: config?.assistantIntelligence?.linguistic || config?.assistant?.linguistic || {},
       semantic: config?.assistantIntelligence?.semantic || config?.assistant?.semantic || {},
+      visualMemoryApi: dependencies.visualMemoryApi || config?.visualMemoryApi || null,
       commandExecutor: (nextInput, nextSource, nextOptions) => this._processCommandDirect(nextInput, nextSource, nextOptions),
       logger: this.logger
     });

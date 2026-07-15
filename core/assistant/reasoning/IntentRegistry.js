@@ -590,6 +590,14 @@ const INTENT_DEFINITIONS = [
     description: 'Open the assistant timetable'
   },
   {
+    id: 'visualMemory.openGallery',
+    patterns: ['open openx gallery', 'show openx gallery', 'open gallery', 'show gallery', 'open my photos', 'show my photos'],
+    permissionLevel: 'low',
+    action: 'visualMemory.openGallery',
+    entities: [],
+    description: 'Open the OpenX photo gallery'
+  },
+  {
     id: 'calendar.add',
     patterns: ['add to calendar', 'update this in calendar', 'put this in calendar', 'schedule this in calendar'],
     permissionLevel: 'low',

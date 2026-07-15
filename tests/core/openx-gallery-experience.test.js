@@ -1,0 +1,159 @@
+'use strict';
+
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const {
+  VisualMemoryEngine,
+  GalleryContract,
+  GALLERY_OUT_OF_SCOPE
+} = require('../../core/assistant/capabilities/visual-memory');
+
+function tempDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'openx-gallery-experience-'));
+}
+
+async function seedVisualMemory(engine) {
+  await engine.database.replaceTable('photos', {
+    goaBeach: { id: 'goaBeach', fileName: 'beach.jpg', filePath: 'C:/Pictures/Goa Trip/beach.jpg', fileType: 'jpg', createdAt: '2025-12-18T10:00:00.000Z', folderId: 'goa' },
+    desktopShot: { id: 'desktopShot', fileName: 'screenshot.png', filePath: 'C:/Pictures/Screenshots/screenshot.png', fileType: 'png', createdAt: '2026-01-10T08:00:00.000Z', folderId: 'screenshots' },
+    foodReceipt: { id: 'foodReceipt', fileName: 'food_receipt.png', filePath: 'C:/Pictures/Receipts/food_receipt.png', fileType: 'png', createdAt: '2026-01-11T08:00:00.000Z', folderId: 'receipts' }
+  });
+  await engine.database.replaceTable('metadata', {
+    goaBeach: { id: 'goaBeach', photoId: 'goaBeach', createdAt: '2025-12-18T10:00:00.000Z', width: 2000, height: 1200, city: 'Goa', photoType: 'image' },
+    desktopShot: { id: 'desktopShot', photoId: 'desktopShot', createdAt: '2026-01-10T08:00:00.000Z', width: 1920, height: 1080, photoType: 'screenshot', sourceApp: 'desktop' },
+    foodReceipt: { id: 'foodReceipt', photoId: 'foodReceipt', createdAt: '2026-01-11T08:00:00.000Z', width: 1080, height: 1400, photoType: 'receipt' }
+  });
+  await engine.database.replaceTable('folders', {
+    goa: { id: 'goa', label: 'Goa Trip', path: 'C:/Pictures/Goa Trip' },
+    screenshots: { id: 'screenshots', label: 'Screenshots', path: 'C:/Pictures/Screenshots' },
+    receipts: { id: 'receipts', label: 'Receipts', path: 'C:/Pictures/Receipts' }
+  });
+  await engine.database.replaceTable('albums', {
+    pinned: { id: 'pinned', title: 'Pinned Memories', photoIds: ['goaBeach'] }
+  });
+}
+
+describe('OpenX Gallery Experience', () => {
+  it('publishes a presentation-only gallery contract', () => {
+    assert.strictEqual(GalleryContract.role, 'presentation-layer');
+    assert.strictEqual(GalleryContract.localFirst, true);
+    assert.strictEqual(GALLERY_OUT_OF_SCOPE.includes('ai-inference'), true);
+    assert.strictEqual(GALLERY_OUT_OF_SCOPE.includes('visual-query-parsing'), true);
+  });
+
+  it('opens native gallery navigation and timeline views without running intelligence', async () => {
+    const engine = new VisualMemoryEngine({ dataDir: tempDir(), logging: { console: false, file: false } });
+    await engine.api.start();
+    await seedVisualMemory(engine);
+
+    const status = await engine.api.getOpenXGalleryStatus();
+    const navigation = await engine.api.getOpenXGalleryNavigation();
+    const timeline = await engine.api.openOpenXGallery('timeline', { group: 'month', pageSize: 2 });
+    const screenshots = await engine.api.openOpenXGalleryView('screenshots');
+    const collections = await engine.api.getOpenXGalleryCollections();
+    const places = await engine.api.getOpenXGalleryPlaces();
+
+    assert.strictEqual(status.initialized, true);
+    assert(navigation.some(item => item.id === 'timeline'));
+    assert(navigation.some(item => item.id === 'people'));
+    assert.strictEqual(timeline.view, 'timeline');
+    assert.strictEqual(timeline.page.items.length, 2);
+    assert.strictEqual(timeline.statistics.totalPhotos, 3);
+    assert.strictEqual(screenshots.total, 1);
+    assert(collections.collections.some(item => item.id === 'screenshots'));
+    assert(places.places.some(place => place.title === 'Goa'));
+
+    await engine.api.shutdown();
+  });
+
+  it('displays Face Memory people data without performing recognition', async () => {
+    const engine = new VisualMemoryEngine({
+      dataDir: tempDir(),
+      logging: { console: false, file: false },
+      faces: { enrollment: { minUnknownPhotos: 2 } }
+    });
+    await engine.api.start();
+    await seedVisualMemory(engine);
+    await engine.api.enableFaceMemory({ acceptedBy: 'test-user' });
+    await engine.api.ingestUnknownFace({ vector: [1, 0], photoId: 'goaBeach', faceId: 'f1', confidence: 0.95 });
+    await engine.api.ingestUnknownFace({ vector: [0.99, 0.01], photoId: 'desktopShot', faceId: 'f2', confidence: 0.93 });
+    const [suggestion] = await engine.api.getFaceEnrollmentSuggestions();
+    await engine.api.enrollFaceCluster({ clusterId: suggestion.clusterId, name: 'Rahul', relationship: 'friend' });
+
+    const people = await engine.api.getOpenXGalleryPeople();
+
+    assert.strictEqual(people.performsRecognition, false);
+    assert.strictEqual(people.known[0].name, 'Rahul');
+    assert.strictEqual(people.relationshipGroups.friend.length, 1);
+
+    await engine.api.shutdown();
+  });
+
+  it('presents search results, similar memories, objects, and events from existing subsystem outputs', async () => {
+    const engine = new VisualMemoryEngine({ dataDir: tempDir(), logging: { console: false, file: false } });
+    await engine.api.start();
+    await seedVisualMemory(engine);
+    const memorySearchResult = {
+      success: true,
+      total: 1,
+      hasMore: false,
+      session: { id: 'search-1' },
+      reasoning: {
+        strategies: ['memory-search'],
+        collections: [{ id: 'trips', title: 'Trips', confidence: 0.82, matchedCount: 1 }]
+      },
+      results: [{ id: 'memory:goa', photoId: 'goaBeach', confidence: 0.91, reason: 'Goa trip' }]
+    };
+
+    const search = await engine.api.openOpenXGallerySearchResults(memorySearchResult);
+    const similar = await engine.api.presentOpenXGallerySimilar(memorySearchResult);
+    const objects = await engine.api.getOpenXGalleryObjects({
+      goaBeach: { objects: [{ label: 'beach', confidence: 0.9 }] }
+    });
+    const events = await engine.api.getOpenXGalleryEvents(memorySearchResult);
+
+    assert.strictEqual(search.performsNlp, false);
+    assert.strictEqual(search.results[0].photoId, 'goaBeach');
+    assert.strictEqual(similar.computesSimilarity, false);
+    assert.strictEqual(objects.consumesVisionOutputOnly, true);
+    assert.strictEqual(objects.objects[0].title, 'beach');
+    assert(events.events.some(event => event.title === 'Trips'));
+
+    await engine.api.shutdown();
+  });
+
+  it('supports viewer, accessibility, quick actions, selection, favorites, recent, and persistence', async () => {
+    const dataDir = tempDir();
+    const first = new VisualMemoryEngine({ dataDir, logging: { console: false, file: false } });
+    await first.api.start();
+    await seedVisualMemory(first);
+
+    const viewer = await first.api.openOpenXGalleryViewer('goaBeach');
+    const selection = await first.api.setOpenXGallerySelection(['goaBeach', 'desktopShot'], 'multiple');
+    const favorite = await first.api.toggleOpenXGalleryFavorite('images', 'goaBeach', true);
+    const accessibility = await first.api.getOpenXGalleryAccessibility();
+    const quickActions = await first.api.getOpenXGalleryQuickActions();
+    await first.api.shutdown();
+
+    const second = new VisualMemoryEngine({ dataDir, logging: { console: false, file: false } });
+    await second.api.start();
+    const favorites = await second.api.getOpenXGalleryFavorites('images');
+    const recent = await second.api.getOpenXGalleryRecent('images');
+    const persistedSelection = await second.api.getOpenXGallerySelection();
+
+    assert.strictEqual(viewer.view, 'viewer');
+    assert.strictEqual(viewer.photo.id, 'goaBeach');
+    assert(viewer.panels.includes('related-memories'));
+    assert.strictEqual(selection.ids.length, 2);
+    assert.strictEqual(favorite.favorite, true);
+    assert.strictEqual(accessibility.keyboardNavigation, true);
+    assert(quickActions.some(action => action.id === 'open-with-assistant'));
+    assert.strictEqual(favorites.items[0].id, 'goaBeach');
+    assert.strictEqual(recent.items[0].photoId, 'goaBeach');
+    assert.strictEqual(persistedSelection.ids.length, 2);
+
+    await second.api.shutdown();
+  });
+});

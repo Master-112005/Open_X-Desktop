@@ -203,6 +203,7 @@ class AutomationEngine {
       'alarm.clear': () => this.scheduler.clearSchedules('Alarm'),
       'calendar.open': () => this.planner.open('calendar'),
       'timetable.open': () => this.planner.open('timetable'),
+      'visualMemory.openGallery': (entities) => this._openVisualMemoryGallery(entities),
       'calendar.add': (entities, context) => this.planner.addCalendarEntry(entities, context),
       'timetable.add': (entities, context) => this.planner.addTimetableEntry(entities, context),
       'system.shutdown': () => this.windows.shutdown(),
@@ -1257,6 +1258,23 @@ class AutomationEngine {
         appCount: apps.length,
         commands: allCommands
       }
+    };
+  }
+
+  _openVisualMemoryGallery(entities = {}) {
+    const opener = this.config?.desktopActions?.openGallery;
+    if (typeof opener !== 'function') {
+      return { success: false, error: 'OpenX Gallery is not available in this runtime' };
+    }
+    const result = opener(entities.view || 'timeline') || {};
+    return {
+      success: result.success !== false,
+      data: {
+        action: 'openGallery',
+        app: 'OpenX Gallery',
+        view: result.view || entities.view || 'timeline'
+      },
+      error: result.success === false ? result.error : undefined
     };
   }
 
