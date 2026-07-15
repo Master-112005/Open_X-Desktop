@@ -15,11 +15,15 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(html, /id="alarm-overlay"/);
     assert.doesNotMatch(script, /alarmOverlay|alarm-dismiss-btn|alarm-snooze-btn/);
     assert.match(html, /id="activity-view-btn"[\s\S]*id="activity-calendar-btn"[\s\S]*id="assistant-mute-btn"/);
-    assert.match(html, /Next 24 hours/);
+    assert.match(html, /Upcoming & recurring/);
     assert.doesNotMatch(html, /Upcoming alarms, timers, reminders, and recent assistant notices\./);
     assert.match(script, /openPlanner\?\.\('calendar'\)/);
     assert.match(script, /ACTIVITY_SCHEDULE_WINDOW_MS\s*=\s*24 \* 60 \* 60 \* 1000/);
+    assert.match(script, /ACTIVITY_RECURRING_WINDOW_MS\s*=\s*14 \* 24 \* 60 \* 60 \* 1000/);
     assert.match(script, /function isActivityScheduleVisible\(item, now = Date\.now\(\)\)/);
+    assert.match(script, /window\.openx\?\.getScheduleSnapshot/);
+    assert.match(script, /window\.openx\.onScheduleChanged/);
+    assert.match(script, /function replaceScheduleItemsFromRuntime\(items = \[\]\)/);
     assert.match(script, /classList\.add\('opening'\)/);
     assert.match(script, /aria-busy/);
     assert.match(css, /\.activity-calendar-btn/);
@@ -49,6 +53,21 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /\.message-result-path\s*\{/);
   });
 
+  it('should render visual memory results as a horizontal photo strip', function() {
+    assert.match(html, /img-src 'self' file: data:/);
+    assert.match(script, /const visualResults = Array\.isArray\(result\?\.data\?\.visualResults\)/);
+    assert.match(script, /type: 'photo'/);
+    assert.match(script, /function addVisualResultCards\(bubble, resultEntries\)/);
+    assert.match(script, /className = 'visual-result-strip'/);
+    assert.match(script, /className = 'visual-result-card'/);
+    assert.match(script, /window\.openx\?\.getGalleryImageData\?\.\(photoId\)/);
+    assert.match(script, /window\.openx\?\.showGalleryPhoto\?\.\(entry\.photoId\)/);
+    assert.match(css, /\.visual-result-strip\s*\{/);
+    assert.match(css, /overflow-x:\s*auto/);
+    assert.match(css, /\.visual-result-card\s*\{/);
+    assert.match(css, /scroll-snap-align:\s*start/);
+  });
+
   it('should render web search sources as result cards', function() {
     assert.match(script, /intent === 'browser\.search'/);
     assert.match(script, /result\?\.data\?\.searchSummary\?\.sources/);
@@ -75,6 +94,14 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(script, /function playScheduleSound\(kind\)/);
     assert.doesNotMatch(script, /function stopScheduleSound\(\)/);
     assert.doesNotMatch(glassCss, /Dedicated timer and reminder alert/);
+  });
+
+  it('should keep recurring scheduler reminders synced into Activity', function() {
+    assert.match(script, /recurrence: entry\.recurrence \|\| ''/);
+    assert.match(script, /const recurring = Boolean\(String\(item\.recurrence \|\| ''\)\.trim\(\)\)/);
+    assert.match(script, /const windowMs = recurring \? ACTIVITY_RECURRING_WINDOW_MS : ACTIVITY_SCHEDULE_WINDOW_MS/);
+    assert.match(script, /repeats \$\{recurrence\.replace/);
+    assert.match(script, /replaceScheduleItemsFromRuntime\(payload\?\.snapshot\?\.entries \|\| payload\?\.entries \|\| \[\]\)/);
   });
 
   it('should provide a dedicated assistant-only voice mute control', function() {

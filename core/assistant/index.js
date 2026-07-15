@@ -261,6 +261,7 @@ class Assistant extends EventEmitter {
         signal,
         executionContext
       }), { input, routedInput, source, stage: 'router.process', signal: options.signal });
+      this._attachVisualMemorySearchResults(result, pipelineContext);
       this.context.record(input, result.entities || {}, result);
       this._recordLearningOutcome(input, routedInput, result);
 
@@ -2113,6 +2114,51 @@ class Assistant extends EventEmitter {
       if (abortHandler) signal.removeEventListener?.('abort', abortHandler);
       unlinkParentAbort();
     }
+  }
+
+  _attachVisualMemorySearchResults(result, pipelineContext = null) {
+    const visualSearch = pipelineContext?.visualMemorySearch ||
+      pipelineContext?.get?.('assistant.visualMemorySearch') ||
+      pipelineContext?.visualMemoryCapability?.result?.data ||
+      null;
+    const results = Array.isArray(visualSearch?.results) ? visualSearch.results : [];
+    if (!result || results.length === 0) return result;
+
+    const visualResults = results.slice(0, 12).map((entry, index) => {
+      const photo = entry?.candidate?.photo || {};
+      const metadata = entry?.candidate?.metadata || {};
+      const path = String(entry?.path || photo.filePath || metadata.filePath || '');
+      const fileName = String(photo.fileName || path.split(/[\\/]/).filter(Boolean).pop() || entry?.title || `Photo ${index + 1}`);
+      return {
+        index: index + 1,
+        photoId: String(entry?.photoId || photo.id || metadata.photoId || ''),
+        title: String(entry?.title || fileName),
+        fileName,
+        path,
+        createdAt: entry?.createdAt || photo.createdAt || metadata.createdAt || '',
+        confidence: Number(entry?.confidence || 0),
+        type: String(entry?.type || 'photo')
+      };
+    }).filter(entry => entry.photoId);
+
+    if (visualResults.length === 0) return result;
+    result.data = {
+      ...(result.data || {}),
+      visualSearch: {
+        success: visualSearch.success === true,
+        total: Number(visualSearch.total || results.length),
+        strategies: visualSearch.reasoning?.strategies || [],
+        continuationToken: visualSearch.continuationToken || null
+      },
+      visualResults
+    };
+    if (result.intent === 'visualMemory.openGallery') {
+      const count = Number(visualSearch.total || visualResults.length);
+      result.response = count === 1
+        ? 'I found 1 possible photo. OpenX Gallery is ready.'
+        : `I found ${count} possible photos. OpenX Gallery is ready.`;
+    }
+    return result;
   }
 
   _resolveScheduleFollowUp(normalized) {

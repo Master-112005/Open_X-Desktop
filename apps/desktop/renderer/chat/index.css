@@ -284,6 +284,60 @@
   opacity: 0.76;
 }
 
+.visual-result-strip {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  max-width: min(100%, 560px);
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.visual-result-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.visual-result-card {
+  background: color-mix(in srgb, var(--adaptive-control, rgba(255, 255, 255, 0.1)) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--adaptive-border, rgba(255, 255, 255, 0.16)) 92%, transparent);
+  border-radius: 10px;
+  color: var(--text-color);
+  flex: 0 0 132px;
+  overflow: hidden;
+  padding: 0;
+  scroll-snap-align: start;
+  text-align: left;
+}
+
+.visual-result-card img {
+  aspect-ratio: 1 / 1;
+  background: rgba(255, 255, 255, 0.08);
+  display: block;
+  object-fit: cover;
+  width: 100%;
+}
+
+.visual-result-meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+}
+
+.visual-result-meta strong {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visual-result-meta small {
+  color: var(--muted-color);
+  font-size: 10px;
+}
+
 #input-area {
   background: linear-gradient(180deg, transparent, rgba(5, 8, 16, 0.72) 35%);
   padding: 14px 18px 16px;

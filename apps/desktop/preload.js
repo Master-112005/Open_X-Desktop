@@ -818,6 +818,9 @@ const openxApi = {
   handleScheduleAlert: (id, action, minutes = 5) =>
     ipcRenderer.invoke('schedule:alertAction', { id, action, minutes }),
 
+  getScheduleSnapshot: () =>
+    ipcRenderer.invoke('schedule:getSnapshot'),
+
   getTimerWidgetState: () =>
     ipcRenderer.invoke('timerWidget:getState'),
 
@@ -851,6 +854,12 @@ const openxApi = {
   openGalleryPhoto: (photoId) =>
     ipcRenderer.invoke('gallery:openPhoto', { photoId }),
 
+  showGalleryPhoto: (photoId) =>
+    ipcRenderer.invoke('gallery:showPhoto', { photoId }),
+
+  toggleGalleryFavorite: (photoId, favorite = null) =>
+    ipcRenderer.invoke('gallery:toggleFavorite', { photoId, favorite }),
+
   quit: () =>
     ipcRenderer.invoke('app:quit'),
 
@@ -879,6 +888,15 @@ const openxApi = {
     const handler = (_event, status) => callback(status);
     ipcRenderer.on('cloud:pairing:status', handler);
     return () => ipcRenderer.removeListener('cloud:pairing:status', handler);
+  },
+
+  onScheduleChanged: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Schedule listener must be a function');
+    }
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('schedule:changed', handler);
+    return () => ipcRenderer.removeListener('schedule:changed', handler);
   },
 
   onOpenSettings: (callback) => {
@@ -933,6 +951,15 @@ const openxApi = {
     const handler = (_event, view) => callback(view);
     ipcRenderer.on('gallery:view', handler);
     return () => ipcRenderer.removeListener('gallery:view', handler);
+  },
+
+  onGalleryOpenPhoto: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Gallery photo listener must be a function');
+    }
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('gallery:openPhoto', handler);
+    return () => ipcRenderer.removeListener('gallery:openPhoto', handler);
   }
 };
 

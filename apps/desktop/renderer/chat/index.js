@@ -86,6 +86,7 @@ const NOTIFICATION_STORAGE_KEY = 'openx-ui-notifications-v1';
 const CHAT_HISTORY_STORAGE_KEY = 'openx-ui-chat-history-v2';
 const MAX_NOTIFICATION_HISTORY = 30;
 const ACTIVITY_SCHEDULE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const ACTIVITY_RECURRING_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 const CHAT_HISTORY_LIMIT = 250;
 const MAX_RENDERED_MESSAGES = CHAT_HISTORY_LIMIT;
 const ASSISTANT_MUTED_STORAGE_KEY = 'openx-assistant-voice-muted-v1';
@@ -279,6 +280,20 @@ function restoreConversationHistory() {
 
 function normalizeResultEntries(result) {
   const intent = String(result?.intent || '');
+  const visualResults = Array.isArray(result?.data?.visualResults) ? result.data.visualResults : [];
+  if (visualResults.length > 0) {
+    return visualResults.slice(0, 8).map((entry, index) => ({
+      index: index + 1,
+      name: String(entry?.title || entry?.fileName || `Photo ${index + 1}`),
+      type: 'photo',
+      photoId: String(entry?.photoId || ''),
+      path: String(entry?.path || ''),
+      location: String(entry?.fileName || ''),
+      createdAt: String(entry?.createdAt || ''),
+      sizeMB: 0,
+      matchScore: Number(entry?.confidence || 0) * 100
+    })).filter(entry => entry.photoId);
+  }
   if (intent === 'browser.search') {
     const sources = Array.isArray(result?.data?.searchSummary?.sources)
       ? result.data.searchSummary.sources
@@ -309,8 +324,64 @@ function normalizeResultEntries(result) {
   }));
 }
 
+async function hydrateVisualResultCard(card, photoId) {
+  if (!card || !photoId || card.dataset.loaded === 'true') return;
+  try {
+    const result = await window.openx?.getGalleryImageData?.(photoId);
+    const src = result?.data?.src || '';
+    if (!src) return;
+    const image = card.querySelector('img');
+    if (!image) return;
+    image.src = src;
+    image.addEventListener('load', () => {
+      card.dataset.loaded = 'true';
+    }, { once: true });
+    if (image.complete) card.dataset.loaded = 'true';
+  } catch {
+    // Keep the metadata card visible if preview loading fails.
+  }
+}
+
+function addVisualResultCards(bubble, resultEntries) {
+  const strip = document.createElement('div');
+  strip.className = 'visual-result-strip';
+  strip.setAttribute('aria-label', 'Visual memory search results');
+  for (const entry of resultEntries) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'visual-result-card';
+    card.dataset.photoId = entry.photoId;
+    card.setAttribute('aria-label', `Open ${entry.name}`);
+
+    const image = document.createElement('img');
+    image.alt = entry.name;
+    image.loading = 'lazy';
+    image.decoding = 'async';
+
+    const meta = document.createElement('span');
+    meta.className = 'visual-result-meta';
+    const title = document.createElement('strong');
+    title.textContent = entry.name;
+    const confidence = document.createElement('small');
+    confidence.textContent = entry.matchScore > 0 ? `${Math.round(entry.matchScore)}% match` : 'Possible match';
+    meta.append(title, confidence);
+    card.append(image, meta);
+    card.addEventListener('click', () => {
+      window.openx?.showGalleryPhoto?.(entry.photoId);
+    });
+    strip.appendChild(card);
+    hydrateVisualResultCard(card, entry.photoId);
+  }
+  bubble.appendChild(strip);
+}
+
 function addResultCards(bubble, resultEntries) {
   if (!Array.isArray(resultEntries) || resultEntries.length === 0) return;
+  const visualEntries = resultEntries.filter(entry => entry.type === 'photo');
+  if (visualEntries.length > 0) {
+    addVisualResultCards(bubble, visualEntries);
+    return;
+  }
   const list = document.createElement('ol');
   list.className = 'message-result-list';
   for (const entry of resultEntries) {
@@ -630,6 +701,7 @@ function addScheduleFromResult(result) {
     category: data.category || result.entities?.reminderCategory || null,
     symbol: data.symbol || null,
     dueAt: data.dueAt,
+    recurrence: data.recurrence || result.entities?.recurrence || '',
     status: 'scheduled',
     createdAt: new Date().toISOString()
   };
@@ -639,6 +711,56 @@ function addScheduleFromResult(result) {
   renderActivity();
   const tone = scheduleTone(kind, item.category, item.message).tone;
   showToast(`${kind} scheduled`, `${message} · ${formatDueDate(data.dueAt)}`, tone);
+}
+
+function normalizeScheduleKind(value = '') {
+  const kind = String(value || '').trim().toLowerCase();
+  if (kind === 'timer') return 'Timer';
+  if (kind === 'alarm') return 'Alarm';
+  return 'Reminder';
+}
+
+function normalizeScheduleForActivity(entry = {}) {
+  const id = String(entry.id || entry.taskName || entry.scheduleId || '').trim();
+  if (!id || !entry.dueAt) return null;
+  const due = new Date(entry.dueAt);
+  if (Number.isNaN(due.getTime())) return null;
+  const dueAt = due.toISOString();
+  const kind = normalizeScheduleKind(entry.kind || entry.sourceKind);
+  const status = String(entry.status || 'scheduled').toLowerCase();
+  if (!['scheduled', 'paused', 'due'].includes(status)) return null;
+  return {
+    id,
+    kind,
+    message: String(entry.message || entry.title || kind).trim() || kind,
+    category: entry.category || null,
+    symbol: entry.symbol || null,
+    dueAt,
+    recurrence: entry.recurrence || '',
+    status,
+    createdAt: entry.createdAt || entry.dueAt || new Date().toISOString(),
+    source: entry.source || 'scheduler'
+  };
+}
+
+function replaceScheduleItemsFromRuntime(items = []) {
+  scheduleItems = items
+    .map(normalizeScheduleForActivity)
+    .filter(Boolean)
+    .sort((left, right) => new Date(left.dueAt) - new Date(right.dueAt))
+    .slice(0, 80);
+  saveStoredList(SCHEDULE_STORAGE_KEY, scheduleItems);
+  renderActivity();
+}
+
+async function refreshActivitySchedulesFromRuntime() {
+  if (!window.openx?.getScheduleSnapshot) return;
+  try {
+    const snapshot = await window.openx.getScheduleSnapshot();
+    replaceScheduleItemsFromRuntime(snapshot?.entries || snapshot?.data?.entries || []);
+  } catch (error) {
+    console.warn('Schedule activity sync failed', error);
+  }
 }
 
 function armSchedule(item) {
@@ -696,7 +818,10 @@ function isActivityScheduleVisible(item, now = Date.now()) {
   if (!item || !['scheduled', 'due'].includes(item.status)) return false;
   if (item.status === 'due') return true;
   const dueAt = new Date(item.dueAt).getTime();
-  return Number.isFinite(dueAt) && dueAt >= now && dueAt <= now + ACTIVITY_SCHEDULE_WINDOW_MS;
+  if (!Number.isFinite(dueAt) || dueAt < now) return false;
+  const recurring = Boolean(String(item.recurrence || '').trim());
+  const windowMs = recurring ? ACTIVITY_RECURRING_WINDOW_MS : ACTIVITY_SCHEDULE_WINDOW_MS;
+  return dueAt <= now + windowMs;
 }
 
 function renderSchedules() {
@@ -709,7 +834,7 @@ function renderSchedules() {
   if (visible.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.textContent = 'No upcoming alarms, timers, or reminders in the next 24 hours.';
+    empty.textContent = 'No upcoming alarms, timers, or reminders.';
     scheduleListEl.appendChild(empty);
     return;
   }
@@ -730,7 +855,10 @@ function renderSchedules() {
     title.textContent = item.message;
     const due = document.createElement('div');
     due.className = 'schedule-due';
-    due.textContent = formatDueDate(item.dueAt);
+    const recurrence = String(item.recurrence || '').trim();
+    due.textContent = recurrence
+      ? `${formatDueDate(item.dueAt)} · repeats ${recurrence.replace(/-/g, ' ')}`
+      : formatDueDate(item.dueAt);
     copy.append(kind, title, due);
     const state = document.createElement('span');
     state.className = 'schedule-state';
@@ -2507,6 +2635,9 @@ if (window.openx) {
   });
   window.openx.onCloudStatus?.(renderCloudStatus);
   window.openx.onCloudPairingStatus?.(renderCloudPairingStatus);
+  window.openx.onScheduleChanged?.((payload) => {
+    replaceScheduleItemsFromRuntime(payload?.snapshot?.entries || payload?.entries || []);
+  });
   window.openx.onOpenSettings?.(openSettingsPanel);
 }
 
@@ -2539,6 +2670,7 @@ async function initialize() {
   }
   const snapshot = await window.openx.getSettings();
   applySnapshot(snapshot);
+  await refreshActivitySchedulesFromRuntime();
   if (!window.openx) {
     scheduleItems.forEach(item => {
       if (item.status === 'scheduled') armSchedule(item);

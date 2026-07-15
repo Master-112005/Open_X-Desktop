@@ -243,6 +243,14 @@ function validateGalleryPhoto(payload) {
   return { photoId };
 }
 
+function validateGalleryFavorite(payload) {
+  const data = validateGalleryPhoto(payload);
+  return {
+    ...data,
+    favorite: typeof payload.favorite === 'boolean' ? payload.favorite : null
+  };
+}
+
 function validatePlannerEntry(payload) {
   requirePlainObject(payload);
   const type = requireString(payload.type || 'calendar', 'type', { maxLength: 20 });
@@ -322,6 +330,7 @@ const IPC_VALIDATORS = Object.freeze({
   'settings:save': validateSettings,
   'settings:reset': validateEmpty,
   'schedule:alertAction': validateScheduleAction,
+  'schedule:getSnapshot': validateEmpty,
   'timerWidget:getState': validateEmpty,
   'timerWidget:close': validateTimerWidgetClose,
   'timerWidget:stopStopwatch': validateEmpty,
@@ -333,6 +342,8 @@ const IPC_VALIDATORS = Object.freeze({
   'gallery:getPhotos': validateGalleryPhotosQuery,
   'gallery:getImageData': validateGalleryPhoto,
   'gallery:openPhoto': validateGalleryPhoto,
+  'gallery:showPhoto': validateGalleryPhoto,
+  'gallery:toggleFavorite': validateGalleryFavorite,
   'app:quit': validateEmpty
 });
 
