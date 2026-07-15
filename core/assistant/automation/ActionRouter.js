@@ -1453,6 +1453,11 @@ class ActionRouter {
       return null;
     }
 
+    const carriedAppTargetPlan = this._splitCarriedAppTargetsWithTrailingCommands(text);
+    if (carriedAppTargetPlan) {
+      return carriedAppTargetPlan;
+    }
+
     const semanticFrames = Array.isArray(preparedWholeText.semanticParse?.frames)
       ? preparedWholeText.semanticParse.frames
       : [];
@@ -1530,6 +1535,118 @@ class ActionRouter {
       return simpleAnd.slice(0, 6);
     }
     return null;
+  }
+
+  _splitCarriedAppTargetsWithTrailingCommands(text) {
+    const clauses = String(text || '')
+      .split(/\s*(?:;|,|\b(?:and then|then|after that|afterwards|and|also|plus|add|additionally|furthermore|plus)\b)\s*/i)
+      .map(part => part.trim())
+      .filter(Boolean)
+      .slice(0, 8);
+    if (clauses.length < 2) {
+      return null;
+    }
+
+    const verbsThatCanCarry = new Set([
+      'open',
+      'launch',
+      'start',
+      'run',
+      'close',
+      'quit',
+      'exit',
+      'terminate',
+      'minimize',
+      'maximize',
+      'switch',
+      'focus'
+    ]);
+    const verbMap = {
+      launch: 'open',
+      start: 'open',
+      run: 'open',
+      quit: 'close',
+      exit: 'close',
+      terminate: 'close',
+      focus: 'switch to'
+    };
+    const trailingActionPattern = /\b(?:open|launch|start|run|close|quit|exit|terminate|minimize|maximize|switch|focus|search|google|look\s+up|find|play|pause|resume|unpause|stop|set|turn|send|share|transfer|copy|move|message|text|call|remind|notify|alert|create|delete|rename|save|show|list)\b/i;
+    let carriedVerb = null;
+    let changed = false;
+    const result = [];
+
+    for (const rawClause of clauses) {
+      const prepared = this._safePrepareInput(rawClause);
+      const corrected = String(prepared?.correctedText || rawClause || '').trim();
+      const normalized = corrected.toLowerCase();
+      const leadingVerb = normalized.match(/^(open|launch|start|run|close|quit|exit|terminate|minimize|maximize|switch|focus)\b/)?.[1] || '';
+      if (leadingVerb) {
+        carriedVerb = verbsThatCanCarry.has(leadingVerb) ? (verbMap[leadingVerb] || leadingVerb) : null;
+        result.push(corrected);
+        continue;
+      }
+
+      if (!carriedVerb) {
+        result.push(corrected);
+        continue;
+      }
+
+      const boundary = this._findTrailingActionBoundary(corrected, trailingActionPattern);
+      if (!boundary) {
+        result.push(corrected);
+        continue;
+      }
+
+      const target = this._cleanCarriedAppTarget(corrected.slice(0, boundary.index));
+      const trailing = corrected.slice(boundary.index).trim();
+      if (!target || !trailing || this._targetLooksLikeNonApp(target)) {
+        result.push(corrected);
+        continue;
+      }
+
+      result.push(`${carriedVerb} ${target}`);
+      result.push(trailing);
+      changed = true;
+    }
+
+    if (!changed || result.length < 2) {
+      return null;
+    }
+
+    return this._normalizeMultiClauses(result).slice(0, 8);
+  }
+
+  _findTrailingActionBoundary(text, actionPattern) {
+    const source = String(text || '');
+    let match;
+    const pattern = new RegExp(actionPattern.source, 'ig');
+    while ((match = pattern.exec(source))) {
+      if (match.index <= 0) {
+        continue;
+      }
+      const before = source.slice(0, match.index).trim();
+      const after = source.slice(match.index).trim();
+      if (before && after) {
+        return { index: match.index, action: match[0] };
+      }
+    }
+    return null;
+  }
+
+  _cleanCarriedAppTarget(value) {
+    return String(value || '')
+      .replace(/^(?:the|a|an|my)\s+/i, '')
+      .replace(/\s+(?:app|application|program|window)$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  _targetLooksLikeNonApp(target) {
+    const text = String(target || '').trim().toLowerCase();
+    if (!text || text.length > 80 || text.split(/\s+/).length > 5) {
+      return true;
+    }
+    return /\b(?:volume|vol|brightness|bright|timer|alarm|reminder|file|folder|message|search|question|answer|percent|level)\b/.test(text);
   }
 
   _splitCoordinatedUtilitySetCommand(text) {

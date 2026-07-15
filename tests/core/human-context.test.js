@@ -53,6 +53,24 @@ describe('Human-style context and profile memory', function() {
     assert.equal(context.resolveEllipticalFollowUp('please set the vol to 70'), 'set volume to 70');
   });
 
+  it('resolves omitted app targets from correction-style follow-ups', function() {
+    const context = new ContextManager({});
+    context.record('close whatsapp and youtube set vol to 100', {}, {
+      success: true,
+      intent: 'multi.command',
+      entities: { appNames: ['whatsapp'], appAction: 'app.close' },
+      steps: [
+        { success: true, intent: 'app.close', entities: { appName: 'whatsapp' } },
+        { success: true, intent: 'volume.set', entities: { value: 100 } }
+      ]
+    });
+
+    assert.equal(context.resolveEllipticalFollowUp('i told youtube also'), 'close youtube');
+    assert.equal(context.resolveEllipticalFollowUp('i told also youtube'), 'close youtube');
+    assert.equal(context.resolveEllipticalFollowUp('youtube too'), 'close youtube');
+    assert.equal(context.resolveEllipticalFollowUp('i told volume also'), '');
+  });
+
   it('carries discourse metadata through parser, NLP, and NLU', function() {
     const registry = new IntentRegistry();
     const nlp = new NlpProcessor(registry);

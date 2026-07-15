@@ -423,6 +423,60 @@ describe('Action Router', function() {
     assert.match(linkedInWhatsApp.response, /opened LinkedIn and WhatsApp/i);
   });
 
+  it('should preserve carried app targets before a trailing utility command', async function() {
+    const config = {
+      permissions: {
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false },
+          medium: { requiresConfirmation: false, requiresAuth: false }
+        }
+      }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+    const result = await router.process('close whatsapp and chrome set vol to 100', 'chat');
+
+    assert.equal(result.intent, 'multi.command');
+    assert.deepEqual(result.entities.commands, ['close whatsapp', 'close chrome', 'set volume to 100']);
+    assert.deepEqual(executed.map(step => step.actionId), ['app.close', 'app.close', 'volume.set']);
+    assert.deepEqual(executed.slice(0, 2).map(step => step.entities.appName), ['whatsapp', 'chrome']);
+    assert.equal(executed[2].entities.value, 100);
+    assert.match(result.response, /closed WhatsApp and Chrome/i);
+    assert.match(result.response, /set the volume to 100%/i);
+
+    executed.length = 0;
+    const utilityChain = await router.process('close whatsapp and chrome set vol to 100 and brightness to 0', 'chat');
+    assert.equal(utilityChain.intent, 'multi.command');
+    assert.deepEqual(utilityChain.entities.commands, [
+      'close whatsapp',
+      'close chrome',
+      'set volume to 100',
+      'set brightness to 0'
+    ]);
+    assert.deepEqual(executed.map(step => step.actionId), ['app.close', 'app.close', 'volume.set', 'brightness.set']);
+    assert.equal(executed[2].entities.value, 100);
+    assert.equal(executed[3].entities.value, 0);
+
+    executed.length = 0;
+    const appListWithUtility = await router.process('open chrome and instagram and whatsapp set volume to 50', 'chat');
+    assert.equal(appListWithUtility.intent, 'multi.command');
+    assert.deepEqual(appListWithUtility.entities.commands, [
+      'open chrome',
+      'open instagram',
+      'open whatsapp',
+      'set volume to 50'
+    ]);
+    assert.deepEqual(executed.map(step => step.actionId), ['app.open', 'app.open', 'app.open', 'volume.set']);
+    assert.deepEqual(executed.slice(0, 3).map(step => step.entities.appName), ['chrome', 'instagram', 'whatsapp']);
+    assert.equal(executed[3].entities.value, 50);
+  });
+
   it('should continue app-list multi commands after one close failure and word the failure naturally', async function() {
     const config = {
       permissions: {
