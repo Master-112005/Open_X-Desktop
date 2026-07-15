@@ -848,6 +848,9 @@ const openxApi = {
   getGalleryPhotos: (query = {}) =>
     ipcRenderer.invoke('gallery:getPhotos', query),
 
+  getGalleryView: (view = 'timeline', query = {}) =>
+    ipcRenderer.invoke('gallery:getView', { ...query, view }),
+
   getGalleryImageData: (photoId) =>
     ipcRenderer.invoke('gallery:getImageData', { photoId }),
 
@@ -859,6 +862,12 @@ const openxApi = {
 
   toggleGalleryFavorite: (photoId, favorite = null) =>
     ipcRenderer.invoke('gallery:toggleFavorite', { photoId, favorite }),
+
+  nameGalleryFace: (clusterId, name, relationship = '') =>
+    ipcRenderer.invoke('gallery:nameFace', { clusterId, name, relationship }),
+
+  scanGalleryPeople: (options = {}) =>
+    ipcRenderer.invoke('gallery:scanPeople', options),
 
   quit: () =>
     ipcRenderer.invoke('app:quit'),

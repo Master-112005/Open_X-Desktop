@@ -160,6 +160,7 @@ let visualMemoryEngine = null;
 let visualMemoryDefaultFoldersReady = false;
 let visualMemoryIndexPromise = null;
 let lazyVisualMemoryApi = null;
+let visualMemoryReadyLogged = false;
 let voiceSessionManager = null;
 let voiceAssistantBridge = null;
 let diagnosticsManager = null;
@@ -259,11 +260,14 @@ const IPC_CHANNELS = [
   'planner:getEntries',
   'planner:addEntry',
   'planner:deleteEntry',
+  'gallery:getView',
   'gallery:getPhotos',
   'gallery:getImageData',
   'gallery:openPhoto',
   'gallery:showPhoto',
   'gallery:toggleFavorite',
+  'gallery:nameFace',
+  'gallery:scanPeople',
   'app:quit'
 ];
 
@@ -1401,6 +1405,7 @@ function createPlannerWindow(initialView = 'calendar', options = {}) {
 async function ensureVisualMemoryRuntime() {
   if (!visualMemoryEngine) {
     const dataDir = path.join(runtimeConfig?.app?.dataPaths?.root || BASE_CONFIG.app.dataPaths.root, 'visual-memory');
+    mainLogger.info('[Gallery] Preparing OpenX Visual Memory runtime.', { dataDir });
     visualMemoryEngine = new VisualMemoryEngine({
       dataDir,
       logging: { console: false, file: false },
@@ -1408,12 +1413,20 @@ async function ensureVisualMemoryRuntime() {
     });
   }
   await visualMemoryEngine.api.start();
+  if (!visualMemoryReadyLogged) {
+    visualMemoryReadyLogged = true;
+    mainLogger.info('[Gallery] Visual Memory runtime is ready for photos, people, and memory search.', {
+      state: visualMemoryEngine.getStatus?.().lifecycle?.state,
+      localOnly: visualMemoryEngine.getStatus?.().localOnly
+    });
+  }
   if (!visualMemoryDefaultFoldersReady) {
     try {
       await visualMemoryEngine.api.addDefaultFolders();
       visualMemoryDefaultFoldersReady = true;
+      mainLogger.info('[Gallery] Windows Pictures folders registered for Gallery access.');
     } catch (error) {
-      mainLogger.warn('[VISUAL-MEMORY] Default Pictures folders could not be registered', { error: error.message });
+      mainLogger.warn('[Gallery] Windows Pictures folders could not be registered for Gallery access.', { error: error.message });
     }
   }
   return visualMemoryEngine;
@@ -1443,8 +1456,13 @@ async function ensureVisualMemoryGalleryIndexed() {
     const needsIndex = folders.some(folder => folder?.enabled !== false && !folder.lastIndexedAt);
     const existingTotal = Object.keys(engine.database.getTable('photos') || {}).length;
     if (!needsIndex && existingTotal > 0) {
+      mainLogger.info('[Gallery] Photo index is already fresh; using existing Gallery library.', { totalPhotos: existingTotal });
       return { skipped: true, total: existingTotal };
     }
+    mainLogger.info('[Gallery] Photo indexing started in the background.', {
+      folders: folders.filter(folder => folder?.enabled !== false).length,
+      existingPhotos: existingTotal
+    });
     return engine.api.refreshGallery({
       maxDepth: runtimeConfig?.visualMemory?.performance?.maxIndexDepth || 8,
       maxFiles: runtimeConfig?.visualMemory?.performance?.maxIndexFiles || 50000
@@ -1460,7 +1478,7 @@ function isVisualMemoryIndexing() {
 }
 
 function createGalleryWindow(initialView = 'timeline', options = {}) {
-  const view = ['timeline', 'photos', 'favorites', 'recent'].includes(String(initialView || '').toLowerCase())
+  const view = ['timeline', 'photos', 'favorites', 'recent', 'people'].includes(String(initialView || '').toLowerCase())
     ? String(initialView || 'timeline').toLowerCase()
     : 'timeline';
   if (galleryWindow && !galleryWindow.isDestroyed()) {
@@ -1548,8 +1566,9 @@ async function getGalleryPhotoData(query = {}) {
   const existingTotal = Object.keys(engine.database.getTable('photos') || {}).length;
   const needsIndex = folders.some(folder => folder?.enabled !== false && !folder.lastIndexedAt) || existingTotal === 0;
   if (needsIndex && !isVisualMemoryIndexing()) {
+    mainLogger.info('[Gallery] Gallery needs a photo index refresh; starting background scan.');
     ensureVisualMemoryGalleryIndexed().catch(error => {
-      mainLogger.warn('[VISUAL-MEMORY] Background gallery indexing failed', { error: error.message });
+      mainLogger.warn('[Gallery] Background Gallery photo indexing failed.', { error: error.message });
     });
   }
   const result = engine.api.getPhotos({
@@ -1581,6 +1600,66 @@ async function getGalleryPhotoData(query = {}) {
       pageSize: result.pageSize,
       total: result.total,
       hasMore: result.hasMore,
+      indexing: isVisualMemoryIndexing()
+    }
+  };
+}
+
+function normalizeGalleryPhotoItem(photo, metadata = {}, extra = {}) {
+  return {
+    id: photo.id,
+    fileName: photo.fileName,
+    filePath: photo.filePath,
+    fileType: photo.fileType,
+    fileSize: photo.fileSize || 0,
+    createdAt: photo.createdAt || metadata?.createdAt || photo.indexedAt || null,
+    modifiedAt: photo.modifiedAt || null,
+    width: metadata?.width || null,
+    height: metadata?.height || null,
+    city: metadata?.city || '',
+    folderId: photo.folderId || '',
+    thumbnailReady: Boolean(photo.thumbnail),
+    ...extra
+  };
+}
+
+async function getGalleryViewData(view = 'timeline', query = {}) {
+  const normalizedView = String(view || 'timeline').toLowerCase();
+  if (normalizedView === 'timeline' || normalizedView === 'photos') return getGalleryPhotoData(query);
+  const engine = await ensureVisualMemoryRuntime();
+  if (normalizedView === 'people') {
+    mainLogger.info('[Gallery] Loading People view from verified face memory.');
+    const people = await engine.api.getOpenXGalleryPeople();
+    return { success: true, data: people };
+  }
+
+  const metadata = engine.database.getTable('metadata');
+  const source = normalizedView === 'favorites'
+    ? await engine.api.getOpenXGalleryFavorites('images')
+    : normalizedView === 'recent'
+      ? await engine.api.getOpenXGalleryRecent('images')
+      : { items: [] };
+  const items = (source.items || [])
+    .map(entry => {
+      const photoId = entry.photoId || entry.id;
+      const photo = engine.api.getPhoto(photoId);
+      if (!photo?.id) return null;
+      return normalizeGalleryPhotoItem(photo, metadata[photo.id] || photo.metadata || {}, {
+        favorite: normalizedView === 'favorites' || entry.favorite === true,
+        favoritedAt: entry.favoritedAt || null,
+        viewedAt: entry.viewedAt || null
+      });
+    })
+    .filter(Boolean);
+  return {
+    success: true,
+    data: {
+      view: normalizedView,
+      items,
+      page: 1,
+      pageSize: items.length,
+      total: items.length,
+      hasMore: false,
       indexing: isVisualMemoryIndexing()
     }
   };
@@ -1623,7 +1702,57 @@ async function showGalleryPhoto(photoId) {
 async function toggleGalleryPhotoFavorite(photoId, value = null) {
   const engine = await ensureVisualMemoryRuntime();
   const favorite = await engine.api.toggleOpenXGalleryFavorite('images', photoId, value);
+  mainLogger.info(favorite?.favorite === false
+    ? '[Gallery] Photo removed from Favorites.'
+    : '[Gallery] Photo added to Favorites.', { photoId });
   return { success: true, data: favorite };
+}
+
+async function nameGalleryFace(clusterId, name, relationship = '') {
+  const engine = await ensureVisualMemoryRuntime();
+  mainLogger.info('[Gallery] Saving a name for a detected person.', {
+    clusterId,
+    hasName: Boolean(String(name || '').trim()),
+    relationship: relationship || ''
+  });
+  const status = await engine.api.getFaceMemoryStatus();
+  if (!status?.consent?.enabled && status?.enabled !== true) {
+    await engine.api.enableFaceMemory({ acceptedBy: 'gallery-person-naming' });
+  }
+  const result = await engine.api.enrollFaceCluster({ clusterId, name, relationship });
+  mainLogger.info('[Gallery] Person name saved in Face Memory.', {
+    clusterId,
+    identityId: result?.identity?.id || result?.identityId || null,
+    name: result?.identity?.name || name
+  });
+  return { success: true, data: result };
+}
+
+async function scanGalleryPeople(options = {}) {
+  const engine = await ensureVisualMemoryRuntime();
+  mainLogger.info('[Gallery] People scan requested from the Gallery UI.', {
+    maxPhotos: options.maxPhotos || null
+  });
+  const result = await engine.api.scanGalleryPeople({
+    maxPhotos: options.maxPhotos,
+    acceptedBy: 'gallery-people-scan'
+  });
+  if (result.success === false) {
+    mainLogger.warn('[Gallery] People scan could not run.', {
+      reason: result.reason,
+      warnings: result.warnings?.length || 0
+    });
+  } else {
+    mainLogger.info('[Gallery] People scan completed and the People view is updated.', {
+      scanned: result.scanned,
+      detectedFaces: result.detectedFaces,
+      verifiedFaces: result.verifiedFaces,
+      grouped: result.grouped,
+      skipped: result.skipped,
+      warnings: result.warnings?.length || 0
+    });
+  }
+  return { success: result.success !== false, data: result };
 }
 
 function formatScheduleDueLabel(schedule = {}) {
@@ -2892,6 +3021,10 @@ function setupIPC() {
     return result;
   });
 
+  registerIpcHandler('gallery:getView', async (_event, payload) => {
+    return getGalleryViewData(payload.view, payload);
+  });
+
   registerIpcHandler('gallery:getPhotos', async (_event, payload) => {
     return getGalleryPhotoData(payload);
   });
@@ -2911,6 +3044,14 @@ function setupIPC() {
 
   registerIpcHandler('gallery:toggleFavorite', async (_event, { photoId, favorite }) => {
     return toggleGalleryPhotoFavorite(photoId, favorite);
+  });
+
+  registerIpcHandler('gallery:nameFace', async (_event, { clusterId, name, relationship }) => {
+    return nameGalleryFace(clusterId, name, relationship);
+  });
+
+  registerIpcHandler('gallery:scanPeople', async (_event, payload) => {
+    return scanGalleryPeople(payload);
   });
 
   registerIpcHandler('app:quit', async () => {
@@ -3062,6 +3203,7 @@ async function cleanupRuntime() {
         visualMemoryDefaultFoldersReady = false;
         visualMemoryIndexPromise = null;
         lazyVisualMemoryApi = null;
+        visualMemoryReadyLogged = false;
       }
     }
     eventBus?.removeAllListeners?.();

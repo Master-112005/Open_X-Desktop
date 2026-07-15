@@ -10,6 +10,7 @@ module.exports = {
   ModelManager: require('./models/ModelManager'),
   ResourceManager: require('./managers/ResourceManager'),
   VisionValidator: require('./validation/VisionValidator'),
+  WindowsFaceRuntimeAdapter: require('./runtime/WindowsFaceRuntimeAdapter'),
   ImagePreprocessingPipeline: require('./preprocessing/ImagePreprocessingPipeline'),
   VisionPostprocessor: require('./postprocessing/VisionPostprocessor'),
   ConfidenceEngine: require('./confidence/ConfidenceEngine'),

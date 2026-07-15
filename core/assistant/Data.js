@@ -412,7 +412,7 @@ const DEFAULT_MAX_LOG_FILES = 5;
 const SENSITIVE_KEY_PATTERN = /(?:password|passcode|token|secret|authorization|cookie|credential|api[_-]?key)/i;
 const PRIVATE_TEXT_KEYS = new Set(['audio', 'pcm', 'buffer', 'sample', 'samples', 'text', 'input', 'response']);
 const PRIVATE_TEXT_KEY_PATTERN = /(?:transcript|input(?:text)?|command(?:text)?|rawcommand|response|spokenresponse|pcm|buffer|samples?|utterance|speechtext)/i;
-const HUMAN_VOICE_LOG_PATTERN = /^(?:\[(?:Voice|Voice UI|Voice Integration|Audio|Audio Processing|STT)\]|Voice\b|TTS\b)/i;
+const HUMAN_VOICE_LOG_PATTERN = /^(?:\[(?:Voice|Voice UI|Voice Integration|Audio|Audio Processing|STT|VisualMemory|Visual Memory|VISUAL-MEMORY|Gallery|People Scan|Face Scan|AI Vision|Windows Face)\]|Voice\b|TTS\b|Visual Memory\b|Gallery\b|People Scan\b|Face Scan\b|AI Vision\b|Windows Face\b)/i;
 const VOICE_PRIVATE_KEY_PATTERN = /(?:transcript|input|text|response|pcm|buffer|sample|samples)/i;
 
 function dateStamp(date = new Date()) {

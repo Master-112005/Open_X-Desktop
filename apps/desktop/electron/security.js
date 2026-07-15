@@ -223,8 +223,17 @@ function validatePlannerView(payload) {
 function validateGalleryView(payload) {
   requirePlainObject(payload);
   const view = requireString(payload.view || 'timeline', 'view', { maxLength: 20 });
-  if (!['timeline', 'photos', 'favorites', 'recent'].includes(view)) throw new TypeError('gallery view is not supported');
+  if (!['timeline', 'photos', 'favorites', 'recent', 'people'].includes(view)) throw new TypeError('gallery view is not supported');
   return { view };
+}
+
+function validateGalleryViewQuery(payload) {
+  const data = validateGalleryView(payload);
+  return {
+    ...data,
+    page: Math.max(1, Math.min(10000, Number(payload.page) || 1)),
+    pageSize: Math.max(1, Math.min(120, Number(payload.pageSize) || 80))
+  };
 }
 
 function validateGalleryPhotosQuery(payload) {
@@ -248,6 +257,29 @@ function validateGalleryFavorite(payload) {
   return {
     ...data,
     favorite: typeof payload.favorite === 'boolean' ? payload.favorite : null
+  };
+}
+
+function validateGalleryFaceName(payload) {
+  requirePlainObject(payload);
+  const clusterId = requireString(payload.clusterId, 'clusterId', { maxLength: 160 });
+  const name = requireString(payload.name, 'name', { maxLength: 120 }).replace(/\s+/g, ' ').trim();
+  if (!/^[A-Za-z0-9._:-]+$/.test(clusterId)) throw new TypeError('clusterId is invalid');
+  if (!name) throw new TypeError('name is required');
+  return {
+    clusterId,
+    name,
+    relationship: typeof payload.relationship === 'string'
+      ? payload.relationship.replace(/\s+/g, ' ').trim().slice(0, 80)
+      : ''
+  };
+}
+
+function validateGalleryPeopleScan(payload = {}) {
+  if (payload === undefined) return { maxPhotos: 10000 };
+  requirePlainObject(payload);
+  return {
+    maxPhotos: Math.max(1, Math.min(100000, Number(payload.maxPhotos) || 10000))
   };
 }
 
@@ -339,11 +371,14 @@ const IPC_VALIDATORS = Object.freeze({
   'planner:getEntries': validateEmpty,
   'planner:addEntry': validatePlannerEntry,
   'planner:deleteEntry': validatePlannerDelete,
+  'gallery:getView': validateGalleryViewQuery,
   'gallery:getPhotos': validateGalleryPhotosQuery,
   'gallery:getImageData': validateGalleryPhoto,
   'gallery:openPhoto': validateGalleryPhoto,
   'gallery:showPhoto': validateGalleryPhoto,
   'gallery:toggleFavorite': validateGalleryFavorite,
+  'gallery:nameFace': validateGalleryFaceName,
+  'gallery:scanPeople': validateGalleryPeopleScan,
   'app:quit': validateEmpty
 });
 

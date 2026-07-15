@@ -172,6 +172,14 @@ button {
   transform: translateY(-1px);
 }
 
+.people-scan-button {
+  min-width: 112px;
+}
+
+.people-scan-button[hidden] {
+  display: none;
+}
+
 .window-close:hover,
 .viewer-close:hover {
   background: rgba(255, 125, 134, 0.18);
@@ -361,6 +369,96 @@ h1 {
 
 .photo-card.loaded::before {
   content: "";
+}
+
+.people-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.person-card {
+  align-items: center;
+  background: linear-gradient(145deg, var(--adaptive-control), transparent), rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--adaptive-border);
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 58px minmax(0, 1fr);
+  min-height: 94px;
+  padding: 12px;
+}
+
+.person-avatar {
+  background: color-mix(in srgb, var(--accent) 22%, rgba(255, 255, 255, 0.08));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--adaptive-border));
+  border-radius: 18px;
+  color: var(--adaptive-text);
+  display: grid;
+  font-size: 20px;
+  font-weight: 850;
+  height: 58px;
+  overflow: hidden;
+  place-items: center;
+  position: relative;
+  width: 58px;
+}
+
+.person-card.unnamed .person-avatar {
+  color: #ffd95c;
+}
+
+.person-avatar img {
+  height: 100%;
+  inset: 0;
+  object-fit: cover;
+  position: absolute;
+  width: 100%;
+}
+
+.person-avatar.has-image {
+  background: #111;
+}
+
+.person-body {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.person-body strong {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person-body span {
+  color: var(--adaptive-muted);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.person-name-form {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 4px;
+}
+
+.person-name-form input,
+.person-name-form button {
+  background: var(--adaptive-control);
+  border: 1px solid var(--adaptive-border);
+  border-radius: 10px;
+  color: var(--adaptive-text);
+  min-height: 34px;
+  outline: none;
+  padding: 0 10px;
+}
+
+.person-name-form button {
+  font-weight: 780;
 }
 
 .empty-state {

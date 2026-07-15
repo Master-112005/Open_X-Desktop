@@ -79,6 +79,9 @@ describe('OpenX Gallery Experience', () => {
     await engine.api.enableFaceMemory({ acceptedBy: 'test-user' });
     await engine.api.ingestUnknownFace({ vector: [1, 0], photoId: 'goaBeach', faceId: 'f1', confidence: 0.95 });
     await engine.api.ingestUnknownFace({ vector: [0.99, 0.01], photoId: 'desktopShot', faceId: 'f2', confidence: 0.93 });
+    const unnamedPeople = await engine.api.getOpenXGalleryPeople();
+    assert.strictEqual(unnamedPeople.unknown[0].nameable, true);
+    assert.strictEqual(unnamedPeople.unknown[0].representativePhotoId, 'goaBeach');
     const [suggestion] = await engine.api.getFaceEnrollmentSuggestions();
     await engine.api.enrollFaceCluster({ clusterId: suggestion.clusterId, name: 'Rahul', relationship: 'friend' });
 
@@ -87,6 +90,52 @@ describe('OpenX Gallery Experience', () => {
     assert.strictEqual(people.performsRecognition, false);
     assert.strictEqual(people.known[0].name, 'Rahul');
     assert.strictEqual(people.relationshipGroups.friend.length, 1);
+
+    await engine.api.shutdown();
+  });
+
+  it('scans indexed photos into nameable people only from verified face evidence', async () => {
+    const visionEngine = {
+      async initialize() {},
+      runtime: { getStatus: () => ({ adapters: ['test'] }) },
+      async infer(request) {
+        if (/screenshot/i.test(request.imagePath || '')) {
+          return {
+            faces: [{ id: 'face-low', confidence: 0.42, imageWidth: 1000, imageHeight: 800, box: { x: 100, y: 120, width: 80, height: 80 } }],
+            embeddings: [{ vector: [0, 1], confidence: 0.91 }],
+            warnings: []
+          };
+        }
+        return {
+          faces: [{ id: 'face-1', confidence: 0.96, imageWidth: 1000, imageHeight: 800, box: { x: 220, y: 180, width: 180, height: 180 } }],
+          embeddings: [{ vector: [1, 0], confidence: 0.94 }],
+          warnings: []
+        };
+      }
+    };
+    const engine = new VisualMemoryEngine({
+      dataDir: tempDir(),
+      logging: { console: false, file: false },
+      visionEngine
+    });
+    await engine.api.start();
+    await seedVisualMemory(engine);
+    await engine.api.enableFaceMemory({ acceptedBy: 'test-rescan' });
+    await engine.api.ingestUnknownFace({ vector: [0, 1], photoId: 'desktopShot', faceId: 'old-bad-cluster', confidence: 0.95 });
+
+    const result = await engine.api.scanGalleryPeople({ maxPhotos: 3 });
+    const people = await engine.api.getOpenXGalleryPeople();
+
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.reset.removedClusters, 1);
+    assert.strictEqual(result.scanned, 3);
+    assert.strictEqual(result.grouped, 2);
+    assert.strictEqual(result.verification.requireFaceDetection, true);
+    assert.strictEqual(result.verification.requireFaceEmbedding, true);
+    assert(people.unknown.length >= 1);
+    assert(people.unknown.every(person => person.nameable === true));
+    assert.strictEqual(people.unknown[0].representativeFaceBox.width, 180);
+    assert.strictEqual(people.unknown[0].representativeFaceBox.imageWidth, 1000);
 
     await engine.api.shutdown();
   });

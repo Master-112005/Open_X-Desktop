@@ -101,9 +101,22 @@ class IdentityManager {
     const embeddings = identity.embeddingIds.map(embeddingId => this.state.embeddings[embeddingId]).filter(Boolean);
     const photoIds = Array.from(new Set(embeddings.map(item => item.photoId).filter(Boolean)));
     const dates = embeddings.map(item => Date.parse(item.createdAt)).filter(Boolean).sort((a, b) => a - b);
+    const representative = embeddings
+      .filter(item => item.photoId)
+      .sort((left, right) => (right.confidence || 0) - (left.confidence || 0))[0] || null;
     return this.profiles.updateStats(identity.profileId, {
       embeddingCount: embeddings.length,
       photoCount: photoIds.length,
+      representativePhotoId: representative?.photoId || null,
+      representativeFaceBox: representative?.faceBox
+        ? {
+          photoId: representative.photoId,
+          faceId: representative.faceId || null,
+          ...representative.faceBox,
+          imageWidth: representative.imageWidth || representative.faceBox.imageWidth || null,
+          imageHeight: representative.imageHeight || representative.faceBox.imageHeight || null
+        }
+        : null,
       firstSeenAt: dates.length ? new Date(dates[0]).toISOString() : null,
       lastSeenAt: dates.length ? new Date(dates[dates.length - 1]).toISOString() : null,
       confidence: embeddings.reduce((best, item) => Math.max(best, item.confidence || 0), 0)

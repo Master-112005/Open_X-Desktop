@@ -11,7 +11,7 @@ class FaceGroupingEngine {
     this.events = events;
   }
 
-  groupUnknownFace({ vector, photoId, faceId, confidence = 0 } = {}) {
+  groupUnknownFace({ vector, photoId, faceId, faceBox = null, imageWidth = null, imageHeight = null, source = 'ai-vision', confidence = 0 } = {}) {
     if (!this.configuration.privacy.groupingEnabled) return { skipped: true, reason: 'grouping-disabled' };
     const cluster = this._bestCluster(vector);
     const clusterId = cluster?.similarity >= this.configuration.thresholds.grouping ? cluster.cluster.id : id('unknownface');
@@ -21,6 +21,8 @@ class FaceGroupingEngine {
         status: 'unknown',
         photoIds: [],
         faceIds: [],
+        faceBoxes: [],
+        representativeFaceBox: null,
         embeddingIds: [],
         firstSeenAt: nowIso(),
         latestSeenAt: null,
@@ -29,10 +31,37 @@ class FaceGroupingEngine {
       };
     }
     const record = this.state.unknownClusters[clusterId];
-    const embedding = this.embeddings.addEmbedding({ vector, clusterId, photoId, faceId, confidence });
+    const normalizedFaceBox = faceBox && typeof faceBox === 'object'
+      ? {
+        x: Number(faceBox.x) || 0,
+        y: Number(faceBox.y) || 0,
+        width: Number(faceBox.width) || 0,
+        height: Number(faceBox.height) || 0,
+        imageWidth: Number(imageWidth) || Number(faceBox.imageWidth) || null,
+        imageHeight: Number(imageHeight) || Number(faceBox.imageHeight) || null
+      }
+      : null;
+    const embedding = this.embeddings.addEmbedding({
+      vector,
+      clusterId,
+      photoId,
+      faceId,
+      faceBox: normalizedFaceBox,
+      imageWidth: normalizedFaceBox?.imageWidth || null,
+      imageHeight: normalizedFaceBox?.imageHeight || null,
+      source,
+      confidence
+    });
     record.embeddingIds.push(embedding.id);
     if (photoId && !record.photoIds.includes(photoId)) record.photoIds.push(photoId);
     if (faceId && !record.faceIds.includes(faceId)) record.faceIds.push(faceId);
+    if (normalizedFaceBox) {
+      const faceBoxRecord = { photoId, faceId, ...normalizedFaceBox };
+      record.faceBoxes.push(faceBoxRecord);
+      if (!record.representativeFaceBox || confidence >= (record.confidence || 0)) {
+        record.representativeFaceBox = faceBoxRecord;
+      }
+    }
     record.latestSeenAt = nowIso();
     record.confidence = Math.max(record.confidence || 0, confidence);
     this.events?.emit?.('visual-memory.faces.unknown.grouped', { clusterId, photoCount: record.photoIds.length });
