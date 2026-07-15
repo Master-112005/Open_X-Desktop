@@ -8,7 +8,7 @@ class FaceEmbeddingStore {
     this.validator = validator;
   }
 
-  addEmbedding({ vector, identityId = null, clusterId = null, photoId = null, faceId = null, source = 'ai-vision', confidence = 0 } = {}) {
+  addEmbedding({ vector, identityId = null, clusterId = null, photoId = null, faceId = null, faceBox = null, imageWidth = null, imageHeight = null, source = 'ai-vision', confidence = 0 } = {}) {
     const validation = this.validator.validateEmbedding(vector);
     if (!validation.valid) throw new Error(validation.reason);
     const embeddingId = id('faceemb');
@@ -18,6 +18,9 @@ class FaceEmbeddingStore {
       clusterId,
       photoId,
       faceId,
+      faceBox: faceBox && typeof faceBox === 'object' ? { ...faceBox } : null,
+      imageWidth: Number(imageWidth) || null,
+      imageHeight: Number(imageHeight) || null,
       vector: normalizeVector(vector),
       source,
       confidence: Math.max(0, Math.min(1, Number(confidence || 0))),

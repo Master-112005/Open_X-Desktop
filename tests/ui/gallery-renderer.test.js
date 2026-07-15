@@ -22,4 +22,25 @@ describe('Gallery Renderer UI', function() {
     assert.match(css, /right:\s*72px/);
     assert.match(css, /\.viewer-favorite\.active\s*\{/);
   });
+
+  it('should expose real Favorites, Recent, and People gallery views', function() {
+    assert.match(html, /id="people-scan-button"/);
+    assert.match(html, /data-view="favorites"/);
+    assert.match(html, /data-view="recent"/);
+    assert.match(html, /data-view="people"/);
+    assert.match(script, /let activeView = 'timeline'/);
+    assert.match(script, /function loadGalleryView\(view = activeView\)/);
+    assert.match(script, /window\.openx\?\.getGalleryView\?\.\(activeView/);
+    assert.match(script, /function renderPeople\(\)/);
+    assert.match(script, /function loadPersonAvatar\(avatar, person = \{\}\)/);
+    assert.match(script, /function scanPeople\(\)/);
+    assert.match(script, /window\.openx\?\.scanGalleryPeople\?\./);
+    assert.match(script, /window\.openx\?\.nameGalleryFace\?\./);
+    assert.match(script, /No photos opened in the last 3 days\./);
+    assert.match(script, /AI Vision runtime is not available for face scanning\./);
+    assert.match(css, /\.people-grid\s*\{/);
+    assert.match(css, /\.person-name-form\s*\{/);
+    assert.match(css, /\.person-avatar img\s*\{/);
+    assert.match(css, /\.people-scan-button\s*\{/);
+  });
 });

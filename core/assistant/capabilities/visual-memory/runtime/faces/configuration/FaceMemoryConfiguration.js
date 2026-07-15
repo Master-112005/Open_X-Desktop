@@ -4,8 +4,8 @@ class FaceMemoryConfiguration {
   constructor(options = {}) {
     this.enabled = options.enabled === true;
     this.thresholds = {
-      grouping: Number(options.thresholds?.grouping ?? 0.82),
-      matching: Number(options.thresholds?.matching ?? 0.88),
+      grouping: Number(options.thresholds?.grouping ?? 0.94),
+      matching: Number(options.thresholds?.matching ?? 0.92),
       confidence: Number(options.thresholds?.confidence ?? 0.7),
       suggestion: Number(options.thresholds?.suggestion ?? 0.78)
     };

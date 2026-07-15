@@ -1,6 +1,7 @@
 const closeWindowEl = document.getElementById('close-window');
 const searchInputEl = document.getElementById('gallery-search-input');
 const todayButtonEl = document.getElementById('today-button');
+const peopleScanButtonEl = document.getElementById('people-scan-button');
 const timelineEl = document.getElementById('timeline');
 const emptyStateEl = document.getElementById('empty-state');
 const loadMoreEl = document.getElementById('load-more');
@@ -33,6 +34,8 @@ let searchDebounceTimer = null;
 let loadingPage = false;
 let currentViewerPhotoId = '';
 let currentViewerFavorite = false;
+let activeView = 'timeline';
+let peopleData = null;
 const imageLoadQueue = [];
 const imageSrcCache = new Map();
 
@@ -132,6 +135,20 @@ function formatShortDate(photo) {
   });
 }
 
+function viewTitle(view = activeView) {
+  if (view === 'favorites') return 'Favorites';
+  if (view === 'recent') return 'Recent';
+  if (view === 'people') return 'People';
+  return 'Photos';
+}
+
+function viewRangeFallback(view = activeView) {
+  if (view === 'favorites') return 'Only starred photos';
+  if (view === 'recent') return 'Photos opened in the last 3 days';
+  if (view === 'people') return 'Known and unnamed people';
+  return 'No indexed photos';
+}
+
 function groupByDate(list) {
   const groups = new Map();
   for (const photo of list) {
@@ -169,6 +186,15 @@ function scheduleSearch() {
 }
 
 function updateSummary(groups) {
+  if (activeView === 'people') {
+    const knownCount = peopleData?.known?.length || 0;
+    const unknownCount = peopleData?.unknown?.length || 0;
+    photoCountEl.textContent = `${knownCount + unknownCount} person${knownCount + unknownCount === 1 ? '' : 's'}`;
+    dateCountEl.textContent = `${unknownCount} unnamed`;
+    rangeLabelEl.textContent = unknownCount > 0 ? `${unknownCount} ready to name` : 'No unnamed people';
+    loadMoreEl.hidden = true;
+    return;
+  }
   const count = filteredPhotos.length;
   photoCountEl.textContent = `${count} photo${count === 1 ? '' : 's'}`;
   dateCountEl.textContent = `${groups.length} day${groups.length === 1 ? '' : 's'}`;
@@ -176,7 +202,7 @@ function updateSummary(groups) {
     ? 'Indexing Pictures...'
     : total
     ? `${count} shown from ${total}`
-    : 'No indexed photos';
+    : viewRangeFallback();
   loadMoreEl.hidden = !hasMore || filteredPhotos.length !== photos.length;
 }
 
@@ -201,11 +227,114 @@ function createPhotoCard(photo) {
   return button;
 }
 
+function createPersonCard(person, type) {
+  const card = document.createElement('article');
+  card.className = `person-card ${type === 'unknown' ? 'unnamed' : 'known'}`;
+
+  const avatar = document.createElement('button');
+  avatar.type = 'button';
+  avatar.className = 'person-avatar';
+  avatar.textContent = type === 'unknown'
+    ? '?'
+    : String(person.name || 'Person').trim().slice(0, 2).toUpperCase();
+  const representativePhotoId = person.representativePhotoId || person.photoIds?.[0] || '';
+  if (representativePhotoId) {
+    avatar.dataset.photoId = representativePhotoId;
+    avatar.addEventListener('click', () => openViewerFromPayload({ photoId: representativePhotoId }).catch(() => {}));
+    loadPersonAvatar(avatar, person).catch(() => {});
+  }
+
+  const body = document.createElement('div');
+  body.className = 'person-body';
+  const name = document.createElement('strong');
+  name.textContent = type === 'unknown' ? 'Unnamed person' : person.name || 'Person';
+  const meta = document.createElement('span');
+  meta.textContent = `${person.photoCount || 0} photo${person.photoCount === 1 ? '' : 's'}`;
+  body.append(name, meta);
+
+  if (type === 'unknown') {
+    const form = document.createElement('form');
+    form.className = 'person-name-form';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.autocomplete = 'off';
+    input.placeholder = 'Name this person';
+    input.maxLength = 120;
+    const save = document.createElement('button');
+    save.type = 'submit';
+    save.textContent = 'Save';
+    form.append(input, save);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const value = input.value.replace(/\s+/g, ' ').trim();
+      if (!value) return;
+      save.disabled = true;
+      try {
+        const result = await window.openx?.nameGalleryFace?.(person.clusterId, value);
+        if (result?.success) await loadGalleryView('people');
+      } finally {
+        save.disabled = false;
+      }
+    });
+    body.appendChild(form);
+  }
+
+  card.append(avatar, body);
+  return card;
+}
+
+async function loadPersonAvatar(avatar, person = {}) {
+  const photoId = person.representativePhotoId || person.photoIds?.[0] || '';
+  if (!photoId) return;
+  const result = await window.openx?.getGalleryImageData?.(photoId);
+  const src = result?.data?.src || '';
+  if (!src) return;
+  const image = document.createElement('img');
+  image.alt = person.name || person.label || 'Person';
+  image.decoding = 'async';
+  image.loading = 'lazy';
+  const crop = person.representativeFaceBox || {};
+  const imageWidth = Number(crop.imageWidth || crop.width && crop.x ? crop.x + crop.width : 0);
+  const imageHeight = Number(crop.imageHeight || crop.height && crop.y ? crop.y + crop.height : 0);
+  if (imageWidth > 0 && imageHeight > 0 && Number(crop.width) > 0 && Number(crop.height) > 0) {
+    const centerX = ((Number(crop.x) + (Number(crop.width) / 2)) / imageWidth) * 100;
+    const centerY = ((Number(crop.y) + (Number(crop.height) / 2)) / imageHeight) * 100;
+    const faceShare = Math.max(Number(crop.width) / imageWidth, Number(crop.height) / imageHeight);
+    const scale = Math.max(1.7, Math.min(4.2, 0.55 / Math.max(0.12, faceShare)));
+    image.style.objectPosition = `${Math.max(0, Math.min(100, centerX))}% ${Math.max(0, Math.min(100, centerY))}%`;
+    image.style.transformOrigin = image.style.objectPosition;
+    image.style.transform = `scale(${scale.toFixed(2)})`;
+  }
+  image.src = src;
+  avatar.textContent = '';
+  avatar.appendChild(image);
+  avatar.classList.add('has-image');
+}
+
+function renderPeople() {
+  const known = Array.isArray(peopleData?.known) ? peopleData.known : [];
+  const unknown = Array.isArray(peopleData?.unknown) ? peopleData.unknown : [];
+  updateSummary([]);
+  emptyStateEl.hidden = known.length + unknown.length > 0;
+  headingEl.textContent = 'People';
+  imageObserver?.disconnect?.();
+
+  const list = document.createElement('div');
+  list.className = 'people-grid';
+  unknown.forEach(person => list.appendChild(createPersonCard(person, 'unknown')));
+  known.forEach(person => list.appendChild(createPersonCard(person, 'known')));
+  timelineEl.replaceChildren(list);
+}
+
 function render() {
+  if (activeView === 'people') {
+    renderPeople();
+    return;
+  }
   const groups = groupByDate(filteredPhotos);
   updateSummary(groups);
   emptyStateEl.hidden = groups.length > 0;
-  headingEl.textContent = searchInputEl.value.trim() ? 'Search Results' : 'Photos';
+  headingEl.textContent = searchInputEl.value.trim() ? 'Search Results' : viewTitle();
 
   imageObserver?.disconnect?.();
   const fragment = document.createDocumentFragment();
@@ -352,14 +481,100 @@ async function toggleViewerFavorite() {
     const result = await window.openx?.toggleGalleryFavorite?.(currentViewerPhotoId, !currentViewerFavorite);
     if (result?.success && typeof result.data?.favorite === 'boolean') {
       setViewerFavorite(result.data.favorite);
+      if (activeView === 'favorites' && !result.data.favorite) {
+        await loadGalleryView('favorites');
+      }
     }
   } finally {
     viewerFavoriteEl.disabled = false;
   }
 }
 
+function setPeopleScanStatus(message) {
+  if (activeView === 'people' && message) rangeLabelEl.textContent = message;
+}
+
+function describePeopleScan(result = {}) {
+  const data = result.data || result;
+  if (data.success === false || result.success === false) {
+    if (data.reason === 'vision-runtime-unavailable') return 'AI Vision runtime is not available for face scanning.';
+    return 'People scan could not run.';
+  }
+  if (data.grouped > 0) {
+    return `Found ${data.grouped} verified face match${data.grouped === 1 ? '' : 'es'}.`;
+  }
+  if (data.detectedFaces > 0) {
+    return 'Faces were detected, but no verified embeddings passed.';
+  }
+  if (data.scanned > 0) return 'No verified people found in scanned photos.';
+  return 'No photos available to scan.';
+}
+
+async function scanPeople() {
+  if (activeView !== 'people' || peopleScanButtonEl.disabled) return;
+  peopleScanButtonEl.disabled = true;
+  peopleScanButtonEl.textContent = 'Scanning...';
+  setPeopleScanStatus('Scanning photos for verified people...');
+  try {
+    const result = await window.openx?.scanGalleryPeople?.({ maxPhotos: 100000 });
+    await loadGalleryView('people');
+    setPeopleScanStatus(describePeopleScan(result));
+  } catch (error) {
+    setPeopleScanStatus('People scan failed.');
+  } finally {
+    peopleScanButtonEl.disabled = false;
+    peopleScanButtonEl.textContent = 'Scan People';
+  }
+}
+
+async function loadGalleryView(view = activeView) {
+  activeView = String(view || 'timeline').toLowerCase();
+  if (activeView === 'photos') activeView = 'timeline';
+  peopleScanButtonEl.hidden = activeView !== 'people';
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.classList.toggle('active', item.dataset.view === activeView || (activeView === 'timeline' && item.dataset.view === 'photos'));
+  });
+  headingEl.textContent = viewTitle();
+  emptyStateEl.textContent = activeView === 'people'
+    ? 'No people found yet.'
+    : activeView === 'favorites'
+      ? 'No starred photos yet.'
+      : activeView === 'recent'
+        ? 'No photos opened in the last 3 days.'
+        : 'No indexed photos yet.';
+  page = 1;
+  hasMore = false;
+  total = 0;
+  photos = [];
+  filteredPhotos = [];
+  peopleData = null;
+  imageLoadQueue.length = 0;
+  imageSrcCache.clear();
+  if (activeView === 'timeline') {
+    await loadPage(true);
+    return;
+  }
+  const result = await window.openx?.getGalleryView?.(activeView, { page: 1, pageSize: PAGE_SIZE });
+  const data = result?.data || {};
+  if (activeView === 'people') {
+    peopleData = data;
+    renderPeople();
+    return;
+  }
+  photos = Array.isArray(data.items) ? data.items : [];
+  total = Number(data.total) || photos.length;
+  hasMore = false;
+  filteredPhotos = photos.slice();
+  setIndexingPoll(data.indexing === true);
+  applySearch();
+}
+
 async function loadPage(reset = false) {
   if (loadingPage) return;
+  if (activeView !== 'timeline') {
+    await loadGalleryView(activeView);
+    return;
+  }
   loadingPage = true;
   if (reset) {
     page = 1;
@@ -399,6 +614,10 @@ function setIndexingPoll(indexing) {
 }
 
 function scrollToToday() {
+  if (activeView !== 'timeline') {
+    loadGalleryView('timeline').then(() => scrollToToday()).catch(() => {});
+    return;
+  }
   const today = dateKey({ createdAt: new Date().toISOString() });
   const target = timelineEl.querySelector(`[data-date="${today}"]`);
   if (target) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
@@ -409,7 +628,7 @@ function maybeLoadMoreOnScroll() {
   if (scrollFrame) return;
   scrollFrame = window.requestAnimationFrame(() => {
     scrollFrame = null;
-    if (!hasMore || loadingPage || searchInputEl.value.trim()) return;
+    if (activeView !== 'timeline' || !hasMore || loadingPage || searchInputEl.value.trim()) return;
     const remaining = photoScrollEl.scrollHeight - photoScrollEl.scrollTop - photoScrollEl.clientHeight;
     if (remaining < 700) loadPage(false).catch(() => {});
   });
@@ -428,22 +647,25 @@ viewerEl.addEventListener('click', event => {
   if (event.target === viewerEl) closeViewer();
 });
 todayButtonEl.addEventListener('click', scrollToToday);
+peopleScanButtonEl.addEventListener('click', () => scanPeople().catch(() => {}));
 loadMoreEl.addEventListener('click', () => loadPage(false));
 photoScrollEl.addEventListener('scroll', maybeLoadMoreOnScroll, { passive: true });
 searchInputEl.addEventListener('input', scheduleSearch);
 document.querySelectorAll('.nav-item').forEach(button => {
   button.addEventListener('click', () => {
-    document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item === button));
+    loadGalleryView(button.dataset.view || 'timeline').catch(() => {});
   });
 });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !viewerEl.hidden) closeViewer();
 });
 
-window.openx?.onGalleryView?.(() => {});
+window.openx?.onGalleryView?.(view => {
+  loadGalleryView(view || 'timeline').catch(() => {});
+});
 window.openx?.onGalleryOpenPhoto?.(payload => {
   openViewerFromPayload(payload).catch(() => {});
 });
 loadTheme();
 window.openx?.onSettingsChanged?.(snapshot => applySettingsTheme(snapshot));
-loadPage(true);
+loadGalleryView('timeline').catch(() => {});

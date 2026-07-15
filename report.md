@@ -38,6 +38,8 @@ The repository is actively modified. Current modified areas include:
 - `apps/desktop/renderer/gallery`
 - `config.js`
 - `core/assistant/capabilities`
+- `core/assistant/capabilities/visual-memory/runtime/faces`
+- `core/assistant/capabilities/visual-memory/runtime/gallery`
 - `core/assistant/automation/ActionRouter.js`
 - `core/assistant/index.js`
 - `core/assistant/pipeline/PipelineManager.js`
@@ -45,6 +47,8 @@ The repository is actively modified. Current modified areas include:
 - `core/assistant/response/ResponseGenerator.js`
 - `core/automation`
 - `core/vision`
+- `core/vision/runtime/WindowsFaceRuntimeAdapter.js`
+- `core/vision/runtime/windows-face-analysis.ps1`
 - Visual Memory tests under `tests/core`
 
 These modifications are not reverted or discarded. The report reflects the current workspace state.
@@ -123,6 +127,43 @@ Passed assistant smoke validation:
 
 ```text
 open openx gallery -> visualMemory.openGallery -> OpenX Gallery is ready, sir.
+```
+
+Passed focused Gallery People and Windows face-runtime validation:
+
+```powershell
+node -c apps/desktop/renderer/gallery/index.js
+node -c core/assistant/capabilities/visual-memory/runtime/api/VisualMemoryAPI.js
+node -c core/assistant/capabilities/visual-memory/runtime/faces/grouping/FaceGroupingEngine.js
+node -c core/assistant/capabilities/visual-memory/runtime/faces/embeddings/FaceEmbeddingStore.js
+node -c core/assistant/capabilities/visual-memory/runtime/faces/identities/IdentityManager.js
+node -c core/assistant/capabilities/visual-memory/runtime/gallery/people/GalleryPeopleExperience.js
+node -c core/vision/runtime/WindowsFaceRuntimeAdapter.js
+```
+
+Passed:
+
+```powershell
+npx mocha tests/core/openx-gallery-experience.test.js tests/ui/gallery-renderer.test.js --timeout 10000
+```
+
+Result:
+
+```text
+8 passing
+```
+
+Passed focused lint:
+
+```powershell
+npx eslint core/vision/runtime/WindowsFaceRuntimeAdapter.js core/assistant/capabilities/visual-memory/runtime/api/VisualMemoryAPI.js core/assistant/capabilities/visual-memory/runtime/faces/grouping/FaceGroupingEngine.js core/assistant/capabilities/visual-memory/runtime/faces/embeddings/FaceEmbeddingStore.js core/assistant/capabilities/visual-memory/runtime/faces/identities/IdentityManager.js core/assistant/capabilities/visual-memory/runtime/gallery/people/GalleryPeopleExperience.js apps/desktop/renderer/gallery/index.js tests/core/openx-gallery-experience.test.js tests/ui/gallery-renderer.test.js
+```
+
+Passed direct runtime smoke path:
+
+```text
+WindowsFaceRuntimeAdapter -> Windows.Media.FaceAnalysis.FaceDetector -> faces/embeddings response shape
+VisualMemoryAPI.scanGalleryPeople -> success=true, reason=completed
 ```
 
 Known caveat:
@@ -217,6 +258,73 @@ Behavior preserved:
 - Visual search requests still use the Visual Query and Memory Intelligence pipeline.
 - Gallery still indexes the Windows Pictures folder and nested folders such as Screenshots.
 - Voice still starts when the user invokes the configured shortcut.
+
+### Gallery And People Scan Update - 2026-07-15
+
+The current Gallery work moved OpenX closer to a local Google Photos / OneDrive Photos style experience while staying local-first.
+
+Implemented behavior:
+
+- `open openx gallery` opens a dedicated Gallery renderer window.
+- Gallery uses the same OpenX glass theme language as the desktop assistant.
+- The main photo timeline indexes the Windows Pictures folder and nested folders.
+- Photos are grouped by date for browsing.
+- Search filters indexed photo metadata locally.
+- Image previews load lazily through `IntersectionObserver`.
+- Gallery images are delivered as local `file:` URLs, reducing IPC memory pressure compared with base64 transport.
+- The viewer has a floating favorite star.
+- `Favorites` shows only starred images.
+- `Recent` shows only images opened within the recent-window policy, currently three days.
+- `People` shows named and unnamed Face Memory groups.
+- The People view has a top-right `Scan People` button.
+- People cards now use a close-up crop from the representative detected face instead of a generic `?` tile when face-box metadata is available.
+
+People scan flow:
+
+```text
+Gallery People view
+  -> Scan People button
+  -> renderer invokes gallery:scanPeople
+  -> Electron IPC validation bounds maxPhotos
+  -> VisualMemoryAPI.scanGalleryPeople()
+  -> VisionEngine default runtime
+  -> WindowsFaceRuntimeAdapter on Windows
+  -> Windows.Media.FaceAnalysis.FaceDetector
+  -> face rectangle + local face-region vector
+  -> Face Memory unknown grouping
+  -> GalleryPeopleExperience exposes nameable people
+  -> renderer displays cropped person cards
+```
+
+Accuracy and safety behavior:
+
+- The scan does not create a person from weak evidence.
+- A face must pass the face confidence threshold.
+- A face-region vector must pass the embedding confidence threshold.
+- A scan result with face detection but no embedding is skipped.
+- Previous unnamed auto-scan clusters are cleared before rescanning, while named people are preserved.
+- The grouping threshold was tightened to reduce merging unrelated faces into one large unnamed cluster.
+- Windows FaceDetector is used only for local face detection. It does not identify a person by name; naming remains user-controlled.
+
+Important files:
+
+| File | Responsibility |
+|---|---|
+| `apps/desktop/renderer/gallery/index.html` | Gallery shell, navigation, People scan button, viewer favorite button. |
+| `apps/desktop/renderer/gallery/index.js` | Timeline rendering, lazy image loading, views, People cards, face crop rendering, search, viewer. |
+| `apps/desktop/renderer/gallery/index.css` | Gallery layout, glass styling, photo cards, People cards, cropped avatars. |
+| `apps/desktop/electron/main.js` | Gallery window, IPC handlers, image data, favorite/recent/people APIs. |
+| `apps/desktop/electron/security.js` | IPC validation for gallery views, photos, favorites, naming, and scan payloads. |
+| `apps/desktop/preload.js` | Safe renderer API surface for gallery operations. |
+| `core/assistant/capabilities/visual-memory/runtime/api/VisualMemoryAPI.js` | Public Visual Memory API, gallery scan orchestration, face verification, scan cleanup. |
+| `core/vision/runtime/WindowsFaceRuntimeAdapter.js` | Node runtime adapter for Windows face analysis. |
+| `core/vision/runtime/windows-face-analysis.ps1` | PowerShell/WinRT bridge for local face detection and region-vector extraction. |
+| `core/assistant/capabilities/visual-memory/runtime/faces/*` | Consent, grouping, embeddings, identity/profile management, enrollment, validation, privacy. |
+| `core/assistant/capabilities/visual-memory/runtime/gallery/people/GalleryPeopleExperience.js` | Converts Face Memory state into People view records. |
+
+Current limitation:
+
+- The Windows runtime provides local face detection and a lightweight face-region vector. It improves grouping and close-up display, but it is not a production-grade deep face recognition model. A future ONNX face embedding model can replace the region-vector logic behind the same adapter contract without changing the Gallery UI.
 
 ## Detailed OpenX System Information
 
@@ -534,6 +642,106 @@ The dynamic island is used for:
 
 Phone notification grouping is handled in `apps/desktop/electron/main.js`, with normalized notification payloads and grouped result entries.
 
+### OpenX Gallery And Visual Memory
+
+The OpenX Gallery is a local-first photo browsing and memory surface integrated into the assistant.
+
+User-facing goals:
+
+- browse the Windows Pictures library without copying images into OpenX;
+- keep photos grouped by date for fast orientation;
+- allow local search over indexed photo metadata;
+- show Favorites, Recent, and People views;
+- let assistant commands open the gallery or a photo result;
+- support future semantic memory search without replacing the UI;
+- avoid heavy startup cost by lazy-loading Visual Memory only when a gallery or visual-memory path is used.
+
+Primary runtime components:
+
+| Component | Path | Responsibility |
+|---|---|---|
+| Gallery renderer | `apps/desktop/renderer/gallery` | UI shell, timeline, search, viewer, People view, Favorites, Recent, lazy image loading. |
+| Electron gallery bridge | `apps/desktop/electron/main.js` | Opens/closes Gallery window, serves gallery view data, returns safe image URLs, records recent/favorite state. |
+| IPC validation | `apps/desktop/electron/security.js` | Validates all gallery IPC payloads before they reach main process handlers. |
+| Visual Memory API | `core/assistant/capabilities/visual-memory/runtime/api/VisualMemoryAPI.js` | Public API for indexing, gallery, query, face, learning, and search operations. |
+| Visual Memory engine | `core/assistant/capabilities/visual-memory/runtime/engine/VisualMemoryEngine.js` | Initializes database, folders, metadata, thumbnails, query, filtering, intelligence, learning, faces, gallery. |
+| Database | `core/assistant/capabilities/visual-memory/runtime/database` | Local JSON-backed visual memory state under the OpenX data directory. |
+| Folder indexing | `core/assistant/capabilities/visual-memory/runtime/folders` | Discovers and indexes images from Pictures and nested folders. |
+| Metadata | `core/assistant/capabilities/visual-memory/runtime/metadata` | Stores image dates, dimensions, source type, folder info, and supporting metadata. |
+| Gallery experience | `core/assistant/capabilities/visual-memory/runtime/gallery` | Presentation-only gallery state for timeline, collections, places, people, favorites, recent, viewer, quick actions. |
+| Visual query | `core/assistant/capabilities/visual-memory/runtime/query` | Structured visual query parsing from existing assistant context; navigation commands bypass heavy search. |
+| Candidate filtering | `core/assistant/capabilities/visual-memory/runtime/filtering` | Filters indexed memories by metadata, time, scene, objects, screenshots, documents, people, and constraints. |
+| Memory intelligence | `core/assistant/capabilities/visual-memory/runtime/intelligence` | Ranks and reasons over memories, timelines, relationships, collections, confidence, and similarity using structured outputs. |
+| Face Memory | `core/assistant/capabilities/visual-memory/runtime/faces` | Local face consent, grouping, unknown clusters, user naming, identities, profiles, privacy, diagnostics. |
+| Vision runtime | `core/vision` | AI Vision engine contracts, runtime manager, model manager, postprocessor, and Windows face adapter. |
+
+Gallery data model summary:
+
+```text
+photos table
+  -> file path, file name, extension, indexed date, folder id
+
+metadata table
+  -> photo id, created date, dimensions, type, city/source hints
+
+gallery state
+  -> favorites, recent, selection, viewer state
+
+faceMemory table
+  -> consent, embeddings, unknown clusters, identities, profiles, relationships
+```
+
+Gallery view behavior:
+
+| View | Behavior |
+|---|---|
+| `Photos` | Main timeline. Groups indexed photos by date. Supports lazy thumbnail/image loading and infinite loading. |
+| `Favorites` | Shows only images marked by the viewer star. |
+| `Recent` | Shows photos opened recently, currently bounded to the three-day recent policy. |
+| `People` | Shows known and unnamed people from Face Memory. Unnamed people can be named by the user. |
+
+Image delivery:
+
+- Main process resolves image records by photo ID.
+- The renderer receives a local file URL instead of base64 image bytes.
+- The gallery CSP explicitly allows `file:` image sources for local image display.
+- This reduces memory pressure for large libraries because Chromium streams the file from disk.
+
+People scan behavior:
+
+```text
+scan request
+  -> reset unnamed auto-scan clusters
+  -> skip photos already represented by named embeddings
+  -> run face detection
+  -> require verified face rectangle
+  -> require verified face-region vector
+  -> ingest unknown face locally
+  -> group by tightened similarity threshold
+  -> persist Face Memory
+  -> refresh People view
+```
+
+Face Memory rules:
+
+- Face Memory requires explicit consent state before grouping.
+- OpenX never auto-names a person.
+- Unknown clusters are nameable by the user.
+- Named people are preserved during rescans.
+- Unnamed auto-scan clusters are rebuilt when Scan People is pressed.
+- Representative face boxes are stored so the UI can show close-up person tiles.
+- The local Windows runtime detects faces; it does not identify who the person is.
+
+Performance choices:
+
+- Visual Memory is lazy-loaded.
+- Gallery indexing can run in the background.
+- Repeated Visual Memory `start()` calls are idempotent.
+- Gallery image loading is capped and intersection-based.
+- Search is debounced.
+- Renderer timers and observers are cleared on unload.
+- People scan uses a bounded IPC payload and a bounded image analysis timeout.
+
 ### Cloud, Mobile, Pairing, And File Transfer
 
 Cloud modules live under `core/cloud`.
@@ -618,6 +826,10 @@ Important test groups:
 - `tests/core/security-critical.test.js`: critical security behavior.
 - `tests/core/security-lock.test.js`: OpenX lock behavior.
 - `tests/core/performance-memory.test.js`: performance/memory guard coverage.
+- `tests/core/openx-gallery-experience.test.js`: Gallery timeline, People view, face scan, favorites, recent, viewer, and persistence coverage.
+- `tests/core/gallery-recent.test.js`: Recent gallery policy coverage.
+- `tests/core/visual-memory*.test.js`: Visual Memory foundation, query, filtering, intelligence, learning, and capability coverage.
+- `tests/core/vision-engine.test.js`: Vision Engine contract and runtime behavior coverage.
 - `tests/ui/*`: renderer and dynamic island UI contract checks.
 - `tests/automation/*`: automation module tests.
 
@@ -1464,7 +1676,15 @@ For production debugging, the most useful fields are:
 
    Startup and gallery-specific resource blockers were reduced by lazy-loading Visual Memory, making voice runtime prewarm opt-in, moving gallery indexing to the background, and using `file:` image URLs instead of base64 image IPC. A full instrumented desktop profiling session is still recommended with voice, dynamic island, cloud connection, notifications, gallery scrolling, and file transfers active.
 
-5. Dirty working tree
+5. Face recognition depth
+
+   OpenX now has a local Windows face-detection runtime and close-up People cards. The current face-region vector is a lightweight local grouping signal, not a deep face recognition model. For higher accuracy on large mixed photo libraries, integrate a real local ONNX face embedding model behind `WindowsFaceRuntimeAdapter` or a separate runtime adapter while keeping the same Face Memory contract.
+
+6. Visual Memory data cleanup
+
+   Rescans clear unnamed auto-scan clusters and preserve named people, but existing user data may still contain stale clusters from older builds until the user runs Scan People again.
+
+7. Dirty working tree
 
    Many assistant files are modified. Before release, run a clean full validation pass and review all changed files as one integration set.
 
@@ -1481,11 +1701,21 @@ For production debugging, the most useful fields are:
    - first voice activation after lazy startup
    - dynamic island notifications
    - gallery first open and large Pictures-library scrolling
+   - People scan across large Pictures libraries
    - cloud reconnect
    - large file transfer
-4. Add a release checklist requiring:
+4. Add a production visual-memory checklist requiring:
+   - Gallery timeline smoke test
+   - Favorites star smoke test
+   - Recent three-day policy check
+   - People scan check on images with and without faces
+   - Named people preservation after rescan
+   - Memory usage check while scrolling a large gallery
+5. Add a release checklist requiring:
    - `npm run lint`
    - assistant command corpus
+   - gallery renderer tests
+   - visual memory gallery tests
    - cloud pairing test
    - cloud file transfer test
    - notification grouping test
@@ -1533,9 +1763,21 @@ core/assistant/capabilities/
         `-- validation/
 
 core/vision/
+|-- index.js
+|-- runtime/
+|   |-- RuntimeManager.js
+|   |-- WindowsFaceRuntimeAdapter.js
+|   `-- windows-face-analysis.ps1
+|-- engine/
+|-- inference/
+|-- models/
+|-- postprocessing/
+|-- preprocessing/
+`-- validation/
 
 tests/core/
 |-- face-memory.test.js
+|-- gallery-recent.test.js
 |-- openx-gallery-experience.test.js
 |-- vision-engine.test.js
 |-- visual-filtering.test.js
