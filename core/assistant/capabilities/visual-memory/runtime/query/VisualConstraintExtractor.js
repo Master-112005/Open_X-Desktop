@@ -1,5 +1,7 @@
 'use strict';
 
+const { findVisualConcepts, getVisualConceptTerms } = require('../utils/VisualConceptLexicon');
+
 const RELATIONSHIPS = Object.freeze({
   mom: 'mother',
   mother: 'mother',
@@ -30,7 +32,7 @@ const SCENES = Object.freeze([
   'beach', 'mountain', 'forest', 'temple', 'palace', 'hotel', 'airport',
   'office', 'bedroom', 'kitchen', 'car', 'road', 'restaurant', 'garden',
   'park', 'mall', 'museum', 'lake', 'home', 'college', 'school', 'indoor',
-  'outdoor'
+  'outdoor', ...getVisualConceptTerms()
 ]);
 
 const EVENTS = Object.freeze([
@@ -96,6 +98,7 @@ class VisualConstraintExtractor {
     this._addTimes(constraints, context, text);
     this._addLocations(constraints, context, text);
     this._addLexiconMatches(constraints.scenes, text, SCENES, 'scene', 0.82);
+    this._addVisualConcepts(constraints, text);
     this._addLexiconMatches(constraints.events, text, EVENTS, 'event', 0.84);
     this._addPhotoTypes(constraints, text, parsed);
     this._addPersonCount(constraints, text);
@@ -240,6 +243,14 @@ class VisualConstraintExtractor {
       if (pattern.test(text)) {
         addUnique(target, this._constraint(type, this.normalizer.normalizeLabel(value), confidence, `visual-query.${type}`));
       }
+    }
+  }
+
+  _addVisualConcepts(constraints, text) {
+    for (const concept of findVisualConcepts(text)) {
+      addUnique(constraints.scenes, this._constraint('scene', this.normalizer.normalizeLabel(concept.value), 0.88, 'visual-query.visual-concept', {
+        matchedAlias: concept.matchedAlias
+      }));
     }
   }
 

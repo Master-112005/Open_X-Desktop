@@ -1,5 +1,7 @@
 'use strict';
 
+const { findVisualConcepts } = require('../../utils/VisualConceptLexicon');
+
 function normalize(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -31,6 +33,12 @@ function candidateEvidence(candidate = {}, vision = {}) {
     metadata.photoType,
     ...(Array.isArray(metadata.peopleNames) ? metadata.peopleNames : []),
     ...(Array.isArray(metadata.faceRelationships) ? metadata.faceRelationships : []),
+    ...(Array.isArray(metadata.semanticTags) ? metadata.semanticTags : []),
+    ...(Array.isArray(metadata.visualConcepts) ? metadata.visualConcepts : []),
+    ...(Array.isArray(metadata.tags) ? metadata.tags : []),
+    ...(Array.isArray(metadata.labels) ? metadata.labels : []),
+    ...(Array.isArray(metadata.objects) ? metadata.objects.map(item => item.label || item.name || item) : []),
+    ...(Array.isArray(metadata.scenes) ? metadata.scenes.map(item => item.label || item.name || item) : []),
     ...(Array.isArray(faceMemory.peopleNames) ? faceMemory.peopleNames : []),
     ...(Array.isArray(faceMemory.relationships) ? faceMemory.relationships : []),
     folder.label,
@@ -43,8 +51,10 @@ function candidateEvidence(candidate = {}, vision = {}) {
     ...(vision.ocr || []).map(item => item.text),
     ...(vision.faces || []).map(() => 'person')
   ];
+  const conceptParts = findVisualConcepts(textParts.concat(visionParts).filter(Boolean).join(' '))
+    .map(item => item.value);
   return {
-    text: textParts.concat(visionParts).filter(Boolean).join(' '),
+    text: textParts.concat(visionParts, conceptParts).filter(Boolean).join(' '),
     vision,
     metadata,
     photo

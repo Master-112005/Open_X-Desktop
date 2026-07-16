@@ -50,6 +50,19 @@ describe('Visual Query Understanding', () => {
     assert.strictEqual(OUT_OF_SCOPE.includes('ocr'), true);
   });
 
+  it('understands natural scene aliases and common misspellings as visual search constraints', () => {
+    const engine = new VisualQueryEngine();
+    const result = engine.understand({
+      rawInput: 'find moanitains and betchs images',
+      normalizedInput: 'find moanitains and betchs images',
+      resolvedContext: { conversationMemory: {}, confidence: 0.8 }
+    });
+
+    assert.strictEqual(result.active, true);
+    assert(result.constraints.scenes.some(item => String(item.value).toLowerCase() === 'mountain'));
+    assert(result.constraints.scenes.some(item => String(item.value).toLowerCase() === 'beach'));
+  });
+
   it('skips non-visual assistant commands', () => {
     const engine = new VisualQueryEngine();
     const result = engine.understand({

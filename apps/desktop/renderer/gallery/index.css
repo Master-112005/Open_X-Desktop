@@ -378,7 +378,8 @@ h1 {
 }
 
 .named-people-section,
-.unnamed-people-section {
+.unnamed-people-section,
+.people-review-section {
   display: grid;
   gap: 12px;
   min-width: 0;
@@ -501,6 +502,28 @@ h1 {
 
 .person-card.unnamed .person-avatar {
   color: #ffd95c;
+}
+
+.people-review-note {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.07), transparent), rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--adaptive-border);
+  border-radius: 14px;
+  color: var(--adaptive-muted);
+  display: grid;
+  gap: 5px;
+  line-height: 1.35;
+  padding: 14px 16px;
+}
+
+.people-review-note strong {
+  color: var(--adaptive-text);
+  font-size: 13px;
+  font-weight: 820;
+}
+
+.people-review-note span {
+  font-size: 12px;
+  font-weight: 680;
 }
 
 .person-avatar img {

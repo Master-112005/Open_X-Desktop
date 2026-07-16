@@ -77,11 +77,15 @@ class FaceMemoryEngine {
     const match = this.matching.match(input?.vector || []);
     const best = match?.best || null;
     const autoAssignMargin = Number(this.configuration.thresholds.autoAssignMargin ?? 0.018);
-    const highConfidence = best?.confidence >= this.configuration.thresholds.autoAssignExact;
+    const exactMatch = best?.confidence >= this.configuration.thresholds.autoAssignExact;
+    const strongNamedMatch = best?.confidence >= this.configuration.thresholds.autoAssignStrong;
+    const provenIdentityMatch = best?.confidence >= this.configuration.thresholds.autoAssignKnown
+      && (best?.evidenceCount || 0) >= this.configuration.enrollment.autoAssignMinEvidence;
+    const highConfidence = exactMatch || strongNamedMatch || provenIdentityMatch;
     const enoughSeparation = !best?.ambiguous && (best?.margin ?? 1) >= autoAssignMargin;
     if (best?.identityId && highConfidence && enoughSeparation) {
       const assigned = this.identities.addEmbeddingToIdentity(match.best.identityId, input, {
-        action: 'auto-exact-match',
+        action: exactMatch ? 'auto-exact-match' : 'auto-named-match',
         by: 'face-memory',
         duplicateThreshold: this.configuration.thresholds.duplicate,
         duplicateBoxIoU: this.configuration.thresholds.duplicateBoxIoU,
@@ -92,6 +96,8 @@ class FaceMemoryEngine {
         name: match.best.name,
         confidence: match.best.confidence,
         margin: match.best.margin,
+        evidenceCount: match.best.evidenceCount,
+        exactMatch,
         duplicate: assigned.duplicate === true,
         photoId: input?.photoId || null
       });
@@ -111,6 +117,7 @@ class FaceMemoryEngine {
         name: best.name,
         confidence: best.confidence,
         margin: best.margin,
+        evidenceCount: best.evidenceCount,
         secondBestIdentityId: best.secondBestIdentityId || null,
         reason: 'ambiguous-face-match'
       });
@@ -181,7 +188,8 @@ class FaceMemoryEngine {
       profiles: this.state.profiles,
       embeddings: this.state.embeddings,
       unknownClusters: this.state.unknownClusters,
-      relationships: this.state.relationships
+      relationships: this.state.relationships,
+      configuration: this.configuration?.toJSON?.() || null
     }));
   }
 

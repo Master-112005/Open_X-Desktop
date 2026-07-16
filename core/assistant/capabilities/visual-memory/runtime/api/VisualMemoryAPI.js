@@ -469,17 +469,21 @@ class VisualMemoryAPI {
     await this.engine.persistFaceMemory();
     summary.people = this.engine.galleryExperience.getPeople();
     summary.durationMs = Date.now() - startedAt;
+    const peopleSummary = summary.people?.summary || {};
     this._logInfo('People scan finished. Face detection, recognition, and duplicate cleanup are complete.', {
       scanned: summary.scanned,
       facesDetected: summary.detectedFaces,
       facesVerified: summary.verifiedFaces,
       newUnnamedPeople: summary.grouped,
+      namedPeople: peopleSummary.namedPeople || 0,
+      readyToName: peopleSummary.readyToName || 0,
+      waitingForMoreEvidence: peopleSummary.waitingForEvidence || peopleSummary.reviewLater || 0,
       knownPeopleMatched: summary.autoAssigned,
       duplicateFacesSkipped: summary.duplicateSuppressed,
       skipped: summary.skipped,
       warnings: summary.warnings.length,
       durationMs: summary.durationMs,
-      people: summary.people?.summary?.totalPeople || summary.people?.items?.length || undefined
+      people: peopleSummary.totalPeople || summary.people?.items?.length || undefined
     });
     return summary;
   }
