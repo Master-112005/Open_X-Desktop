@@ -1120,6 +1120,7 @@ function createSettingsWindow() {
   } else {
     chatWindow.webContents.once('did-finish-load', openSettings);
   }
+  return { success: true };
 }
 
 function sendPlannerEntries(view = 'calendar') {
@@ -2902,7 +2903,7 @@ function setupIPC() {
   registerIpcHandler('voice:start', async () => startVoiceListeningFromShortcut('chat-voice-button'));
 
   registerIpcHandler('window:openSettings', async () => {
-    createSettingsWindow();
+    return createSettingsWindow();
   });
 
   registerIpcHandler('window:openPlanner', async (_event, { view }) => {

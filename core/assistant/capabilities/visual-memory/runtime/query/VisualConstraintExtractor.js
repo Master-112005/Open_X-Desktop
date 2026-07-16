@@ -64,6 +64,19 @@ const TIME_PATTERNS = Object.freeze([
   /\b\d{4}\b/g
 ]);
 
+const NON_PERSON_TERMS = new Set([
+  ...Object.keys(RELATIONSHIPS),
+  ...SCENES,
+  ...EVENTS,
+  ...DOCUMENT_TYPES,
+  ...SOURCE_APPS,
+  ...LOCATION_HINTS,
+  'all', 'any', 'camera', 'favorite', 'favorites', 'favourite', 'favourites',
+  'face', 'faces', 'gallery', 'image', 'images', 'latest', 'memory', 'photo',
+  'photos', 'pic', 'pics', 'picture', 'pictures', 'recent', 'screenshot',
+  'screenshots', 'selfie', 'the', 'this', 'that', 'these', 'those'
+].map(value => String(value).toLowerCase()));
+
 function addUnique(target, item) {
   const value = String(item.value || '').toLowerCase();
   const key = `${item.type}:${value}:${item.source || ''}`;
@@ -75,10 +88,17 @@ function addUnique(target, item) {
 
 function cleanName(value) {
   return String(value || '')
-    .replace(/\b(?:with|and|at|in|on|near|inside|outside|my|the|a|an|photo|picture|image|screenshot|where|was|were|i|me)\b/gi, ' ')
+    .replace(/\b(?:with|and|at|in|on|near|inside|outside|my|the|a|an|photo|photos|picture|pictures|pic|pics|image|images|screenshot|screenshots|where|was|were|is|are|that|this|those|these|i|me)\b/gi, ' ')
     .replace(/[^a-zA-Z0-9 .'-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function splitPersonNames(value) {
+  return String(value || '')
+    .split(/\s+(?:and|with|plus)\s+|[,/&]+/i)
+    .map(cleanName)
+    .filter(Boolean);
 }
 
 class VisualConstraintExtractor {
@@ -163,11 +183,40 @@ class VisualConstraintExtractor {
     const withPattern = /\b(?:with|and)\s+([a-z][a-z .'-]{1,40})(?=\s+(?:at|in|on|near|inside|outside|last|from|during|where|photo|picture|image|screenshot)\b|$)/gi;
     let match;
     while ((match = withPattern.exec(text))) {
-      const name = cleanName(match[1]);
-      if (name && !RELATIONSHIPS[name.toLowerCase()] && !SCENES.includes(name.toLowerCase())) {
-        addUnique(constraints.people, this._constraint('person', this.normalizer.normalizeLabel(name), 0.78, 'visual-query.person-pattern'));
+      this._addPersonCandidates(constraints, match[1], 0.78, 'visual-query.person-pattern');
+    }
+
+    const photoOfPatterns = [
+      /\b(?:photo|photos|picture|pictures|pic|pics|image|images|selfie|portrait)\s+(?:of|with)\s+([a-z][a-z .'-]{1,60})(?=\s+(?:at|in|on|near|inside|outside|last|from|during|where|that|which|who|photo|picture|image|screenshot)\b|$)/gi,
+      /\b(?:find|show|get|search|display)\s+(?:me\s+)?(?:a\s+|the\s+|my\s+)?([a-z][a-z .'-]{1,40})\s+(?:photo|photos|picture|pictures|pic|pics|image|images|selfie|portrait)\b/gi,
+      /\b(?:me|myself|i)\s+(?:and|with)\s+(?:my\s+)?([a-z][a-z .'-]{1,40})(?=\s+(?:in|inside|at|near|on|from|photo|pic|picture|image|$))/gi
+    ];
+
+    for (const pattern of photoOfPatterns) {
+      pattern.lastIndex = 0;
+      while ((match = pattern.exec(text))) {
+        this._addPersonCandidates(constraints, match[1], 0.82, 'visual-query.person-photo-pattern');
       }
     }
+  }
+
+  _addPersonCandidates(constraints, value, confidence, source) {
+    for (const name of splitPersonNames(value)) {
+      if (!this._isPersonCandidate(name)) continue;
+      addUnique(constraints.people, this._constraint('person', this.normalizer.normalizeLabel(name), confidence, source));
+    }
+  }
+
+  _isPersonCandidate(value) {
+    const name = cleanName(value);
+    const normalized = name.toLowerCase();
+    if (!normalized || normalized.length < 2 || /^\d+$/.test(normalized)) return false;
+    if (NON_PERSON_TERMS.has(normalized)) return false;
+    const tokens = normalized.split(/\s+/).filter(Boolean);
+    if (tokens.length > 4) return false;
+    if (tokens.some(token => NON_PERSON_TERMS.has(token) || NON_PERSON_TERMS.has(token.replace(/s$/, '')))) return false;
+    if (findVisualConcepts(normalized).length > 0) return false;
+    return true;
   }
 
   _addRelationships(constraints, text) {

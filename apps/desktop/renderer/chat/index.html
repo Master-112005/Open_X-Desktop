@@ -12,7 +12,6 @@
   <div id="chat-shell">
     <div id="header">
       <div id="header-info">
-        <button class="window-btn activity-calendar-btn header-calendar-btn" id="activity-calendar-btn" type="button" title="Open calendar" aria-label="Open calendar">&#128197;</button>
         <div class="brand-copy">
           <div id="header-title">Assistant</div>
           <div id="header-subtitle"><span class="presence-dot"></span>Ready for local commands</div>
@@ -23,14 +22,13 @@
         <button class="header-btn view-tab" id="activity-view-btn" type="button" aria-pressed="false">
           Activity <span id="activity-badge" hidden>0</span>
         </button>
-        <button class="header-btn view-tab gallery-view-tab" id="gallery-btn" type="button" title="Open gallery" aria-label="Open gallery">&#128444;</button>
+        <button class="header-btn view-tab" id="apps-view-btn" type="button" aria-pressed="false">Apps</button>
         <button class="window-btn voice-start-btn" id="voice-start-btn" type="button" title="Start voice" aria-label="Start voice">
           <span class="voice-start-icon" aria-hidden="true">&#127908;</span>
         </button>
         <button class="window-btn voice-btn" id="assistant-mute-btn" type="button" title="Mute assistant voice" aria-label="Mute assistant voice" aria-pressed="false">
           <span class="voice-icon" aria-hidden="true">&#128266;</span>
         </button>
-        <button class="window-btn" id="settings-btn" title="Settings" aria-label="Settings">&#9881;</button>
         <button class="window-btn close" id="close-btn" title="Close" aria-label="Close">&#10005;</button>
       </div>
     </div>
@@ -126,6 +124,50 @@
             </div>
             <div class="notification-list" id="notification-list"></div>
           </section>
+        </div>
+      </section>
+
+      <section class="workspace-view" id="apps-view" aria-label="Apps" hidden>
+        <div class="apps-scroll">
+          <div class="apps-grid" aria-label="OpenX apps">
+            <button class="app-card" id="calendar-app-btn" type="button">
+              <span class="app-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M8 2v4M16 2v4M4 10h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"/>
+                  <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>
+                </svg>
+              </span>
+              <span class="app-card-copy">
+                <strong>Calendar</strong>
+                <small>Reminders and alarms</small>
+              </span>
+            </button>
+            <button class="app-card" id="gallery-app-btn" type="button">
+              <span class="app-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <rect x="3" y="5" width="18" height="14" rx="2"/>
+                  <circle cx="8" cy="10" r="1.5"/>
+                  <path d="m5 17 4.5-4.5L13 16l2.5-2.5L19 17"/>
+                </svg>
+              </span>
+              <span class="app-card-copy">
+                <strong>Gallery</strong>
+                <small>Photos and people</small>
+              </span>
+            </button>
+            <button class="app-card" id="settings-app-btn" type="button">
+              <span class="app-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"/>
+                  <path d="m19.4 15 .2 2.1-2 1.8-2-.8a7.5 7.5 0 0 1-1.7 1l-.3 2.1H10.4l-.3-2.1a7.5 7.5 0 0 1-1.7-1l-2 .8-2-1.8.2-2.1a7.5 7.5 0 0 1-.6-1.9L2.2 12 4 10.9c.1-.7.3-1.3.6-1.9L4.4 6.9l2-1.8 2 .8a7.5 7.5 0 0 1 1.7-1l.3-2.1h3.2l.3 2.1a7.5 7.5 0 0 1 1.7 1l2-.8 2 1.8-.2 2.1c.3.6.5 1.2.6 1.9l1.8 1.1-1.8 1.1c-.1.7-.3 1.3-.6 1.9Z"/>
+                </svg>
+              </span>
+              <span class="app-card-copy">
+                <strong>Settings</strong>
+                <small>Preferences</small>
+              </span>
+            </button>
+          </div>
         </div>
       </section>
     </main>

@@ -2,7 +2,6 @@ const messagesEl = document.getElementById('messages');
 const inputBox = document.getElementById('input-box');
 const sendBtn = document.getElementById('send-btn');
 const closeBtn = document.getElementById('close-btn');
-const settingsBtn = document.getElementById('settings-btn');
 const aboutBtn = document.getElementById('about-btn');
 const aboutOverlay = document.getElementById('about-overlay');
 const aboutPanel = document.getElementById('about-panel');
@@ -70,10 +69,13 @@ const securityUnlockCancel = document.getElementById('security-unlock-cancel');
 const securityUnlockConfirm = document.getElementById('security-unlock-confirm');
 const chatViewBtn = document.getElementById('chat-view-btn');
 const activityViewBtn = document.getElementById('activity-view-btn');
-const activityCalendarBtn = document.getElementById('activity-calendar-btn');
-const galleryBtn = document.getElementById('gallery-btn');
+const appsViewBtn = document.getElementById('apps-view-btn');
+const calendarAppBtn = document.getElementById('calendar-app-btn');
+const galleryAppBtn = document.getElementById('gallery-app-btn');
+const settingsAppBtn = document.getElementById('settings-app-btn');
 const conversationView = document.getElementById('conversation-view');
 const activityView = document.getElementById('activity-view');
+const appsView = document.getElementById('apps-view');
 const activityBadge = document.getElementById('activity-badge');
 const scheduleListEl = document.getElementById('schedule-list');
 const scheduleCountEl = document.getElementById('schedule-count');
@@ -629,19 +631,25 @@ function hideTyping() {
 }
 
 function setWorkspaceView(viewName) {
-  activeWorkspaceView = viewName === 'activity' ? 'activity' : 'chat';
+  activeWorkspaceView = viewName === 'activity' || viewName === 'apps' ? viewName : 'chat';
   const showingActivity = activeWorkspaceView === 'activity';
-  conversationView.classList.toggle('active', !showingActivity);
-  conversationView.hidden = showingActivity;
+  const showingApps = activeWorkspaceView === 'apps';
+  const showingChat = activeWorkspaceView === 'chat';
+  conversationView.classList.toggle('active', showingChat);
+  conversationView.hidden = !showingChat;
   activityView.classList.toggle('active', showingActivity);
   activityView.hidden = !showingActivity;
-  chatViewBtn.classList.toggle('active', !showingActivity);
-  chatViewBtn.setAttribute('aria-pressed', String(!showingActivity));
+  appsView.classList.toggle('active', showingApps);
+  appsView.hidden = !showingApps;
+  chatViewBtn.classList.toggle('active', showingChat);
+  chatViewBtn.setAttribute('aria-pressed', String(showingChat));
   activityViewBtn.classList.toggle('active', showingActivity);
   activityViewBtn.setAttribute('aria-pressed', String(showingActivity));
+  appsViewBtn.classList.toggle('active', showingApps);
+  appsViewBtn.setAttribute('aria-pressed', String(showingApps));
   if (showingActivity) {
     renderActivity();
-  } else {
+  } else if (showingChat) {
     requestAnimationFrame(() => inputBox.focus());
   }
 }
@@ -1081,6 +1089,21 @@ async function toggleAssistantMute() {
     isAssistantMuted ? 'Spoken replies are off. Other app audio is unchanged.' : 'Spoken assistant replies are enabled.',
     'info'
   );
+}
+
+async function runHeaderApp(button, operation) {
+  if (!button || typeof operation !== 'function') return;
+  button.classList.add('opening');
+  button.setAttribute('aria-busy', 'true');
+  try {
+    await operation();
+    window.setTimeout(() => window.close(), 80);
+  } finally {
+    window.setTimeout(() => {
+      button.classList.remove('opening');
+      button.removeAttribute('aria-busy');
+    }, 180);
+  }
 }
 
 async function startVoiceFromChat() {
@@ -2595,29 +2618,15 @@ document.querySelectorAll('.permission-option').forEach(button => {
 sendBtn.addEventListener('click', handleSend);
 chatViewBtn.addEventListener('click', () => setWorkspaceView('chat'));
 activityViewBtn.addEventListener('click', () => setWorkspaceView('activity'));
-activityCalendarBtn.addEventListener('click', async () => {
-  activityCalendarBtn.classList.add('opening');
-  activityCalendarBtn.setAttribute('aria-busy', 'true');
-  try {
-    await window.openx?.openPlanner?.('calendar');
-  } finally {
-    window.setTimeout(() => {
-      activityCalendarBtn.classList.remove('opening');
-      activityCalendarBtn.removeAttribute('aria-busy');
-    }, 180);
-  }
+appsViewBtn.addEventListener('click', () => setWorkspaceView('apps'));
+calendarAppBtn?.addEventListener('click', () => {
+  runHeaderApp(calendarAppBtn, () => window.openx?.openPlanner?.('calendar'));
 });
-galleryBtn?.addEventListener('click', async () => {
-  galleryBtn.classList.add('opening');
-  galleryBtn.setAttribute('aria-busy', 'true');
-  try {
-    await window.openx?.openGallery?.('timeline');
-  } finally {
-    window.setTimeout(() => {
-      galleryBtn.classList.remove('opening');
-      galleryBtn.removeAttribute('aria-busy');
-    }, 180);
-  }
+galleryAppBtn?.addEventListener('click', () => {
+  runHeaderApp(galleryAppBtn, () => window.openx?.openGallery?.('timeline'));
+});
+settingsAppBtn?.addEventListener('click', () => {
+  openSettingsPanel();
 });
 document.getElementById('clear-notifications-btn').addEventListener('click', () => {
   notificationHistory = [];
@@ -2634,7 +2643,6 @@ quickBtns.forEach(button => {
 });
 
 closeBtn.addEventListener('click', () => window.close());
-settingsBtn.addEventListener('click', openSettingsPanel);
 aboutBtn?.addEventListener('click', () => {
   if (aboutOverlay && !aboutOverlay.hidden) {
     closeAboutPanel();
