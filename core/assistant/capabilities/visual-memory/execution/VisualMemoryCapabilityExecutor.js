@@ -35,9 +35,6 @@ class VisualMemoryCapabilityExecutor {
 
   async _search(session, context) {
     const visualSearch = context?.visualMemorySearch || context?.get?.('assistant.visualMemorySearch') || null;
-    const galleryView = this.visualMemoryApi?.openOpenXGallerySearchResults && visualSearch
-      ? await this.visualMemoryApi.openOpenXGallerySearchResults(visualSearch)
-      : null;
     const results = Array.isArray(visualSearch?.results) ? visualSearch.results : [];
     const currentMemory = results[0] || null;
     return {
@@ -47,7 +44,6 @@ class VisualMemoryCapabilityExecutor {
       data: {
         total: visualSearch?.total || results.length,
         results,
-        galleryView,
         strategies: visualSearch?.reasoning?.strategies || [],
         topConfidence: results[0]?.confidence || 0
       },

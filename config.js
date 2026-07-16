@@ -113,6 +113,7 @@ const CONFIG = {
     commandExecutionTimeoutMs: 60000,
     commandQueueMode: 'queue',
     commandMaxQueueSize: 25,
+    retryQueueMaxItems: 100,
     fileTransferChunkBytes: 12288,
     fileTransferTimeoutMs: 10 * 60 * 1000
   },

@@ -2152,11 +2152,11 @@ class Assistant extends EventEmitter {
       },
       visualResults
     };
-    if (result.intent === 'visualMemory.openGallery') {
+    if (result.intent === 'visualMemory.openGallery' || result.intent === 'visualMemory.search') {
       const count = Number(visualSearch.total || visualResults.length);
       result.response = count === 1
-        ? 'I found 1 possible photo. OpenX Gallery is ready.'
-        : `I found ${count} possible photos. OpenX Gallery is ready.`;
+        ? 'I found 1 possible photo.'
+        : `I found ${count} possible photos.`;
     }
     return result;
   }

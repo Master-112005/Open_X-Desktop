@@ -120,6 +120,8 @@ let cloudPairingCountdownHandle = null;
 let settingsStatusPollHandle = null;
 let settingsStatusPollInFlight = false;
 let latestCloudStatus = null;
+let imagePreviewOverlay = null;
+let imagePreviewState = null;
 const scheduleTimers = new Map();
 
 const fieldIds = {
@@ -343,6 +345,94 @@ async function hydrateVisualResultCard(card, photoId) {
   }
 }
 
+function ensureImagePreviewOverlay() {
+  if (imagePreviewOverlay) return imagePreviewOverlay;
+  const overlay = document.createElement('div');
+  overlay.id = 'chat-image-preview-overlay';
+  overlay.hidden = true;
+  overlay.innerHTML = `
+    <section class="chat-image-preview-panel" role="dialog" aria-modal="true" aria-labelledby="chat-image-preview-title" tabindex="-1">
+      <button class="chat-image-preview-close" type="button" aria-label="Close image preview">&times;</button>
+      <div class="chat-image-preview-media">
+        <img alt="" decoding="async">
+        <div class="chat-image-preview-empty">Preview unavailable</div>
+      </div>
+      <div class="chat-image-preview-copy">
+        <strong id="chat-image-preview-title">Photo Memory</strong>
+        <span id="chat-image-preview-meta"></span>
+      </div>
+      <div class="chat-image-preview-actions">
+        <button class="chat-image-preview-secondary" type="button">Close</button>
+        <button class="chat-image-preview-primary" type="button">Open in Gallery</button>
+      </div>
+    </section>
+  `;
+  const close = () => closeChatImagePreview();
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.querySelector('.chat-image-preview-close')?.addEventListener('click', close);
+  overlay.querySelector('.chat-image-preview-secondary')?.addEventListener('click', close);
+  overlay.querySelector('.chat-image-preview-primary')?.addEventListener('click', () => {
+    const photoId = imagePreviewState?.photoId;
+    if (photoId) {
+      window.openx?.showGalleryPhoto?.(photoId);
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !overlay.hidden) close();
+  });
+  document.body.appendChild(overlay);
+  imagePreviewOverlay = overlay;
+  return overlay;
+}
+
+function closeChatImagePreview() {
+  if (!imagePreviewOverlay) return;
+  imagePreviewOverlay.hidden = true;
+  imagePreviewOverlay.classList.remove('visible');
+  imagePreviewState = null;
+}
+
+async function openChatImagePreview(entry) {
+  const photoId = String(entry?.photoId || '').trim();
+  if (!photoId) return;
+  const overlay = ensureImagePreviewOverlay();
+  const panel = overlay.querySelector('.chat-image-preview-panel');
+  const image = overlay.querySelector('.chat-image-preview-media img');
+  const empty = overlay.querySelector('.chat-image-preview-empty');
+  const title = overlay.querySelector('#chat-image-preview-title');
+  const meta = overlay.querySelector('#chat-image-preview-meta');
+  const primary = overlay.querySelector('.chat-image-preview-primary');
+  imagePreviewState = { ...entry, photoId };
+  title.textContent = entry?.name || 'Photo Memory';
+  meta.textContent = [entry?.matchScore > 0 ? `${Math.round(entry.matchScore)}% match` : '', entry?.createdAt || '', entry?.location || entry?.path || '']
+    .filter(Boolean)
+    .join(' - ');
+  image.removeAttribute('src');
+  image.alt = entry?.name || 'Photo preview';
+  image.hidden = true;
+  empty.hidden = false;
+  empty.textContent = 'Loading preview...';
+  primary.disabled = false;
+  overlay.hidden = false;
+  requestAnimationFrame(() => overlay.classList.add('visible'));
+  panel?.focus?.();
+  try {
+    const result = await window.openx?.getGalleryImageData?.(photoId);
+    const src = result?.data?.src || '';
+    if (!src || imagePreviewState?.photoId !== photoId) {
+      empty.textContent = 'Preview unavailable';
+      return;
+    }
+    image.src = src;
+    image.hidden = false;
+    empty.hidden = true;
+  } catch {
+    empty.textContent = 'Preview unavailable';
+  }
+}
+
 function addVisualResultCards(bubble, resultEntries) {
   const strip = document.createElement('div');
   strip.className = 'visual-result-strip';
@@ -367,9 +457,7 @@ function addVisualResultCards(bubble, resultEntries) {
     confidence.textContent = entry.matchScore > 0 ? `${Math.round(entry.matchScore)}% match` : 'Possible match';
     meta.append(title, confidence);
     card.append(image, meta);
-    card.addEventListener('click', () => {
-      window.openx?.showGalleryPhoto?.(entry.photoId);
-    });
+    card.addEventListener('click', () => openChatImagePreview(entry));
     strip.appendChild(card);
     hydrateVisualResultCard(card, entry.photoId);
   }

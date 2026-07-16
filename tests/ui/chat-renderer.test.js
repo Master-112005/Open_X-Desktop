@@ -69,11 +69,16 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /className = 'visual-result-strip'/);
     assert.match(script, /className = 'visual-result-card'/);
     assert.match(script, /window\.openx\?\.getGalleryImageData\?\.\(photoId\)/);
-    assert.match(script, /window\.openx\?\.showGalleryPhoto\?\.\(entry\.photoId\)/);
+    assert.match(script, /function openChatImagePreview\(entry\)/);
+    assert.match(script, /card\.addEventListener\('click', \(\) => openChatImagePreview\(entry\)\)/);
+    assert.match(script, /window\.openx\?\.showGalleryPhoto\?\.\(photoId\)/);
     assert.match(css, /\.visual-result-strip\s*\{/);
     assert.match(css, /overflow-x:\s*auto/);
     assert.match(css, /\.visual-result-card\s*\{/);
     assert.match(css, /scroll-snap-align:\s*start/);
+    assert.match(css, /#chat-image-preview-overlay/);
+    assert.match(css, /\.chat-image-preview-close/);
+    assert.match(css, /\.chat-image-preview-primary/);
   });
 
   it('should render web search sources as result cards', function() {

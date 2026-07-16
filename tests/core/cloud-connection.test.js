@@ -1,5 +1,5 @@
 const { expect } = require('chai');
-const { WebSocketServer } = require('ws');
+const { WebSocket, WebSocketServer } = require('ws');
 const { CloudConnectionManager, CloudE2EE } = require('../../core/cloud');
 
 function createSilentLogger() {
@@ -176,6 +176,47 @@ describe('CloudConnectionManager', () => {
     expect(decrypted).to.equal(null);
     expect(relayErrors).to.have.length(1);
     expect(relayErrors[0].code).to.equal('e2ee-packet-rejected');
+  });
+
+  it('queues retryable relay packets while reconnecting and flushes them after registration', () => {
+    const manager = new CloudConnectionManager({
+      logger: createSilentLogger(),
+      settings: { heartbeatEnabled: false, retryQueueMaxItems: 2 },
+      version: 'test'
+    });
+    const packet = {
+      packetId: 'retry-packet-1',
+      protocolVersion: 1,
+      packetType: 'request',
+      sourceDeviceId: 'phone-test',
+      destinationDeviceId: 'desktop-test',
+      ownerId: 'owner-test',
+      timestamp: Date.now(),
+      requestId: 'retry-request-1',
+      responseId: null,
+      metadata: { feature: 'assistant-command', retryable: true },
+      checksum: null,
+      encryption: null,
+      payload: { type: 'assistant-command', command: 'open downloads' }
+    };
+
+    expect(manager.sendRelayPacket(packet)).to.equal(true);
+    expect(manager.getStatus().reliability.retryQueueSize).to.equal(1);
+
+    const sent = [];
+    manager.socket = {
+      readyState: WebSocket.OPEN,
+      send(value) {
+        sent.push(JSON.parse(value));
+      }
+    };
+    manager.state = CloudConnectionManager.STATES.CONNECTED;
+    const flushed = manager.flushRetryQueue();
+
+    expect(flushed).to.equal(1);
+    expect(sent).to.have.length(1);
+    expect(sent[0].type).to.equal('relay:packet');
+    expect(manager.getStatus().reliability.retryQueueSize).to.equal(0);
   });
 
   it('correlates pairing approvals and rejections with the pair request id', () => {

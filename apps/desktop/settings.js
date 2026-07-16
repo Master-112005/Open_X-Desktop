@@ -361,6 +361,7 @@ class SettingsService {
         commandExecutionTimeoutMs: clampNumber(this.baseConfig?.cloud?.commandExecutionTimeoutMs, 1000, 300000, 60000),
         commandQueueMode: this.baseConfig?.cloud?.commandQueueMode === 'busy' ? 'busy' : 'queue',
         commandMaxQueueSize: clampNumber(this.baseConfig?.cloud?.commandMaxQueueSize, 1, 250, 25),
+        retryQueueMaxItems: clampNumber(this.baseConfig?.cloud?.retryQueueMaxItems, 1, 500, 100),
         fileTransferChunkBytes: clampNumber(this.baseConfig?.cloud?.fileTransferChunkBytes, 1024, 16384, 12288),
         fileTransferTimeoutMs: clampNumber(this.baseConfig?.cloud?.fileTransferTimeoutMs, 30000, 3600000, 10 * 60 * 1000)
       },
@@ -537,6 +538,7 @@ class SettingsService {
         commandExecutionTimeoutMs: clampNumber(source.cloud?.commandExecutionTimeoutMs, 1000, 300000, this.defaults.cloud.commandExecutionTimeoutMs),
         commandQueueMode: source.cloud?.commandQueueMode === 'busy' ? 'busy' : 'queue',
         commandMaxQueueSize: clampNumber(source.cloud?.commandMaxQueueSize, 1, 250, this.defaults.cloud.commandMaxQueueSize),
+        retryQueueMaxItems: clampNumber(source.cloud?.retryQueueMaxItems, 1, 500, this.defaults.cloud.retryQueueMaxItems),
         fileTransferChunkBytes: clampNumber(source.cloud?.fileTransferChunkBytes, 1024, 16384, this.defaults.cloud.fileTransferChunkBytes),
         fileTransferTimeoutMs: clampNumber(source.cloud?.fileTransferTimeoutMs, 30000, 3600000, this.defaults.cloud.fileTransferTimeoutMs)
       },
