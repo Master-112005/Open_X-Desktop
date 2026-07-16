@@ -2,7 +2,7 @@ const messagesEl = document.getElementById('messages');
 const inputBox = document.getElementById('input-box');
 const sendBtn = document.getElementById('send-btn');
 const closeBtn = document.getElementById('close-btn');
-const aboutBtn = document.getElementById('about-btn');
+const aboutButtons = Array.from(document.querySelectorAll('[data-about-trigger]'));
 const aboutOverlay = document.getElementById('about-overlay');
 const aboutPanel = document.getElementById('about-panel');
 const aboutCloseBtn = document.getElementById('about-close-btn');
@@ -105,6 +105,7 @@ let modeDrafts = [];
 let selectedModeIndex = 0;
 const selectedModeApps = new Map();
 let activeWorkspaceView = 'chat';
+let activeAboutTrigger = null;
 let scheduleItems = loadStoredList(SCHEDULE_STORAGE_KEY);
 let notificationHistory = loadStoredList(NOTIFICATION_STORAGE_KEY);
 let conversationHistory = [];
@@ -728,6 +729,8 @@ function showToast(title, message, tone = 'info', options = {}) {
   const colors = toneDetails(tone);
   const toast = document.createElement('div');
   toast.className = `toast ${tone}`;
+  toast.style.setProperty('--toast-color', colors.color);
+  toast.style.setProperty('--toast-soft', colors.soft);
 
   const icon = document.createElement('div');
   icon.className = 'notice-icon';
@@ -1839,9 +1842,9 @@ function updateSettingsSummary() {
 }
 
 async function openAboutPanel() {
-  if (!aboutOverlay || !aboutBtn) return;
+  if (!aboutOverlay) return;
   aboutOverlay.hidden = false;
-  aboutBtn.setAttribute('aria-expanded', 'true');
+  aboutButtons.forEach(button => button.setAttribute('aria-expanded', 'true'));
   aboutPanel?.focus?.({ preventScroll: true });
   await refreshAboutPanel();
 }
@@ -1849,8 +1852,9 @@ async function openAboutPanel() {
 function closeAboutPanel() {
   if (!aboutOverlay || aboutOverlay.hidden) return;
   aboutOverlay.hidden = true;
-  aboutBtn?.setAttribute('aria-expanded', 'false');
-  aboutBtn?.focus?.({ preventScroll: true });
+  aboutButtons.forEach(button => button.setAttribute('aria-expanded', 'false'));
+  activeAboutTrigger?.focus?.({ preventScroll: true });
+  activeAboutTrigger = null;
 }
 
 function ensureWelcomeMessage() {
@@ -2657,12 +2661,15 @@ quickBtns.forEach(button => {
 });
 
 closeBtn.addEventListener('click', () => window.close());
-aboutBtn?.addEventListener('click', () => {
-  if (aboutOverlay && !aboutOverlay.hidden) {
-    closeAboutPanel();
-  } else {
-    openAboutPanel();
-  }
+aboutButtons.forEach(button => {
+  button.addEventListener('click', () => {
+    activeAboutTrigger = button;
+    if (aboutOverlay && !aboutOverlay.hidden) {
+      closeAboutPanel();
+    } else {
+      openAboutPanel();
+    }
+  });
 });
 aboutCloseBtn?.addEventListener('click', closeAboutPanel);
 voiceStartBtn.addEventListener('click', startVoiceFromChat);

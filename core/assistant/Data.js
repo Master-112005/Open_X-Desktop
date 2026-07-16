@@ -30,7 +30,7 @@ function buildDataPaths(config = {}) {
   const voiceDir = path.join(root, 'voice');
   const cloudDir = path.join(root, 'cloud');
   const securityDir = path.join(root, 'security');
-  const cloudReceivedDir = path.join(os.homedir(), 'Downloads', 'OpenX Cloud Received');
+  const cloudReceivedDir = path.join(os.homedir(), 'Documents', 'OpenX');
 
   return {
     root,
