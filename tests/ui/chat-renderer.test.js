@@ -206,18 +206,24 @@ describe('Chat Renderer UI', function() {
     assert.match(html, /data-system-block-target="identity"/);
     assert.match(html, /data-system-block-target="theme"/);
     assert.match(html, /data-system-block-target="security"/);
+    assert.match(html, /data-system-block-target="storage"/);
     assert.doesNotMatch(html, /data-section-target="identity"/);
     assert.doesNotMatch(html, /data-section-target="theme"/);
     assert.doesNotMatch(html, /data-section-target="access"/);
     assert.match(html, /id="settings-section-identity"[^>]*data-settings-section="system"|data-settings-section="system"[^>]*id="settings-section-identity"/);
     assert.match(html, /id="settings-section-theme"[^>]*data-settings-section="system"|data-settings-section="system"[^>]*id="settings-section-theme"/);
     assert.match(html, /id="settings-section-security"/);
+    assert.match(html, /id="settings-section-storage"/);
     assert.match(html, /data-system-block="identity"/);
     assert.match(html, /data-system-block="theme"/);
     assert.match(html, /data-system-block="security"/);
+    assert.match(html, /data-system-block="storage"/);
     assert.match(html, /id="security-new-password"/);
+    assert.match(html, /id="clear-chat-history-btn"/);
     assert.match(script, /function saveSecurityPassword/);
     assert.match(script, /setSecurityPassword/);
+    assert.match(script, /function clearConversationHistory/);
+    assert.match(script, /clearChatHistory/);
     assert.match(html, /id="settings-section-phone"[^>]*data-settings-section="phone"|data-settings-section="phone"[^>]*id="settings-section-phone"/);
     assert.doesNotMatch(html, /id="assistant-title"|Assistant Title/);
     assert.doesNotMatch(html, /id="assistant-activation-shortcut"|Chat Shortcut|Alt\+Space to show/);
@@ -225,6 +231,26 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /function setActiveSystemBlock/);
     assert.match(script, /activeSettingsSection !== 'system' \|\| section\.dataset\.systemBlock === activeSystemBlock/);
     assert.doesNotMatch(script, /getActivationShortcut|assistantActivationShortcut/);
+  });
+
+  it('should store chat history through OpenX_Data-backed IPC instead of renderer-only localStorage', function() {
+    assert.match(script, /window\.openx\?\.getChatHistory/);
+    assert.match(script, /window\.openx\.saveChatHistory/);
+    assert.match(script, /window\.openx\.clearChatHistory/);
+    assert.match(script, /localStorage\.removeItem\(CHAT_HISTORY_STORAGE_KEY\)/);
+    assert.match(script, /await window\.openx\.getChatHistory\(\)/);
+    assert.match(html, /Chat History/);
+    assert.match(css, /\.storage-action-card/);
+  });
+
+  it('should store chat UI state through OpenX_Data-backed IPC', function() {
+    assert.match(script, /window\.openx\?\.getUiState/);
+    assert.match(script, /window\.openx\.saveUiState/);
+    assert.match(script, /function loadUiState/);
+    assert.match(script, /clearLegacyUiStateStorage/);
+    assert.match(script, /await loadUiState\(\)/);
+    assert.doesNotMatch(script, /let isAssistantMuted = localStorage\.getItem/);
+    assert.doesNotMatch(script, /localStorage\.setItem\(ASSISTANT_MUTED_STORAGE_KEY/);
   });
 
   it('should show profile details as read-only rows before opening the editor', function() {

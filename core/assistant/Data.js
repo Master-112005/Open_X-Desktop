@@ -30,11 +30,14 @@ function buildDataPaths(config = {}) {
   const voiceDir = path.join(root, 'voice');
   const cloudDir = path.join(root, 'cloud');
   const securityDir = path.join(root, 'security');
+  const visualMemoryDir = path.join(root, 'visual-memory');
   const cloudReceivedDir = path.join(os.homedir(), 'Documents', 'OpenX');
 
   return {
     root,
     settingsPath: path.join(root, 'settings.json'),
+    chatHistoryPath: path.join(root, 'chat-history.json'),
+    uiStatePath: path.join(root, 'ui-state.json'),
     learningPath: path.join(root, 'learning.json'),
     schedulesPath: path.join(root, 'schedules.json'),
     plannerPath: path.join(root, 'planner.json'),
@@ -47,6 +50,7 @@ function buildDataPaths(config = {}) {
     learningUsageStatsPath: path.join(root, 'learning', 'usage_stats.json'),
     logsDir: path.join(root, 'logs'),
     runtimeDir,
+    electronProfileDir: path.join(runtimeDir, 'electron-profile'),
     cacheDir: path.join(root, 'cache'),
     mediaProfileDir: path.join(runtimeDir, 'chrome-media-profile'),
     voiceDir,
@@ -55,7 +59,10 @@ function buildDataPaths(config = {}) {
     cloudLogPath: path.join(cloudDir, 'connection.log'),
     cloudReceivedDir,
     cloudTempDir: path.join(runtimeDir, 'cloud-transfer'),
-    securityDir
+    securityDir,
+    visualMemoryDir,
+    visualMemoryDatabasePath: path.join(visualMemoryDir, 'visual-memory-db.json'),
+    visualMemoryThumbnailDir: path.join(visualMemoryDir, 'thumbnails')
   };
 }
 
@@ -211,6 +218,7 @@ function ensureDataRoot(config = {}) {
     paths.logsDir,
     paths.learningDir,
     paths.runtimeDir,
+    paths.electronProfileDir,
     paths.cacheDir,
     paths.mediaProfileDir,
     paths.screenshotsDir,
@@ -219,7 +227,9 @@ function ensureDataRoot(config = {}) {
     paths.cloudDir,
     paths.cloudReceivedDir,
     paths.cloudTempDir,
-    paths.securityDir
+    paths.securityDir,
+    paths.visualMemoryDir,
+    paths.visualMemoryThumbnailDir
   ].forEach(ensureDirectory);
   purgeDeprecatedContactStorage(paths.root);
   return paths;

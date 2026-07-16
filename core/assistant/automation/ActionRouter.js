@@ -458,8 +458,10 @@ class ActionRouter {
     const search = (query, confidence = 0.94) => route('browser.search', { query: String(query || raw || corrected).trim() }, confidence);
     const openApp = (appName, confidence = 0.95) => route('app.open', { appName }, confidence);
 
-    if (/\b(?:open|show|view|launch)\b.*\b(?:openx\s+)?(?:gallery|galary|gallary|galleary|photos?|photo\s+library|memories)\b/.test(input) ||
-      /\b(?:openx\s+)?(?:gallery|galary|gallary|galleary)\b/.test(input)) {
+    if (!this._looksLikeNonOpenXPhotoSurface(input) && (
+      /\b(?:open|show|view|launch)\b.*\b(?:openx\s+)?(?:gallery|galary|gallary|galleary|photos?|photo\s+library|memories)\b/.test(input) ||
+      /\b(?:openx\s+)?(?:gallery|galary|gallary|galleary)\b/.test(input)
+    )) {
       return route('visualMemory.openGallery', { view: 'timeline' }, 0.99);
     }
 
@@ -4065,16 +4067,16 @@ class ActionRouter {
     const matchedTarget = String(match[1] || '').trim();
     const framedTarget = String(preparedInput?.semanticFrame?.targetText || '').trim();
     const requestedTarget = framedTarget || matchedTarget;
-    if (this._looksLikeOpenXGalleryTarget(requestedTarget, rawText)) {
-      const visualIntent = this.intentRegistry.get('visualMemory.openGallery');
-      return visualIntent
-        ? { intent: visualIntent, confidence: 1, entities: { view: 'timeline' } }
-        : null;
-    }
     if (this._looksLikeLocalPhotosTarget(requestedTarget, rawText)) {
       const appIntent = this.intentRegistry.get('app.open');
       return appIntent
         ? { intent: appIntent, confidence: 1, entities: { appName: 'photos' } }
+        : null;
+    }
+    if (this._looksLikeOpenXGalleryTarget(requestedTarget, rawText)) {
+      const visualIntent = this.intentRegistry.get('visualMemory.openGallery');
+      return visualIntent
+        ? { intent: visualIntent, confidence: 1, entities: { view: 'timeline' } }
         : null;
     }
 
@@ -4120,24 +4122,50 @@ class ActionRouter {
   }
 
   _looksLikeOpenXGalleryTarget(target, rawText) {
-    const normalizedTarget = String(target || '').toLowerCase();
-    const normalizedRaw = String(rawText || '').toLowerCase();
-    if (/\b(?:google|microsoft|windows)\s+photos?\b|\bphotos?\s+app\b/.test(normalizedRaw)) {
+    const normalizedTarget = this._normalizePhotoSurfaceText(target);
+    const normalizedRaw = this._normalizePhotoSurfaceText(rawText);
+    if (this._looksLikeNonOpenXPhotoSurface(`${normalizedTarget} ${normalizedRaw}`)) {
       return false;
     }
     return /\b(?:openx\s+)?(?:gallery|galary|gallary|galleary|photos?|pictures?|photo\s+library|memories)\b/.test(normalizedTarget);
   }
 
   _looksLikeLocalPhotosTarget(target, rawText) {
-    const normalizedTarget = String(target || '').toLowerCase();
-    const normalizedRaw = String(rawText || '').toLowerCase();
+    const normalizedTarget = this._normalizePhotoSurfaceText(target);
+    const normalizedRaw = this._normalizePhotoSurfaceText(rawText);
     if (/\bgoogle\b/.test(normalizedTarget)) {
       return false;
     }
-    if (!/\b(?:photos?|photesw?|phots|pictures?)\b/.test(normalizedTarget)) {
+    if (!/\b(?:photos?|pictures?)\b/.test(normalizedTarget)) {
       return false;
     }
     return /\b(?:microsoft|windows)\s+photos?\b|\bphotos?\s+app\b|\b(?:on|in)\s+(?:my\s+)?(?:laptop|pc|computer|system|device|windows)\b|\b(?:local|offline|this\s+(?:laptop|pc|computer|system|device))\b/.test(normalizedRaw);
+  }
+
+  _normalizePhotoSurfaceText(value) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/\bphotesw?\b/g, 'photos')
+      .replace(/\bphots\b/g, 'photos')
+      .replace(/\bpics?\b/g, 'photos')
+      .replace(/\bpictures?\b/g, 'photos')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  _looksLikeNonOpenXPhotoSurface(input) {
+    const normalized = this._normalizePhotoSurfaceText(input);
+    return this._looksLikeExplicitLocalFilePhotoRequest(normalized) ||
+      /\bgoogle\s+photos?\b/.test(normalized) ||
+      /\b(?:microsoft|windows)\s+photos?\b/.test(normalized) ||
+      /\bphotos?\s+(?:app|website|site|web\s+app)\b/.test(normalized) ||
+      /\bphotos?\s+(?:on|in)\s+(?:my\s+)?(?:laptop|pc|computer|system|device|windows)\b/.test(normalized);
+  }
+
+  _looksLikeExplicitLocalFilePhotoRequest(input) {
+    return /\b(?:duplicate|duplicates|duplicated)\s+(?:photos?|images?|pictures?|files?)\b/i.test(input) ||
+      /\b(?:file|files|folder|folders|directory|directories|path|location|where\s+is|where\s+are|downloads?|desktop|documents?|pictures?\s+folder|photos?\s+folder|on\s+(?:my\s+)?(?:pc|computer|laptop|system))\b/i.test(input) ||
+      /[^\s]+\.(?:png|jpe?g|webp|gif|bmp|pdf|docx?|xlsx?|pptx?|txt|zip|rar)\b/i.test(input);
   }
 
   _resolveExplicitCommunicationIntent(rawText, preparedInput) {

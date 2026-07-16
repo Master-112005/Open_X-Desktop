@@ -34,7 +34,7 @@ class VisualMemoryEngine {
   constructor(options = {}) {
     this.options = options;
     this.rootDir = options.rootDir || path.resolve(__dirname, '..', '..', '..');
-    this.dataDir = options.dataDir || defaultVisualMemoryDataDir(this.rootDir);
+    this.dataDir = options.dataDir || defaultVisualMemoryDataDir();
     this.databasePath = options.databasePath || path.join(this.dataDir, DEFAULT_VISUAL_MEMORY_SETTINGS.storage.dataFile);
     this.thumbnailDir = options.thumbnailDir || path.join(this.dataDir, DEFAULT_VISUAL_MEMORY_SETTINGS.storage.thumbnailDir);
     this.logger = options.logger || new SharedData.Logger(options.logging || { console: false, file: false });

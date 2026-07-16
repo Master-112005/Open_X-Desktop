@@ -61,6 +61,8 @@ OpenX stores managed local data under:
 Important files and folders include:
 
 - `settings.json`
+- `chat-history.json`
+- `ui-state.json`
 - `schedules.json`
 - `planner.json`
 - `learning/`
@@ -68,8 +70,15 @@ Important files and folders include:
 - `voice/diagnostics/`
 - `cloud/connection.log`
 - `runtime/cloud-transfer/`
+- `runtime/electron-profile/`
+- `runtime/chrome-media-profile/`
+- `visual-memory/`
+- `security/`
 - `screenshots/`
-- `%USERPROFILE%\Downloads\OpenX Cloud Received\`
+
+Received files from OpenX Mobile intentionally stay outside the managed data root:
+
+- `%USERPROFILE%\Documents\OpenX\`
 
 ## Optional Cloud Relay
 

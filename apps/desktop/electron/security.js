@@ -129,6 +129,61 @@ function validateSettings(payload) {
   return validateStructuredPayload(payload, 'settings', 256 * 1024);
 }
 
+function validateChatHistorySave(payload) {
+  requirePlainObject(payload, 'chatHistory');
+  const entries = Array.isArray(payload.entries) ? payload.entries : [];
+  if (entries.length > 100) throw new RangeError('chatHistory contains too many entries');
+  return {
+    entries: entries.map((entry, index) => {
+      requirePlainObject(entry, `chatHistory.entries[${index}]`);
+      const type = requireString(entry.type || 'system', `chatHistory.entries[${index}].type`, { maxLength: 20 });
+      if (!['user', 'assistant', 'system'].includes(type)) throw new TypeError('chat history entry type is not supported');
+      return {
+        type,
+        text: requireString(entry.text || '', `chatHistory.entries[${index}].text`, { maxLength: 4000 }),
+        meta: requireString(entry.meta || '', `chatHistory.entries[${index}].meta`, { maxLength: 120, allowEmpty: true }),
+        createdAt: Math.max(0, Number(entry.createdAt) || Date.now())
+      };
+    })
+  };
+}
+
+function validateUiState(payload) {
+  requirePlainObject(payload, 'uiState');
+  const schedules = Array.isArray(payload.schedules) ? payload.schedules : [];
+  const notifications = Array.isArray(payload.notifications) ? payload.notifications : [];
+  if (schedules.length > 80) throw new RangeError('uiState contains too many schedules');
+  if (notifications.length > 30) throw new RangeError('uiState contains too many notifications');
+  return {
+    assistantMuted: payload.assistantMuted === true,
+    schedules: schedules.map((entry, index) => {
+      requirePlainObject(entry, `uiState.schedules[${index}]`);
+      return {
+        id: requireString(entry.id || '', `uiState.schedules[${index}].id`, { maxLength: 160 }),
+        kind: requireString(entry.kind || 'Reminder', `uiState.schedules[${index}].kind`, { maxLength: 40 }),
+        message: requireString(entry.message || entry.title || 'Reminder', `uiState.schedules[${index}].message`, { maxLength: 500 }),
+        category: requireString(entry.category || '', `uiState.schedules[${index}].category`, { maxLength: 80, allowEmpty: true }) || null,
+        symbol: requireString(entry.symbol || '', `uiState.schedules[${index}].symbol`, { maxLength: 16, allowEmpty: true }) || null,
+        dueAt: requireString(entry.dueAt || '', `uiState.schedules[${index}].dueAt`, { maxLength: 80 }),
+        recurrence: requireString(entry.recurrence || '', `uiState.schedules[${index}].recurrence`, { maxLength: 160, allowEmpty: true }),
+        status: requireString(entry.status || 'scheduled', `uiState.schedules[${index}].status`, { maxLength: 40 }),
+        createdAt: requireString(entry.createdAt || new Date(0).toISOString(), `uiState.schedules[${index}].createdAt`, { maxLength: 80 }),
+        source: requireString(entry.source || '', `uiState.schedules[${index}].source`, { maxLength: 80, allowEmpty: true }) || null
+      };
+    }),
+    notifications: notifications.map((entry, index) => {
+      requirePlainObject(entry, `uiState.notifications[${index}]`);
+      return {
+        id: requireString(entry.id || '', `uiState.notifications[${index}].id`, { maxLength: 160 }),
+        title: requireString(entry.title || 'Assistant', `uiState.notifications[${index}].title`, { maxLength: 160 }),
+        message: requireString(entry.message || '', `uiState.notifications[${index}].message`, { maxLength: 1000, allowEmpty: true }),
+        tone: requireString(entry.tone || 'info', `uiState.notifications[${index}].tone`, { maxLength: 40 }),
+        createdAt: requireString(entry.createdAt || new Date(0).toISOString(), `uiState.notifications[${index}].createdAt`, { maxLength: 80 })
+      };
+    })
+  };
+}
+
 function normalizeCloudUrl(value) {
   const relayUrl = requireString(value, 'relayUrl', { maxLength: 2048 });
   const parsed = new URL(relayUrl);
@@ -362,6 +417,11 @@ const IPC_VALIDATORS = Object.freeze({
   'window:closeGallery': validateEmpty,
   'config:get': validateEmpty,
   'settings:get': validateEmpty,
+  'chatHistory:get': validateEmpty,
+  'chatHistory:save': validateChatHistorySave,
+  'chatHistory:clear': validateEmpty,
+  'uiState:get': validateEmpty,
+  'uiState:save': validateUiState,
   'security:status': validateEmpty,
   'security:verifyAccess': validateSecurityPasswordPayload,
   'security:setPassword': validateSecurityPasswordUpdate,

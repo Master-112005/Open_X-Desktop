@@ -50,6 +50,8 @@ const securityNewPasswordEl = document.getElementById('security-new-password');
 const securityConfirmPasswordEl = document.getElementById('security-confirm-password');
 const securitySavePasswordBtn = document.getElementById('security-save-password-btn');
 const securityPasswordMessageEl = document.getElementById('security-password-message');
+const clearChatHistoryBtn = document.getElementById('clear-chat-history-btn');
+const chatStorageStatusEl = document.getElementById('chat-storage-status');
 const phoneDeviceListEl = document.getElementById('phone-device-list');
 const deviceSearchEl = document.getElementById('device-search');
 const deviceFilterEl = document.getElementById('device-filter');
@@ -86,6 +88,7 @@ const MODE_APP_LIMIT = 5;
 const SCHEDULE_STORAGE_KEY = 'openx-ui-schedules-v1';
 const NOTIFICATION_STORAGE_KEY = 'openx-ui-notifications-v1';
 const CHAT_HISTORY_STORAGE_KEY = 'openx-ui-chat-history-v2';
+const UI_STATE_STORAGE_KEY = 'openx-ui-state-v1';
 const MAX_NOTIFICATION_HISTORY = 30;
 const CHAT_HISTORY_LIMIT = 100;
 const MAX_RENDERED_MESSAGES = CHAT_HISTORY_LIMIT;
@@ -105,10 +108,10 @@ let selectedModeIndex = 0;
 const selectedModeApps = new Map();
 let activeWorkspaceView = 'chat';
 let activeAboutTrigger = null;
-let scheduleItems = loadStoredList(SCHEDULE_STORAGE_KEY);
-let notificationHistory = loadStoredList(NOTIFICATION_STORAGE_KEY);
+let scheduleItems = [];
+let notificationHistory = [];
 let conversationHistory = [];
-let isAssistantMuted = localStorage.getItem(ASSISTANT_MUTED_STORAGE_KEY) === 'true';
+let isAssistantMuted = false;
 let glassTintAnimationFrame = null;
 let pendingPhoneDeviceRemoval = null;
 let pendingSecurityUnlock = null;
@@ -122,6 +125,8 @@ let settingsStatusPollInFlight = false;
 let latestCloudStatus = null;
 let imagePreviewOverlay = null;
 let imagePreviewState = null;
+let chatHistorySaveQueue = Promise.resolve();
+let uiStateSaveQueue = Promise.resolve();
 const scheduleTimers = new Map();
 
 const fieldIds = {
@@ -222,6 +227,21 @@ function saveStoredList(key, value) {
   } catch (error) {}
 }
 
+function loadStoredObject(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || '{}');
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function saveStoredObject(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {}
+}
+
 function chatHistoryLimit() {
   const configured = Number(settingsSnapshot?.settings?.chat?.maxHistory);
   if (!Number.isFinite(configured) || configured <= 0) return CHAT_HISTORY_LIMIT;
@@ -247,11 +267,61 @@ function normalizeChatHistoryItem(item = {}) {
   };
 }
 
-function loadConversationHistory() {
-  return loadStoredList(CHAT_HISTORY_STORAGE_KEY)
+function normalizeChatHistoryItems(items = []) {
+  return (Array.isArray(items) ? items : [])
     .map(normalizeChatHistoryItem)
     .filter(Boolean)
     .slice(-CHAT_HISTORY_LIMIT);
+}
+
+function mergeChatHistory(left = [], right = []) {
+  const merged = [];
+  const seen = new Set();
+  [...left, ...right].forEach(item => {
+    const normalized = normalizeChatHistoryItem(item);
+    if (!normalized) return;
+    const key = `${normalized.createdAt}:${normalized.type}:${normalized.text}:${normalized.meta}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(normalized);
+  });
+  return merged
+    .sort((a, b) => Number(a.createdAt) - Number(b.createdAt))
+    .slice(-CHAT_HISTORY_LIMIT);
+}
+
+function updateChatStorageStatus(count = conversationHistory.length) {
+  if (!chatStorageStatusEl) return;
+  const root = settingsSnapshot?.dataRoot ? ` in ${settingsSnapshot.dataRoot}` : ' in OpenX_Data';
+  chatStorageStatusEl.textContent = `${Math.max(0, Number(count) || 0)} messages stored${root}.`;
+}
+
+async function loadConversationHistory() {
+  const legacy = normalizeChatHistoryItems(loadStoredList(CHAT_HISTORY_STORAGE_KEY));
+  if (!window.openx?.getChatHistory) {
+    updateChatStorageStatus(legacy.length);
+    return legacy;
+  }
+
+  let stored = [];
+  try {
+    const result = await window.openx.getChatHistory();
+    stored = normalizeChatHistoryItems(result?.entries || []);
+  } catch (_) {
+    stored = [];
+  }
+
+  const merged = legacy.length > 0 ? mergeChatHistory(stored, legacy) : stored;
+  if (legacy.length > 0) {
+    localStorage.removeItem(CHAT_HISTORY_STORAGE_KEY);
+    if (window.openx?.saveChatHistory) {
+      try {
+        await window.openx.saveChatHistory(merged);
+      } catch (_) {}
+    }
+  }
+  updateChatStorageStatus(merged.length);
+  return merged.slice(-CHAT_HISTORY_LIMIT);
 }
 
 function saveConversationHistory() {
@@ -259,7 +329,18 @@ function saveConversationHistory() {
     .map(normalizeChatHistoryItem)
     .filter(Boolean)
     .slice(-chatHistoryLimit());
-  saveStoredList(CHAT_HISTORY_STORAGE_KEY, conversationHistory);
+  updateChatStorageStatus(conversationHistory.length);
+  if (!window.openx?.saveChatHistory) {
+    saveStoredList(CHAT_HISTORY_STORAGE_KEY, conversationHistory);
+    return chatHistorySaveQueue;
+  }
+  chatHistorySaveQueue = chatHistorySaveQueue
+    .catch(() => {})
+    .then(() => window.openx.saveChatHistory(conversationHistory))
+    .catch(() => {
+      saveStoredList(CHAT_HISTORY_STORAGE_KEY, conversationHistory);
+    });
+  return chatHistorySaveQueue;
 }
 
 function rememberConversationMessage(text, type, meta) {
@@ -269,9 +350,110 @@ function rememberConversationMessage(text, type, meta) {
   saveConversationHistory();
 }
 
-function restoreConversationHistory() {
+function normalizeUiNotification(item = {}) {
+  const title = redactSensitiveText(item.title || 'Assistant').slice(0, 160);
+  const message = redactSensitiveText(item.message || '').slice(0, 1000);
+  if (!title && !message) return null;
+  return {
+    id: String(item.id || `notice-${Date.now()}`).slice(0, 160),
+    title: title || 'Assistant',
+    message,
+    tone: String(item.tone || 'info').slice(0, 40),
+    createdAt: Number.isFinite(Date.parse(item.createdAt || '')) ? item.createdAt : new Date().toISOString()
+  };
+}
+
+function normalizeUiState(state = {}) {
+  const schedules = (Array.isArray(state.schedules) ? state.schedules : [])
+    .map(normalizeScheduleForActivity)
+    .filter(Boolean)
+    .slice(0, 80);
+  const notifications = (Array.isArray(state.notifications) ? state.notifications : [])
+    .map(normalizeUiNotification)
+    .filter(Boolean)
+    .slice(0, MAX_NOTIFICATION_HISTORY);
+  return {
+    assistantMuted: state.assistantMuted === true,
+    schedules,
+    notifications
+  };
+}
+
+function currentUiState() {
+  return normalizeUiState({
+    assistantMuted: isAssistantMuted,
+    schedules: scheduleItems,
+    notifications: notificationHistory
+  });
+}
+
+function loadLegacyUiState() {
+  const packed = loadStoredObject(UI_STATE_STORAGE_KEY);
+  return normalizeUiState({
+    assistantMuted: packed.assistantMuted === true || localStorage.getItem(ASSISTANT_MUTED_STORAGE_KEY) === 'true',
+    schedules: [
+      ...(Array.isArray(packed.schedules) ? packed.schedules : []),
+      ...loadStoredList(SCHEDULE_STORAGE_KEY)
+    ],
+    notifications: [
+      ...(Array.isArray(packed.notifications) ? packed.notifications : []),
+      ...loadStoredList(NOTIFICATION_STORAGE_KEY)
+    ]
+  });
+}
+
+function clearLegacyUiStateStorage() {
+  [UI_STATE_STORAGE_KEY, SCHEDULE_STORAGE_KEY, NOTIFICATION_STORAGE_KEY, ASSISTANT_MUTED_STORAGE_KEY].forEach(key => {
+    try {
+      localStorage.removeItem(key);
+    } catch (_) {}
+  });
+}
+
+function saveUiState() {
+  const state = currentUiState();
+  if (!window.openx?.saveUiState) {
+    saveStoredObject(UI_STATE_STORAGE_KEY, state);
+    return uiStateSaveQueue;
+  }
+  uiStateSaveQueue = uiStateSaveQueue
+    .catch(() => {})
+    .then(() => window.openx.saveUiState(state))
+    .catch(() => {
+      saveStoredObject(UI_STATE_STORAGE_KEY, state);
+    });
+  return uiStateSaveQueue;
+}
+
+async function loadUiState() {
+  const legacy = loadLegacyUiState();
+  if (!window.openx?.getUiState) {
+    isAssistantMuted = legacy.assistantMuted;
+    scheduleItems = legacy.schedules;
+    notificationHistory = legacy.notifications;
+    return;
+  }
+
+  let stored = normalizeUiState();
+  try {
+    const result = await window.openx.getUiState();
+    stored = normalizeUiState(result?.state || {});
+  } catch (_) {
+    stored = normalizeUiState();
+  }
+
+  isAssistantMuted = stored.assistantMuted || legacy.assistantMuted;
+  scheduleItems = stored.schedules.length > 0 ? stored.schedules : legacy.schedules;
+  notificationHistory = stored.notifications.length > 0 ? stored.notifications : legacy.notifications;
+  if (legacy.schedules.length > 0 || legacy.notifications.length > 0 || legacy.assistantMuted) {
+    clearLegacyUiStateStorage();
+    await saveUiState();
+  }
+}
+
+async function restoreConversationHistory() {
   if (!messagesEl) return 0;
-  conversationHistory = loadConversationHistory().slice(-chatHistoryLimit());
+  conversationHistory = (await loadConversationHistory()).slice(-chatHistoryLimit());
   messagesEl.replaceChildren();
   renderedMessageCount = 0;
   conversationHistory.forEach(item => {
@@ -716,7 +898,7 @@ function recordNotification(title, message, tone = 'info') {
     createdAt: new Date().toISOString()
   };
   notificationHistory = [notification, ...notificationHistory].slice(0, MAX_NOTIFICATION_HISTORY);
-  saveStoredList(NOTIFICATION_STORAGE_KEY, notificationHistory);
+  saveUiState();
   renderActivityBadge();
   return notification;
 }
@@ -817,7 +999,7 @@ function addScheduleFromResult(result) {
     createdAt: new Date().toISOString()
   };
   scheduleItems = [item, ...scheduleItems.filter(entry => entry.id !== item.id)].slice(0, 50);
-  saveStoredList(SCHEDULE_STORAGE_KEY, scheduleItems);
+  saveUiState();
   if (!window.openx) armSchedule(item);
   renderActivity();
   const tone = scheduleTone(kind, item.category, item.message).tone;
@@ -860,7 +1042,7 @@ function replaceScheduleItemsFromRuntime(items = []) {
     .filter(Boolean)
     .sort((left, right) => new Date(left.dueAt) - new Date(right.dueAt))
     .slice(0, 80);
-  saveStoredList(SCHEDULE_STORAGE_KEY, scheduleItems);
+  saveUiState();
   renderActivity();
 }
 
@@ -900,7 +1082,7 @@ function triggerSchedule(id) {
   const item = scheduleItems.find(entry => entry.id === id);
   if (!item || !['scheduled', 'due'].includes(item.status)) return;
   if (item.status === 'scheduled') item.status = 'due';
-  saveStoredList(SCHEDULE_STORAGE_KEY, scheduleItems);
+  saveUiState();
   showToast(`${item.kind} due`, item.message, scheduleTone(item.kind, item.category, item.message).tone, { duration: 0 });
   renderActivity();
 }
@@ -909,7 +1091,7 @@ function updateSchedule(id, changes) {
   const item = scheduleItems.find(entry => entry.id === id);
   if (!item) return;
   Object.assign(item, changes);
-  saveStoredList(SCHEDULE_STORAGE_KEY, scheduleItems);
+  saveUiState();
   if (item.status === 'scheduled' && !window.openx) armSchedule(item);
   renderActivity();
 }
@@ -1095,7 +1277,7 @@ function updateAssistantMuteButton() {
 
 async function toggleAssistantMute() {
   isAssistantMuted = !isAssistantMuted;
-  localStorage.setItem(ASSISTANT_MUTED_STORAGE_KEY, String(isAssistantMuted));
+  saveUiState();
   updateAssistantMuteButton();
   if (isAssistantMuted && window.openx?.stopSpeaking) {
     await window.openx.stopSpeaking();
@@ -1473,7 +1655,7 @@ function updatePermissionScale() {
 }
 
 function setActiveSystemBlock(blockName) {
-  const allowedBlocks = new Set(['identity', 'theme', 'security']);
+  const allowedBlocks = new Set(['identity', 'theme', 'security', 'storage']);
   activeSystemBlock = allowedBlocks.has(blockName) ? blockName : 'identity';
 
   systemOptionButtons.forEach(button => {
@@ -1531,6 +1713,9 @@ function setActiveSettingsSection(sectionName) {
 
   setActiveSystemBlock(activeSystemBlock);
   if (activeSettingsSection === 'phone') setActivePhonePanel(activePhonePanel);
+  if (activeSettingsSection === 'system' && activeSystemBlock === 'storage') {
+    updateChatStorageStatus();
+  }
   settingsFooterSection.classList.toggle('open', Boolean(activeSettingsSection));
   const settingsContent = document.querySelector('.settings-content');
   if (settingsContent) settingsContent.scrollTop = 0;
@@ -1869,8 +2054,8 @@ function ensureWelcomeMessage() {
   hasRenderedWelcome = true;
 }
 
-function ensureConversationReady() {
-  const restored = restoreConversationHistory();
+async function ensureConversationReady() {
+  const restored = await restoreConversationHistory();
   if (restored === 0) ensureWelcomeMessage();
 }
 
@@ -1983,6 +2168,28 @@ async function resetSettings() {
     setSettingsStatus('Settings reset to defaults.', 'success');
   } catch (err) {
     setSettingsStatus('Unable to reset settings.', 'error');
+  }
+}
+
+async function clearConversationHistory() {
+  if (clearChatHistoryBtn) clearChatHistoryBtn.disabled = true;
+  try {
+    if (window.openx?.clearChatHistory) {
+      await window.openx.clearChatHistory();
+    }
+    localStorage.removeItem(CHAT_HISTORY_STORAGE_KEY);
+    conversationHistory = [];
+    if (messagesEl) {
+      messagesEl.replaceChildren();
+      renderedMessageCount = 0;
+    }
+    hasRenderedWelcome = false;
+    updateChatStorageStatus(0);
+    setSettingsStatus('Chat history cleared.', 'success');
+  } catch (_) {
+    setSettingsStatus('Unable to clear chat history.', 'error');
+  } finally {
+    if (clearChatHistoryBtn) clearChatHistoryBtn.disabled = false;
   }
 }
 
@@ -2647,7 +2854,7 @@ settingsAppBtn?.addEventListener('click', () => {
 });
 document.getElementById('clear-notifications-btn').addEventListener('click', () => {
   notificationHistory = [];
-  saveStoredList(NOTIFICATION_STORAGE_KEY, notificationHistory);
+  saveUiState();
   renderNotifications();
 });
 closeBtn.addEventListener('click', () => window.close());
@@ -2671,6 +2878,8 @@ settingsNavButtons.forEach(button => {
     setActiveSettingsSection(sectionName);
     if (sectionName === 'system' && activeSystemBlock === 'security') {
       refreshSecurityStatus();
+    } else if (sectionName === 'system' && activeSystemBlock === 'storage') {
+      updateChatStorageStatus();
     }
   });
 });
@@ -2679,12 +2888,14 @@ systemOptionButtons.forEach(button => {
     const targetBlock = button.dataset.systemBlockTarget;
     setActiveSystemBlock(targetBlock);
     if (targetBlock === 'security') refreshSecurityStatus();
+    if (targetBlock === 'storage') updateChatStorageStatus();
     const settingsContent = document.querySelector('.settings-content');
     if (settingsContent) settingsContent.scrollTop = 0;
   });
 });
 securityRefreshBtn?.addEventListener('click', refreshSecurityStatus);
 securitySavePasswordBtn?.addEventListener('click', saveSecurityPassword);
+clearChatHistoryBtn?.addEventListener('click', clearConversationHistory);
 phoneSectionTabs.forEach(button => {
   button.addEventListener('click', () => {
     setActivePhonePanel(button.dataset.phonePanelTarget);
@@ -2764,6 +2975,7 @@ if (window.openx) {
 async function initialize() {
   setProfileEditorOpen(false);
   initializeCompactSettingsLayout();
+  await loadUiState();
   updateAssistantMuteButton();
   const settingsOnly = new URLSearchParams(window.location.search).get('settings') === '1';
   if (settingsOnly) {
@@ -2782,7 +2994,7 @@ async function initialize() {
       availableThemes: []
     };
     updateBranding();
-    ensureConversationReady();
+    await ensureConversationReady();
     renderActivity();
     setWorkspaceView('chat');
     if (settingsOnly) openSettingsPanel();
@@ -2796,7 +3008,7 @@ async function initialize() {
       if (item.status === 'scheduled') armSchedule(item);
     });
   }
-  ensureConversationReady();
+  await ensureConversationReady();
   renderActivity();
   setWorkspaceView('chat');
   if (settingsOnly) {

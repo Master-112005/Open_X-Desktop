@@ -243,6 +243,10 @@
               <span class="nav-label">Security</span>
               <span class="nav-hint">Assistant lock password.</span>
             </button>
+            <button class="system-option" data-system-block-target="storage" type="button" role="tab" aria-selected="false">
+              <span class="nav-label">Storage</span>
+              <span class="nav-hint">Chat data and cleanup.</span>
+            </button>
           </div>
 
           <section class="settings-section" data-settings-section="system" data-system-block="identity" id="settings-section-identity">
@@ -393,6 +397,18 @@
             <div class="cloud-action-row">
               <button class="primary-btn" id="security-save-password-btn" type="button">Save Security Password</button>
               <span id="security-password-message">Use at least 8 characters.</span>
+            </div>
+          </section>
+
+          <section class="settings-section" data-settings-section="system" data-system-block="storage" id="settings-section-storage">
+            <div class="section-heading">Storage</div>
+            <div class="section-note">Chat history is stored locally in OpenX_Data and can be cleared from this device at any time.</div>
+            <div class="storage-action-card">
+              <div>
+                <strong>Chat History</strong>
+                <span id="chat-storage-status">Stored locally in OpenX_Data.</span>
+              </div>
+              <button class="danger-btn" id="clear-chat-history-btn" type="button">Clear Chat</button>
             </div>
           </section>
 

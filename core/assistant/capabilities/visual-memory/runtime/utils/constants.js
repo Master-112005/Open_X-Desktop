@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const { buildDataPaths } = require('../../../../Data');
 
 const VISUAL_MEMORY_SCHEMA_VERSION = 1;
 const VISUAL_MEMORY_STATE_VERSION = '1.0.0';
@@ -45,7 +46,10 @@ const DEFAULT_VISUAL_MEMORY_SETTINGS = Object.freeze({
   }
 });
 
-function defaultVisualMemoryDataDir(rootDir = process.cwd()) {
+function defaultVisualMemoryDataDir(rootDir = '') {
+  if (!rootDir) {
+    return buildDataPaths().visualMemoryDir;
+  }
   return path.join(rootDir, 'data', 'visual-memory');
 }
 

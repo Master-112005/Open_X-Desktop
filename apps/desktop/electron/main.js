@@ -25,7 +25,7 @@ const {
 } = require('../voice');
 const { SettingsService } = require('../settings');
 const { AssistantEventBus, EVENTS, Logger } = require('../../../core/assistant/Data');
-const { ensureDataRoot, migrateLegacyData } = require('../../../core/assistant/Data');
+const { ensureDataRoot, migrateLegacyData, readJsonFile, writeJsonAtomic } = require('../../../core/assistant/Data');
 const { VisualMemoryEngine } = require('../../../core/assistant/capabilities/visual-memory');
 const { CloudCommandManager, CloudConnectionManager, CloudFileTransferManager, CloudLogger, CloudPairingManager } = require('../../../core/cloud');
 const CrashRecoveryPolicy = require('./crash-recovery');
@@ -65,7 +65,7 @@ const REQUIRED_PARAKEET_MODEL_FILES = Object.freeze([
   'tokens.txt'
 ]);
 
-const ELECTRON_PROFILE_DIR = path.join(BASE_CONFIG.app.dataPaths.runtimeDir, 'electron-profile');
+const ELECTRON_PROFILE_DIR = BASE_CONFIG.app.dataPaths.electronProfileDir;
 const LEGACY_ELECTRON_PROFILE_DIRS = Object.freeze([
   path.join(app.getPath('appData'), 'OpenX-Development'),
   path.join(app.getPath('appData'), 'OpenX')
@@ -329,7 +329,14 @@ const IPC_CHANNELS = [
   'window:closeGallery',
   'config:get',
   'settings:get',
+  'chatHistory:get',
+  'chatHistory:save',
+  'chatHistory:clear',
+  'uiState:get',
+  'uiState:save',
+  'security:status',
   'security:verifyAccess',
+  'security:setPassword',
   'cloud:status',
   'cloud:connect',
   'cloud:disconnect',
@@ -897,6 +904,140 @@ function buildSettingsSnapshot() {
     ...settingsService.getSnapshot(),
     securityStatus: initializeSecurityLock().getStatus()
   };
+}
+
+const CHAT_HISTORY_LIMIT = 100;
+const UI_STATE_SCHEDULE_LIMIT = 80;
+const UI_STATE_NOTIFICATION_LIMIT = 30;
+
+function chatHistoryPath() {
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG?.app?.dataPaths || {};
+  return dataPaths.chatHistoryPath || path.join(dataPaths.root || BASE_CONFIG.app.dataDir || app.getPath('userData'), 'chat-history.json');
+}
+
+function uiStatePath() {
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG?.app?.dataPaths || {};
+  return dataPaths.uiStatePath || path.join(dataPaths.root || BASE_CONFIG.app.dataDir || app.getPath('userData'), 'ui-state.json');
+}
+
+function redactChatHistoryText(value) {
+  return String(value || '')
+    .replace(/\b(password|passcode|token|api\s*key|secret|authorization|bearer)\s*[:=]\s*[^\s,;]+/gi, '$1: [redacted]')
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[email redacted]')
+    .slice(0, 4000);
+}
+
+function normalizeChatHistoryEntries(entries = []) {
+  return (Array.isArray(entries) ? entries : [])
+    .map(entry => {
+      const text = redactChatHistoryText(entry?.text);
+      if (!text.trim()) return null;
+      const type = ['user', 'assistant', 'system'].includes(entry?.type) ? entry.type : 'system';
+      return {
+        text,
+        type,
+        meta: redactChatHistoryText(entry?.meta).slice(0, 120),
+        createdAt: Number(entry?.createdAt) || Date.now()
+      };
+    })
+    .filter(Boolean)
+    .slice(-CHAT_HISTORY_LIMIT);
+}
+
+function readChatHistory() {
+  return normalizeChatHistoryEntries(readJsonFile(chatHistoryPath(), [], {
+    createIfMissing: true,
+    validate: value => Array.isArray(value),
+    maxBytes: 1024 * 1024
+  }));
+}
+
+function writeChatHistory(entries = []) {
+  const normalized = normalizeChatHistoryEntries(entries);
+  writeJsonAtomic(chatHistoryPath(), normalized, { maxBytes: 1024 * 1024 });
+  return {
+    success: true,
+    count: normalized.length,
+    entries: normalized
+  };
+}
+
+function clearChatHistory() {
+  writeJsonAtomic(chatHistoryPath(), [], { backup: true, maxBytes: 1024 * 1024 });
+  return { success: true, count: 0, entries: [] };
+}
+
+function normalizeUiStateText(value, limit = 1000) {
+  return String(value || '')
+    .replace(/\b(password|passcode|token|api\s*key|secret|authorization|bearer)\s*[:=]\s*[^\s,;]+/gi, '$1: [redacted]')
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[email redacted]')
+    .slice(0, limit);
+}
+
+function normalizeUiStateSchedule(entry = {}) {
+  const id = normalizeUiStateText(entry.id || entry.taskName || entry.scheduleId, 160);
+  const dueTime = new Date(entry.dueAt || '').getTime();
+  if (!id || !Number.isFinite(dueTime)) return null;
+  const dueAt = new Date(dueTime).toISOString();
+  const kind = normalizeUiStateText(entry.kind || 'Reminder', 40);
+  const status = normalizeUiStateText(entry.status || 'scheduled', 40).toLowerCase();
+  return {
+    id,
+    kind: ['Timer', 'Alarm', 'Reminder'].includes(kind) ? kind : 'Reminder',
+    message: normalizeUiStateText(entry.message || entry.title || kind, 500),
+    category: normalizeUiStateText(entry.category || '', 80) || null,
+    symbol: normalizeUiStateText(entry.symbol || '', 16) || null,
+    dueAt,
+    recurrence: normalizeUiStateText(entry.recurrence || '', 160),
+    status: ['scheduled', 'paused', 'due'].includes(status) ? status : 'scheduled',
+    createdAt: Number.isFinite(Date.parse(entry.createdAt || '')) ? entry.createdAt : new Date().toISOString(),
+    source: normalizeUiStateText(entry.source || '', 80) || null
+  };
+}
+
+function normalizeUiStateNotification(entry = {}) {
+  const title = normalizeUiStateText(entry.title || 'Assistant', 160);
+  const message = normalizeUiStateText(entry.message || '', 1000);
+  if (!title && !message) return null;
+  return {
+    id: normalizeUiStateText(entry.id || `notice-${Date.now()}`, 160),
+    title: title || 'Assistant',
+    message,
+    tone: normalizeUiStateText(entry.tone || 'info', 40),
+    createdAt: Number.isFinite(Date.parse(entry.createdAt || '')) ? entry.createdAt : new Date().toISOString()
+  };
+}
+
+function normalizeUiState(state = {}) {
+  const schedules = (Array.isArray(state?.schedules) ? state.schedules : [])
+    .map(normalizeUiStateSchedule)
+    .filter(Boolean)
+    .slice(0, UI_STATE_SCHEDULE_LIMIT);
+  const notifications = (Array.isArray(state?.notifications) ? state.notifications : [])
+    .map(normalizeUiStateNotification)
+    .filter(Boolean)
+    .slice(0, UI_STATE_NOTIFICATION_LIMIT);
+  return {
+    version: 1,
+    assistantMuted: state?.assistantMuted === true,
+    schedules,
+    notifications,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function readUiState() {
+  return normalizeUiState(readJsonFile(uiStatePath(), () => normalizeUiState(), {
+    createIfMissing: true,
+    validate: value => value && typeof value === 'object' && !Array.isArray(value),
+    maxBytes: 512 * 1024
+  }));
+}
+
+function writeUiState(state = {}) {
+  const normalized = normalizeUiState(state);
+  writeJsonAtomic(uiStatePath(), normalized, { backup: true, maxBytes: 512 * 1024 });
+  return { success: true, state: normalized };
 }
 
 function initializeSecurityLock() {
@@ -1546,7 +1687,7 @@ function createPlannerWindow(initialView = 'calendar', options = {}) {
 
 async function ensureVisualMemoryRuntime() {
   if (!visualMemoryEngine) {
-    const dataDir = path.join(runtimeConfig?.app?.dataPaths?.root || BASE_CONFIG.app.dataPaths.root, 'visual-memory');
+    const dataDir = runtimeConfig?.app?.dataPaths?.visualMemoryDir || BASE_CONFIG.app.dataPaths.visualMemoryDir;
     mainLogger.info('[Gallery] Preparing OpenX Visual Memory runtime.', { dataDir });
     visualMemoryEngine = new VisualMemoryEngine({
       dataDir,
@@ -3025,6 +3166,34 @@ function setupIPC() {
       cloudPairingStatus: cloudPairingManager?.getStatus?.() || null,
       cloudCommandStatus: cloudCommandManager?.getStatus?.() || null
     };
+  });
+
+  registerIpcHandler('chatHistory:get', async () => {
+    const entries = readChatHistory();
+    return {
+      success: true,
+      count: entries.length,
+      entries
+    };
+  });
+
+  registerIpcHandler('chatHistory:save', async (_event, payload) => {
+    return writeChatHistory(payload?.entries || []);
+  });
+
+  registerIpcHandler('chatHistory:clear', async () => {
+    return clearChatHistory();
+  });
+
+  registerIpcHandler('uiState:get', async () => {
+    return {
+      success: true,
+      state: readUiState()
+    };
+  });
+
+  registerIpcHandler('uiState:save', async (_event, payload) => {
+    return writeUiState(payload || {});
   });
 
   registerIpcHandler('security:status', async () => {
