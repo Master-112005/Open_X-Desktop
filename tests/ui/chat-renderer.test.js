@@ -9,31 +9,31 @@ describe('Chat Renderer UI', function() {
   const glassCss = fs.readFileSync(path.join(rendererRoot, 'index.css'), 'utf8');
   const script = fs.readFileSync(path.join(rendererRoot, 'index.js'), 'utf8');
 
-  it('should provide dedicated chat, activity, notification, calendar, gallery, and settings info surfaces', function() {
-    ['conversation-view', 'activity-view', 'toast-region', 'schedule-list', 'notification-list', 'activity-calendar-btn', 'gallery-btn', 'about-btn']
+  it('should provide dedicated chat, activity, apps, notification, and info surfaces', function() {
+    ['conversation-view', 'activity-view', 'apps-view', 'toast-region', 'schedule-list', 'notification-list', 'calendar-app-btn', 'gallery-app-btn', 'settings-app-btn', 'header-about-btn', 'about-btn']
       .forEach(id => assert.match(html, new RegExp(`id="${id}"`)));
     assert.doesNotMatch(html, /id="alarm-overlay"/);
     assert.doesNotMatch(script, /alarmOverlay|alarm-dismiss-btn|alarm-snooze-btn/);
-    assert.match(html, /id="activity-calendar-btn"[\s\S]*id="header-title"/);
-    assert.match(html, /id="activity-view-btn"[\s\S]*id="gallery-btn"[\s\S]*id="assistant-mute-btn"/);
+    assert.match(html, /id="header-about-btn"[\s\S]*id="header-title"/);
+    assert.match(html, /id="chat-view-btn"[\s\S]*id="activity-view-btn"[\s\S]*id="apps-view-btn"[\s\S]*id="assistant-mute-btn"/);
     assert.match(html, /class="icon-btn about-btn settings-about-btn" id="about-btn"[\s\S]*id="settings-close-btn"/);
     assert.match(script, /panelHeader\.insertBefore\(panelActions, settingsCloseBtn\)/);
-    assert.match(html, /Upcoming & recurring/);
+    assert.match(html, /Alarms & reminders/);
     assert.doesNotMatch(html, /Upcoming alarms, timers, reminders, and recent assistant notices\./);
-    assert.match(script, /openPlanner\?\.\('calendar'\)/);
-    assert.match(script, /openGallery\?\.\('timeline'\)/);
-    assert.match(script, /ACTIVITY_SCHEDULE_WINDOW_MS\s*=\s*24 \* 60 \* 60 \* 1000/);
-    assert.match(script, /ACTIVITY_RECURRING_WINDOW_MS\s*=\s*14 \* 24 \* 60 \* 60 \* 1000/);
+    assert.match(script, /runHeaderApp\(calendarAppBtn, \(\) => window\.openx\?\.openPlanner\?\.\('calendar'\)\)/);
+    assert.match(script, /runHeaderApp\(galleryAppBtn, \(\) => window\.openx\?\.openGallery\?\.\('timeline'\)\)/);
+    assert.doesNotMatch(script, /ACTIVITY_SCHEDULE_WINDOW_MS/);
+    assert.doesNotMatch(script, /ACTIVITY_RECURRING_WINDOW_MS/);
+    assert.match(script, /function isSameLocalDay\(value, reference = Date\.now\(\)\)/);
+    assert.match(script, /function isActivityScheduleKind\(item = \{\}\)/);
     assert.match(script, /function isActivityScheduleVisible\(item, now = Date\.now\(\)\)/);
     assert.match(script, /window\.openx\?\.getScheduleSnapshot/);
     assert.match(script, /window\.openx\.onScheduleChanged/);
     assert.match(script, /function replaceScheduleItemsFromRuntime\(items = \[\]\)/);
-    assert.match(script, /classList\.add\('opening'\)/);
-    assert.match(script, /aria-busy/);
-    assert.match(css, /\.activity-calendar-btn/);
-    assert.match(css, /\.activity-calendar-btn\.opening/);
-    assert.match(css, /\.gallery-view-tab/);
-    assert.match(css, /\.gallery-view-tab\.opening/);
+    assert.match(script, /const aboutButtons = Array\.from\(document\.querySelectorAll\('\[data-about-trigger\]'\)\)/);
+    assert.match(css, /#header-left/);
+    assert.match(css, /\.header-about-btn/);
+    assert.match(css, /\.app-card/);
     assert.match(css, /\.settings-header-actions/);
   });
 

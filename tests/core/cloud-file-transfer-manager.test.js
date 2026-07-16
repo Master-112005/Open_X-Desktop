@@ -43,6 +43,16 @@ describe('CloudFileTransferManager', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
+  it('stores received files in Documents OpenX and temp chunks in the managed data root', () => {
+    const manager = new CloudFileTransferManager({
+      config: { app: { dataDir: tempDir } },
+      logger: { info() {}, warn() {}, error() {} }
+    });
+
+    assert.equal(manager.getReceiveDirectory(), path.join(os.homedir(), 'Documents', 'OpenX'));
+    assert.equal(manager.getTempDirectory(), path.join(tempDir, 'runtime', 'cloud-transfer'));
+  });
+
   it('sends metadata before chunks and waits for receiver acceptance', async () => {
     const source = path.join(tempDir, 'hello.txt');
     fs.writeFileSync(source, 'hello cloud transfer');

@@ -4,6 +4,7 @@ const path = require('path');
 const EventEmitter = require('events');
 const CloudFileTransferProtocol = require('./CloudFileTransferProtocol');
 const CloudTransferIntegrity = require('./CloudTransferIntegrity');
+const { buildDataPaths } = require('../assistant/Data');
 
 const PROTOCOL_VERSION = 1;
 const DEFAULT_CHUNK_BYTES = 12 * 1024;
@@ -23,8 +24,9 @@ class CloudFileTransferManager extends EventEmitter {
     this.connectionManager = options.connectionManager;
     this.protocol = options.protocol || new CloudFileTransferProtocol();
     this.integrity = options.integrity || new CloudTransferIntegrity();
-    this.receiveDirectory = options.receiveDirectory || null;
-    this.tempDirectory = options.tempDirectory || null;
+    const dataPaths = options.dataPaths || buildDataPaths(options.config || {});
+    this.receiveDirectory = options.receiveDirectory || dataPaths.cloudReceivedDir;
+    this.tempDirectory = options.tempDirectory || dataPaths.cloudTempDir;
     this.logger = options.logger || console;
     this.chunkBytes = Number.isFinite(options.chunkBytes)
       ? Math.max(1024, Math.round(options.chunkBytes))
@@ -481,11 +483,11 @@ class CloudFileTransferManager extends EventEmitter {
   }
 
   getReceiveDirectory() {
-    return this.receiveDirectory || path.join(process.cwd(), 'openx_data', 'cloud', 'received');
+    return this.receiveDirectory || buildDataPaths().cloudReceivedDir;
   }
 
   getTempDirectory() {
-    return this.tempDirectory || path.join(process.cwd(), 'openx_data', 'runtime', 'cloud-transfer');
+    return this.tempDirectory || buildDataPaths().cloudTempDir;
   }
 
   getLocalDeviceId() {

@@ -11,10 +11,13 @@
 <body>
   <div id="chat-shell">
     <div id="header">
-      <div id="header-info">
-        <div class="brand-copy">
-          <div id="header-title">Assistant</div>
-          <div id="header-subtitle"><span class="presence-dot"></span>Ready for local commands</div>
+      <div id="header-left">
+        <button class="window-btn about-btn header-about-btn" id="header-about-btn" type="button" title="About OpenX" aria-label="About OpenX" aria-expanded="false" aria-controls="about-panel" data-about-trigger>i</button>
+        <div id="header-info">
+          <div class="brand-copy">
+            <div id="header-title">Assistant</div>
+            <div id="header-subtitle"><span class="presence-dot"></span>Ready for local commands</div>
+          </div>
         </div>
       </div>
       <div id="header-actions">
@@ -182,7 +185,7 @@
             <div class="panel-title">Settings</div>
             <div class="panel-subtitle">Personalize how your assistant looks, sounds, and works.</div>
           </div>
-          <button class="icon-btn about-btn settings-about-btn" id="about-btn" type="button" title="About OpenX" aria-label="About OpenX" aria-expanded="false" aria-controls="about-panel">i</button>
+          <button class="icon-btn about-btn settings-about-btn" id="about-btn" type="button" title="About OpenX" aria-label="About OpenX" aria-expanded="false" aria-controls="about-panel" data-about-trigger>i</button>
           <button class="icon-btn" id="settings-close-btn" title="Close settings" aria-label="Close settings">&#10005;</button>
         </div>
 

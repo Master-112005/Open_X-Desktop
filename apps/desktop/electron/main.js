@@ -65,8 +65,89 @@ const REQUIRED_PARAKEET_MODEL_FILES = Object.freeze([
   'tokens.txt'
 ]);
 
-if (!app.isPackaged) {
-  app.setPath('userData', path.join(app.getPath('appData'), 'OpenX-Development'));
+const ELECTRON_PROFILE_DIR = path.join(BASE_CONFIG.app.dataPaths.runtimeDir, 'electron-profile');
+const LEGACY_ELECTRON_PROFILE_DIRS = Object.freeze([
+  path.join(app.getPath('appData'), 'OpenX-Development'),
+  path.join(app.getPath('appData'), 'OpenX')
+]);
+const ELECTRON_PROFILE_STORAGE_ITEMS = Object.freeze([
+  'Local Storage',
+  'IndexedDB',
+  'Session Storage',
+  'Preferences'
+]);
+
+function copyProfileItemIfMissing(sourcePath, targetPath) {
+  if (!fs.existsSync(sourcePath) || fs.existsSync(targetPath)) return;
+  const stats = fs.statSync(sourcePath);
+  if (stats.isDirectory()) {
+    fs.mkdirSync(targetPath, { recursive: true });
+    for (const child of fs.readdirSync(sourcePath)) {
+      copyProfileItemIfMissing(path.join(sourcePath, child), path.join(targetPath, child));
+    }
+    return;
+  }
+  if (stats.isFile()) {
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.copyFileSync(sourcePath, targetPath);
+  }
+}
+
+function migrateElectronProfileStorage(targetProfileDir) {
+  for (const legacyProfileDir of LEGACY_ELECTRON_PROFILE_DIRS) {
+    const resolvedLegacy = path.resolve(legacyProfileDir);
+    const resolvedTarget = path.resolve(targetProfileDir);
+    if (resolvedLegacy === resolvedTarget || !fs.existsSync(resolvedLegacy)) continue;
+    for (const itemName of ELECTRON_PROFILE_STORAGE_ITEMS) {
+      try {
+        copyProfileItemIfMissing(path.join(resolvedLegacy, itemName), path.join(resolvedTarget, itemName));
+      } catch (error) {
+        console.warn(`OpenX profile migration skipped ${itemName}: ${error.message}`);
+      }
+    }
+  }
+}
+
+function configureManagedElectronProfile() {
+  try {
+    fs.mkdirSync(ELECTRON_PROFILE_DIR, { recursive: true });
+    migrateElectronProfileStorage(ELECTRON_PROFILE_DIR);
+    app.setPath('userData', ELECTRON_PROFILE_DIR);
+  } catch (error) {
+    console.warn(`OpenX could not use managed Electron profile storage: ${error.message}`);
+  }
+}
+
+configureManagedElectronProfile();
+
+async function cleanupOpenXTempArtifacts(options = {}) {
+  const tempRoot = path.resolve(os.tmpdir());
+  const maxAgeMs = Number.isFinite(options.maxAgeMs) ? options.maxAgeMs : 24 * 60 * 60 * 1000;
+  const cutoff = Date.now() - maxAgeMs;
+  const entries = await fs.promises.readdir(tempRoot, { withFileTypes: true });
+  const targets = [];
+
+  for (const entry of entries) {
+    if (!/^openx-/i.test(entry.name)) continue;
+    const target = path.resolve(tempRoot, entry.name);
+    if (path.dirname(target) !== tempRoot) continue;
+    try {
+      const stats = await fs.promises.stat(target);
+      if (stats.mtimeMs <= cutoff) targets.push(target);
+    } catch (_) {}
+  }
+
+  let removed = 0;
+  const concurrency = 8;
+  for (let index = 0; index < targets.length; index += concurrency) {
+    const batch = targets.slice(index, index + concurrency);
+    const results = await Promise.allSettled(
+      batch.map(target => fs.promises.rm(target, { recursive: true, force: true }))
+    );
+    removed += results.filter(result => result.status === 'fulfilled').length;
+  }
+
+  return { scanned: entries.length, removed, retained: targets.length - removed, tempRoot };
 }
 
 try {
@@ -143,6 +224,13 @@ class ChildProcessRegistry {
 const childProcessRegistry = new ChildProcessRegistry();
 
 const mainLogger = new Logger(BASE_CONFIG.logging);
+void cleanupOpenXTempArtifacts()
+  .then(result => {
+    if (result.removed > 0) {
+      mainLogger.info('OpenX stale temp cleanup completed', result);
+    }
+  })
+  .catch(error => mainLogger.warn('OpenX stale temp cleanup failed', { error: error.message }));
 const crashRecoveryPolicy = new CrashRecoveryPolicy({
   statePath: path.join(BASE_CONFIG.app.dataPaths.runtimeDir, 'crash-recovery.json'),
   maxRestarts: 3,
