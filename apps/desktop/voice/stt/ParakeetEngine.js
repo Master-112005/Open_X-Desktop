@@ -58,6 +58,8 @@ class ParakeetEngine {
       recognitionFailures: 0,
       cancellationCount: 0
     };
+    this.modelLoadLogged = false;
+    this.modelReadyLogged = false;
   }
 
   /**
@@ -78,7 +80,12 @@ class ParakeetEngine {
   initialize() {
     const startedAt = this.clock();
     this.decoderState.transitionTo(DecoderState.STATES.LOADING, 'initialize');
-    this.events.emit(STT_EVENTS.MODEL_LOADING, { engine: 'parakeet', modelPath: this.configuration.modelPath });
+    const loadingPayload = this._modelSummary({ status: 'loading' });
+    this.events.emit(STT_EVENTS.MODEL_LOADING, loadingPayload);
+    if (!this.modelLoadLogged) {
+      this.modelLoadLogged = true;
+      this._log('Loading model', loadingPayload);
+    }
     const modelLoadStartedAt = this.clock();
     this.loadedModel = this.modelLoader.load();
     this.metrics.modelLoadTimeMs += Math.max(0, this.clock().getTime() - modelLoadStartedAt.getTime());
@@ -87,7 +94,14 @@ class ParakeetEngine {
     this.metrics.initializationTimeMs += Math.max(0, this.clock().getTime() - startedAt.getTime());
     const payload = { initialized: true, engine: 'parakeet', model: { ...this.loadedModel } };
     this.events.emit(STT_EVENTS.MODEL_READY, payload);
-    this._log('Model Ready', payload);
+    if (!this.modelReadyLogged) {
+      this.modelReadyLogged = true;
+      this._log('Model ready', this._modelSummary({
+        status: 'ready',
+        modelLoadTimeMs: this.metrics.modelLoadTimeMs,
+        provider: this.configuration.gpuEnabled ? 'cuda' : 'cpu'
+      }));
+    }
     return payload;
   }
 
@@ -314,6 +328,23 @@ class ParakeetEngine {
     if (error && typeof error.toJSON === 'function') return error.toJSON();
     if (error instanceof Error) return { name: error.name, message: error.message };
     return { name: 'ParakeetRecognitionError', message: String(error || 'Recognition failed.') };
+  }
+
+  /**
+   * Return a developer-safe model summary for normal logs.
+   * @param {object} extra Extra fields.
+   * @returns {object}
+   * @private
+   */
+  _modelSummary(extra = {}) {
+    return {
+      engine: 'parakeet',
+      model: this.configuration.modelName,
+      runtime: 'sherpa-onnx',
+      language: this.configuration.language,
+      decoding: this.configuration.decodingStrategy,
+      ...extra
+    };
   }
 
   /**

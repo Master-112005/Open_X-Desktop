@@ -275,6 +275,22 @@ function validateGalleryFaceName(payload) {
   };
 }
 
+function validateGalleryFaceAssign(payload) {
+  requirePlainObject(payload);
+  const clusterId = requireString(payload.clusterId, 'clusterId', { maxLength: 160 });
+  const identityId = requireString(payload.identityId, 'identityId', { maxLength: 160 });
+  if (!/^[A-Za-z0-9._:-]+$/.test(clusterId)) throw new TypeError('clusterId is invalid');
+  if (!/^[A-Za-z0-9._:-]+$/.test(identityId)) throw new TypeError('identityId is invalid');
+  return { clusterId, identityId };
+}
+
+function validateGalleryFaceCluster(payload) {
+  requirePlainObject(payload);
+  const clusterId = requireString(payload.clusterId, 'clusterId', { maxLength: 160 });
+  if (!/^[A-Za-z0-9._:-]+$/.test(clusterId)) throw new TypeError('clusterId is invalid');
+  return { clusterId };
+}
+
 function validateGalleryPeopleScan(payload = {}) {
   if (payload === undefined) return { maxPhotos: 10000 };
   requirePlainObject(payload);
@@ -378,6 +394,8 @@ const IPC_VALIDATORS = Object.freeze({
   'gallery:showPhoto': validateGalleryPhoto,
   'gallery:toggleFavorite': validateGalleryFavorite,
   'gallery:nameFace': validateGalleryFaceName,
+  'gallery:addFaceToPerson': validateGalleryFaceAssign,
+  'gallery:removeFaceCluster': validateGalleryFaceCluster,
   'gallery:scanPeople': validateGalleryPeopleScan,
   'app:quit': validateEmpty
 });

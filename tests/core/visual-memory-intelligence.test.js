@@ -97,6 +97,46 @@ describe('Visual Memory Intelligence', () => {
     await engine.api.shutdown();
   });
 
+  it('uses named Face Memory evidence to rank people-focused photo searches', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-memory-people-search-'));
+    const engine = new VisualMemoryEngine({ dataDir, logging: { console: false, file: false }, faces: { enrollment: { minUnknownPhotos: 2 } } });
+    await engine.api.start();
+    await engine.database.replaceTable('photos', {
+      both: { id: 'both', fileName: 'family.jpg', filePath: 'C:/Pictures/family.jpg', fileType: 'jpg', createdAt: ago(1) },
+      dadOnly: { id: 'dadOnly', fileName: 'dad.jpg', filePath: 'C:/Pictures/dad.jpg', fileType: 'jpg', createdAt: ago(2) },
+      meOnly: { id: 'meOnly', fileName: 'me.jpg', filePath: 'C:/Pictures/me.jpg', fileType: 'jpg', createdAt: ago(3) }
+    });
+    await engine.database.replaceTable('metadata', {
+      both: { id: 'both', photoId: 'both', filePath: 'C:/Pictures/family.jpg', fileType: 'jpg', createdAt: ago(1) },
+      dadOnly: { id: 'dadOnly', photoId: 'dadOnly', filePath: 'C:/Pictures/dad.jpg', fileType: 'jpg', createdAt: ago(2) },
+      meOnly: { id: 'meOnly', photoId: 'meOnly', filePath: 'C:/Pictures/me.jpg', fileType: 'jpg', createdAt: ago(3) }
+    });
+    await engine.api.enableFaceMemory({ acceptedBy: 'test-user' });
+    await engine.api.ingestUnknownFace({ vector: [1, 0], photoId: 'both', faceId: 'me-1', confidence: 0.96 });
+    await engine.api.ingestUnknownFace({ vector: [0.99, 0.01], photoId: 'meOnly', faceId: 'me-2', confidence: 0.95 });
+    const meSuggestion = (await engine.api.getFaceEnrollmentSuggestions())[0];
+    await engine.api.enrollFaceCluster({ clusterId: meSuggestion.clusterId, name: 'me' });
+    await engine.api.ingestUnknownFace({ vector: [0, 1], photoId: 'both', faceId: 'dad-1', confidence: 0.96 });
+    await engine.api.ingestUnknownFace({ vector: [0.01, 0.99], photoId: 'dadOnly', faceId: 'dad-2', confidence: 0.95 });
+    const dadSuggestion = (await engine.api.getFaceEnrollmentSuggestions()).find(item => item.clusterId !== meSuggestion.clusterId);
+    await engine.api.enrollFaceCluster({ clusterId: dadSuggestion.clusterId, name: 'dad', relationship: 'father' });
+
+    const visualQuery = new VisualQueryEngine().understand({
+      rawInput: 'find photos with me and dad',
+      normalizedInput: 'find photos with me and dad',
+      resolvedContext: { confidence: 0.8 }
+    });
+    const result = await engine.api.searchMemories({ visualQuery });
+
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.results[0].photoId, 'both');
+    assert(result.results.length >= 3);
+    assert(result.results[0].candidate.faceMemory.peopleNames.includes('me'));
+    assert(result.results[0].candidate.faceMemory.relationships.includes('father'));
+
+    await engine.api.shutdown();
+  });
+
   it('integrates as an optional assistant pipeline stage through Visual Memory API', async () => {
     let called = false;
     const fakeApi = {

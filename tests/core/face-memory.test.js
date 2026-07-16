@@ -110,6 +110,108 @@ describe('Face Memory System', () => {
     assert.strictEqual(engine.listIdentities().length, 0);
   });
 
+  it('adds an unnamed duplicate cluster to an existing identity and removes unwanted clusters', async () => {
+    const engine = await enabledEngine();
+    addTwoUnknownFaces(engine);
+    const [suggestion] = engine.getEnrollmentSuggestions();
+    const enrolled = engine.enrollCluster({ clusterId: suggestion.clusterId, name: 'Rahul' }).identity;
+
+    engine.ingestUnknownFace({ vector: [0.8, 0.2], photoId: 'p5', faceId: 'f5', confidence: 0.91 });
+    engine.ingestUnknownFace({ vector: [0.79, 0.21], photoId: 'p6', faceId: 'f6', confidence: 0.9 });
+    const duplicate = engine.getEnrollmentSuggestions().find(item => item.clusterId !== suggestion.clusterId);
+
+    const assigned = engine.addClusterToIdentity({ clusterId: duplicate.clusterId, identityId: enrolled.id });
+    const match = engine.matchFace([0.79, 0.21]);
+    engine.ingestUnknownFace({ vector: [0, 1], photoId: 'bad', faceId: 'bad-face', confidence: 0.9 });
+    const removable = Object.values(engine.state.unknownClusters).find(cluster => cluster.status === 'unknown');
+    const removed = engine.deleteCluster(removable.id);
+
+    assert.strictEqual(assigned.identity.id, enrolled.id);
+    assert(assigned.identity.clusterIds.includes(duplicate.clusterId));
+    assert.strictEqual(engine.state.unknownClusters[duplicate.clusterId].status, 'enrolled');
+    assert.strictEqual(match.best.name, 'Rahul');
+    assert.strictEqual(removed, true);
+    assert.strictEqual(engine.state.unknownClusters[removable.id], undefined);
+  });
+
+  it('auto-attaches exact named-face matches and suppresses same-photo duplicate embeddings', async () => {
+    const engine = await enabledEngine();
+    addTwoUnknownFaces(engine);
+    const [suggestion] = engine.getEnrollmentSuggestions();
+    const enrolled = engine.enrollCluster({ clusterId: suggestion.clusterId, name: 'Rahul' }).identity;
+    const before = engine.listIdentities()[0].embeddingIds.length;
+
+    const first = engine.ingestUnknownFace({
+      vector: [1, 0],
+      photoId: 'p1',
+      faceId: 'f1',
+      faceBox: { x: 10, y: 10, width: 80, height: 80, imageWidth: 200, imageHeight: 200 },
+      confidence: 0.98
+    });
+    const second = engine.ingestUnknownFace({
+      vector: [1, 0],
+      photoId: 'p1',
+      faceId: 'f1',
+      faceBox: { x: 10, y: 10, width: 80, height: 80, imageWidth: 200, imageHeight: 200 },
+      confidence: 0.99
+    });
+
+    assert.strictEqual(first.autoAssigned, true);
+    assert.strictEqual(first.duplicate, true);
+    assert.strictEqual(second.autoAssigned, true);
+    assert.strictEqual(second.duplicate, true);
+    assert.strictEqual(engine.listIdentities()[0].embeddingIds.length, before);
+    assert.strictEqual(Object.values(engine.state.unknownClusters).filter(cluster => cluster.status === 'unknown').length, 0);
+    assert.strictEqual(enrolled.name, 'Rahul');
+  });
+
+  it('suppresses repeated unknown detections from the same photo before they become duplicate people', async () => {
+    const engine = await enabledEngine();
+    const first = engine.ingestUnknownFace({
+      vector: [0, 1],
+      photoId: 'group-photo',
+      faceId: 'same-face',
+      faceBox: { x: 25, y: 30, width: 120, height: 130, imageWidth: 800, imageHeight: 600 },
+      confidence: 0.96
+    });
+    const duplicate = engine.ingestUnknownFace({
+      vector: [0, 1],
+      photoId: 'group-photo',
+      faceId: 'same-face',
+      faceBox: { x: 25, y: 30, width: 120, height: 130, imageWidth: 800, imageHeight: 600 },
+      confidence: 0.97
+    });
+
+    assert.strictEqual(first.duplicate, false);
+    assert.strictEqual(duplicate.duplicate, true);
+    assert.strictEqual(first.cluster.embeddingIds.length, 1);
+    assert.strictEqual(first.cluster.photoIds.length, 1);
+    assert.strictEqual(first.cluster.duplicateCount, 1);
+  });
+
+  it('defers auto-recognition when a face is too close to two named people', async () => {
+    const engine = await enabledEngine();
+    const rahulEmbedding = engine.embeddings.addEmbedding({ vector: [1, 0], photoId: 'rahul-1', confidence: 0.99 });
+    const rohitEmbedding = engine.embeddings.addEmbedding({ vector: [0.9999, 0.014], photoId: 'rohit-1', confidence: 0.99 });
+    const rahul = engine.identities.createIdentity({ name: 'Rahul', embeddings: [rahulEmbedding] }).identity;
+    const rohit = engine.identities.createIdentity({ name: 'Rohit', embeddings: [rohitEmbedding] }).identity;
+
+    const result = engine.ingestUnknownFace({
+      vector: [1, 0],
+      photoId: 'ambiguous-group-photo',
+      faceId: 'ambiguous-face',
+      confidence: 0.99
+    });
+    const match = engine.matchFace([1, 0]);
+
+    assert.strictEqual(result.autoAssigned, undefined);
+    assert.strictEqual(result.cluster.status, 'unknown');
+    assert.strictEqual(engine.state.identities[rahul.id].embeddingIds.length, 1);
+    assert.strictEqual(engine.state.identities[rohit.id].embeddingIds.length, 1);
+    assert.strictEqual(match.best.ambiguous, true);
+    assert.strictEqual(match.best.decision, 'review');
+  });
+
   it('exposes Face Memory through Visual Memory API and persists local state across restarts', async () => {
     const dataDir = tempDir();
     const first = new VisualMemoryEngine({ dataDir, logging: { console: false, file: false }, faces: { enrollment: { minUnknownPhotos: 2 } } });

@@ -450,6 +450,17 @@
   padding: 0;
 }
 
+.settings-header-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.settings-about-btn {
+  color: var(--text-color);
+}
+
 .panel-scroll {
   display: grid;
   flex: 1;
@@ -2982,25 +2993,34 @@ body {
   width: 36px;
 }
 
-.calendar-view-tab {
+.gallery-view-tab {
   min-width: 40px;
   padding-inline: 0;
 }
 
-.activity-calendar-btn:hover {
+.header-calendar-btn {
+  flex: 0 0 32px;
+  height: 32px;
+  width: 32px;
+}
+
+.activity-calendar-btn:hover,
+.gallery-view-tab:hover {
   background: rgba(255, 255, 255, 0.14);
   border-color: rgba(255, 255, 255, 0.18);
   transform: translateY(-1px);
 }
 
-.activity-calendar-btn.opening {
+.activity-calendar-btn.opening,
+.gallery-view-tab.opening {
   background: var(--adaptive-control-strong, rgba(255, 255, 255, 0.16));
   border-color: color-mix(in srgb, var(--accent-color) 58%, rgba(255, 255, 255, 0.2));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 18%, transparent);
   transform: translateY(0) scale(0.96);
 }
 
-.activity-calendar-btn:active {
+.activity-calendar-btn:active,
+.gallery-view-tab:active {
   transform: translateY(1px);
 }
 

@@ -41,6 +41,27 @@ class FaceGroupingEngine {
         imageHeight: Number(imageHeight) || Number(faceBox.imageHeight) || null
       }
       : null;
+    const duplicate = this._findDuplicateClusterEmbedding(record, {
+      vector,
+      photoId,
+      faceId,
+      faceBox: normalizedFaceBox
+    });
+    if (duplicate) {
+      duplicate.confidence = Math.max(Number(duplicate.confidence) || 0, Number(confidence) || 0);
+      duplicate.lastMatchedAt = nowIso();
+      duplicate.matchCount = Math.max(1, Number(duplicate.matchCount) || 1) + 1;
+      record.latestSeenAt = nowIso();
+      record.confidence = Math.max(record.confidence || 0, Number(confidence) || 0);
+      record.duplicateCount = Math.max(0, Number(record.duplicateCount) || 0) + 1;
+      this.diagnostics?.record?.('unknown-face-duplicate-suppressed', {
+        clusterId,
+        embeddingId: duplicate.id,
+        photoId: photoId || null
+      });
+      return { cluster: record, embedding: duplicate, duplicate: true };
+    }
+
     const embedding = this.embeddings.addEmbedding({
       vector,
       clusterId,
@@ -66,7 +87,7 @@ class FaceGroupingEngine {
     record.confidence = Math.max(record.confidence || 0, confidence);
     this.events?.emit?.('visual-memory.faces.unknown.grouped', { clusterId, photoCount: record.photoIds.length });
     this.diagnostics?.record?.('unknown-face-grouped', { clusterId, photoCount: record.photoIds.length });
-    return { cluster: record, embedding };
+    return { cluster: record, embedding, duplicate: false };
   }
 
   getEnrollmentSuggestions() {
@@ -103,6 +124,7 @@ class FaceGroupingEngine {
   _bestCluster(vector) {
     let best = null;
     for (const cluster of Object.values(this.state.unknownClusters)) {
+      if (cluster.status !== 'unknown' || cluster.ignoredAt || cluster.neverAskAgain) continue;
       const embeddings = this.embeddings.listForCluster(cluster.id);
       for (const embedding of embeddings) {
         const similarity = cosineSimilarity(vector, embedding.vector);
@@ -110,6 +132,38 @@ class FaceGroupingEngine {
       }
     }
     return best;
+  }
+
+  _findDuplicateClusterEmbedding(cluster = {}, input = {}) {
+    const vector = Array.isArray(input.vector) ? input.vector : [];
+    const threshold = Number(this.configuration.thresholds.duplicate ?? 0.998);
+    const boxThreshold = Number(this.configuration.thresholds.duplicateBoxIoU ?? 0.94);
+    for (const embeddingId of cluster.embeddingIds || []) {
+      const embedding = this.state.embeddings?.[embeddingId];
+      if (!embedding || !input.photoId || !embedding.photoId || input.photoId !== embedding.photoId) continue;
+      if (input.faceId && embedding.faceId && input.faceId === embedding.faceId) return embedding;
+      if (input.faceBox && embedding.faceBox && this._faceBoxIoU(input.faceBox, embedding.faceBox) >= boxThreshold) return embedding;
+      if (vector.length && Array.isArray(embedding.vector) && cosineSimilarity(vector, embedding.vector) >= threshold) return embedding;
+    }
+    return null;
+  }
+
+  _faceBoxIoU(left = {}, right = {}) {
+    const lx1 = Number(left.x) || 0;
+    const ly1 = Number(left.y) || 0;
+    const lx2 = lx1 + (Number(left.width) || 0);
+    const ly2 = ly1 + (Number(left.height) || 0);
+    const rx1 = Number(right.x) || 0;
+    const ry1 = Number(right.y) || 0;
+    const rx2 = rx1 + (Number(right.width) || 0);
+    const ry2 = ry1 + (Number(right.height) || 0);
+    const intersectionWidth = Math.max(0, Math.min(lx2, rx2) - Math.max(lx1, rx1));
+    const intersectionHeight = Math.max(0, Math.min(ly2, ry2) - Math.max(ly1, ry1));
+    const intersection = intersectionWidth * intersectionHeight;
+    const leftArea = Math.max(0, lx2 - lx1) * Math.max(0, ly2 - ly1);
+    const rightArea = Math.max(0, rx2 - rx1) * Math.max(0, ry2 - ry1);
+    const union = leftArea + rightArea - intersection;
+    return union > 0 ? intersection / union : 0;
   }
 }
 

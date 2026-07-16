@@ -18,10 +18,11 @@ function compactCrashMetadata(metadata = {}) {
     assistantInitialized: metadata.assistantInitialized === true,
     voiceState: String(metadata.voiceState || '').slice(0, 40),
     windows: metadata.windows && typeof metadata.windows === 'object'
-      ? {
+        ? {
           chat: metadata.windows.chat === true,
           voice: metadata.windows.voice === true,
           planner: metadata.windows.planner === true,
+          gallery: metadata.windows.gallery === true,
           timer: metadata.windows.timer === true
         }
       : null,

@@ -8,7 +8,7 @@ class VisualMemoryStructuredResponse {
       action: result.action || '',
       success: result.success === true,
       resultCount: result.data?.total || result.data?.results?.length || 0,
-      topResults: result.data?.results?.slice?.(0, 5) || [],
+      topResults: result.data?.results?.slice?.(0, 12) || [],
       confidence: result.data?.topConfidence || result.data?.results?.[0]?.confidence || 0,
       requiresVerification: result.requiresVerification === true,
       verification: result.verification || null,

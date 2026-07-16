@@ -34,7 +34,8 @@ class VisionEngine {
       registry: this.registry,
       runtime: this.runtime,
       diagnostics: this.diagnostics,
-      events: this.events
+      events: this.events,
+      logger: this.logger
     });
     this.resourceManager = options.resourceManager || new ResourceManager({ configuration: this.configuration });
     this.validator = options.validator || new VisionValidator({ configuration: this.configuration });
@@ -52,18 +53,22 @@ class VisionEngine {
       diagnostics: this.diagnostics
     });
     this.initialized = false;
+    this.modelRegistryLoadingLogged = false;
+    this.modelRegistryReadyLogged = false;
   }
 
   async initialize() {
     if (this.initialized) return this;
     this.lifecycle.transition(ENGINE_STATES.INITIALIZING);
     try {
+      this._logModelRegistryLoading();
       await this.runtime.initialize();
       this.modelManager.registerMany(this.configuration.models);
       this.initialized = true;
       this.lifecycle.transition(ENGINE_STATES.READY);
       this.events.emit(VISION_EVENTS.INITIALIZED, this.getStatus());
       this.diagnostics.record('vision-initialized', this.getStatus());
+      this._logModelRegistryReady();
       return this;
     } catch (error) {
       this.lifecycle.transition(ENGINE_STATES.ERROR, { error: error.message });
@@ -159,6 +164,30 @@ class VisionEngine {
       runtime: this.runtime.getStatus(),
       resources: this.resourceManager.getStatus()
     };
+  }
+
+  _logModelRegistryLoading() {
+    if (this.modelRegistryLoadingLogged) return;
+    this.modelRegistryLoadingLogged = true;
+    this.logger?.info?.('[Vision Models] Loading AI Vision model registry', {
+      models: Object.keys(this.configuration.models || {}).length,
+      runtime: this.configuration.runtime.provider,
+      providers: this.configuration.runtime.executionProviders,
+      lowMemoryMode: this.configuration.resources.lowMemoryMode
+    });
+  }
+
+  _logModelRegistryReady() {
+    if (this.modelRegistryReadyLogged) return;
+    this.modelRegistryReadyLogged = true;
+    const models = this.registry.list();
+    this.logger?.info?.('[Vision Models] AI Vision model registry ready', {
+      models: models.length,
+      faceDetection: models.some(model => model.capabilities.includes('face-detection')),
+      faceRecognition: models.some(model => model.capabilities.includes('face-embedding')),
+      ocr: models.some(model => model.capabilities.includes('ocr')),
+      photoUnderstanding: models.some(model => model.capabilities.includes('image-embedding'))
+    });
   }
 }
 

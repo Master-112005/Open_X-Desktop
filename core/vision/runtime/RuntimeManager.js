@@ -7,6 +7,8 @@ class RuntimeManager {
     this.logger = logger;
     this.adapters = new Map();
     this.sessions = new Map();
+    this.loggedAdapters = new Set();
+    this.loggedSessions = new Set();
     this.initialized = false;
   }
 
@@ -18,7 +20,15 @@ class RuntimeManager {
 
   registerAdapter(runtimeId, adapter) {
     if (!runtimeId || !adapter) throw new Error('Runtime adapter id and adapter are required');
-    this.adapters.set(String(runtimeId), adapter);
+    const id = String(runtimeId);
+    this.adapters.set(id, adapter);
+    if (!this.loggedAdapters.has(id)) {
+      this.loggedAdapters.add(id);
+      this.logger?.info?.('[Vision Models] Vision runtime adapter registered', {
+        runtime: id,
+        adapter: adapter?.constructor?.name || 'custom-adapter'
+      });
+    }
     return this;
   }
 
@@ -34,6 +44,14 @@ class RuntimeManager {
     }
     const session = await adapter.createSession(model, this.configuration.runtime);
     this.sessions.set(key, session);
+    if (!this.loggedSessions.has(key)) {
+      this.loggedSessions.add(key);
+      this.logger?.debug?.('[Vision Models] Runtime session ready', {
+        modelId: model.id,
+        model: model.name || model.id,
+        runtime: model.runtime
+      });
+    }
     this.diagnostics?.record?.('runtime-session-created', { modelId: model.id, runtime: model.runtime });
     return session;
   }

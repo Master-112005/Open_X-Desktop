@@ -1172,6 +1172,49 @@ describe('Voice Subsystem Architecture', function() {
     assert.throws(() => new ModelManager({ configuration }).validateModel(), ModelNotFoundError);
   });
 
+  it('should log STT model loading once without exposing raw model paths in info logs', function() {
+    const {
+      STTEngine
+    } = require('../../apps/desktop/voice');
+    const ParakeetEngine = require('../../apps/desktop/voice/stt/ParakeetEngine');
+    const SherpaRuntime = require('../../apps/desktop/voice/stt/SherpaRuntime');
+    const ModelManager = require('../../apps/desktop/voice/stt/ModelManager');
+    const configuration = { modelPath: 'mock/parakeet', modelName: 'nvidia-parakeet-tdt-v3' };
+    const infoLogs = [];
+    const debugLogs = [];
+    const logger = {
+      info: (message, data) => infoLogs.push({ message, data }),
+      debug: (message, data) => debugLogs.push({ message, data })
+    };
+    const runtime = new SherpaRuntime({
+      logger,
+      adapter: {
+        initialize: () => {},
+        createRecognizer: () => ({}),
+        release: () => {}
+      }
+    });
+    const modelManager = new ModelManager({
+      configuration,
+      models: [{ name: 'nvidia-parakeet-tdt-v3', engine: 'parakeet', path: 'mock/parakeet', mockAvailable: true }]
+    });
+    const engine = new STTEngine({
+      configuration,
+      logger,
+      engine: new ParakeetEngine({ configuration, runtime, modelManager, logger })
+    });
+
+    engine.initialize();
+    engine.reset();
+    engine.initialize();
+
+    assert.equal(infoLogs.filter(entry => entry.message === '[STT] Loading model').length, 1);
+    assert.equal(infoLogs.filter(entry => entry.message === '[STT] Model ready').length, 1);
+    assert.equal(infoLogs.filter(entry => entry.message === '[STT] Ready').length, 1);
+    assert.equal(infoLogs.some(entry => Object.prototype.hasOwnProperty.call(entry.data || {}, 'modelPath')), false);
+    assert.equal(debugLogs.some(entry => Object.prototype.hasOwnProperty.call(entry.data || {}, 'modelPath')), false);
+  });
+
   it('should assemble streaming transcript partials and finals without NLP changes', function() {
     const TranscriptAssembler = require('../../apps/desktop/voice/stt/TranscriptAssembler');
     const { TranscriptResult, TranscriptSegment } = require('../../apps/desktop/voice');

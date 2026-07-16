@@ -40,8 +40,11 @@ class WindowsFaceRuntimeAdapter {
     }
     if (!this.loggedSessions.has(model.id)) {
       this.loggedSessions.add(model.id);
-      this._info('Windows face analysis runtime is ready.', {
-        model: model.id,
+      this._info('Windows face analysis model ready.', {
+        modelId: model.id,
+        model: this._modelLabel(model.id),
+        role: this._modelRole(model.id),
+        runtime: 'windows-face-analysis',
         timeoutMs: this.timeoutMs
       });
     }
@@ -81,7 +84,8 @@ class WindowsFaceRuntimeAdapter {
       const faceCount = Array.isArray(result.faces) ? result.faces.length : 0;
       const embeddingCount = Array.isArray(result.embeddings) ? result.embeddings.length : 0;
       if (faceCount > 0 || embeddingCount > 0) {
-        this._info(`Windows face analysis found ${faceCount} face${faceCount === 1 ? '' : 's'} in ${path.basename(normalizedPath)}.`, {
+        this._debug('Windows face analysis completed for image.', {
+          image: path.basename(normalizedPath),
           faces: faceCount,
           embeddings: embeddingCount
         });
@@ -194,6 +198,18 @@ class WindowsFaceRuntimeAdapter {
 
   _debug(message, data = {}) {
     this.logger?.debug?.(`[Windows Face] ${message}`, data);
+  }
+
+  _modelLabel(modelId = '') {
+    if (modelId === MODEL_IDS.SCRFD) return 'SCRFD face detector';
+    if (modelId === MODEL_IDS.MOBILE_FACE_NET) return 'MobileFaceNet face recognition embeddings';
+    return String(modelId || 'Unknown vision model');
+  }
+
+  _modelRole(modelId = '') {
+    if (modelId === MODEL_IDS.SCRFD) return 'face detection';
+    if (modelId === MODEL_IDS.MOBILE_FACE_NET) return 'face recognition embeddings';
+    return 'vision inference';
   }
 }
 

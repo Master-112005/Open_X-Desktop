@@ -98,7 +98,8 @@ class SherpaRuntime {
       this._log('Recognizer Created', {
         runtime: 'sherpa-onnx',
         mode: this.adapter ? 'adapter' : 'native-offline',
-        modelPath: this.model?.path || this.configuration?.modelPath || ''
+        model: this.model?.name || this.configuration?.modelName || 'unknown',
+        provider: this.configuration?.gpuEnabled ? 'cuda' : 'cpu'
       });
       return this.recognizer;
     } catch (error) {
@@ -413,8 +414,8 @@ class SherpaRuntime {
    * @private
    */
   _log(message, metadata = {}) {
-    if (this.logger && typeof this.logger.info === 'function') {
-      this.logger.info(`[STT] ${message}`, metadata);
+    if (this.logger && typeof this.logger.debug === 'function') {
+      this.logger.debug(`[STT] ${message}`, metadata);
     }
   }
 

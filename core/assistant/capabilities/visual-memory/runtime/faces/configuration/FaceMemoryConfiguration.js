@@ -7,7 +7,12 @@ class FaceMemoryConfiguration {
       grouping: Number(options.thresholds?.grouping ?? 0.94),
       matching: Number(options.thresholds?.matching ?? 0.92),
       confidence: Number(options.thresholds?.confidence ?? 0.7),
-      suggestion: Number(options.thresholds?.suggestion ?? 0.78)
+      suggestion: Number(options.thresholds?.suggestion ?? 0.78),
+      autoAssignExact: Number(options.thresholds?.autoAssignExact ?? 0.995),
+      autoAssignMargin: Number(options.thresholds?.autoAssignMargin ?? 0.018),
+      matchingMargin: Number(options.thresholds?.matchingMargin ?? 0.035),
+      duplicate: Number(options.thresholds?.duplicate ?? 0.998),
+      duplicateBoxIoU: Number(options.thresholds?.duplicateBoxIoU ?? 0.94)
     };
     this.enrollment = {
       minUnknownPhotos: Math.max(2, Number(options.enrollment?.minUnknownPhotos || 5)),

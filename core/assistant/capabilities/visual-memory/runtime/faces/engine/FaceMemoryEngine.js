@@ -74,6 +74,47 @@ class FaceMemoryEngine {
 
   ingestUnknownFace(input) {
     if (!this.configuration.enabled) return { skipped: true, reason: 'face-memory-disabled' };
+    const match = this.matching.match(input?.vector || []);
+    const best = match?.best || null;
+    const autoAssignMargin = Number(this.configuration.thresholds.autoAssignMargin ?? 0.018);
+    const highConfidence = best?.confidence >= this.configuration.thresholds.autoAssignExact;
+    const enoughSeparation = !best?.ambiguous && (best?.margin ?? 1) >= autoAssignMargin;
+    if (best?.identityId && highConfidence && enoughSeparation) {
+      const assigned = this.identities.addEmbeddingToIdentity(match.best.identityId, input, {
+        action: 'auto-exact-match',
+        by: 'face-memory',
+        duplicateThreshold: this.configuration.thresholds.duplicate,
+        duplicateBoxIoU: this.configuration.thresholds.duplicateBoxIoU,
+        source: input?.source || 'ai-vision'
+      });
+      this.diagnostics?.record?.('known-face-auto-assigned', {
+        identityId: match.best.identityId,
+        name: match.best.name,
+        confidence: match.best.confidence,
+        margin: match.best.margin,
+        duplicate: assigned.duplicate === true,
+        photoId: input?.photoId || null
+      });
+      return {
+        assigned: true,
+        autoAssigned: true,
+        duplicate: assigned.duplicate === true,
+        match: match.best,
+        identity: assigned.identity,
+        profile: assigned.profile,
+        embedding: assigned.embedding
+      };
+    }
+    if (best?.identityId && highConfidence && !enoughSeparation) {
+      this.diagnostics?.record?.('known-face-auto-assign-deferred', {
+        identityId: best.identityId,
+        name: best.name,
+        confidence: best.confidence,
+        margin: best.margin,
+        secondBestIdentityId: best.secondBestIdentityId || null,
+        reason: 'ambiguous-face-match'
+      });
+    }
     return this.enrollment.ingestUnknownFace(input);
   }
 
@@ -85,6 +126,16 @@ class FaceMemoryEngine {
   enrollCluster(input) {
     if (!this.configuration.enabled) throw new Error('Face Memory is disabled.');
     return this.enrollment.enrollCluster(input);
+  }
+
+  addClusterToIdentity(input) {
+    if (!this.configuration.enabled) throw new Error('Face Memory is disabled.');
+    return this.enrollment.addClusterToIdentity(input);
+  }
+
+  deleteCluster(clusterId) {
+    if (!this.configuration.enabled) throw new Error('Face Memory is disabled.');
+    return this.enrollment.deleteCluster(clusterId);
   }
 
   matchFace(vector) {

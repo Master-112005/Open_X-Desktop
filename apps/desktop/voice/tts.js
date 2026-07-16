@@ -30,7 +30,10 @@ class TextToSpeech extends EventEmitter {
   }
 
   async initialize() {
-    this.logger.info('Initializing text-to-speech');
+    this.logger.info('[Voice Models] Loading text-to-speech engine', {
+      role: 'text-to-speech',
+      engine: 'windows-sapi'
+    });
     try {
       const result = execSync(
         'powershell -Command "Add-Type -AssemblyName System.Speech; $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; $synth.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name }"',
@@ -49,11 +52,24 @@ class TextToSpeech extends EventEmitter {
         this.voiceName = preferred.trim();
       }
 
-      this.logger.info(`TTS initialized with voice: ${this.voiceName}`);
-      return true;
+      const summary = {
+        role: 'text-to-speech',
+        engine: 'windows-sapi',
+        voice: this.voiceName,
+        voiceCount: this.availableVoices.length,
+        rate: this.rate,
+        volume: this.volume
+      };
+      this.logger.info('[Voice Models] Text-to-speech engine ready', summary);
+      return summary;
     } catch (err) {
       this.logger.warn('Could not initialize SAPI TTS', err);
-      return false;
+      return {
+        role: 'text-to-speech',
+        engine: 'windows-sapi',
+        ready: false,
+        error: err.message
+      };
     }
   }
 

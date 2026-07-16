@@ -71,6 +71,7 @@ const securityUnlockConfirm = document.getElementById('security-unlock-confirm')
 const chatViewBtn = document.getElementById('chat-view-btn');
 const activityViewBtn = document.getElementById('activity-view-btn');
 const activityCalendarBtn = document.getElementById('activity-calendar-btn');
+const galleryBtn = document.getElementById('gallery-btn');
 const conversationView = document.getElementById('conversation-view');
 const activityView = document.getElementById('activity-view');
 const activityBadge = document.getElementById('activity-badge');
@@ -282,7 +283,7 @@ function normalizeResultEntries(result) {
   const intent = String(result?.intent || '');
   const visualResults = Array.isArray(result?.data?.visualResults) ? result.data.visualResults : [];
   if (visualResults.length > 0) {
-    return visualResults.slice(0, 8).map((entry, index) => ({
+    return visualResults.slice(0, 12).map((entry, index) => ({
       index: index + 1,
       name: String(entry?.title || entry?.fileName || `Photo ${index + 1}`),
       type: 'photo',
@@ -1283,7 +1284,7 @@ function setProfileEditorOpen(open) {
     profileEditBtn.setAttribute('aria-expanded', String(profileEditorOpen));
     profileEditBtn.setAttribute('aria-label', profileEditorOpen ? 'Close user profile editor' : 'Edit user profile');
     const label = profileEditBtn.querySelector('span');
-    if (label) label.innerHTML = profileEditorOpen ? 'x' : '&#9998;';
+    if (label) label.textContent = profileEditorOpen ? 'x' : '\u270E';
   }
   if (profileEditorOpen) {
     window.setTimeout(() => document.getElementById(fieldIds.profileFullName)?.focus?.(), 80);
@@ -2515,6 +2516,18 @@ activityCalendarBtn.addEventListener('click', async () => {
     window.setTimeout(() => {
       activityCalendarBtn.classList.remove('opening');
       activityCalendarBtn.removeAttribute('aria-busy');
+    }, 180);
+  }
+});
+galleryBtn?.addEventListener('click', async () => {
+  galleryBtn.classList.add('opening');
+  galleryBtn.setAttribute('aria-busy', 'true');
+  try {
+    await window.openx?.openGallery?.('timeline');
+  } finally {
+    window.setTimeout(() => {
+      galleryBtn.classList.remove('opening');
+      galleryBtn.removeAttribute('aria-busy');
     }, 180);
   }
 });

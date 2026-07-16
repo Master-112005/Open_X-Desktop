@@ -176,6 +176,10 @@ let voiceResourceWarmupTimer = null;
 let voiceResumeRecoveryTimer = null;
 let liveScheduleCollapseTimer = null;
 let activeLiveSchedulePayload = null;
+let voiceModelSummaryLogged = false;
+let voiceModelLoadingLogged = false;
+let voiceTtsSummary = null;
+let voiceSttSummary = null;
 let voiceStartInFlight = false;
 let voiceLastStartAt = 0;
 let voiceSpeakingStopTapAt = 0;
@@ -267,6 +271,8 @@ const IPC_CHANNELS = [
   'gallery:showPhoto',
   'gallery:toggleFavorite',
   'gallery:nameFace',
+  'gallery:addFaceToPerson',
+  'gallery:removeFaceCluster',
   'gallery:scanPeople',
   'app:quit'
 ];
@@ -977,19 +983,63 @@ function resolveDesktopSttModelPath() {
   ]);
   const modelPath = candidateRoots.find(hasCompleteParakeetModel);
   if (modelPath) {
-    mainLogger.info('Voice STT model path resolved', {
-      modelPath,
+    mainLogger.info('[Voice Models] STT model location validated', {
+      model: 'nvidia-parakeet-tdt-v3',
+      engine: 'parakeet',
+      runtime: 'sherpa-onnx',
+      files: REQUIRED_PARAKEET_MODEL_FILES.length,
       sourceCount: candidateRoots.length
     });
     return modelPath;
   }
 
   const fallbackPath = path.resolve(__dirname, '..', '..', '..', 'models', 'parakeet');
-  mainLogger.warn('Voice STT model path could not be validated; using fallback path', {
-    fallbackPath,
-    checked: candidateRoots
+  mainLogger.warn('[Voice Models] STT model location could not be validated; using fallback candidate', {
+    model: 'nvidia-parakeet-tdt-v3',
+    engine: 'parakeet',
+    runtime: 'sherpa-onnx',
+    checked: candidateRoots.length
   });
   return fallbackPath;
+}
+
+function modelPathStatus(modelPath) {
+  return hasCompleteParakeetModel(modelPath) ? 'validated' : 'fallback';
+}
+
+function buildVoiceSttSummary(modelPath) {
+  return {
+    role: 'speech-to-text',
+    engine: 'parakeet',
+    model: 'nvidia-parakeet-tdt-v3',
+    runtime: 'sherpa-onnx',
+    provider: runtimeConfig?.voice?.stt?.gpuEnabled === true ? 'cuda' : 'cpu',
+    language: runtimeConfig?.voice?.stt?.language || runtimeConfig?.voice?.recognition?.language || 'en-US',
+    modelStatus: modelPathStatus(modelPath),
+    files: REQUIRED_PARAKEET_MODEL_FILES.length,
+    preload: shouldPrewarmVoiceResources() ? 'idle-warmup' : 'first-use'
+  };
+}
+
+function logVoiceModelLoadingOnce(reason = 'startup') {
+  if (voiceModelLoadingLogged) return;
+  voiceModelLoadingLogged = true;
+  mainLogger.info('[Voice Models] Loading assistant voice models', {
+    reason,
+    stt: voiceSttSummary || 'pending',
+    tts: voiceTtsSummary || 'pending'
+  });
+}
+
+function logVoiceModelSummaryOnce(reason = 'startup') {
+  if (voiceModelSummaryLogged) return;
+  if (!voiceSttSummary || !voiceTtsSummary) return;
+  voiceModelSummaryLogged = true;
+  mainLogger.info('[Voice Models] Assistant model summary', {
+    reason,
+    stt: voiceSttSummary,
+    tts: voiceTtsSummary
+  });
 }
 
 function createDesktopVoiceResources() {
@@ -1025,9 +1075,12 @@ function createDesktopVoiceResources() {
     backend: captureBackend,
     logger: mainLogger
   });
+  const sttModelPath = resolveDesktopSttModelPath();
+  voiceSttSummary = buildVoiceSttSummary(sttModelPath);
+  logVoiceModelLoadingOnce('desktop-voice-resources');
   const sttEngine = new STTEngine({
     configuration: new STTConfiguration({
-      modelPath: resolveDesktopSttModelPath()
+      modelPath: sttModelPath
     }),
     logger: mainLogger
   });
@@ -1726,6 +1779,28 @@ async function nameGalleryFace(clusterId, name, relationship = '') {
     name: result?.identity?.name || name
   });
   return { success: true, data: result };
+}
+
+async function addGalleryFaceToPerson(clusterId, identityId) {
+  const engine = await ensureVisualMemoryRuntime();
+  mainLogger.info('[Gallery] Adding an unnamed detected face to an existing person.', { clusterId, identityId });
+  const result = await engine.api.addFaceClusterToIdentity({ clusterId, identityId });
+  mainLogger.info('[Gallery] Detected face added to existing person.', {
+    clusterId,
+    identityId,
+    name: result?.identity?.name || result?.profile?.name || ''
+  });
+  return { success: true, data: result };
+}
+
+async function removeGalleryFaceCluster(clusterId) {
+  const engine = await ensureVisualMemoryRuntime();
+  mainLogger.info('[Gallery] Removing an unwanted unnamed face from People.', { clusterId });
+  const removed = await engine.api.deleteFaceCluster(clusterId);
+  mainLogger.info(removed
+    ? '[Gallery] Unwanted face removed from People.'
+    : '[Gallery] Unwanted face was already removed.', { clusterId });
+  return { success: Boolean(removed), data: { clusterId, removed: Boolean(removed) } };
 }
 
 async function scanGalleryPeople(options = {}) {
@@ -2659,6 +2734,72 @@ function registerIpcHandler(channel, handler) {
   });
 }
 
+function toIpcSafeValue(value, seen = new WeakMap()) {
+  if (value === null) return null;
+  const type = typeof value;
+  if (type === 'string' || type === 'number' || type === 'boolean') return value;
+  if (type === 'bigint') return value.toString();
+  if (type === 'undefined' || type === 'function' || type === 'symbol') return undefined;
+  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Error) {
+    return {
+      name: value.name || 'Error',
+      message: value.message || '',
+      code: value.code || ''
+    };
+  }
+  if (Buffer.isBuffer?.(value)) return value.toString('base64');
+  if (ArrayBuffer.isView(value)) return Array.from(value);
+  if (value instanceof ArrayBuffer) return Array.from(new Uint8Array(value));
+  if (seen.has(value)) return seen.get(value);
+
+  if (Array.isArray(value)) {
+    const output = [];
+    seen.set(value, output);
+    value.forEach(item => {
+      const safeItem = toIpcSafeValue(item, seen);
+      output.push(safeItem === undefined ? null : safeItem);
+    });
+    return output;
+  }
+
+  if (value instanceof Map) {
+    const output = {};
+    seen.set(value, output);
+    for (const [key, item] of value.entries()) {
+      const safeKey = String(key);
+      const safeItem = toIpcSafeValue(item, seen);
+      if (safeItem !== undefined) output[safeKey] = safeItem;
+    }
+    return output;
+  }
+
+  if (value instanceof Set) {
+    const output = [];
+    seen.set(value, output);
+    for (const item of value.values()) {
+      const safeItem = toIpcSafeValue(item, seen);
+      output.push(safeItem === undefined ? null : safeItem);
+    }
+    return output;
+  }
+
+  const output = {};
+  seen.set(value, output);
+  for (const [key, item] of Object.entries(value)) {
+    const safeItem = toIpcSafeValue(item, seen);
+    if (safeItem !== undefined) output[key] = safeItem;
+  }
+  return output;
+}
+
+function buildPublicRuntimeConfig() {
+  const publicConfig = { ...(runtimeConfig || {}) };
+  delete publicConfig.desktopActions;
+  delete publicConfig.visualMemoryApi;
+  return toIpcSafeValue(publicConfig);
+}
+
 function sanitizeVoiceCaptureReport(payload = {}) {
   if (!isPlainObject(payload)) return { event: 'unknown', data: {} };
   const event = String(payload.event || 'unknown').replace(/[^a-z0-9:_-]/gi, '').slice(0, 80) || 'unknown';
@@ -2784,7 +2925,7 @@ function setupIPC() {
   });
 
   registerIpcHandler('config:get', async () => {
-    return runtimeConfig;
+    return buildPublicRuntimeConfig();
   });
 
   registerIpcHandler('settings:get', async () => {
@@ -3048,6 +3189,14 @@ function setupIPC() {
 
   registerIpcHandler('gallery:nameFace', async (_event, { clusterId, name, relationship }) => {
     return nameGalleryFace(clusterId, name, relationship);
+  });
+
+  registerIpcHandler('gallery:addFaceToPerson', async (_event, { clusterId, identityId }) => {
+    return addGalleryFaceToPerson(clusterId, identityId);
+  });
+
+  registerIpcHandler('gallery:removeFaceCluster', async (_event, { clusterId }) => {
+    return removeGalleryFaceCluster(clusterId);
   });
 
   registerIpcHandler('gallery:scanPeople', async (_event, payload) => {
@@ -3529,11 +3678,30 @@ async function initializeAssistant() {
 
   textToSpeech = new TextToSpeech(runtimeConfig);
   textToSpeech.initialize()
+    .then(result => {
+      voiceTtsSummary = result && typeof result === 'object'
+        ? result
+        : {
+          role: 'text-to-speech',
+          engine: 'windows-sapi',
+          voice: textToSpeech?.voiceName || 'unknown',
+          voiceCount: textToSpeech?.availableVoices?.length || 0
+        };
+      logVoiceModelSummaryOnce('tts-ready');
+    })
     .catch(err => {
+      voiceTtsSummary = {
+        role: 'text-to-speech',
+        engine: 'windows-sapi',
+        ready: false,
+        error: err.message
+      };
       mainLogger.warn('TTS initialization failed (non-fatal)', { error: err.message });
+      logVoiceModelSummaryOnce('tts-failed');
     });
 
   const voiceResources = createDesktopVoiceResources();
+  logVoiceModelSummaryOnce('assistant-startup');
   voiceSessionManager = new VoiceSessionManager({
     logger: mainLogger,
     resources: voiceResources
