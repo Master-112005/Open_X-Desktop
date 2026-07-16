@@ -49,6 +49,8 @@ describe('Gallery Renderer UI', function() {
     assert.match(html, /id="person-assign-list"/);
     assert.match(script, /No photos opened in the last 3 days\./);
     assert.match(script, /AI Vision runtime is not available for face scanning\./);
+    assert.match(css, /\.photo-scroll::-webkit-scrollbar\s*\{[\s\S]*display:\s*block/);
+    assert.match(css, /\.photo-scroll::-webkit-scrollbar-thumb\s*\{/);
     assert.match(script, /strip\.className = 'named-people-strip'/);
     assert.match(script, /list\.className = 'people-grid unnamed-grid'/);
     assert.match(script, /People To Name/);

@@ -16,7 +16,6 @@ const settingsFooterSection = document.getElementById('settings-footer-section')
 const systemOptionsEl = document.getElementById('system-options');
 const systemOptionButtons = document.querySelectorAll('.system-option');
 const systemBlocks = document.querySelectorAll('[data-system-block]');
-const quickBtns = document.querySelectorAll('.chip-btn');
 const themeGrid = document.getElementById('theme-grid');
 const settingsStatusEl = document.getElementById('settings-status');
 const modeGridEl = document.getElementById('mode-grid');
@@ -88,8 +87,8 @@ const SCHEDULE_STORAGE_KEY = 'openx-ui-schedules-v1';
 const NOTIFICATION_STORAGE_KEY = 'openx-ui-notifications-v1';
 const CHAT_HISTORY_STORAGE_KEY = 'openx-ui-chat-history-v2';
 const MAX_NOTIFICATION_HISTORY = 30;
-const CHAT_HISTORY_LIMIT = 250;
-const MAX_RENDERED_MESSAGES = 160;
+const CHAT_HISTORY_LIMIT = 100;
+const MAX_RENDERED_MESSAGES = CHAT_HISTORY_LIMIT;
 const ASSISTANT_MUTED_STORAGE_KEY = 'openx-assistant-voice-muted-v1';
 
 let isProcessing = false;
@@ -2651,15 +2650,6 @@ document.getElementById('clear-notifications-btn').addEventListener('click', () 
   saveStoredList(NOTIFICATION_STORAGE_KEY, notificationHistory);
   renderNotifications();
 });
-quickBtns.forEach(button => {
-  button.addEventListener('click', () => {
-    const command = button.dataset.cmd;
-    if (command) {
-      sendCommand(command);
-    }
-  });
-});
-
 closeBtn.addEventListener('click', () => window.close());
 aboutButtons.forEach(button => {
   button.addEventListener('click', () => {

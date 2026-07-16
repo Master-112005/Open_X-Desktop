@@ -26,12 +26,6 @@
           Activity <span id="activity-badge" hidden>0</span>
         </button>
         <button class="header-btn view-tab" id="apps-view-btn" type="button" aria-pressed="false">Apps</button>
-        <button class="window-btn voice-start-btn" id="voice-start-btn" type="button" title="Start voice" aria-label="Start voice">
-          <span class="voice-start-icon" aria-hidden="true">&#127908;</span>
-        </button>
-        <button class="window-btn voice-btn" id="assistant-mute-btn" type="button" title="Mute assistant voice" aria-label="Mute assistant voice" aria-pressed="false">
-          <span class="voice-icon" aria-hidden="true">&#128266;</span>
-        </button>
         <button class="window-btn close" id="close-btn" title="Close" aria-label="Close">&#10005;</button>
       </div>
     </div>
@@ -78,17 +72,17 @@
         <div id="input-area">
           <div id="input-row">
             <div class="composer-field">
-              <span class="composer-spark" aria-hidden="true">&#10022;</span>
+              <button class="composer-voice-btn voice-start-btn" id="voice-start-btn" type="button" title="Start voice" aria-label="Start voice">
+                <span class="voice-start-ring outer" aria-hidden="true"></span>
+                <span class="voice-start-ring inner" aria-hidden="true"></span>
+                <span class="voice-start-symbol" aria-hidden="true">&#10022;</span>
+              </button>
               <input type="text" id="input-box" placeholder="Ask or control your PC..." autocomplete="off" aria-label="Command">
+              <button id="send-btn" title="Send command" aria-label="Send command"><span>Send</span><b aria-hidden="true">&#8593;</b></button>
             </div>
-            <button id="send-btn" title="Send command" aria-label="Send command"><span>Send</span><b aria-hidden="true">&#8593;</b></button>
-          </div>
-          <div id="quick-actions" aria-label="Suggested commands">
-            <button class="chip-btn" data-cmd="Open Downloads">Downloads</button>
-            <button class="chip-btn" data-cmd="Increase Volume">Volume up</button>
-            <button class="chip-btn" data-cmd="Open Chrome">Chrome</button>
-            <button class="chip-btn" data-cmd="System Status">System status</button>
-            <button class="chip-btn" data-cmd="Help">What can you do?</button>
+            <button class="composer-mute-btn voice-btn" id="assistant-mute-btn" type="button" title="Mute assistant voice" aria-label="Mute assistant voice" aria-pressed="false">
+              <span class="voice-icon" aria-hidden="true">&#128266;</span>
+            </button>
           </div>
           <div id="composer-hint"><span>Enter to send</span></div>
         </div>
