@@ -14,7 +14,13 @@ class FaceMemoryConfiguration {
       autoAssignMargin: Number(options.thresholds?.autoAssignMargin ?? 0.018),
       matchingMargin: Number(options.thresholds?.matchingMargin ?? 0.035),
       duplicate: Number(options.thresholds?.duplicate ?? 0.998),
+      duplicateCrossPhoto: Number(options.thresholds?.duplicateCrossPhoto ?? 0.9995),
       duplicateBoxIoU: Number(options.thresholds?.duplicateBoxIoU ?? 0.94)
+    };
+    this.quality = {
+      minScanQuality: Math.max(0, Math.min(1, Number(options.quality?.minScanQuality ?? 0.56))),
+      minAutoAssignQuality: Math.max(0, Math.min(1, Number(options.quality?.minAutoAssignQuality ?? 0.62))),
+      lowQualityThresholdPenalty: Math.max(0, Math.min(0.08, Number(options.quality?.lowQualityThresholdPenalty ?? 0.025)))
     };
     this.enrollment = {
       minUnknownPhotos: Math.max(2, Number(options.enrollment?.minUnknownPhotos || 5)),
@@ -40,6 +46,7 @@ class FaceMemoryConfiguration {
     return {
       enabled: this.enabled,
       thresholds: { ...this.thresholds },
+      quality: { ...this.quality },
       enrollment: { ...this.enrollment },
       privacy: { ...this.privacy },
       performance: { ...this.performance }

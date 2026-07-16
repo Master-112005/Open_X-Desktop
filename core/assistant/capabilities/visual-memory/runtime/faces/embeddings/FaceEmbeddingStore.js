@@ -1,6 +1,6 @@
 'use strict';
 
-const { id, normalizeVector, nowIso } = require('../utils/face-utils');
+const { faceQualityScore, id, normalizeVector, nowIso } = require('../utils/face-utils');
 
 class FaceEmbeddingStore {
   constructor({ state, validator } = {}) {
@@ -8,7 +8,7 @@ class FaceEmbeddingStore {
     this.validator = validator;
   }
 
-  addEmbedding({ vector, identityId = null, clusterId = null, photoId = null, faceId = null, faceBox = null, imageWidth = null, imageHeight = null, source = 'ai-vision', confidence = 0 } = {}) {
+  addEmbedding({ vector, identityId = null, clusterId = null, photoId = null, faceId = null, faceBox = null, imageWidth = null, imageHeight = null, source = 'ai-vision', confidence = 0, quality = null } = {}) {
     const validation = this.validator.validateEmbedding(vector);
     if (!validation.valid) throw new Error(validation.reason);
     const embeddingId = id('faceemb');
@@ -24,6 +24,9 @@ class FaceEmbeddingStore {
       vector: normalizeVector(vector),
       source,
       confidence: Math.max(0, Math.min(1, Number(confidence || 0))),
+      quality: Math.max(0, Math.min(1, Number.isFinite(Number(quality))
+        ? Number(quality)
+        : faceQualityScore({ confidence, faceBox, imageWidth, imageHeight, vector }))),
       createdAt: nowIso()
     };
     this.state.embeddings[embeddingId] = record;

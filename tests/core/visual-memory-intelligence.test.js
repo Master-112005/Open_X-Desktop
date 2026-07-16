@@ -134,12 +134,14 @@ describe('Visual Memory Intelligence', () => {
     await engine.database.replaceTable('photos', {
       both: { id: 'both', fileName: 'family.jpg', filePath: 'C:/Pictures/family.jpg', fileType: 'jpg', createdAt: ago(1) },
       dadOnly: { id: 'dadOnly', fileName: 'dad.jpg', filePath: 'C:/Pictures/dad.jpg', fileType: 'jpg', createdAt: ago(2) },
-      meOnly: { id: 'meOnly', fileName: 'me.jpg', filePath: 'C:/Pictures/me.jpg', fileType: 'jpg', createdAt: ago(3) }
+      meOnly: { id: 'meOnly', fileName: 'me.jpg', filePath: 'C:/Pictures/me.jpg', fileType: 'jpg', createdAt: ago(3) },
+      popularTrip: { id: 'popularTrip', fileName: 'best-family-trip.jpg', filePath: 'C:/Pictures/family/best-family-trip.jpg', fileType: 'jpg', createdAt: ago(0) }
     });
     await engine.database.replaceTable('metadata', {
       both: { id: 'both', photoId: 'both', filePath: 'C:/Pictures/family.jpg', fileType: 'jpg', createdAt: ago(1) },
       dadOnly: { id: 'dadOnly', photoId: 'dadOnly', filePath: 'C:/Pictures/dad.jpg', fileType: 'jpg', createdAt: ago(2) },
-      meOnly: { id: 'meOnly', photoId: 'meOnly', filePath: 'C:/Pictures/me.jpg', fileType: 'jpg', createdAt: ago(3) }
+      meOnly: { id: 'meOnly', photoId: 'meOnly', filePath: 'C:/Pictures/me.jpg', fileType: 'jpg', createdAt: ago(3) },
+      popularTrip: { id: 'popularTrip', photoId: 'popularTrip', filePath: 'C:/Pictures/family/best-family-trip.jpg', fileType: 'jpg', createdAt: ago(0), rankingScore: 100, semanticTags: ['family', 'trip'] }
     });
     await engine.api.enableFaceMemory({ acceptedBy: 'test-user' });
     await engine.api.ingestUnknownFace({ vector: [1, 0], photoId: 'both', faceId: 'me-1', confidence: 0.96 });
@@ -163,6 +165,7 @@ describe('Visual Memory Intelligence', () => {
     assert(result.results.length >= 3);
     assert(result.results[0].candidate.faceMemory.peopleNames.includes('me'));
     assert(result.results[0].candidate.faceMemory.relationships.includes('father'));
+    assert(result.results[0].evidence.relationshipScore > result.results.find(item => item.photoId === 'popularTrip').evidence.relationshipScore);
 
     await engine.api.shutdown();
   });

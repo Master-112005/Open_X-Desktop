@@ -16,6 +16,7 @@ const FaceEnrollmentManager = require('../enrollment/FaceEnrollmentManager');
 const FaceRelationshipManager = require('../relationships/FaceRelationshipManager');
 const FaceTimelineManager = require('../timelines/FaceTimelineManager');
 const FaceCollectionManager = require('../collections/FaceCollectionManager');
+const { faceQualityScore } = require('../utils/face-utils');
 
 function createState() {
   return {
@@ -74,22 +75,34 @@ class FaceMemoryEngine {
 
   ingestUnknownFace(input) {
     if (!this.configuration.enabled) return { skipped: true, reason: 'face-memory-disabled' };
-    const match = this.matching.match(input?.vector || []);
+    const quality = Number.isFinite(Number(input?.quality))
+      ? Math.max(0, Math.min(1, Number(input.quality)))
+      : faceQualityScore({
+        confidence: input?.confidence,
+        faceBox: input?.faceBox,
+        imageWidth: input?.imageWidth,
+        imageHeight: input?.imageHeight,
+        vector: input?.vector
+      });
+    const enrichedInput = { ...(input || {}), quality };
+    const match = this.matching.match(enrichedInput.vector || [], enrichedInput);
     const best = match?.best || null;
     const autoAssignMargin = Number(this.configuration.thresholds.autoAssignMargin ?? 0.018);
+    const goodEnoughQuality = quality >= Number(this.configuration.quality?.minAutoAssignQuality ?? 0.62);
     const exactMatch = best?.confidence >= this.configuration.thresholds.autoAssignExact;
     const strongNamedMatch = best?.confidence >= this.configuration.thresholds.autoAssignStrong;
     const provenIdentityMatch = best?.confidence >= this.configuration.thresholds.autoAssignKnown
       && (best?.evidenceCount || 0) >= this.configuration.enrollment.autoAssignMinEvidence;
-    const highConfidence = exactMatch || strongNamedMatch || provenIdentityMatch;
+    const highConfidence = goodEnoughQuality && (exactMatch || strongNamedMatch || provenIdentityMatch);
     const enoughSeparation = !best?.ambiguous && (best?.margin ?? 1) >= autoAssignMargin;
     if (best?.identityId && highConfidence && enoughSeparation) {
-      const assigned = this.identities.addEmbeddingToIdentity(match.best.identityId, input, {
+      const assigned = this.identities.addEmbeddingToIdentity(match.best.identityId, enrichedInput, {
         action: exactMatch ? 'auto-exact-match' : 'auto-named-match',
         by: 'face-memory',
         duplicateThreshold: this.configuration.thresholds.duplicate,
+        duplicateCrossPhotoThreshold: this.configuration.thresholds.duplicateCrossPhoto,
         duplicateBoxIoU: this.configuration.thresholds.duplicateBoxIoU,
-        source: input?.source || 'ai-vision'
+        source: enrichedInput.source || 'ai-vision'
       });
       this.diagnostics?.record?.('known-face-auto-assigned', {
         identityId: match.best.identityId,
@@ -99,7 +112,8 @@ class FaceMemoryEngine {
         evidenceCount: match.best.evidenceCount,
         exactMatch,
         duplicate: assigned.duplicate === true,
-        photoId: input?.photoId || null
+        quality,
+        photoId: enrichedInput.photoId || null
       });
       return {
         assigned: true,
@@ -122,7 +136,7 @@ class FaceMemoryEngine {
         reason: 'ambiguous-face-match'
       });
     }
-    return this.enrollment.ingestUnknownFace(input);
+    return this.enrollment.ingestUnknownFace(enrichedInput);
   }
 
   getEnrollmentSuggestions() {

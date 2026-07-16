@@ -210,6 +210,51 @@ describe('Face Memory System', () => {
     assert.strictEqual(first.cluster.duplicateCount, 1);
   });
 
+  it('suppresses copied-photo face duplicates across rescans without losing the person cluster', async () => {
+    const engine = await enabledEngine();
+    const first = engine.ingestUnknownFace({
+      vector: [0, 1],
+      photoId: 'copied-original',
+      faceId: 'copy-face-1',
+      faceBox: { x: 80, y: 70, width: 160, height: 170, imageWidth: 1000, imageHeight: 800 },
+      confidence: 0.96
+    });
+    const copied = engine.ingestUnknownFace({
+      vector: [0, 1],
+      photoId: 'copied-duplicate',
+      faceId: 'copy-face-2',
+      faceBox: { x: 80, y: 70, width: 160, height: 170, imageWidth: 1000, imageHeight: 800 },
+      confidence: 0.97
+    });
+
+    assert.strictEqual(first.duplicate, false);
+    assert.strictEqual(copied.duplicate, true);
+    assert.strictEqual(first.cluster.id, copied.cluster.id);
+    assert.strictEqual(first.cluster.embeddingIds.length, 1);
+    assert.strictEqual(first.cluster.photoIds.length, 1);
+  });
+
+  it('keeps low-quality exact named-face matches in review instead of auto-attaching them', async () => {
+    const engine = await enabledEngine();
+    addTwoUnknownFaces(engine);
+    const [suggestion] = engine.getEnrollmentSuggestions();
+    const enrolled = engine.enrollCluster({ clusterId: suggestion.clusterId, name: 'Rahul' }).identity;
+    const before = engine.listIdentities()[0].embeddingIds.length;
+
+    const result = engine.ingestUnknownFace({
+      vector: [1, 0],
+      photoId: 'tiny-low-quality-face',
+      faceId: 'tiny-face',
+      quality: 0.28,
+      confidence: 0.99
+    });
+
+    assert.strictEqual(result.autoAssigned, undefined);
+    assert.strictEqual(result.cluster.status, 'unknown');
+    assert.strictEqual(result.cluster.photoIds.includes('tiny-low-quality-face'), true);
+    assert.strictEqual(engine.state.identities[enrolled.id].embeddingIds.length, before);
+  });
+
   it('defers auto-recognition when a face is too close to two named people', async () => {
     const engine = await enabledEngine();
     const rahulEmbedding = engine.embeddings.addEmbedding({ vector: [1, 0], photoId: 'rahul-1', confidence: 0.99 });

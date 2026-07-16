@@ -18,11 +18,28 @@ function includesAny(text, values = []) {
   return values.some(value => haystack.includes(normalize(value)));
 }
 
+function normalizeList(values = []) {
+  return values.map(value => normalize(value)).filter(Boolean);
+}
+
+function countExactMatches(values = [], requested = []) {
+  const available = new Set(normalizeList(values));
+  return normalizeList(requested).filter(value => available.has(value)).length;
+}
+
 function candidateEvidence(candidate = {}, vision = {}) {
   const photo = candidate.photo || {};
   const metadata = candidate.metadata || {};
   const folder = candidate.folder || {};
   const faceMemory = candidate.faceMemory || {};
+  const peopleNames = [
+    ...(Array.isArray(metadata.peopleNames) ? metadata.peopleNames : []),
+    ...(Array.isArray(faceMemory.peopleNames) ? faceMemory.peopleNames : [])
+  ].filter(Boolean);
+  const relationships = [
+    ...(Array.isArray(metadata.faceRelationships) ? metadata.faceRelationships : []),
+    ...(Array.isArray(faceMemory.relationships) ? faceMemory.relationships : [])
+  ].filter(Boolean);
   const textParts = [
     candidate.path,
     photo.fileName,
@@ -31,16 +48,14 @@ function candidateEvidence(candidate = {}, vision = {}) {
     metadata.filePath,
     metadata.sourceApp,
     metadata.photoType,
-    ...(Array.isArray(metadata.peopleNames) ? metadata.peopleNames : []),
-    ...(Array.isArray(metadata.faceRelationships) ? metadata.faceRelationships : []),
+    ...peopleNames,
+    ...relationships,
     ...(Array.isArray(metadata.semanticTags) ? metadata.semanticTags : []),
     ...(Array.isArray(metadata.visualConcepts) ? metadata.visualConcepts : []),
     ...(Array.isArray(metadata.tags) ? metadata.tags : []),
     ...(Array.isArray(metadata.labels) ? metadata.labels : []),
     ...(Array.isArray(metadata.objects) ? metadata.objects.map(item => item.label || item.name || item) : []),
     ...(Array.isArray(metadata.scenes) ? metadata.scenes.map(item => item.label || item.name || item) : []),
-    ...(Array.isArray(faceMemory.peopleNames) ? faceMemory.peopleNames : []),
-    ...(Array.isArray(faceMemory.relationships) ? faceMemory.relationships : []),
     folder.label,
     folder.path,
     ...(candidate.albums || []).flatMap(album => [album.title, album.name, album.path])
@@ -57,7 +72,10 @@ function candidateEvidence(candidate = {}, vision = {}) {
     text: textParts.concat(visionParts, conceptParts).filter(Boolean).join(' '),
     vision,
     metadata,
-    photo
+    photo,
+    faceMemory,
+    peopleNames,
+    relationships
   };
 }
 
@@ -68,7 +86,9 @@ function dateMs(candidate = {}) {
 module.exports = {
   candidateEvidence,
   constraintValues,
+  countExactMatches,
   dateMs,
   includesAny,
-  normalize
+  normalize,
+  normalizeList
 };
