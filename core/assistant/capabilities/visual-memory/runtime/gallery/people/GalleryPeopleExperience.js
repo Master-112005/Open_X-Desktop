@@ -1,11 +1,30 @@
 'use strict';
 
+const DEFAULT_MIN_NAMEABLE_PHOTOS = 2;
+const DEFAULT_SUGGESTION_CONFIDENCE = 0.78;
+const MAX_NAMEABLE_UNKNOWN = 96;
+const MAX_REVIEW_PREVIEW = 24;
+
 class GalleryPeopleExperience {
   build(faceMemory = {}) {
     const profiles = Object.values(faceMemory.profiles || {})
       .map(profile => this._profileWithRepresentative(profile, faceMemory))
       .sort((left, right) => (right.photoCount || 0) - (left.photoCount || 0));
-    const unknown = Object.values(faceMemory.unknownClusters || {}).filter(cluster => cluster.status === 'unknown' && !cluster.neverAskAgain);
+    const allUnknown = Object.values(faceMemory.unknownClusters || {})
+      .filter(cluster => cluster.status === 'unknown' && !cluster.neverAskAgain && !cluster.ignoredAt);
+    const minNameablePhotos = this._minNameablePhotos(faceMemory);
+    const suggestionConfidence = this._suggestionConfidence(faceMemory);
+    const { ready, reviewLater } = this._splitUnknownClusters(allUnknown, minNameablePhotos, suggestionConfidence);
+    const nameableUnknown = ready.slice(0, MAX_NAMEABLE_UNKNOWN).map(cluster => this._unknownClusterView(cluster, {
+      nameable: true,
+      status: 'ready-to-name',
+      reason: `Seen in at least ${minNameablePhotos} photos.`
+    }));
+    const reviewPreview = reviewLater.slice(0, MAX_REVIEW_PREVIEW).map(cluster => this._unknownClusterView(cluster, {
+      nameable: false,
+      status: 'needs-more-evidence',
+      reason: `Needs another matching photo before OpenX asks for a name.`
+    }));
     const relationshipGroups = {};
     for (const profile of profiles) {
       const key = profile.relationship || 'people';
@@ -15,21 +34,88 @@ class GalleryPeopleExperience {
     return {
       view: 'people',
       known: profiles,
-      unknown: unknown.map(cluster => ({
-        clusterId: cluster.id,
-        label: 'Unnamed person',
-        nameable: true,
-        photoCount: cluster.photoIds?.length || 0,
-        representativePhotoId: cluster.photoIds?.[0] || null,
-        representativeFaceBox: cluster.representativeFaceBox || cluster.faceBoxes?.[0] || null,
-        photoIds: Array.isArray(cluster.photoIds) ? cluster.photoIds.slice(0, 12) : [],
-        firstSeenAt: cluster.firstSeenAt,
-        latestSeenAt: cluster.latestSeenAt,
-        confidence: cluster.confidence || 0
-      })),
+      unknown: nameableUnknown,
+      reviewLater: reviewPreview,
+      summary: {
+        totalPeople: profiles.length + allUnknown.length,
+        namedPeople: profiles.length,
+        savedPeople: profiles.length,
+        unnamedPeople: allUnknown.length,
+        readyToName: ready.length,
+        displayedReadyToName: nameableUnknown.length,
+        waitingForEvidence: reviewLater.length,
+        reviewLater: reviewLater.length,
+        hiddenReviewPeople: Math.max(0, reviewLater.length - reviewPreview.length),
+        minNameablePhotos,
+        suggestionConfidence
+      },
       relationshipGroups,
       performsRecognition: false
     };
+  }
+
+  _splitUnknownClusters(clusters = [], minNameablePhotos, suggestionConfidence) {
+    const ready = [];
+    const reviewLater = [];
+    for (const cluster of clusters.slice().sort((left, right) => this._sortUnknownClusters(left, right))) {
+      const photoCount = this._unknownPhotoCount(cluster);
+      const confidence = this._unknownConfidence(cluster);
+      if (photoCount >= minNameablePhotos && confidence >= suggestionConfidence) {
+        ready.push(cluster);
+      } else {
+        reviewLater.push(cluster);
+      }
+    }
+    return { ready, reviewLater };
+  }
+
+  _unknownClusterView(cluster = {}, options = {}) {
+    const photoIds = Array.isArray(cluster.photoIds) ? cluster.photoIds.filter(Boolean) : [];
+    return {
+      clusterId: cluster.id,
+      label: 'Unnamed person',
+      nameable: options.nameable === true,
+      status: options.status || 'unknown',
+      reason: options.reason || '',
+      photoCount: photoIds.length,
+      representativePhotoId: photoIds[0] || null,
+      representativeFaceBox: cluster.representativeFaceBox || cluster.faceBoxes?.[0] || null,
+      photoIds: photoIds.slice(0, 12),
+      firstSeenAt: cluster.firstSeenAt,
+      latestSeenAt: cluster.latestSeenAt,
+      confidence: this._unknownConfidence(cluster)
+    };
+  }
+
+  _sortUnknownClusters(left = {}, right = {}) {
+    return this._unknownPhotoCount(right) - this._unknownPhotoCount(left)
+      || this._unknownConfidence(right) - this._unknownConfidence(left)
+      || this._timestamp(right.latestSeenAt || right.firstSeenAt) - this._timestamp(left.latestSeenAt || left.firstSeenAt);
+  }
+
+  _unknownPhotoCount(cluster = {}) {
+    if (Array.isArray(cluster.photoIds)) return cluster.photoIds.filter(Boolean).length;
+    return 0;
+  }
+
+  _unknownConfidence(cluster = {}) {
+    const confidence = Number(cluster.confidence);
+    return Number.isFinite(confidence) ? confidence : 0;
+  }
+
+  _minNameablePhotos(faceMemory = {}) {
+    const configured = Number(faceMemory.configuration?.enrollment?.minUnknownPhotos);
+    return Math.max(DEFAULT_MIN_NAMEABLE_PHOTOS, Number.isFinite(configured) ? configured : DEFAULT_MIN_NAMEABLE_PHOTOS);
+  }
+
+  _suggestionConfidence(faceMemory = {}) {
+    const configured = Number(faceMemory.configuration?.thresholds?.suggestion);
+    return Math.max(0, Math.min(1, Number.isFinite(configured) ? configured : DEFAULT_SUGGESTION_CONFIDENCE));
+  }
+
+  _timestamp(value) {
+    const timestamp = Date.parse(value || '');
+    return Number.isFinite(timestamp) ? timestamp : 0;
   }
 
   _profileWithRepresentative(profile = {}, faceMemory = {}) {

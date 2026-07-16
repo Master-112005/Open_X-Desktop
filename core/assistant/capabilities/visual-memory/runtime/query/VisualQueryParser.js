@@ -1,6 +1,7 @@
 'use strict';
 
 const { VISUAL_QUERY_INTENTS } = require('./VisualQueryContracts');
+const { getVisualConceptTerms } = require('../utils/VisualConceptLexicon');
 
 const VISUAL_TERMS = [
   'photo', 'photos', 'picture', 'pictures', 'pic', 'pics', 'image', 'images',
@@ -8,7 +9,8 @@ const VISUAL_TERMS = [
   'receipt', 'receipts', 'invoice', 'invoices', 'document', 'documents',
   'passport', 'license', 'id card', 'album', 'gallery', 'memories',
   'camera photo', 'vacation pictures', 'holiday photos', 'family photos',
-  'birthday photos', 'wedding photos', 'college memories'
+  'birthday photos', 'wedding photos', 'college memories',
+  ...getVisualConceptTerms()
 ];
 
 const VISUAL_ACTIONS = [

@@ -73,15 +73,20 @@ class MemoryRankingEngine {
 
   _visualScore(evidence, constraints) {
     let score = 0;
-    if (constraints.locations.length && includesAny(evidence.text, constraints.locations)) score += 0.22;
-    if (constraints.events.length && includesAny(evidence.text, constraints.events)) score += 0.22;
-    if (constraints.scenes.length && includesAny(evidence.text, constraints.scenes)) score += 0.18;
-    if (constraints.documents.length && includesAny(evidence.text, constraints.documents)) score += 0.18;
-    if (constraints.sourceApps.length && includesAny(evidence.text, constraints.sourceApps)) score += 0.18;
+    const constrained = constraints.locations.length
+      + constraints.events.length
+      + constraints.scenes.length
+      + constraints.documents.length
+      + constraints.sourceApps.length > 0;
+    if (constraints.locations.length && includesAny(evidence.text, constraints.locations)) score += 0.24;
+    if (constraints.events.length && includesAny(evidence.text, constraints.events)) score += 0.24;
+    if (constraints.scenes.length && includesAny(evidence.text, constraints.scenes)) score += 0.42;
+    if (constraints.documents.length && includesAny(evidence.text, constraints.documents)) score += 0.22;
+    if (constraints.sourceApps.length && includesAny(evidence.text, constraints.sourceApps)) score += 0.22;
     if (Array.isArray(evidence.vision.objects) && evidence.vision.objects.length) score += 0.12;
     if (Array.isArray(evidence.vision.scenes) && evidence.vision.scenes.length) score += 0.12;
     if (Array.isArray(evidence.vision.ocr) && evidence.vision.ocr.length) score += 0.12;
-    return Math.min(1, score || 0.18);
+    return Math.min(1, score || (constrained ? 0.05 : 0.18));
   }
 
   _type(context, evidence) {

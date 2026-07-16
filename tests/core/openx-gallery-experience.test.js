@@ -95,9 +95,22 @@ describe('OpenX Gallery Experience', () => {
       imageWidth: 1920,
       imageHeight: 1080
     });
+    await engine.api.ingestUnknownFace({
+      vector: [0, 1],
+      photoId: 'foodReceipt',
+      faceId: 'f3',
+      confidence: 0.94,
+      faceBox: { x: 120, y: 180, width: 70, height: 88 },
+      imageWidth: 1080,
+      imageHeight: 1400
+    });
     const unnamedPeople = await engine.api.getOpenXGalleryPeople();
+    assert.strictEqual(unnamedPeople.summary.readyToName, 1);
+    assert.strictEqual(unnamedPeople.summary.reviewLater, 1);
     assert.strictEqual(unnamedPeople.unknown[0].nameable, true);
     assert.strictEqual(unnamedPeople.unknown[0].representativePhotoId, 'goaBeach');
+    assert.strictEqual(unnamedPeople.reviewLater[0].nameable, false);
+    assert.strictEqual(unnamedPeople.reviewLater[0].status, 'needs-more-evidence');
     const [suggestion] = await engine.api.getFaceEnrollmentSuggestions();
     await engine.api.enrollFaceCluster({ clusterId: suggestion.clusterId, name: 'Rahul', relationship: 'friend' });
 
@@ -141,7 +154,8 @@ describe('OpenX Gallery Experience', () => {
     const engine = new VisualMemoryEngine({
       dataDir: tempDir(),
       logging: { console: false, file: false },
-      visionEngine
+      visionEngine,
+      faces: { enrollment: { minUnknownPhotos: 2 } }
     });
     await engine.api.start();
     await seedVisualMemory(engine);

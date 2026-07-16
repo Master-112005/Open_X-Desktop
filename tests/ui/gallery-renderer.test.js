@@ -51,6 +51,9 @@ describe('Gallery Renderer UI', function() {
     assert.match(script, /AI Vision runtime is not available for face scanning\./);
     assert.match(script, /strip\.className = 'named-people-strip'/);
     assert.match(script, /list\.className = 'people-grid unnamed-grid'/);
+    assert.match(script, /People To Name/);
+    assert.match(script, /Needs More Evidence/);
+    assert.match(script, /Single-photo faces are held back\./);
     assert.match(css, /\.people-view\s*\{/);
     assert.match(css, /\.named-people-strip\s*\{/);
     assert.match(css, /\.named-person-card\s*\{/);
@@ -59,6 +62,8 @@ describe('Gallery Renderer UI', function() {
     assert.match(css, /\.people-grid\s*\{/);
     assert.match(css, /\.person-name-form\s*\{/);
     assert.match(css, /\.person-correction-tools\s*\{/);
+    assert.match(css, /\.people-review-section\s*\{/);
+    assert.match(css, /\.people-review-note\s*\{/);
     assert.match(css, /\.person-assign-dialog\s*\{/);
     assert.match(css, /\.person-assign-option\s*\{/);
     assert.match(css, /\.person-avatar img\s*\{/);

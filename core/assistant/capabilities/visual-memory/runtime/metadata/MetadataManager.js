@@ -3,6 +3,7 @@
 const fs = require('fs/promises');
 const path = require('path');
 const { hashPath, safeStat } = require('../utils/FileSystemUtils');
+const { findVisualConcepts } = require('../utils/VisualConceptLexicon');
 
 async function readDimensions(filePath, extension) {
   try {
@@ -45,6 +46,12 @@ class MetadataManager {
     if (!stat || !stat.isFile()) throw new Error('Image file does not exist');
     const dimensions = await readDimensions(validation.path, validation.extension);
     const id = hashPath(validation.path);
+    const semanticTags = findVisualConcepts([
+      validation.path,
+      path.basename(validation.path),
+      options.folderLabel,
+      options.folderName
+    ].filter(Boolean).join(' ')).map(item => item.value);
     const metadata = {
       id,
       photoId: id,
@@ -61,6 +68,8 @@ class MetadataManager {
       orientation: null,
       camera: null,
       gps: null,
+      semanticTags,
+      scenes: semanticTags,
       exif: {}
     };
     await this.database.upsert('metadata', id, metadata);

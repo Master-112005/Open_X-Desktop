@@ -97,6 +97,36 @@ describe('Visual Memory Intelligence', () => {
     await engine.api.shutdown();
   });
 
+  it('ranks natural scene searches with semantic folder and path hints', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-memory-nature-search-'));
+    const engine = new VisualMemoryEngine({ dataDir, logging: { console: false, file: false } });
+    await engine.api.start();
+    await engine.database.replaceTable('photos', {
+      hillView: { id: 'hillView', fileName: 'IMG_1001.jpg', filePath: 'C:/Pictures/Trip/hill_station_view.jpg', fileType: 'jpg', createdAt: ago(4), folderId: 'trip' },
+      familyDinner: { id: 'familyDinner', fileName: 'dinner.jpg', filePath: 'C:/Pictures/Family/dinner.jpg', fileType: 'jpg', createdAt: ago(1), folderId: 'family' }
+    });
+    await engine.database.replaceTable('metadata', {
+      hillView: { id: 'hillView', photoId: 'hillView', filePath: 'C:/Pictures/Trip/hill_station_view.jpg', fileType: 'jpg', createdAt: ago(4), width: 1600, height: 900 },
+      familyDinner: { id: 'familyDinner', photoId: 'familyDinner', filePath: 'C:/Pictures/Family/dinner.jpg', fileType: 'jpg', createdAt: ago(1), width: 1600, height: 900 }
+    });
+    await engine.database.replaceTable('folders', {
+      trip: { id: 'trip', label: 'Trip', path: 'C:/Pictures/Trip' },
+      family: { id: 'family', label: 'Family', path: 'C:/Pictures/Family' }
+    });
+    const visualQuery = new VisualQueryEngine().understand({
+      rawInput: 'find moanitains image',
+      normalizedInput: 'find moanitains image',
+      resolvedContext: { confidence: 0.8 }
+    });
+    const result = await engine.api.searchMemories({ visualQuery });
+
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.results[0].photoId, 'hillView');
+    assert(result.results[0].evidence.visualScore > 0.18);
+
+    await engine.api.shutdown();
+  });
+
   it('uses named Face Memory evidence to rank people-focused photo searches', async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-memory-people-search-'));
     const engine = new VisualMemoryEngine({ dataDir, logging: { console: false, file: false }, faces: { enrollment: { minUnknownPhotos: 2 } } });

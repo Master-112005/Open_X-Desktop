@@ -3,6 +3,7 @@
 const BaseCandidateFilter = require('./BaseCandidateFilter');
 const { FILTER_IDS } = require('./CandidateContracts');
 const { candidateText, containsAny, getConstraintValues } = require('./filter-utils');
+const { expandVisualConceptValues } = require('../utils/VisualConceptLexicon');
 
 const GENERIC_PHOTO_TYPES = new Set(['photo', 'photos', 'picture', 'pictures', 'image', 'images']);
 
@@ -26,10 +27,15 @@ class FolderFilter extends BaseCandidateFilter {
       ...meaningfulPhotoTypes(visualQuery)
     ];
     if (values.length === 0) return null;
+    const expandedValues = expandVisualConceptValues(values);
     return pool.applyFilter(this.id, candidate => {
       const text = candidateText(candidate, ['folder', 'fileName', 'albums', 'filePath']);
-      const matched = containsAny(text, values);
-      return { passed: matched || !candidate.folder, confidence: matched ? 0.78 : 0.36, reason: matched ? 'folder/path matched constraints' : 'folder did not match, metadata may still match later' };
+      const matched = containsAny(text, expandedValues.length ? expandedValues : values);
+      return {
+        passed: true,
+        confidence: matched ? 0.78 : 0.36,
+        reason: matched ? 'folder/path matched constraints' : 'folder/path did not match; keeping candidate for visual ranking'
+      };
     });
   }
 }

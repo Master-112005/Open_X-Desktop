@@ -116,12 +116,12 @@ describe('Face Memory System', () => {
     const [suggestion] = engine.getEnrollmentSuggestions();
     const enrolled = engine.enrollCluster({ clusterId: suggestion.clusterId, name: 'Rahul' }).identity;
 
-    engine.ingestUnknownFace({ vector: [0.8, 0.2], photoId: 'p5', faceId: 'f5', confidence: 0.91 });
-    engine.ingestUnknownFace({ vector: [0.79, 0.21], photoId: 'p6', faceId: 'f6', confidence: 0.9 });
+    engine.ingestUnknownFace({ vector: [0.55, 0.45], photoId: 'p5', faceId: 'f5', confidence: 0.91 });
+    engine.ingestUnknownFace({ vector: [0.54, 0.46], photoId: 'p6', faceId: 'f6', confidence: 0.9 });
     const duplicate = engine.getEnrollmentSuggestions().find(item => item.clusterId !== suggestion.clusterId);
 
     const assigned = engine.addClusterToIdentity({ clusterId: duplicate.clusterId, identityId: enrolled.id });
-    const match = engine.matchFace([0.79, 0.21]);
+    const match = engine.matchFace([0.54, 0.46]);
     engine.ingestUnknownFace({ vector: [0, 1], photoId: 'bad', faceId: 'bad-face', confidence: 0.9 });
     const removable = Object.values(engine.state.unknownClusters).find(cluster => cluster.status === 'unknown');
     const removed = engine.deleteCluster(removable.id);
@@ -163,6 +163,27 @@ describe('Face Memory System', () => {
     assert.strictEqual(engine.listIdentities()[0].embeddingIds.length, before);
     assert.strictEqual(Object.values(engine.state.unknownClusters).filter(cluster => cluster.status === 'unknown').length, 0);
     assert.strictEqual(enrolled.name, 'Rahul');
+  });
+
+  it('auto-attaches strong saved-person matches during gallery rescans', async () => {
+    const engine = await enabledEngine();
+    addTwoUnknownFaces(engine);
+    const [suggestion] = engine.getEnrollmentSuggestions();
+    const enrolled = engine.enrollCluster({ clusterId: suggestion.clusterId, name: 'Rahul' }).identity;
+    const before = engine.listIdentities()[0].embeddingIds.length;
+
+    const result = engine.ingestUnknownFace({
+      vector: [0.97, 0.24],
+      photoId: 'rescan-new-photo',
+      faceId: 'rescan-face',
+      confidence: 0.97
+    });
+
+    assert.strictEqual(result.autoAssigned, true);
+    assert.strictEqual(result.duplicate, false);
+    assert.strictEqual(result.match.identityId, enrolled.id);
+    assert.strictEqual(engine.listIdentities()[0].embeddingIds.length, before + 1);
+    assert.strictEqual(Object.values(engine.state.unknownClusters).filter(cluster => cluster.status === 'unknown').length, 0);
   });
 
   it('suppresses repeated unknown detections from the same photo before they become duplicate people', async () => {
