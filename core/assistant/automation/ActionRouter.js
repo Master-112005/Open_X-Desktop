@@ -458,8 +458,8 @@ class ActionRouter {
     const search = (query, confidence = 0.94) => route('browser.search', { query: String(query || raw || corrected).trim() }, confidence);
     const openApp = (appName, confidence = 0.95) => route('app.open', { appName }, confidence);
 
-    if (/\b(?:open|show|view|launch)\b.*\b(?:openx\s+)?(?:gallery|gallary|photos?|photo\s+library|memories)\b/.test(input) ||
-      /\b(?:openx\s+)?(?:gallery|gallary)\b/.test(input)) {
+    if (/\b(?:open|show|view|launch)\b.*\b(?:openx\s+)?(?:gallery|galary|gallary|galleary|photos?|photo\s+library|memories)\b/.test(input) ||
+      /\b(?:openx\s+)?(?:gallery|galary|gallary|galleary)\b/.test(input)) {
       return route('visualMemory.openGallery', { view: 'timeline' }, 0.99);
     }
 
@@ -4125,7 +4125,7 @@ class ActionRouter {
     if (/\b(?:google|microsoft|windows)\s+photos?\b|\bphotos?\s+app\b/.test(normalizedRaw)) {
       return false;
     }
-    return /\b(?:openx\s+)?(?:gallery|gallary|photos?|pictures?|photo\s+library|memories)\b/.test(normalizedTarget);
+    return /\b(?:openx\s+)?(?:gallery|galary|gallary|galleary|photos?|pictures?|photo\s+library|memories)\b/.test(normalizedTarget);
   }
 
   _looksLikeLocalPhotosTarget(target, rawText) {
@@ -5698,7 +5698,9 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
       return null;
     }
 
-    const personalCue = /\b(?:my|me|mine|class|classmates|friends?|family|recent|memories|google\s+photos?|photos\s+app|in\s+the\s+photos?)\b/.test(input);
+    const relationshipCue = /\b(?:dad|daddy|father|papa|appa|mom|mum|mummy|mother|mama|amma|parents?|brothers?|sisters?)\b/.test(input);
+    const personalCue = relationshipCue ||
+      /\b(?:my|me|mine|class|classmates|friends?|family|recent|memories|google\s+photos?|photos\s+app|in\s+the\s+photos?)\b/.test(input);
     if (!personalCue) {
       return null;
     }
@@ -5760,8 +5762,8 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
       ['classmates', /\b(?:classmates?|class\s+mates?|college\s+friends?|school\s+friends?)\b/],
       ['friends', /\bfriends?\b/],
       ['me', /\b(?:me|myself|mine)\b/],
-      ['dad', /\b(?:dad|daddy|father|papa|app[aā])\b/],
-      ['mom', /\b(?:mom|mum|mummy|mother|mama|amm[aā])\b/],
+      ['dad', /\b(?:dad|daddy|father|papa|appa)\b/],
+      ['mom', /\b(?:mom|mum|mummy|mother|mama|amma)\b/],
       ['parents', /\bparents?\b/],
       ['brother', /\bbrothers?\b/],
       ['sister', /\bsisters?\b/],
