@@ -9,15 +9,19 @@ describe('Chat Renderer UI', function() {
   const glassCss = fs.readFileSync(path.join(rendererRoot, 'index.css'), 'utf8');
   const script = fs.readFileSync(path.join(rendererRoot, 'index.js'), 'utf8');
 
-  it('should provide dedicated chat, activity, notification, and calendar surfaces', function() {
-    ['conversation-view', 'activity-view', 'toast-region', 'schedule-list', 'notification-list', 'activity-calendar-btn']
+  it('should provide dedicated chat, activity, notification, calendar, gallery, and settings info surfaces', function() {
+    ['conversation-view', 'activity-view', 'toast-region', 'schedule-list', 'notification-list', 'activity-calendar-btn', 'gallery-btn', 'about-btn']
       .forEach(id => assert.match(html, new RegExp(`id="${id}"`)));
     assert.doesNotMatch(html, /id="alarm-overlay"/);
     assert.doesNotMatch(script, /alarmOverlay|alarm-dismiss-btn|alarm-snooze-btn/);
-    assert.match(html, /id="activity-view-btn"[\s\S]*id="activity-calendar-btn"[\s\S]*id="assistant-mute-btn"/);
+    assert.match(html, /id="activity-calendar-btn"[\s\S]*id="header-title"/);
+    assert.match(html, /id="activity-view-btn"[\s\S]*id="gallery-btn"[\s\S]*id="assistant-mute-btn"/);
+    assert.match(html, /class="icon-btn about-btn settings-about-btn" id="about-btn"[\s\S]*id="settings-close-btn"/);
+    assert.match(script, /panelHeader\.insertBefore\(panelActions, settingsCloseBtn\)/);
     assert.match(html, /Upcoming & recurring/);
     assert.doesNotMatch(html, /Upcoming alarms, timers, reminders, and recent assistant notices\./);
     assert.match(script, /openPlanner\?\.\('calendar'\)/);
+    assert.match(script, /openGallery\?\.\('timeline'\)/);
     assert.match(script, /ACTIVITY_SCHEDULE_WINDOW_MS\s*=\s*24 \* 60 \* 60 \* 1000/);
     assert.match(script, /ACTIVITY_RECURRING_WINDOW_MS\s*=\s*14 \* 24 \* 60 \* 60 \* 1000/);
     assert.match(script, /function isActivityScheduleVisible\(item, now = Date\.now\(\)\)/);
@@ -28,6 +32,9 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /aria-busy/);
     assert.match(css, /\.activity-calendar-btn/);
     assert.match(css, /\.activity-calendar-btn\.opening/);
+    assert.match(css, /\.gallery-view-tab/);
+    assert.match(css, /\.gallery-view-tab\.opening/);
+    assert.match(css, /\.settings-header-actions/);
   });
 
   it('should keep assistant messages inside their bubbles at narrow widths', function() {
@@ -56,6 +63,7 @@ describe('Chat Renderer UI', function() {
   it('should render visual memory results as a horizontal photo strip', function() {
     assert.match(html, /img-src 'self' file: data:/);
     assert.match(script, /const visualResults = Array\.isArray\(result\?\.data\?\.visualResults\)/);
+    assert.match(script, /visualResults\.slice\(0, 12\)/);
     assert.match(script, /type: 'photo'/);
     assert.match(script, /function addVisualResultCards\(bubble, resultEntries\)/);
     assert.match(script, /className = 'visual-result-strip'/);

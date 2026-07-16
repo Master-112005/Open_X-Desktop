@@ -29,6 +29,7 @@ class STTEngine {
     this.engine = dependencies.engine || this._createEngine(dependencies.EngineClass || ParakeetEngine);
     this._forwardEngineEvents();
     this.initialized = false;
+    this.initializedLogWritten = false;
   }
 
   /**
@@ -61,7 +62,10 @@ class STTEngine {
     const result = this.engine.initialize();
     this.initialized = true;
     this.events.emit(STT_EVENTS.STT_INITIALIZED, result);
-    this._log('Initialized', result);
+    if (!this.initializedLogWritten) {
+      this.initializedLogWritten = true;
+      this._log('Ready', this._statusSummary(result));
+    }
     return result;
   }
 
@@ -177,6 +181,24 @@ class STTEngine {
     for (const eventName of Object.values(STT_EVENTS)) {
       this.engine.on(eventName, payload => this.events.emit(eventName, payload));
     }
+  }
+
+  /**
+   * Return a concise model/runtime summary for developer logs.
+   * @param {object} result Initialization result.
+   * @returns {object}
+   * @private
+   */
+  _statusSummary(result = {}) {
+    const model = result.model || {};
+    return {
+      engine: result.engine || this.configuration.activeEngine,
+      model: model.name || this.configuration.modelName,
+      runtime: model.runtime || 'sherpa-onnx',
+      language: model.language || this.configuration.language,
+      streaming: this.configuration.streamingEnabled,
+      provider: this.configuration.gpuEnabled ? 'cuda' : 'cpu'
+    };
   }
 
   /**

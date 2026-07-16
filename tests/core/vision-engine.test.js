@@ -78,6 +78,34 @@ describe('VisionEngine', () => {
     await engine.shutdown();
   });
 
+  it('writes human-readable one-time vision model logs without raw model paths', async () => {
+    const infoLogs = [];
+    const debugLogs = [];
+    const logger = {
+      info: (message, data) => infoLogs.push({ message, data }),
+      debug: (message, data) => debugLogs.push({ message, data }),
+      warn() {},
+      error() {}
+    };
+    const engine = new VisionEngine({ logger });
+    engine.registerRuntimeAdapter('onnx', createFakeOnnxAdapter());
+    await engine.initialize();
+    await engine.loadModel(MODEL_IDS.SCRFD);
+    await engine.loadModel(MODEL_IDS.MOBILE_FACE_NET);
+    await engine.loadModel(MODEL_IDS.SCRFD);
+
+    assert(infoLogs.some(entry => entry.message === '[Vision Models] Loading AI Vision model registry'));
+    assert(infoLogs.some(entry => entry.message === '[Vision Models] AI Vision model registry ready'));
+    assert(infoLogs.some(entry => entry.message === '[Vision Models] Vision runtime adapter registered'));
+    assert(infoLogs.some(entry => entry.message === '[Vision Models] Loading vision model' && entry.data.role === 'face detection'));
+    assert(infoLogs.some(entry => entry.message === '[Vision Models] Vision model ready' && entry.data.role === 'face recognition embeddings'));
+    assert.strictEqual(infoLogs.filter(entry => entry.message === '[Vision Models] Vision model ready' && entry.data.modelId === MODEL_IDS.SCRFD).length, 1);
+    assert.strictEqual(infoLogs.some(entry => Object.prototype.hasOwnProperty.call(entry.data || {}, 'modelPath')), false);
+    assert(debugLogs.some(entry => entry.message === '[Vision Models] Runtime session ready'));
+
+    await engine.shutdown();
+  });
+
   it('runs coordinated inference and returns one normalized VisionResult', async () => {
     const engine = new VisionEngine();
     engine.registerRuntimeAdapter('onnx', createFakeOnnxAdapter());

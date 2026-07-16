@@ -152,16 +152,21 @@ describe('Electron Security Boundary', function() {
       'browser:openExternal',
       'voiceOverlay:collapse', 'voiceOverlay:expandLiveSchedule',
       'window:openChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
+      'window:openGallery', 'window:closeGallery',
       'config:get', 'settings:get',
       'security:status', 'security:verifyAccess', 'security:setPassword',
       'cloud:status', 'cloud:connect', 'cloud:disconnect',
       'cloud:pairingQR:create', 'cloud:pairing:status', 'cloud:pairing:approve', 'cloud:pairing:reject',
       'cloud:devices:list', 'cloud:device:rename', 'cloud:device:remove',
       'settings:save', 'settings:reset',
-      'schedule:alertAction', 'timerWidget:getState', 'timerWidget:close',
+      'schedule:alertAction', 'schedule:getSnapshot', 'timerWidget:getState', 'timerWidget:close',
       'timerWidget:stopStopwatch', 'timerWidget:resumeStopwatch',
       'timerWidget:resetStopwatch', 'planner:getEntries', 'planner:addEntry',
-      'planner:deleteEntry', 'app:quit'
+      'planner:deleteEntry',
+      'gallery:getView', 'gallery:getPhotos', 'gallery:getImageData', 'gallery:openPhoto',
+      'gallery:showPhoto', 'gallery:toggleFavorite', 'gallery:nameFace',
+      'gallery:addFaceToPerson', 'gallery:removeFaceCluster', 'gallery:scanPeople',
+      'app:quit'
     ];
 
     assert.deepEqual(Object.keys(IPC_VALIDATORS).sort(), expectedChannels.sort());

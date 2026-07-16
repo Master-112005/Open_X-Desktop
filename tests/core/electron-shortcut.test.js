@@ -69,10 +69,16 @@ describe('Electron Chat Shortcut', function() {
     assert.match(script, /new AudioCapture\(/);
     assert.match(script, /new STTEngine\(/);
     assert.match(script, /function resolveDesktopSttModelPath\(\)/);
+    assert.match(script, /function logVoiceModelLoadingOnce\(reason = 'startup'\)/);
+    assert.match(script, /function logVoiceModelSummaryOnce\(reason = 'startup'\)/);
+    assert.match(script, /\[Voice Models\] Assistant model summary/);
+    assert.match(script, /\[Voice Models\] Loading assistant voice models/);
     assert.match(script, /REQUIRED_PARAKEET_MODEL_FILES/);
-    assert.match(script, /modelPath: resolveDesktopSttModelPath\(\)/);
+    assert.match(script, /const sttModelPath = resolveDesktopSttModelPath\(\)/);
+    assert.match(script, /modelPath: sttModelPath/);
     assert.match(script, /process\.resourcesPath/);
     assert.match(script, /process\.env\.OPENX_STT_MODEL_PATH/);
+    assert.doesNotMatch(script, /Voice STT model path resolved/);
     assert.match(script, /function scheduleVoiceResumeRecovery\(reason = 'system-resume'\)/);
     assert.match(script, /powerMonitor\.on\('resume'/);
     assert.match(script, /powerMonitor\.on\('unlock-screen'/);

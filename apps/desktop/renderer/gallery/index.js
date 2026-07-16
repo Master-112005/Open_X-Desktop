@@ -16,6 +16,9 @@ const viewerTitleEl = document.getElementById('viewer-title');
 const viewerDateEl = document.getElementById('viewer-date');
 const viewerCloseEl = document.getElementById('viewer-close');
 const viewerFavoriteEl = document.getElementById('viewer-favorite');
+const personAssignOverlayEl = document.getElementById('person-assign-overlay');
+const personAssignListEl = document.getElementById('person-assign-list');
+const personAssignCloseEl = document.getElementById('person-assign-close');
 
 const PAGE_SIZE = 80;
 const MAX_IMAGE_LOADS = 6;
@@ -36,6 +39,7 @@ let currentViewerPhotoId = '';
 let currentViewerFavorite = false;
 let activeView = 'timeline';
 let peopleData = null;
+let pendingAssignClusterId = '';
 const imageLoadQueue = [];
 const imageSrcCache = new Map();
 
@@ -277,10 +281,126 @@ function createPersonCard(person, type) {
       }
     });
     body.appendChild(form);
+
+    const tools = document.createElement('div');
+    tools.className = 'person-correction-tools';
+    const addExisting = document.createElement('button');
+    addExisting.type = 'button';
+    addExisting.className = 'person-correction-btn add';
+    addExisting.textContent = '+';
+    addExisting.title = 'Add to existing person';
+    addExisting.setAttribute('aria-label', 'Add to existing person');
+    addExisting.disabled = !hasKnownPeople();
+    addExisting.addEventListener('click', () => openPersonAssignDialog(person.clusterId));
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'person-correction-btn remove';
+    remove.textContent = '-';
+    remove.title = 'Remove unwanted face';
+    remove.setAttribute('aria-label', 'Remove unwanted face');
+    remove.addEventListener('click', async () => {
+      remove.disabled = true;
+      try {
+        const result = await window.openx?.removeGalleryFaceCluster?.(person.clusterId);
+        if (result?.success) await loadGalleryView('people');
+      } finally {
+        remove.disabled = false;
+      }
+    });
+    tools.append(addExisting, remove);
+    body.appendChild(tools);
   }
 
   card.append(avatar, body);
   return card;
+}
+
+function hasKnownPeople() {
+  return (Array.isArray(peopleData?.known) ? peopleData.known : [])
+    .some(person => Array.isArray(person.identityIds) && person.identityIds[0]);
+}
+
+function openPersonAssignDialog(clusterId) {
+  pendingAssignClusterId = clusterId || '';
+  if (!pendingAssignClusterId || !personAssignOverlayEl || !personAssignListEl) return;
+  const known = (Array.isArray(peopleData?.known) ? peopleData.known : [])
+    .filter(person => Array.isArray(person.identityIds) && person.identityIds[0]);
+  personAssignListEl.replaceChildren();
+  if (known.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'person-assign-empty';
+    empty.textContent = 'No named people yet.';
+    personAssignListEl.appendChild(empty);
+  } else {
+    known.forEach(person => personAssignListEl.appendChild(createAssignPersonButton(person)));
+  }
+  personAssignOverlayEl.hidden = false;
+}
+
+function closePersonAssignDialog() {
+  pendingAssignClusterId = '';
+  if (personAssignOverlayEl) personAssignOverlayEl.hidden = true;
+}
+
+function createAssignPersonButton(person = {}) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'person-assign-option';
+  const avatar = document.createElement('span');
+  avatar.className = 'person-assign-avatar';
+  avatar.textContent = String(person.name || 'Person').trim().slice(0, 2).toUpperCase();
+  const copy = document.createElement('span');
+  copy.className = 'person-assign-copy';
+  const name = document.createElement('strong');
+  name.textContent = person.name || 'Person';
+  const meta = document.createElement('span');
+  meta.textContent = `${person.photoCount || 0} photo${person.photoCount === 1 ? '' : 's'}`;
+  copy.append(name, meta);
+  button.append(avatar, copy);
+  button.addEventListener('click', async () => {
+    const identityId = person.identityIds?.[0] || '';
+    if (!pendingAssignClusterId || !identityId) return;
+    button.disabled = true;
+    try {
+      const result = await window.openx?.addGalleryFaceToPerson?.(pendingAssignClusterId, identityId);
+      if (result?.success) {
+        closePersonAssignDialog();
+        await loadGalleryView('people');
+      }
+    } finally {
+      button.disabled = false;
+    }
+  });
+  return button;
+}
+
+function createNamedPersonTile(person = {}) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'named-person-card';
+  const avatar = document.createElement('span');
+  avatar.className = 'named-person-avatar person-avatar';
+  avatar.textContent = String(person.name || 'Person').trim().slice(0, 2).toUpperCase();
+  const name = document.createElement('strong');
+  name.textContent = person.name || 'Person';
+  const meta = document.createElement('span');
+  meta.textContent = `${person.photoCount || 0} photo${person.photoCount === 1 ? '' : 's'}`;
+  const photoId = person.representativePhotoId || person.photoIds?.[0] || '';
+  if (photoId) {
+    button.dataset.photoId = photoId;
+    button.addEventListener('click', async () => {
+      const result = await window.openx?.getGalleryImageData?.(photoId);
+      await openViewer({
+        id: photoId,
+        fileName: person.name || 'Person',
+        createdAt: person.updatedAt || person.createdAt || new Date().toISOString()
+      }, result?.data?.src || '');
+    });
+  }
+  loadPersonAvatar(avatar, person).catch(() => {});
+  button.append(avatar, name, meta);
+  return button;
 }
 
 async function loadPersonAvatar(avatar, person = {}) {
@@ -293,22 +413,59 @@ async function loadPersonAvatar(avatar, person = {}) {
   image.alt = person.name || person.label || 'Person';
   image.decoding = 'async';
   image.loading = 'lazy';
-  const crop = person.representativeFaceBox || {};
-  const imageWidth = Number(crop.imageWidth || crop.width && crop.x ? crop.x + crop.width : 0);
-  const imageHeight = Number(crop.imageHeight || crop.height && crop.y ? crop.y + crop.height : 0);
-  if (imageWidth > 0 && imageHeight > 0 && Number(crop.width) > 0 && Number(crop.height) > 0) {
-    const centerX = ((Number(crop.x) + (Number(crop.width) / 2)) / imageWidth) * 100;
-    const centerY = ((Number(crop.y) + (Number(crop.height) / 2)) / imageHeight) * 100;
-    const faceShare = Math.max(Number(crop.width) / imageWidth, Number(crop.height) / imageHeight);
-    const scale = Math.max(1.7, Math.min(4.2, 0.55 / Math.max(0.12, faceShare)));
-    image.style.objectPosition = `${Math.max(0, Math.min(100, centerX))}% ${Math.max(0, Math.min(100, centerY))}%`;
-    image.style.transformOrigin = image.style.objectPosition;
-    image.style.transform = `scale(${scale.toFixed(2)})`;
-  }
+  const crop = normalizeFaceCrop(person.representativeFaceBox || {});
   image.src = src;
   avatar.textContent = '';
   avatar.appendChild(image);
   avatar.classList.add('has-image');
+  if (crop) {
+    avatar.classList.add('has-face-crop');
+    applyPersonFaceCrop(avatar, image, crop);
+    image.addEventListener('load', () => applyPersonFaceCrop(avatar, image, crop), { once: true });
+  } else {
+    avatar.classList.remove('has-face-crop');
+  }
+}
+
+function normalizeFaceCrop(crop = {}) {
+  const x = Number(crop.x);
+  const y = Number(crop.y);
+  const width = Number(crop.width);
+  const height = Number(crop.height);
+  const imageWidth = Number(crop.imageWidth);
+  const imageHeight = Number(crop.imageHeight);
+  if (![x, y, width, height, imageWidth, imageHeight].every(Number.isFinite)) return null;
+  if (width <= 0 || height <= 0 || imageWidth <= 0 || imageHeight <= 0) return null;
+  return { x, y, width, height, imageWidth, imageHeight };
+}
+
+function expandedSquareCrop(crop) {
+  const faceCenterX = crop.x + (crop.width / 2);
+  const faceCenterY = crop.y + (crop.height / 2);
+  const side = Math.max(crop.width * 2.35, crop.height * 2.05, 96);
+  const centerY = faceCenterY - (crop.height * 0.16);
+  const half = side / 2;
+  const left = Math.max(0, Math.min(crop.imageWidth - side, faceCenterX - half));
+  const top = Math.max(0, Math.min(crop.imageHeight - side, centerY - half));
+  const fittedSide = Math.min(side, crop.imageWidth, crop.imageHeight);
+  return {
+    left: Math.max(0, Math.min(crop.imageWidth - fittedSide, left)),
+    top: Math.max(0, Math.min(crop.imageHeight - fittedSide, top)),
+    side: fittedSide
+  };
+}
+
+function applyPersonFaceCrop(avatar, image, crop) {
+  const frameWidth = Math.max(1, avatar.clientWidth || 58);
+  const frameHeight = Math.max(1, avatar.clientHeight || 58);
+  const target = expandedSquareCrop(crop);
+  const scale = Math.max(frameWidth / target.side, frameHeight / target.side);
+  image.style.width = `${Math.ceil(crop.imageWidth * scale)}px`;
+  image.style.height = `${Math.ceil(crop.imageHeight * scale)}px`;
+  image.style.left = `${Math.round(-target.left * scale + ((frameWidth - (target.side * scale)) / 2))}px`;
+  image.style.top = `${Math.round(-target.top * scale + ((frameHeight - (target.side * scale)) / 2))}px`;
+  image.style.objectFit = 'fill';
+  image.style.transform = 'none';
 }
 
 function renderPeople() {
@@ -319,11 +476,44 @@ function renderPeople() {
   headingEl.textContent = 'People';
   imageObserver?.disconnect?.();
 
-  const list = document.createElement('div');
-  list.className = 'people-grid';
-  unknown.forEach(person => list.appendChild(createPersonCard(person, 'unknown')));
-  known.forEach(person => list.appendChild(createPersonCard(person, 'known')));
-  timelineEl.replaceChildren(list);
+  const view = document.createElement('div');
+  view.className = 'people-view';
+
+  if (known.length > 0) {
+    const namedSection = document.createElement('section');
+    namedSection.className = 'named-people-section';
+    const heading = document.createElement('div');
+    heading.className = 'people-section-head';
+    const title = document.createElement('h2');
+    title.textContent = 'Named People';
+    const count = document.createElement('span');
+    count.textContent = `${known.length} saved`;
+    heading.append(title, count);
+    const strip = document.createElement('div');
+    strip.className = 'named-people-strip';
+    known.forEach(person => strip.appendChild(createNamedPersonTile(person)));
+    namedSection.append(heading, strip);
+    view.appendChild(namedSection);
+  }
+
+  if (unknown.length > 0) {
+    const unnamedSection = document.createElement('section');
+    unnamedSection.className = 'unnamed-people-section';
+    const heading = document.createElement('div');
+    heading.className = 'people-section-head';
+    const title = document.createElement('h2');
+    title.textContent = 'People To Name';
+    const count = document.createElement('span');
+    count.textContent = `${unknown.length} unnamed`;
+    heading.append(title, count);
+    const list = document.createElement('div');
+    list.className = 'people-grid unnamed-grid';
+    unknown.forEach(person => list.appendChild(createPersonCard(person, 'unknown')));
+    unnamedSection.append(heading, list);
+    view.appendChild(unnamedSection);
+  }
+
+  timelineEl.replaceChildren(view);
 }
 
 function render() {
@@ -646,6 +836,10 @@ viewerFavoriteEl.addEventListener('click', toggleViewerFavorite);
 viewerEl.addEventListener('click', event => {
   if (event.target === viewerEl) closeViewer();
 });
+personAssignCloseEl?.addEventListener('click', closePersonAssignDialog);
+personAssignOverlayEl?.addEventListener('click', event => {
+  if (event.target === personAssignOverlayEl) closePersonAssignDialog();
+});
 todayButtonEl.addEventListener('click', scrollToToday);
 peopleScanButtonEl.addEventListener('click', () => scanPeople().catch(() => {}));
 loadMoreEl.addEventListener('click', () => loadPage(false));
@@ -657,7 +851,12 @@ document.querySelectorAll('.nav-item').forEach(button => {
   });
 });
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && !viewerEl.hidden) closeViewer();
+  if (event.key !== 'Escape') return;
+  if (personAssignOverlayEl && !personAssignOverlayEl.hidden) {
+    closePersonAssignDialog();
+    return;
+  }
+  if (!viewerEl.hidden) closeViewer();
 });
 
 window.openx?.onGalleryView?.(view => {

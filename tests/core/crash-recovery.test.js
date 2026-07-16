@@ -98,7 +98,7 @@ describe('Crash Recovery Policy', function() {
       uptimeMs: 4567,
       assistantInitialized: true,
       voiceState: 'LISTENING',
-      windows: { chat: true, voice: true, planner: false, timer: false },
+      windows: { chat: true, voice: true, planner: false, gallery: true, timer: false },
       memory: { rss: 10, heapUsed: 20, external: 30 }
     }), true);
 
@@ -110,6 +110,7 @@ describe('Crash Recovery Policy', function() {
     assert.equal(state.lastCrash.pid, 123);
     assert.equal(state.lastCrash.assistantInitialized, true);
     assert.equal(state.lastCrash.voiceState, 'LISTENING');
+    assert.deepEqual(state.lastCrash.windows, { chat: true, voice: true, planner: false, gallery: true, timer: false });
     assert.deepEqual(state.lastCrash.memory, { rss: 10, heapUsed: 20, external: 30 });
   });
 

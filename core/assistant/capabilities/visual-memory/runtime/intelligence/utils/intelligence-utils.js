@@ -20,6 +20,7 @@ function candidateEvidence(candidate = {}, vision = {}) {
   const photo = candidate.photo || {};
   const metadata = candidate.metadata || {};
   const folder = candidate.folder || {};
+  const faceMemory = candidate.faceMemory || {};
   const textParts = [
     candidate.path,
     photo.fileName,
@@ -28,6 +29,10 @@ function candidateEvidence(candidate = {}, vision = {}) {
     metadata.filePath,
     metadata.sourceApp,
     metadata.photoType,
+    ...(Array.isArray(metadata.peopleNames) ? metadata.peopleNames : []),
+    ...(Array.isArray(metadata.faceRelationships) ? metadata.faceRelationships : []),
+    ...(Array.isArray(faceMemory.peopleNames) ? faceMemory.peopleNames : []),
+    ...(Array.isArray(faceMemory.relationships) ? faceMemory.relationships : []),
     folder.label,
     folder.path,
     ...(candidate.albums || []).flatMap(album => [album.title, album.name, album.path])

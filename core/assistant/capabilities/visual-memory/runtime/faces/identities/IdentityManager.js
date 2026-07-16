@@ -1,6 +1,6 @@
 'use strict';
 
-const { id, nowIso } = require('../utils/face-utils');
+const { cosineSimilarity, id, nowIso } = require('../utils/face-utils');
 
 class IdentityManager {
   constructor({ state, profiles, embeddings, validator, events, diagnostics } = {}) {
@@ -66,6 +66,88 @@ class IdentityManager {
     return this.state.identities[targetId];
   }
 
+  addClusterToIdentity(clusterId, identityId) {
+    const cluster = this.state.unknownClusters?.[clusterId];
+    const identity = this.state.identities?.[identityId];
+    if (!cluster) throw new Error('Unknown face cluster not found.');
+    if (!identity) throw new Error('Target identity not found.');
+
+    const clusterEmbeddings = Object.values(this.state.embeddings || {})
+      .filter(item => item.clusterId === clusterId);
+    if (clusterEmbeddings.length === 0) throw new Error('No face embeddings found for this cluster.');
+
+    identity.clusterIds = Array.from(new Set([...(identity.clusterIds || []), clusterId]));
+    identity.embeddingIds = Array.from(new Set([
+      ...(identity.embeddingIds || []),
+      ...clusterEmbeddings.map(item => item.id)
+    ]));
+    identity.history = Array.isArray(identity.history) ? identity.history : [];
+    identity.history.push({ action: 'cluster-added', clusterId, at: nowIso(), by: 'user-correction' });
+    identity.updatedAt = nowIso();
+
+    for (const embedding of clusterEmbeddings) {
+      embedding.identityId = identityId;
+      embedding.clusterId = clusterId;
+    }
+    cluster.status = 'enrolled';
+    cluster.identityId = identityId;
+    cluster.addedToIdentityAt = nowIso();
+
+    const profile = this._refreshProfile(identityId);
+    this.events?.emit?.('visual-memory.faces.cluster.assigned', { clusterId, identityId });
+    this.diagnostics?.record?.('cluster-assigned-to-identity', {
+      clusterId,
+      identityId,
+      embeddingCount: clusterEmbeddings.length
+    });
+    return { identity: this.state.identities[identityId], profile };
+  }
+
+  addEmbeddingToIdentity(identityId, input = {}, options = {}) {
+    const identity = this.state.identities?.[identityId];
+    if (!identity) throw new Error('Target identity not found.');
+    const duplicate = this._findDuplicateIdentityEmbedding(identityId, input, options);
+    if (duplicate) {
+      duplicate.confidence = Math.max(Number(duplicate.confidence) || 0, Number(input.confidence) || 0);
+      duplicate.lastMatchedAt = nowIso();
+      duplicate.matchCount = Math.max(1, Number(duplicate.matchCount) || 1) + 1;
+      const profile = this._refreshProfile(identityId);
+      this.diagnostics?.record?.('identity-embedding-duplicate-suppressed', {
+        identityId,
+        embeddingId: duplicate.id,
+        photoId: input.photoId || null
+      });
+      return { identity, profile, embedding: duplicate, duplicate: true };
+    }
+
+    const faceBox = this._normalizeFaceBox(input.faceBox, input.imageWidth, input.imageHeight);
+    const embedding = this.embeddings.addEmbedding({
+      vector: input.vector,
+      identityId,
+      clusterId: input.clusterId || null,
+      photoId: input.photoId || null,
+      faceId: input.faceId || null,
+      faceBox,
+      imageWidth: faceBox?.imageWidth || input.imageWidth || null,
+      imageHeight: faceBox?.imageHeight || input.imageHeight || null,
+      source: input.source || options.source || 'ai-vision',
+      confidence: input.confidence || 0
+    });
+    identity.embeddingIds = Array.from(new Set([...(identity.embeddingIds || []), embedding.id]));
+    identity.history = Array.isArray(identity.history) ? identity.history : [];
+    identity.history.push({ action: options.action || 'embedding-added', embeddingId: embedding.id, at: nowIso(), by: options.by || 'system' });
+    identity.updatedAt = nowIso();
+    const profile = this._refreshProfile(identityId);
+    this.events?.emit?.('visual-memory.faces.identity.embedding.added', { identityId, embeddingId: embedding.id });
+    this.diagnostics?.record?.('identity-embedding-added', {
+      identityId,
+      embeddingId: embedding.id,
+      photoId: embedding.photoId || null,
+      duplicate: false
+    });
+    return { identity, profile, embedding, duplicate: false };
+  }
+
   splitIdentity(identityId, embeddingIds = [], newName = '') {
     const source = this.state.identities[identityId];
     if (!source) throw new Error('Identity not found for split.');
@@ -121,6 +203,51 @@ class IdentityManager {
       lastSeenAt: dates.length ? new Date(dates[dates.length - 1]).toISOString() : null,
       confidence: embeddings.reduce((best, item) => Math.max(best, item.confidence || 0), 0)
     });
+  }
+
+  _findDuplicateIdentityEmbedding(identityId, input = {}, options = {}) {
+    const vector = Array.isArray(input.vector) ? input.vector : [];
+    const threshold = Number(options.duplicateThreshold ?? 0.998);
+    const boxThreshold = Number(options.duplicateBoxIoU ?? 0.94);
+    const faceBox = this._normalizeFaceBox(input.faceBox, input.imageWidth, input.imageHeight);
+    for (const embedding of this.embeddings.listForIdentity(identityId)) {
+      if (input.photoId && embedding.photoId && input.photoId === embedding.photoId) {
+        if (input.faceId && embedding.faceId && input.faceId === embedding.faceId) return embedding;
+        if (faceBox && embedding.faceBox && this._faceBoxIoU(faceBox, embedding.faceBox) >= boxThreshold) return embedding;
+        if (vector.length && Array.isArray(embedding.vector) && cosineSimilarity(vector, embedding.vector) >= threshold) return embedding;
+      }
+    }
+    return null;
+  }
+
+  _normalizeFaceBox(faceBox = null, imageWidth = null, imageHeight = null) {
+    if (!faceBox || typeof faceBox !== 'object') return null;
+    return {
+      x: Number(faceBox.x) || 0,
+      y: Number(faceBox.y) || 0,
+      width: Number(faceBox.width) || 0,
+      height: Number(faceBox.height) || 0,
+      imageWidth: Number(imageWidth) || Number(faceBox.imageWidth) || null,
+      imageHeight: Number(imageHeight) || Number(faceBox.imageHeight) || null
+    };
+  }
+
+  _faceBoxIoU(left = {}, right = {}) {
+    const lx1 = Number(left.x) || 0;
+    const ly1 = Number(left.y) || 0;
+    const lx2 = lx1 + (Number(left.width) || 0);
+    const ly2 = ly1 + (Number(left.height) || 0);
+    const rx1 = Number(right.x) || 0;
+    const ry1 = Number(right.y) || 0;
+    const rx2 = rx1 + (Number(right.width) || 0);
+    const ry2 = ry1 + (Number(right.height) || 0);
+    const intersectionWidth = Math.max(0, Math.min(lx2, rx2) - Math.max(lx1, rx1));
+    const intersectionHeight = Math.max(0, Math.min(ly2, ry2) - Math.max(ly1, ry1));
+    const intersection = intersectionWidth * intersectionHeight;
+    const leftArea = Math.max(0, lx2 - lx1) * Math.max(0, ly2 - ly1);
+    const rightArea = Math.max(0, rx2 - rx1) * Math.max(0, ry2 - ry1);
+    const union = leftArea + rightArea - intersection;
+    return union > 0 ? intersection / union : 0;
   }
 }
 

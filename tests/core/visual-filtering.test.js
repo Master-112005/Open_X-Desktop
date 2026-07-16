@@ -128,6 +128,25 @@ describe('Visual Candidate Filtering', () => {
     assert.strictEqual(OUT_OF_SCOPE.includes('ai-inference'), true);
   });
 
+  it('does not treat generic photo wording as a folder or album constraint', () => {
+    const visualQuery = new VisualQueryEngine().understand({
+      rawInput: 'find photos with me and dad',
+      normalizedInput: 'find photos with me and dad',
+      resolvedContext: { confidence: 0.8 }
+    });
+    const pool = new CandidateFilterEngine().buildCandidatePool({
+      visualQuery,
+      databaseSnapshot: sampleSnapshot()
+    });
+    const ids = pool.candidates.map(candidate => candidate.photoId);
+
+    assert(ids.includes('cameraPhoto'));
+    assert(ids.includes('recentScreenshot'));
+    assert(pool.candidates.length >= 3);
+    assert(!pool.diagnostics.some(item => item.filterId === 'folder' && item.rejected > 0));
+    assert(!pool.diagnostics.some(item => item.filterId === 'album' && item.rejected > 0));
+  });
+
   it('supports API-level candidate pool building from the Visual Memory database', async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-filtering-'));
     const engine = new VisualMemoryEngine({ dataDir, logging: { console: false, file: false } });

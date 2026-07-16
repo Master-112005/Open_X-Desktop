@@ -866,6 +866,12 @@ const openxApi = {
   nameGalleryFace: (clusterId, name, relationship = '') =>
     ipcRenderer.invoke('gallery:nameFace', { clusterId, name, relationship }),
 
+  addGalleryFaceToPerson: (clusterId, identityId) =>
+    ipcRenderer.invoke('gallery:addFaceToPerson', { clusterId, identityId }),
+
+  removeGalleryFaceCluster: (clusterId) =>
+    ipcRenderer.invoke('gallery:removeFaceCluster', { clusterId }),
+
   scanGalleryPeople: (options = {}) =>
     ipcRenderer.invoke('gallery:scanPeople', options),
 

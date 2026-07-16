@@ -3,6 +3,7 @@
 const path = require('path');
 const { IMAGE_EXTENSIONS } = require('../utils/constants');
 const { listFilesRecursive } = require('../utils/FileSystemUtils');
+const { cosineSimilarity } = require('../faces/utils/face-utils');
 
 const DEFAULT_FACE_SCAN_OPTIONS = Object.freeze({
   maxPhotos: 10000,
@@ -13,6 +14,8 @@ const DEFAULT_FACE_SCAN_OPTIONS = Object.freeze({
 class VisualMemoryAPI {
   constructor({ engine } = {}) {
     this.engine = engine;
+    this.visionRuntimeLoadingLogged = false;
+    this.visionRuntimeReadyLogged = false;
   }
 
   async initialize() {
@@ -273,6 +276,7 @@ class VisualMemoryAPI {
   async searchMemories(input = {}) {
     this.engine.ensureReady();
     const candidatePool = input.candidatePool || await this.buildCandidatePool(input.visualQuery, input.filtering || {});
+    this._attachFaceMemoryEvidence(candidatePool);
     const result = await this.engine.intelligence.search({
       visualQuery: input.visualQuery,
       candidatePool,
@@ -392,8 +396,9 @@ class VisualMemoryAPI {
     const existingPhotoIds = new Set(Object.values(this.engine.faces.state.embeddings || {})
       .map(embedding => embedding.photoId)
       .filter(Boolean));
+    const skipAlreadyKnownPhotos = scanOptions.rescan === false;
     const photos = Object.values(this.engine.database.getTable('photos') || {})
-      .filter(photo => photo?.id && photo.filePath && !existingPhotoIds.has(photo.id))
+      .filter(photo => photo?.id && photo.filePath && (!skipAlreadyKnownPhotos || !existingPhotoIds.has(photo.id)))
       .slice(0, scanOptions.maxPhotos);
     this._logInfo(`People scan will analyze ${photos.length} photo${photos.length === 1 ? '' : 's'}.`, {
       indexedPhotos: Object.keys(this.engine.database.getTable('photos') || {}).length,
@@ -408,6 +413,8 @@ class VisualMemoryAPI {
       grouped: 0,
       detectedFaces: 0,
       verifiedFaces: 0,
+      autoAssigned: 0,
+      duplicateSuppressed: 0,
       skipped: 0,
       reset: resetSummary,
       warnings: [],
@@ -431,14 +438,21 @@ class VisualMemoryAPI {
           summary.skipped += 1;
           continue;
         }
-        this._logInfo(`Verified ${verified.items.length} face${verified.items.length === 1 ? '' : 's'} in ${this._photoLabel(photo)}.`, {
+        this._logDebug(`Verified ${verified.items.length} face${verified.items.length === 1 ? '' : 's'} in ${this._photoLabel(photo)}.`, {
           photoId: photo.id,
           detectedFaces: verified.detectedFaces,
           verifiedFaces: verified.items.length
         });
         for (const item of verified.items) {
           const grouped = this.engine.faces.ingestUnknownFace(item);
-          if (!grouped?.skipped) summary.grouped += 1;
+          if (grouped?.autoAssigned) {
+            summary.autoAssigned += 1;
+            if (grouped.duplicate) summary.duplicateSuppressed += 1;
+          } else if (grouped?.duplicate) {
+            summary.duplicateSuppressed += 1;
+          } else if (!grouped?.skipped) {
+            summary.grouped += 1;
+          }
           else summary.warnings.push({ photoId: photo.id, code: grouped.reason || 'face-memory-skipped' });
         }
       } catch (error) {
@@ -455,11 +469,13 @@ class VisualMemoryAPI {
     await this.engine.persistFaceMemory();
     summary.people = this.engine.galleryExperience.getPeople();
     summary.durationMs = Date.now() - startedAt;
-    this._logInfo(`People scan finished: ${summary.verifiedFaces} verified face match${summary.verifiedFaces === 1 ? '' : 'es'} found across ${summary.scanned} photo${summary.scanned === 1 ? '' : 's'}.`, {
+    this._logInfo('People scan finished. Face detection, recognition, and duplicate cleanup are complete.', {
       scanned: summary.scanned,
-      grouped: summary.grouped,
-      detectedFaces: summary.detectedFaces,
-      verifiedFaces: summary.verifiedFaces,
+      facesDetected: summary.detectedFaces,
+      facesVerified: summary.verifiedFaces,
+      newUnnamedPeople: summary.grouped,
+      knownPeopleMatched: summary.autoAssigned,
+      duplicateFacesSkipped: summary.duplicateSuppressed,
       skipped: summary.skipped,
       warnings: summary.warnings.length,
       durationMs: summary.durationMs,
@@ -471,6 +487,20 @@ class VisualMemoryAPI {
   async enrollFaceCluster(input) {
     await this.engine.initialize();
     const result = this.engine.faces.enrollCluster(input);
+    await this.engine.persistFaceMemory();
+    return result;
+  }
+
+  async addFaceClusterToIdentity(input = {}) {
+    await this.engine.initialize();
+    const result = this.engine.faces.addClusterToIdentity(input);
+    await this.engine.persistFaceMemory();
+    return result;
+  }
+
+  async deleteFaceCluster(clusterId) {
+    await this.engine.initialize();
+    const result = this.engine.faces.deleteCluster(clusterId);
     await this.engine.persistFaceMemory();
     return result;
   }
@@ -526,6 +556,75 @@ class VisualMemoryAPI {
   async getFaceTimeline(identityId) {
     await this.engine.initialize();
     return this.engine.faces.getTimeline(identityId);
+  }
+
+  _attachFaceMemoryEvidence(candidatePool) {
+    const candidates = Array.isArray(candidatePool?.candidates) ? candidatePool.candidates : [];
+    if (candidates.length === 0) return candidatePool;
+    const state = this.engine.faces?.state || {};
+    const profiles = state.profiles || {};
+    const identities = state.identities || {};
+    const byPhoto = new Map();
+    for (const embedding of Object.values(state.embeddings || {})) {
+      if (!embedding?.photoId || !embedding.identityId) continue;
+      const identity = identities[embedding.identityId];
+      const profile = profiles[identity?.profileId];
+      if (!profile) continue;
+      const item = byPhoto.get(embedding.photoId) || {
+        names: new Set(),
+        relationships: new Set(),
+        identityIds: new Set(),
+        profileIds: new Set(),
+        faceCount: 0
+      };
+      item.faceCount += 1;
+      if (profile.name) item.names.add(profile.name);
+      if (identity?.name) item.names.add(identity.name);
+      for (const relationship of this._relationshipSearchTerms(profile.relationship || identity?.relationship || '')) {
+        item.relationships.add(relationship);
+      }
+      item.identityIds.add(identity.id);
+      item.profileIds.add(profile.id);
+      byPhoto.set(embedding.photoId, item);
+    }
+    for (const candidate of candidates) {
+      const evidence = byPhoto.get(candidate.photoId);
+      if (!evidence) continue;
+      const peopleNames = Array.from(evidence.names);
+      const relationships = Array.from(evidence.relationships);
+      candidate.faceMemory = {
+        peopleNames,
+        relationships,
+        identityIds: Array.from(evidence.identityIds),
+        profileIds: Array.from(evidence.profileIds),
+        faceCount: evidence.faceCount
+      };
+      candidate.metadata = {
+        ...(candidate.metadata || {}),
+        peopleNames,
+        faceRelationships: relationships,
+        personCount: Math.max(Number(candidate.metadata?.personCount) || 0, evidence.faceCount)
+      };
+    }
+    return candidatePool;
+  }
+
+  _relationshipSearchTerms(value = '') {
+    const normalized = String(value || '').toLowerCase().trim();
+    const aliases = {
+      father: ['father', 'dad', 'papa'],
+      mother: ['mother', 'mom', 'mummy', 'amma'],
+      parents: ['parents', 'family'],
+      brother: ['brother'],
+      sister: ['sister'],
+      friend: ['friend', 'friends'],
+      friends: ['friend', 'friends'],
+      family: ['family'],
+      wife: ['wife', 'spouse'],
+      husband: ['husband', 'spouse'],
+      colleague: ['colleague', 'coworker']
+    };
+    return aliases[normalized] || (normalized ? [normalized] : []);
   }
 
   async setFaceRelationship(identityId, relationship, source = 'user') {
@@ -719,7 +818,14 @@ class VisualMemoryAPI {
   }
 
   async _resolveVisionEngine() {
-    this._logInfo('Preparing AI Vision runtime for People scan.');
+    if (!this.visionRuntimeLoadingLogged) {
+      this.visionRuntimeLoadingLogged = true;
+      this._logInfo('Loading AI Vision face runtime for People scan.', {
+        detector: 'SCRFD face detector',
+        embedding: 'MobileFaceNet face recognition embeddings',
+        runtime: 'windows-face-analysis'
+      });
+    }
     const injected = this.engine.options?.visionEngine || this.engine.visionEngine || null;
     const engine = injected || await this._createDefaultVisionEngine();
     if (!engine || typeof engine.infer !== 'function') {
@@ -736,7 +842,15 @@ class VisualMemoryAPI {
         warnings: [{ code: 'vision-runtime-unavailable', message: 'No AI Vision runtime adapter is available for face detection.' }]
       };
     }
-    this._logInfo('AI Vision runtime is ready for face scanning.', { adapters: adapters.join(','), adapterCount: adapters.length });
+    if (!this.visionRuntimeReadyLogged) {
+      this.visionRuntimeReadyLogged = true;
+      this._logInfo('AI Vision face runtime ready.', {
+        detector: 'SCRFD face detector',
+        embedding: 'MobileFaceNet face recognition embeddings',
+        runtime: 'windows-face-analysis',
+        adapterCount: adapters.length
+      });
+    }
     return { available: true, engine, warnings: [] };
   }
 
@@ -784,15 +898,28 @@ class VisualMemoryAPI {
     const count = Math.min(faces.length, embeddings.length);
     if (faces.length > 0 && embeddings.length === 0) warnings.push({ photoId, code: 'face-embedding-missing' });
     if (faces.length === 0 && embeddings.length > 0) warnings.push({ photoId, code: 'face-detection-missing' });
-    const items = [];
+    const paired = [];
     for (let index = 0; index < count; index += 1) {
       const face = faces[index];
       const embedding = embeddings[index];
+      paired.push({
+        face,
+        embedding,
+        index,
+        confidence: Math.min(Number(face.confidence || 0), Number(embedding.confidence || 0))
+      });
+    }
+    const uniquePairs = this._dedupeFacePairs(paired);
+    const suppressed = paired.length - uniquePairs.length;
+    if (suppressed > 0) warnings.push({ photoId, code: 'duplicate-face-detection-suppressed', count: suppressed });
+    const items = [];
+    for (const pair of uniquePairs) {
+      const { face, embedding, index, confidence } = pair;
       items.push({
         vector: embedding.vector,
         photoId,
         faceId: face.id || `${photoId}:face:${index + 1}`,
-        confidence: Math.min(Number(face.confidence || 0), Number(embedding.confidence || 0)),
+        confidence,
         source: 'gallery-people-scan',
         faceBox: face.box || null,
         imageWidth: Number(face.imageWidth || face.box?.imageWidth || 0) || null,
@@ -800,6 +927,66 @@ class VisualMemoryAPI {
       });
     }
     return { items, detectedFaces: faces.length, warnings };
+  }
+
+  _dedupeFacePairs(pairs = []) {
+    const selected = [];
+    const sorted = pairs
+      .slice()
+      .sort((left, right) => (right.confidence || 0) - (left.confidence || 0));
+    for (const pair of sorted) {
+      const box = pair.face?.box || null;
+      const duplicate = selected.some(existing => {
+        const existingBox = existing.face?.box || null;
+        return (box && existingBox && this._isDuplicateFaceBox(box, existingBox))
+          || this._isDuplicateFaceEmbedding(pair.embedding, existing.embedding);
+      });
+      if (!duplicate) selected.push(pair);
+    }
+    return selected.sort((left, right) => left.index - right.index);
+  }
+
+  _isDuplicateFaceEmbedding(left = {}, right = {}) {
+    const threshold = Number(this.engine.faces?.configuration?.thresholds?.duplicate ?? 0.998);
+    const leftVector = Array.isArray(left?.vector) ? left.vector : [];
+    const rightVector = Array.isArray(right?.vector) ? right.vector : [];
+    if (!leftVector.length || !rightVector.length) return false;
+    return cosineSimilarity(leftVector, rightVector) >= threshold;
+  }
+
+  _isDuplicateFaceBox(left = {}, right = {}) {
+    if (!left || !right) return false;
+    const overlap = this._faceBoxIoU(left, right);
+    if (overlap >= 0.42) return true;
+    const leftWidth = Math.max(1, Number(left.width) || 0);
+    const leftHeight = Math.max(1, Number(left.height) || 0);
+    const rightWidth = Math.max(1, Number(right.width) || 0);
+    const rightHeight = Math.max(1, Number(right.height) || 0);
+    const leftCenterX = (Number(left.x) || 0) + (leftWidth / 2);
+    const leftCenterY = (Number(left.y) || 0) + (leftHeight / 2);
+    const rightCenterX = (Number(right.x) || 0) + (rightWidth / 2);
+    const rightCenterY = (Number(right.y) || 0) + (rightHeight / 2);
+    const centerDistance = Math.hypot(leftCenterX - rightCenterX, leftCenterY - rightCenterY);
+    const averageSize = (leftWidth + leftHeight + rightWidth + rightHeight) / 4;
+    return centerDistance <= averageSize * 0.28 && overlap >= 0.18;
+  }
+
+  _faceBoxIoU(left = {}, right = {}) {
+    const leftX = Number(left.x) || 0;
+    const leftY = Number(left.y) || 0;
+    const leftWidth = Math.max(0, Number(left.width) || 0);
+    const leftHeight = Math.max(0, Number(left.height) || 0);
+    const rightX = Number(right.x) || 0;
+    const rightY = Number(right.y) || 0;
+    const rightWidth = Math.max(0, Number(right.width) || 0);
+    const rightHeight = Math.max(0, Number(right.height) || 0);
+    const x1 = Math.max(leftX, rightX);
+    const y1 = Math.max(leftY, rightY);
+    const x2 = Math.min(leftX + leftWidth, rightX + rightWidth);
+    const y2 = Math.min(leftY + leftHeight, rightY + rightHeight);
+    const intersection = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+    const union = (leftWidth * leftHeight) + (rightWidth * rightHeight) - intersection;
+    return union > 0 ? intersection / union : 0;
   }
 
   _resetGalleryScanUnknownFaces() {
@@ -839,6 +1026,10 @@ class VisualMemoryAPI {
 
   _logWarn(message, data = {}) {
     this.engine?.logger?.warn?.(`[Visual Memory] ${message}`, data);
+  }
+
+  _logDebug(message, data = {}) {
+    this.engine?.logger?.debug?.(`[Visual Memory] ${message}`, data);
   }
 }
 

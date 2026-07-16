@@ -55,7 +55,7 @@ class VisualMemoryCapabilityExecutor {
         currentSearch: visualSearch,
         currentMemory,
         currentImage: currentMemory?.photoId || null,
-        currentSelection: results.slice(0, 1).map(result => result.photoId).filter(Boolean)
+        currentSelection: results.slice(0, 12).map(result => result.photoId).filter(Boolean)
       }
     };
   }

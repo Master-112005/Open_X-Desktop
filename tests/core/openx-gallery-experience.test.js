@@ -77,8 +77,24 @@ describe('OpenX Gallery Experience', () => {
     await engine.api.start();
     await seedVisualMemory(engine);
     await engine.api.enableFaceMemory({ acceptedBy: 'test-user' });
-    await engine.api.ingestUnknownFace({ vector: [1, 0], photoId: 'goaBeach', faceId: 'f1', confidence: 0.95 });
-    await engine.api.ingestUnknownFace({ vector: [0.99, 0.01], photoId: 'desktopShot', faceId: 'f2', confidence: 0.93 });
+    await engine.api.ingestUnknownFace({
+      vector: [1, 0],
+      photoId: 'goaBeach',
+      faceId: 'f1',
+      confidence: 0.95,
+      faceBox: { x: 410, y: 250, width: 120, height: 150 },
+      imageWidth: 2000,
+      imageHeight: 1200
+    });
+    await engine.api.ingestUnknownFace({
+      vector: [0.99, 0.01],
+      photoId: 'desktopShot',
+      faceId: 'f2',
+      confidence: 0.93,
+      faceBox: { x: 90, y: 110, width: 80, height: 90 },
+      imageWidth: 1920,
+      imageHeight: 1080
+    });
     const unnamedPeople = await engine.api.getOpenXGalleryPeople();
     assert.strictEqual(unnamedPeople.unknown[0].nameable, true);
     assert.strictEqual(unnamedPeople.unknown[0].representativePhotoId, 'goaBeach');
@@ -89,6 +105,9 @@ describe('OpenX Gallery Experience', () => {
 
     assert.strictEqual(people.performsRecognition, false);
     assert.strictEqual(people.known[0].name, 'Rahul');
+    assert.strictEqual(people.known[0].representativePhotoId, 'goaBeach');
+    assert.strictEqual(people.known[0].representativeFaceBox.width, 120);
+    assert.strictEqual(people.known[0].representativeFaceBox.imageWidth, 2000);
     assert.strictEqual(people.relationshipGroups.friend.length, 1);
 
     await engine.api.shutdown();
@@ -107,8 +126,14 @@ describe('OpenX Gallery Experience', () => {
           };
         }
         return {
-          faces: [{ id: 'face-1', confidence: 0.96, imageWidth: 1000, imageHeight: 800, box: { x: 220, y: 180, width: 180, height: 180 } }],
-          embeddings: [{ vector: [1, 0], confidence: 0.94 }],
+          faces: [
+            { id: 'face-1', confidence: 0.96, imageWidth: 1000, imageHeight: 800, box: { x: 220, y: 180, width: 180, height: 180 } },
+            { id: 'face-duplicate', confidence: 0.92, imageWidth: 1000, imageHeight: 800, box: { x: 232, y: 190, width: 176, height: 176 } }
+          ],
+          embeddings: [
+            { vector: [1, 0], confidence: 0.94 },
+            { vector: [0.99, 0.01], confidence: 0.91 }
+          ],
           warnings: []
         };
       }
@@ -130,6 +155,7 @@ describe('OpenX Gallery Experience', () => {
     assert.strictEqual(result.reset.removedClusters, 1);
     assert.strictEqual(result.scanned, 3);
     assert.strictEqual(result.grouped, 2);
+    assert(result.warnings.some(item => item.code === 'duplicate-face-detection-suppressed'));
     assert.strictEqual(result.verification.requireFaceDetection, true);
     assert.strictEqual(result.verification.requireFaceEmbedding, true);
     assert(people.unknown.length >= 1);

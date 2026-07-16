@@ -33,6 +33,12 @@ class FaceEnrollmentManager {
     return result;
   }
 
+  addClusterToIdentity({ clusterId, identityId } = {}) {
+    const consentValidation = this.validator.validateConsent(this.consent.getConsent());
+    if (!consentValidation.valid) throw new Error(consentValidation.reason);
+    return this.identities.addClusterToIdentity(clusterId, identityId);
+  }
+
   ignoreCluster(clusterId) {
     const cluster = this.grouping.state.unknownClusters[clusterId];
     if (cluster) cluster.ignoredAt = new Date().toISOString();

@@ -78,6 +78,7 @@ describe('Assistant Visual Memory Capability', () => {
     assert.strictEqual(output.response.capability, 'visual-memory');
     assert.strictEqual(output.response.resultCount, 2);
     assert.strictEqual(output.session.currentImage, search.results[0].photoId);
+    assert.deepStrictEqual(output.session.currentSelection, search.results.map(result => result.photoId));
     assert.strictEqual(context.get('assistant.visualMemory.context').currentImage, search.results[0].photoId);
     assert.strictEqual(output.response.requiresVerification, false);
 

@@ -39,7 +39,12 @@ class ModelLoader {
         this.runtime.initialize({ model, configuration: this.configuration });
       }
       this.loadedModel = model;
-      this._log('Model Loaded', { model });
+      this._log('Model loaded', {
+        engine: model.engine || this.configuration.activeEngine,
+        model: model.name || this.configuration.modelName,
+        runtime: model.runtime || 'sherpa-onnx',
+        language: model.language || this.configuration.language
+      });
       return { ...model };
     } catch (error) {
       if (error && error.name && /Model(NotFound|Incompatible)/.test(error.name)) throw error;
@@ -98,8 +103,8 @@ class ModelLoader {
    * @private
    */
   _log(message, metadata = {}) {
-    if (this.logger && typeof this.logger.info === 'function') {
-      this.logger.info(`[STT] ${message}`, metadata);
+    if (this.logger && typeof this.logger.debug === 'function') {
+      this.logger.debug(`[STT] ${message}`, metadata);
     }
   }
 }
