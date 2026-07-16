@@ -88,8 +88,6 @@ const SCHEDULE_STORAGE_KEY = 'openx-ui-schedules-v1';
 const NOTIFICATION_STORAGE_KEY = 'openx-ui-notifications-v1';
 const CHAT_HISTORY_STORAGE_KEY = 'openx-ui-chat-history-v2';
 const MAX_NOTIFICATION_HISTORY = 30;
-const ACTIVITY_SCHEDULE_WINDOW_MS = 24 * 60 * 60 * 1000;
-const ACTIVITY_RECURRING_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 const CHAT_HISTORY_LIMIT = 250;
 const MAX_RENDERED_MESSAGES = 160;
 const ASSISTANT_MUTED_STORAGE_KEY = 'openx-assistant-voice-muted-v1';
@@ -671,6 +669,20 @@ function formatDueDate(value) {
   return `${day}, ${dueAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
 }
 
+function localDayRange(value = Date.now()) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const end = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).getTime();
+  return { start, end };
+}
+
+function isSameLocalDay(value, reference = Date.now()) {
+  const timestamp = new Date(value).getTime();
+  const range = localDayRange(reference);
+  return Number.isFinite(timestamp) && Boolean(range) && timestamp >= range.start && timestamp < range.end;
+}
+
 function relativeTime(value) {
   const timestamp = new Date(value).getTime();
   if (!Number.isFinite(timestamp)) return '';
@@ -911,14 +923,16 @@ function snoozeSchedule(id, minutes = 5) {
   showToast(`${item.kind} snoozed`, `It will return in ${minutes} minutes.`, 'info');
 }
 
+function isActivityScheduleKind(item = {}) {
+  const kind = String(item.kind || item.sourceKind || '').trim().toLowerCase();
+  return kind === 'alarm' || kind === 'reminder';
+}
+
 function isActivityScheduleVisible(item, now = Date.now()) {
-  if (!item || !['scheduled', 'due'].includes(item.status)) return false;
-  if (item.status === 'due') return true;
-  const dueAt = new Date(item.dueAt).getTime();
-  if (!Number.isFinite(dueAt) || dueAt < now) return false;
-  const recurring = Boolean(String(item.recurrence || '').trim());
-  const windowMs = recurring ? ACTIVITY_RECURRING_WINDOW_MS : ACTIVITY_SCHEDULE_WINDOW_MS;
-  return dueAt <= now + windowMs;
+  const status = String(item?.status || '').toLowerCase();
+  if (!['scheduled', 'due'].includes(status)) return false;
+  if (!isActivityScheduleKind(item)) return false;
+  return isSameLocalDay(item.dueAt, now);
 }
 
 function renderSchedules() {
@@ -931,7 +945,7 @@ function renderSchedules() {
   if (visible.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.textContent = 'No upcoming alarms, timers, or reminders.';
+    empty.textContent = 'No alarms or reminders for today.';
     scheduleListEl.appendChild(empty);
     return;
   }

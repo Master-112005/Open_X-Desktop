@@ -10,6 +10,10 @@
 <body>
   <main class="planner-shell" data-view="calendar">
     <header class="titlebar">
+      <div class="view-switch" role="group" aria-label="Planner view">
+        <button class="view-button active" id="calendar-tab" type="button" aria-pressed="true">Calendar</button>
+        <button class="view-button" id="timetable-tab" type="button" aria-pressed="false">Day</button>
+      </div>
       <div class="window-title">
         <span>Assistant Planner</span>
         <strong id="current-period">Today</strong>

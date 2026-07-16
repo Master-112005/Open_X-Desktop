@@ -173,10 +173,11 @@ function renderYearPicker() {
 function setView(view) {
   currentView = view === 'timetable' ? 'timetable' : 'calendar';
   shellEl.dataset.view = currentView;
-  calendarTabEl?.classList.toggle('active', true);
-  timetableTabEl?.classList.toggle('active', currentView === 'timetable');
-  calendarTabEl?.setAttribute('aria-pressed', 'true');
-  timetableTabEl?.setAttribute('aria-pressed', String(currentView === 'timetable'));
+  const showingCalendar = currentView === 'calendar';
+  calendarTabEl?.classList.toggle('active', showingCalendar);
+  timetableTabEl?.classList.toggle('active', !showingCalendar);
+  calendarTabEl?.setAttribute('aria-pressed', String(showingCalendar));
+  timetableTabEl?.setAttribute('aria-pressed', String(!showingCalendar));
   scheduleRender();
 }
 
@@ -186,6 +187,7 @@ function setQuickAddOpen(open) {
   quickAddToggleEl.classList.toggle('active', open);
   quickAddToggleEl.setAttribute('aria-expanded', String(open));
   if (open) {
+    setSelectedDateKey(getSelectedDateKey());
     entryTitleEl.focus();
   }
 }
@@ -355,9 +357,7 @@ function renderTimetable() {
 }
 
 function renderAgenda() {
-  const focusDate = currentView === 'timetable'
-    ? getSelectedDateKey()
-    : (entryDateEl.value || localDateKey(new Date()));
+  const focusDate = getSelectedDateKey();
   const visible = sortEntries(entries.filter(entry => !focusDate || entry.date === focusDate));
   agendaCountEl.textContent = `${visible.length} item${visible.length === 1 ? '' : 's'}`;
 
