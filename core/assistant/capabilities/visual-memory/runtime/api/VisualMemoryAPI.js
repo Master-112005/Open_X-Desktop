@@ -3,12 +3,13 @@
 const path = require('path');
 const { IMAGE_EXTENSIONS } = require('../utils/constants');
 const { listFilesRecursive } = require('../utils/FileSystemUtils');
-const { cosineSimilarity } = require('../faces/utils/face-utils');
+const { cosineSimilarity, faceQualityScore } = require('../faces/utils/face-utils');
 
 const DEFAULT_FACE_SCAN_OPTIONS = Object.freeze({
   maxPhotos: 10000,
   faceConfidence: 0.86,
-  embeddingConfidence: 0.82
+  embeddingConfidence: 0.82,
+  faceQuality: 0.56
 });
 
 class VisualMemoryAPI {
@@ -355,12 +356,14 @@ class VisualMemoryAPI {
     scanOptions.maxPhotos = Math.max(1, Math.min(100000, Number(scanOptions.maxPhotos) || DEFAULT_FACE_SCAN_OPTIONS.maxPhotos));
     scanOptions.faceConfidence = Math.max(0.5, Math.min(0.99, Number(scanOptions.faceConfidence) || DEFAULT_FACE_SCAN_OPTIONS.faceConfidence));
     scanOptions.embeddingConfidence = Math.max(0.5, Math.min(0.99, Number(scanOptions.embeddingConfidence) || DEFAULT_FACE_SCAN_OPTIONS.embeddingConfidence));
+    scanOptions.faceQuality = Math.max(0.35, Math.min(0.95, Number(scanOptions.faceQuality) || this.engine.faces?.configuration?.quality?.minScanQuality || DEFAULT_FACE_SCAN_OPTIONS.faceQuality));
     const startedAt = Date.now();
 
     this._logInfo('People scan started. OpenX will check indexed photos for clear, verified faces.', {
       maxPhotos: scanOptions.maxPhotos,
       faceConfidence: scanOptions.faceConfidence,
-      embeddingConfidence: scanOptions.embeddingConfidence
+      embeddingConfidence: scanOptions.embeddingConfidence,
+      faceQuality: scanOptions.faceQuality
     });
 
     const vision = await this._resolveVisionEngine();
@@ -886,6 +889,7 @@ class VisualMemoryAPI {
       requireFaceEmbedding: true,
       faceConfidenceThreshold: options.faceConfidence,
       embeddingConfidenceThreshold: options.embeddingConfidence,
+      faceQualityThreshold: options.faceQuality,
       source: 'ai-vision'
     };
   }
@@ -910,15 +914,25 @@ class VisualMemoryAPI {
         face,
         embedding,
         index,
-        confidence: Math.min(Number(face.confidence || 0), Number(embedding.confidence || 0))
+        confidence: Math.min(Number(face.confidence || 0), Number(embedding.confidence || 0)),
+        quality: faceQualityScore({
+          confidence: Math.min(Number(face.confidence || 0), Number(embedding.confidence || 0)),
+          faceBox: face.box || null,
+          imageWidth: Number(face.imageWidth || face.box?.imageWidth || 0) || null,
+          imageHeight: Number(face.imageHeight || face.box?.imageHeight || 0) || null,
+          vector: embedding.vector
+        })
       });
     }
-    const uniquePairs = this._dedupeFacePairs(paired);
-    const suppressed = paired.length - uniquePairs.length;
+    const qualityPairs = paired.filter(pair => pair.quality >= (Number(options.faceQuality) || DEFAULT_FACE_SCAN_OPTIONS.faceQuality));
+    const lowQuality = paired.length - qualityPairs.length;
+    if (lowQuality > 0) warnings.push({ photoId, code: 'low-quality-face-suppressed', count: lowQuality });
+    const uniquePairs = this._dedupeFacePairs(qualityPairs);
+    const suppressed = qualityPairs.length - uniquePairs.length;
     if (suppressed > 0) warnings.push({ photoId, code: 'duplicate-face-detection-suppressed', count: suppressed });
     const items = [];
     for (const pair of uniquePairs) {
-      const { face, embedding, index, confidence } = pair;
+      const { face, embedding, index, confidence, quality } = pair;
       items.push({
         vector: embedding.vector,
         photoId,
@@ -927,7 +941,8 @@ class VisualMemoryAPI {
         source: 'gallery-people-scan',
         faceBox: face.box || null,
         imageWidth: Number(face.imageWidth || face.box?.imageWidth || 0) || null,
-        imageHeight: Number(face.imageHeight || face.box?.imageHeight || 0) || null
+        imageHeight: Number(face.imageHeight || face.box?.imageHeight || 0) || null,
+        quality
       });
     }
     return { items, detectedFaces: faces.length, warnings };
@@ -937,7 +952,7 @@ class VisualMemoryAPI {
     const selected = [];
     const sorted = pairs
       .slice()
-      .sort((left, right) => (right.confidence || 0) - (left.confidence || 0));
+      .sort((left, right) => (right.quality || 0) - (left.quality || 0) || (right.confidence || 0) - (left.confidence || 0));
     for (const pair of sorted) {
       const box = pair.face?.box || null;
       const duplicate = selected.some(existing => {

@@ -1,6 +1,13 @@
 'use strict';
 
-const { cosineSimilarity, id, nowIso } = require('../utils/face-utils');
+const {
+  cosineSimilarity,
+  faceBoxIoU,
+  id,
+  normalizeFaceBox,
+  normalizedFaceBoxDistance,
+  nowIso
+} = require('../utils/face-utils');
 
 class IdentityManager {
   constructor({ state, profiles, embeddings, validator, events, diagnostics } = {}) {
@@ -109,6 +116,7 @@ class IdentityManager {
     const duplicate = this._findDuplicateIdentityEmbedding(identityId, input, options);
     if (duplicate) {
       duplicate.confidence = Math.max(Number(duplicate.confidence) || 0, Number(input.confidence) || 0);
+      duplicate.quality = Math.max(Number(duplicate.quality) || 0, Number(input.quality) || 0);
       duplicate.lastMatchedAt = nowIso();
       duplicate.matchCount = Math.max(1, Number(duplicate.matchCount) || 1) + 1;
       const profile = this._refreshProfile(identityId);
@@ -131,7 +139,8 @@ class IdentityManager {
       imageWidth: faceBox?.imageWidth || input.imageWidth || null,
       imageHeight: faceBox?.imageHeight || input.imageHeight || null,
       source: input.source || options.source || 'ai-vision',
-      confidence: input.confidence || 0
+      confidence: input.confidence || 0,
+      quality: input.quality
     });
     identity.embeddingIds = Array.from(new Set([...(identity.embeddingIds || []), embedding.id]));
     identity.history = Array.isArray(identity.history) ? identity.history : [];
@@ -208,46 +217,32 @@ class IdentityManager {
   _findDuplicateIdentityEmbedding(identityId, input = {}, options = {}) {
     const vector = Array.isArray(input.vector) ? input.vector : [];
     const threshold = Number(options.duplicateThreshold ?? 0.998);
+    const crossPhotoThreshold = Number(options.duplicateCrossPhotoThreshold ?? 0.9995);
     const boxThreshold = Number(options.duplicateBoxIoU ?? 0.94);
     const faceBox = this._normalizeFaceBox(input.faceBox, input.imageWidth, input.imageHeight);
     for (const embedding of this.embeddings.listForIdentity(identityId)) {
-      if (input.photoId && embedding.photoId && input.photoId === embedding.photoId) {
+      if (!input.photoId || !embedding.photoId) continue;
+      const similarity = vector.length && Array.isArray(embedding.vector) ? cosineSimilarity(vector, embedding.vector) : 0;
+      if (input.photoId === embedding.photoId) {
         if (input.faceId && embedding.faceId && input.faceId === embedding.faceId) return embedding;
-        if (faceBox && embedding.faceBox && this._faceBoxIoU(faceBox, embedding.faceBox) >= boxThreshold) return embedding;
-        if (vector.length && Array.isArray(embedding.vector) && cosineSimilarity(vector, embedding.vector) >= threshold) return embedding;
+        if (faceBox && embedding.faceBox && faceBoxIoU(faceBox, embedding.faceBox) >= boxThreshold) return embedding;
+        if (similarity >= threshold) return embedding;
+      } else if (similarity >= crossPhotoThreshold &&
+        faceBox &&
+        embedding.faceBox &&
+        normalizedFaceBoxDistance(faceBox, embedding.faceBox) <= 0.018) {
+        return embedding;
       }
     }
     return null;
   }
 
   _normalizeFaceBox(faceBox = null, imageWidth = null, imageHeight = null) {
-    if (!faceBox || typeof faceBox !== 'object') return null;
-    return {
-      x: Number(faceBox.x) || 0,
-      y: Number(faceBox.y) || 0,
-      width: Number(faceBox.width) || 0,
-      height: Number(faceBox.height) || 0,
-      imageWidth: Number(imageWidth) || Number(faceBox.imageWidth) || null,
-      imageHeight: Number(imageHeight) || Number(faceBox.imageHeight) || null
-    };
+    return normalizeFaceBox(faceBox, imageWidth, imageHeight);
   }
 
   _faceBoxIoU(left = {}, right = {}) {
-    const lx1 = Number(left.x) || 0;
-    const ly1 = Number(left.y) || 0;
-    const lx2 = lx1 + (Number(left.width) || 0);
-    const ly2 = ly1 + (Number(left.height) || 0);
-    const rx1 = Number(right.x) || 0;
-    const ry1 = Number(right.y) || 0;
-    const rx2 = rx1 + (Number(right.width) || 0);
-    const ry2 = ry1 + (Number(right.height) || 0);
-    const intersectionWidth = Math.max(0, Math.min(lx2, rx2) - Math.max(lx1, rx1));
-    const intersectionHeight = Math.max(0, Math.min(ly2, ry2) - Math.max(ly1, ry1));
-    const intersection = intersectionWidth * intersectionHeight;
-    const leftArea = Math.max(0, lx2 - lx1) * Math.max(0, ly2 - ly1);
-    const rightArea = Math.max(0, rx2 - rx1) * Math.max(0, ry2 - ry1);
-    const union = leftArea + rightArea - intersection;
-    return union > 0 ? intersection / union : 0;
+    return faceBoxIoU(left, right);
   }
 }
 

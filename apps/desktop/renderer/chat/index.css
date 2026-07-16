@@ -3989,7 +3989,7 @@ html[data-glass-contrast] #send-btn {
   -webkit-backdrop-filter: none !important;
 }
 #workspace,#messages,.settings-content,#schedule-list,#notification-list,#input-area,.composer-field { contain: layout paint style; }
-#messages { scroll-behavior: smooth; }
+#messages { scroll-behavior: auto; }
 .composer-field,
 .composer-field:focus-within {
   backdrop-filter: none !important;

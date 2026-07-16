@@ -21,7 +21,7 @@ const personAssignListEl = document.getElementById('person-assign-list');
 const personAssignCloseEl = document.getElementById('person-assign-close');
 
 const PAGE_SIZE = 80;
-const MAX_IMAGE_LOADS = 6;
+const MAX_IMAGE_LOADS = 4;
 const SEARCH_DEBOUNCE_MS = 120;
 let page = 1;
 let hasMore = false;
@@ -643,7 +643,7 @@ function setupObserver() {
     });
   }, {
     root: photoScrollEl,
-    rootMargin: '240px 0px',
+    rootMargin: '480px 0px',
     threshold: 0.01
   });
   timelineEl.querySelectorAll('.photo-card').forEach(card => imageObserver.observe(card));
@@ -842,8 +842,8 @@ function scrollToToday() {
   }
   const today = dateKey({ createdAt: new Date().toISOString() });
   const target = timelineEl.querySelector(`[data-date="${today}"]`);
-  if (target) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  else photoScrollEl.scrollTo({ top: 0, behavior: 'smooth' });
+  if (target) target.scrollIntoView({ block: 'start', behavior: 'auto' });
+  else photoScrollEl.scrollTo({ top: 0, behavior: 'auto' });
 }
 
 function maybeLoadMoreOnScroll() {

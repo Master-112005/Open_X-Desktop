@@ -8,7 +8,7 @@ class MemoryConfidenceEngine {
     let weightTotal = 0;
     for (const [key, value] of entries) {
       const score = Math.max(0, Math.min(1, Number(value || 0)));
-      const weight = Math.max(0, Number(weights[key] || 1));
+      const weight = Math.max(0, Number(weights[key] ?? weights[`${key}Weight`] ?? 1));
       total += score * weight;
       weightTotal += weight;
     }
