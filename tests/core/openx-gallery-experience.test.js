@@ -138,6 +138,19 @@ describe('OpenX Gallery Experience', () => {
             warnings: []
           };
         }
+        if (/family/i.test(request.imagePath || '')) {
+          return {
+            faces: [
+              { id: 'face-2', confidence: 0.95, imageWidth: 1000, imageHeight: 800, box: { x: 240, y: 185, width: 178, height: 178 } },
+              { id: 'face-2-duplicate', confidence: 0.91, imageWidth: 1000, imageHeight: 800, box: { x: 248, y: 193, width: 174, height: 174 } }
+            ],
+            embeddings: [
+              { vector: [0.97, 0.24], confidence: 0.94 },
+              { vector: [0.969, 0.245], confidence: 0.91 }
+            ],
+            warnings: []
+          };
+        }
         return {
           faces: [
             { id: 'face-1', confidence: 0.96, imageWidth: 1000, imageHeight: 800, box: { x: 220, y: 180, width: 180, height: 180 } },
@@ -159,22 +172,36 @@ describe('OpenX Gallery Experience', () => {
     });
     await engine.api.start();
     await seedVisualMemory(engine);
+    await engine.database.upsert('photos', 'familyPark', {
+      fileName: 'family.jpg',
+      filePath: 'C:/Pictures/Family/family.jpg',
+      fileType: 'jpg',
+      createdAt: '2026-01-12T08:00:00.000Z',
+      folderId: 'family'
+    });
+    await engine.database.upsert('metadata', 'familyPark', {
+      photoId: 'familyPark',
+      createdAt: '2026-01-12T08:00:00.000Z',
+      width: 1600,
+      height: 1000,
+      photoType: 'image'
+    });
     await engine.api.enableFaceMemory({ acceptedBy: 'test-rescan' });
     await engine.api.ingestUnknownFace({ vector: [0, 1], photoId: 'desktopShot', faceId: 'old-bad-cluster', confidence: 0.95 });
 
-    const result = await engine.api.scanGalleryPeople({ maxPhotos: 3 });
+    const result = await engine.api.scanGalleryPeople({ maxPhotos: 4 });
     const people = await engine.api.getOpenXGalleryPeople();
 
     assert.strictEqual(result.success, true);
     assert.strictEqual(result.reset.removedClusters, 1);
-    assert.strictEqual(result.scanned, 3);
+    assert.strictEqual(result.scanned, 4);
     assert.strictEqual(result.grouped, 2);
     assert(result.warnings.some(item => item.code === 'duplicate-face-detection-suppressed'));
     assert.strictEqual(result.verification.requireFaceDetection, true);
     assert.strictEqual(result.verification.requireFaceEmbedding, true);
     assert(people.unknown.length >= 1);
     assert(people.unknown.every(person => person.nameable === true));
-    assert.strictEqual(people.unknown[0].representativeFaceBox.width, 180);
+    assert.strictEqual(people.unknown[0].representativeFaceBox.width, 178);
     assert.strictEqual(people.unknown[0].representativeFaceBox.imageWidth, 1000);
 
     await engine.api.shutdown();

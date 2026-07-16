@@ -71,6 +71,78 @@ describe('Electron Security Boundary', function() {
     assert.throws(() => IPC_VALIDATORS['security:verifyAccess']({}), /password must be a string/);
   });
 
+  it('should validate disk-backed chat history IPC payloads', function() {
+    assert.deepEqual(
+      IPC_VALIDATORS['chatHistory:save']({
+        entries: [
+          { type: 'user', text: ' hello ', meta: 'You - now', createdAt: 123 },
+          { type: 'assistant', text: 'Ready', meta: '', createdAt: 124 }
+        ]
+      }),
+      {
+        entries: [
+          { type: 'user', text: 'hello', meta: 'You - now', createdAt: 123 },
+          { type: 'assistant', text: 'Ready', meta: '', createdAt: 124 }
+        ]
+      }
+    );
+    assert.throws(() => IPC_VALIDATORS['chatHistory:save']({ entries: [{ type: 'bad', text: 'No' }] }), /entry type/);
+    assert.throws(() => IPC_VALIDATORS['chatHistory:save']({ entries: new Array(101).fill({ type: 'user', text: 'x' }) }), /too many/);
+    assert.throws(() => IPC_VALIDATORS['chatHistory:get']({}), /does not accept/);
+    assert.throws(() => IPC_VALIDATORS['chatHistory:clear']({}), /does not accept/);
+  });
+
+  it('should validate disk-backed renderer UI state IPC payloads', function() {
+    assert.deepEqual(
+      IPC_VALIDATORS['uiState:save']({
+        assistantMuted: true,
+        schedules: [{
+          id: 'reminder-1',
+          kind: 'Reminder',
+          message: 'Drink water',
+          category: 'water',
+          symbol: '',
+          dueAt: '2026-07-16T10:00:00.000Z',
+          recurrence: '',
+          status: 'scheduled',
+          createdAt: '2026-07-16T09:00:00.000Z',
+          source: 'scheduler'
+        }],
+        notifications: [{
+          id: 'notice-1',
+          title: 'Reminder scheduled',
+          message: 'Drink water',
+          tone: 'reminder',
+          createdAt: '2026-07-16T09:00:00.000Z'
+        }]
+      }),
+      {
+        assistantMuted: true,
+        schedules: [{
+          id: 'reminder-1',
+          kind: 'Reminder',
+          message: 'Drink water',
+          category: 'water',
+          symbol: null,
+          dueAt: '2026-07-16T10:00:00.000Z',
+          recurrence: '',
+          status: 'scheduled',
+          createdAt: '2026-07-16T09:00:00.000Z',
+          source: 'scheduler'
+        }],
+        notifications: [{
+          id: 'notice-1',
+          title: 'Reminder scheduled',
+          message: 'Drink water',
+          tone: 'reminder',
+          createdAt: '2026-07-16T09:00:00.000Z'
+        }]
+      }
+    );
+    assert.throws(() => IPC_VALIDATORS['uiState:save']({ schedules: new Array(81).fill({ id: 'x', dueAt: 'now' }) }), /too many/);
+    assert.throws(() => IPC_VALIDATORS['uiState:get']({}), /does not accept/);
+  });
+
   it('should validate cloud device mutations', function() {
     assert.deepEqual(
       IPC_VALIDATORS['cloud:device:rename']({ deviceId: 'phone001', deviceName: '  Rakesh   Phone  ' }),
@@ -153,7 +225,8 @@ describe('Electron Security Boundary', function() {
       'voiceOverlay:collapse', 'voiceOverlay:expandLiveSchedule',
       'window:openChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
       'window:openGallery', 'window:closeGallery',
-      'config:get', 'settings:get',
+      'config:get', 'settings:get', 'chatHistory:get', 'chatHistory:save', 'chatHistory:clear',
+      'uiState:get', 'uiState:save',
       'security:status', 'security:verifyAccess', 'security:setPassword',
       'cloud:status', 'cloud:connect', 'cloud:disconnect',
       'cloud:pairingQR:create', 'cloud:pairing:status', 'cloud:pairing:approve', 'cloud:pairing:reject',

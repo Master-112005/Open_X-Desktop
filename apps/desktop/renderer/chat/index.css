@@ -4718,7 +4718,8 @@ html[data-glass-contrast] #send-btn {
   gap: 8px;
 }
 
-.security-status-card {
+.security-status-card,
+.storage-action-card {
   align-items: center;
   background: rgba(255,255,255,.07);
   border: 1px solid rgba(255,255,255,.14);
@@ -4730,15 +4731,22 @@ html[data-glass-contrast] #send-btn {
 }
 
 .security-status-card strong,
-.security-status-card span {
+.security-status-card span,
+.storage-action-card strong,
+.storage-action-card span {
   display: block;
 }
 
 .security-status-card span,
+.storage-action-card span,
 #security-password-message {
   color: var(--muted-color);
   font-size: 12px;
   font-weight: 700;
+}
+
+.storage-action-card .danger-btn {
+  flex: 0 0 auto;
 }
 
 .communication-provider-card {

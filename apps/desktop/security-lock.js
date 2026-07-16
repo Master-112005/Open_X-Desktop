@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { readJsonFile, writeJsonAtomic } = require('../../core/assistant/Data');
+const { buildDataPaths, readJsonFile, writeJsonAtomic } = require('../../core/assistant/Data');
 
 const CURRENT_VERSION = 1;
 const KEY_BYTES = 32;
@@ -31,7 +31,7 @@ function timingSafeEqualText(left, right) {
 
 class OpenXSecurityLock {
   constructor(options = {}) {
-    const securityDir = options.securityDir || path.join(options.dataRoot || process.cwd(), 'security');
+    const securityDir = options.securityDir || path.join(options.dataRoot || buildDataPaths().root, 'security');
     this.lockPath = options.lockPath || path.join(securityDir, 'assistant-lock.json');
     this.now = options.now || (() => Date.now());
     this.failedAttempts = 0;

@@ -770,6 +770,21 @@ const openxApi = {
   getSettings: () =>
     ipcRenderer.invoke('settings:get'),
 
+  getChatHistory: () =>
+    ipcRenderer.invoke('chatHistory:get'),
+
+  saveChatHistory: (entries = []) =>
+    ipcRenderer.invoke('chatHistory:save', { entries }),
+
+  clearChatHistory: () =>
+    ipcRenderer.invoke('chatHistory:clear'),
+
+  getUiState: () =>
+    ipcRenderer.invoke('uiState:get'),
+
+  saveUiState: (state = {}) =>
+    ipcRenderer.invoke('uiState:save', state),
+
   getSecurityStatus: () =>
     ipcRenderer.invoke('security:status'),
 

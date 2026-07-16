@@ -15,18 +15,24 @@ describe('Assistant Data Root', function() {
 
     assert.equal(path.basename(paths.root), 'OpenX_Data');
     assert.equal(paths.settingsPath, path.join(paths.root, 'settings.json'));
+    assert.equal(paths.chatHistoryPath, path.join(paths.root, 'chat-history.json'));
+    assert.equal(paths.uiStatePath, path.join(paths.root, 'ui-state.json'));
     assert.equal(paths.learningPath, path.join(paths.root, 'learning.json'));
     assert.equal(paths.schedulesPath, path.join(paths.root, 'schedules.json'));
     assert.equal(paths.plannerPath, path.join(paths.root, 'planner.json'));
     assert.equal(paths.screenshotsDir, path.join(paths.root, 'screenshots'));
     assert.equal(paths.learningDir, path.join(paths.root, 'learning'));
     assert.equal(paths.logsDir, path.join(paths.root, 'logs'));
+    assert.equal(paths.electronProfileDir, path.join(paths.root, 'runtime', 'electron-profile'));
     assert.equal(paths.mediaProfileDir, path.join(paths.root, 'runtime', 'chrome-media-profile'));
     assert.equal(paths.voiceDir, path.join(paths.root, 'voice'));
     assert.equal(paths.voiceDiagnosticsDir, path.join(paths.voiceDir, 'diagnostics'));
     assert.equal(paths.cloudDir, path.join(paths.root, 'cloud'));
     assert.equal(paths.cloudReceivedDir, path.join(os.homedir(), 'Documents', 'OpenX'));
     assert.equal(paths.cloudTempDir, path.join(paths.root, 'runtime', 'cloud-transfer'));
+    assert.equal(paths.visualMemoryDir, path.join(paths.root, 'visual-memory'));
+    assert.equal(paths.visualMemoryDatabasePath, path.join(paths.visualMemoryDir, 'visual-memory-db.json'));
+    assert.equal(paths.visualMemoryThumbnailDir, path.join(paths.visualMemoryDir, 'thumbnails'));
     assert.equal(paths.legacyPhoneDir, undefined);
   });
 
@@ -39,6 +45,7 @@ describe('Assistant Data Root', function() {
     assert.ok(fs.existsSync(paths.logsDir));
     assert.ok(fs.existsSync(paths.learningDir));
     assert.ok(fs.existsSync(paths.runtimeDir));
+    assert.ok(fs.existsSync(paths.electronProfileDir));
     assert.ok(fs.existsSync(paths.cacheDir));
     assert.ok(fs.existsSync(paths.mediaProfileDir));
     assert.ok(fs.existsSync(paths.screenshotsDir));
@@ -46,6 +53,8 @@ describe('Assistant Data Root', function() {
     assert.ok(fs.existsSync(paths.cloudDir));
     assert.ok(fs.existsSync(paths.cloudReceivedDir));
     assert.ok(fs.existsSync(paths.cloudTempDir));
+    assert.ok(fs.existsSync(paths.visualMemoryDir));
+    assert.ok(fs.existsSync(paths.visualMemoryThumbnailDir));
     assert.equal(fs.existsSync(path.join(paths.root, 'phone')), false);
   });
 
