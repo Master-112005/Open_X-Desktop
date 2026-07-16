@@ -3122,12 +3122,16 @@ describe('Action Router', function() {
     };
     const router = new ActionRouter(config, stubEngine);
     const local = await router.process('can you find me a pic me with my classmates', 'chat');
+    const family = await router.process('find a pic that me and my dad in it', 'chat');
     const google = await router.process('find a pic with my classmates in google photos', 'chat');
     const photosApp = await router.process('find my family pictures in the photos app', 'chat');
 
-    assert.equal(local.intent, 'file.search');
+    assert.equal(local.intent, 'visualMemory.search');
     assert.equal(local.entities.query, 'classmates me');
     assert.equal(local.entities.personalSearchType, 'photo');
+    assert.equal(family.intent, 'visualMemory.search');
+    assert.equal(family.entities.query, 'me dad');
+    assert.equal(family.entities.personalSearchType, 'photo');
     assert.equal(google.intent, 'browser.siteSearch');
     assert.equal(google.entities.site, 'google photos');
     assert.equal(google.entities.query, 'classmates');

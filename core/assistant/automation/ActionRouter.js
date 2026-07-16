@@ -5704,7 +5704,7 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     }
 
     const photoLibrary = this.learningStore?.getPreference?.('photoLibrary')?.value || '';
-    const wantsGooglePhotos = /\bgoogle\s+photos?\b/.test(input);
+    const wantsGooglePhotos = /\bgoogle\s+photos?\b/.test(input) || photoLibrary === 'googlePhotos';
     if (wantsGooglePhotos) {
       const intent = this.intentRegistry.get('browser.siteSearch');
       return intent
@@ -5726,9 +5726,16 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
       return intent ? { intent, confidence: 0.92, entities: { appName: 'photos' } } : null;
     }
 
-    const visualIntent = this.intentRegistry.get('visualMemory.openGallery');
+    const visualIntent = this.intentRegistry.get('visualMemory.search');
     if (visualIntent) {
-      return { intent: visualIntent, confidence: 0.96, entities: { view: 'timeline' } };
+      return {
+        intent: visualIntent,
+        confidence: 0.96,
+        entities: {
+          query: this._extractPersonalPhotoQuery(input),
+          personalSearchType: 'photo'
+        }
+      };
     }
 
     const intent = this.intentRegistry.get('file.search');
@@ -5752,8 +5759,13 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     const priorityTerms = [
       ['classmates', /\b(?:classmates?|class\s+mates?|college\s+friends?|school\s+friends?)\b/],
       ['friends', /\bfriends?\b/],
-      ['family', /\bfamily\b/],
       ['me', /\b(?:me|myself|mine)\b/],
+      ['dad', /\b(?:dad|daddy|father|papa|app[aā])\b/],
+      ['mom', /\b(?:mom|mum|mummy|mother|mama|amm[aā])\b/],
+      ['parents', /\bparents?\b/],
+      ['brother', /\bbrothers?\b/],
+      ['sister', /\bsisters?\b/],
+      ['family', /\bfamily\b/],
       ['recent', /\brecent\b/]
     ];
     const matched = priorityTerms

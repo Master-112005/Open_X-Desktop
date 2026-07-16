@@ -1119,6 +1119,13 @@ const RESPONSE_BUILDERS = {
       'OpenX Gallery is ready.',
       'Bringing up your OpenX Gallery.'
     ]),
+    'visualMemory.search': context => {
+      const count = Number(valueFromContext(context, 'count', 0));
+      if (count > 0) {
+        return count === 1 ? 'I found 1 possible photo.' : `I found ${count} possible photos.`;
+      }
+      return 'I searched your photo memories.';
+    },
     'calendar.add': context => {
       const entry = valueFromContext(context, 'entry', {});
       const title = entry?.title || valueFromContext(context, 'plannerText', 'that item');

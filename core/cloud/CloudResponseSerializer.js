@@ -36,7 +36,8 @@ class CloudResponseSerializer {
         lifecycle: status,
         source: 'desktop',
         destination: 'cloud-phone',
-        streaming: false
+        streaming: false,
+        retryable: true
       },
       checksum: null,
       encryption: null,
@@ -103,6 +104,9 @@ class CloudResponseSerializer {
     if (Array.isArray(data.resultEntries)) {
       safe.resultEntries = data.resultEntries.slice(0, MAX_ENTRIES).map((entry, index) => this.sanitizeEntry(entry, index, intent));
     }
+    if (Array.isArray(data.visualResults)) {
+      safe.visualResults = data.visualResults.slice(0, MAX_ENTRIES).map((entry, index) => this.sanitizeVisualEntry(entry, index));
+    }
     if (data.searchSummary && typeof data.searchSummary === 'object') {
       const sources = Array.isArray(data.searchSummary.sources)
         ? data.searchSummary.sources.slice(0, 4).map((entry, index) => this.sanitizeEntry(entry, index, 'browser.search'))
@@ -135,6 +139,24 @@ class CloudResponseSerializer {
       snippet: this.cleanText(value.snippet || value.summary || '', 220),
       sizeMB: Number(value.sizeMB || 0),
       matchScore: Number(value.matchScore || value.score || 0)
+    };
+  }
+
+  sanitizeVisualEntry(entry = {}, index = 0) {
+    const value = entry && typeof entry === 'object' ? entry : {};
+    const confidence = Number(value.confidence ?? value.matchScore ?? value.score ?? 0);
+    return {
+      index: Number(value.index) || index + 1,
+      photoId: this.cleanText(value.photoId || value.id || '', 120),
+      name: this.cleanText(value.name || value.title || value.fileName || `Photo ${index + 1}`, 180),
+      title: this.cleanText(value.title || value.name || value.fileName || '', 180),
+      fileName: this.cleanText(value.fileName || '', 180),
+      type: this.cleanText(value.type || 'photo', 40),
+      path: this.cleanText(value.path || '', MAX_FIELD),
+      location: this.cleanText(value.location || '', 140),
+      createdAt: this.cleanText(value.createdAt || value.timestamp || '', 80),
+      confidence,
+      matchScore: confidence <= 1 ? confidence * 100 : confidence
     };
   }
 

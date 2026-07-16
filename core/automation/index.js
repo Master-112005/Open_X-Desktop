@@ -204,6 +204,7 @@ class AutomationEngine {
       'calendar.open': () => this.planner.open('calendar'),
       'timetable.open': () => this.planner.open('timetable'),
       'visualMemory.openGallery': (entities) => this._openVisualMemoryGallery(entities),
+      'visualMemory.search': (entities) => this._searchVisualMemory(entities),
       'calendar.add': (entities, context) => this.planner.addCalendarEntry(entities, context),
       'timetable.add': (entities, context) => this.planner.addTimetableEntry(entities, context),
       'system.shutdown': () => this.windows.shutdown(),
@@ -1275,6 +1276,17 @@ class AutomationEngine {
         view: result.view || entities.view || 'timeline'
       },
       error: result.success === false ? result.error : undefined
+    };
+  }
+
+  _searchVisualMemory(entities = {}) {
+    return {
+      success: true,
+      data: {
+        action: 'visualMemory.search',
+        query: String(entities.query || '').trim(),
+        personalSearchType: entities.personalSearchType || 'photo'
+      }
     };
   }
 
