@@ -123,11 +123,6 @@
   line-height: 1;
 }
 
-.voice-start-icon {
-  font-size: 14px;
-  line-height: 1;
-}
-
 #messages {
   gap: 19px;
   padding: 24px 20px 18px;
@@ -2875,12 +2870,13 @@ body {
   align-items: center;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
+  border-radius: 23px;
   display: flex;
   flex: 1;
   gap: 8px;
   min-height: 46px;
   padding-left: 13px;
+  padding-right: 4px;
   transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
@@ -2890,17 +2886,12 @@ body {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 12%, transparent);
 }
 
-.composer-spark {
-  color: color-mix(in srgb, var(--accent-color) 70%, white);
-  font-size: 14px;
-}
-
 #input-box {
   background: transparent;
   border: 0;
   border-radius: 0;
   min-width: 0;
-  padding: 12px 10px 12px 0;
+  padding: 12px 2px 12px 0;
   width: 100%;
 }
 
@@ -2909,23 +2900,129 @@ body {
 }
 
 #send-btn {
-  border-radius: 14px;
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent-color) 20%, transparent);
-  gap: 5px;
-  height: 46px;
-  min-width: 70px;
-  padding: 0 12px;
+  border-radius: 50%;
+  box-shadow:
+    0 8px 20px color-mix(in srgb, var(--accent-color) 20%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  flex: 0 0 38px;
+  gap: 0;
+  height: 38px;
+  min-width: 38px;
+  padding: 0;
+  width: 38px;
+}
+
+#send-btn span {
+  display: none;
 }
 
 #send-btn b {
   align-items: center;
-  background: rgba(255, 255, 255, 0.18);
+  background: transparent;
   border-radius: 999px;
   display: inline-flex;
-  font-size: 12px;
-  height: 19px;
+  font-size: 16px;
+  height: auto;
   justify-content: center;
-  width: 19px;
+  line-height: 1;
+  width: auto;
+}
+
+.composer-voice-btn {
+  align-items: center;
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--accent-color) 26%, transparent) 0 42%, transparent 43%),
+    color-mix(in srgb, var(--surface-bg) 82%, rgba(255, 255, 255, 0.08));
+  border: 1px solid color-mix(in srgb, var(--accent-color) 34%, var(--glass-line));
+  border-radius: 50%;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  color: var(--text-color);
+  display: inline-flex;
+  flex: 0 0 38px;
+  height: 38px;
+  justify-content: center;
+  margin: 0;
+  min-width: 38px;
+  padding: 0;
+  position: relative;
+  width: 38px;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.composer-voice-btn::after {
+  content: none;
+}
+
+.composer-voice-btn .voice-start-ring {
+  border: 1px solid color-mix(in srgb, var(--accent-color) 62%, rgba(255, 255, 255, 0.28));
+  border-radius: 50%;
+  inset: 6px;
+  opacity: 0.74;
+  pointer-events: none;
+  position: absolute;
+}
+
+.composer-voice-btn .voice-start-ring.inner {
+  inset: 12px;
+  opacity: 0.46;
+}
+
+.composer-voice-btn .voice-start-symbol {
+  color: color-mix(in srgb, var(--accent-color) 74%, white);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+  position: relative;
+  z-index: 1;
+}
+
+.composer-voice-btn:hover,
+.composer-voice-btn:focus-visible,
+.composer-voice-btn.active {
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--accent-color) 40%, transparent) 0 44%, transparent 45%),
+    color-mix(in srgb, var(--accent-color) 20%, var(--surface-bg));
+  border-color: color-mix(in srgb, var(--accent-color) 62%, rgba(255, 255, 255, 0.2));
+  box-shadow:
+    0 14px 28px color-mix(in srgb, var(--accent-color) 18%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.composer-voice-btn:active {
+  transform: translateY(0) scale(0.96);
+}
+
+.composer-mute-btn {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface-bg) 82%, rgba(255, 255, 255, 0.08));
+  border: 1px solid color-mix(in srgb, var(--glass-line) 86%, transparent);
+  border-radius: 50%;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  display: inline-flex;
+  flex: 0 0 46px;
+  height: 46px;
+  justify-content: center;
+  margin: 0;
+  min-width: 46px;
+  padding: 0;
+  width: 46px;
+}
+
+.composer-mute-btn:hover,
+.composer-mute-btn:focus-visible {
+  background: color-mix(in srgb, var(--accent-color) 14%, rgba(255, 255, 255, 0.1));
+  border-color: color-mix(in srgb, var(--accent-color) 38%, rgba(255, 255, 255, 0.18));
+}
+
+.composer-mute-btn.active {
+  background: rgba(255, 92, 107, 0.16);
+  border-color: rgba(255, 123, 136, 0.3);
+  color: #ffc2c9;
 }
 
 #quick-actions {
@@ -3428,8 +3525,15 @@ textarea:focus-visible {
   }
 
   #send-btn {
-    min-width: 46px;
-    width: 46px;
+    flex-basis: 38px;
+    min-width: 38px;
+    width: 38px;
+  }
+
+  .composer-voice-btn {
+    flex-basis: 38px;
+    min-width: 38px;
+    width: 38px;
   }
 
   #send-btn span {
@@ -4137,6 +4241,25 @@ html[data-glass-contrast] #send-btn {
   overscroll-behavior-x: contain;
   padding: 8px 2px 10px;
   scroll-padding-inline: 2px;
+  scrollbar-color: color-mix(in srgb, var(--accent-color) 48%, rgba(255, 255, 255, 0.26)) rgba(255, 255, 255, 0.055);
+  scrollbar-width: thin;
+}
+
+.visual-result-strip::-webkit-scrollbar {
+  display: block;
+  height: 8px;
+}
+
+.visual-result-strip::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.055);
+  border-radius: 999px;
+}
+
+.visual-result-strip::-webkit-scrollbar-thumb {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent-color) 68%, white), color-mix(in srgb, var(--accent-color) 45%, rgba(255, 255, 255, 0.34)));
+  border: 2px solid rgba(10, 14, 24, 0.56);
+  border-radius: 999px;
 }
 
 .visual-result-card {

@@ -10,12 +10,18 @@ describe('Chat Renderer UI', function() {
   const script = fs.readFileSync(path.join(rendererRoot, 'index.js'), 'utf8');
 
   it('should provide dedicated chat, activity, apps, notification, and info surfaces', function() {
+    const headerActions = html.match(/<div id="header-actions">([\s\S]*?)<\/div>/)?.[1] || '';
     ['conversation-view', 'activity-view', 'apps-view', 'toast-region', 'schedule-list', 'notification-list', 'calendar-app-btn', 'gallery-app-btn', 'settings-app-btn', 'header-about-btn', 'about-btn']
       .forEach(id => assert.match(html, new RegExp(`id="${id}"`)));
     assert.doesNotMatch(html, /id="alarm-overlay"/);
     assert.doesNotMatch(script, /alarmOverlay|alarm-dismiss-btn|alarm-snooze-btn/);
     assert.match(html, /id="header-about-btn"[\s\S]*id="header-title"/);
-    assert.match(html, /id="chat-view-btn"[\s\S]*id="activity-view-btn"[\s\S]*id="apps-view-btn"[\s\S]*id="assistant-mute-btn"/);
+    assert.match(headerActions, /id="chat-view-btn"[\s\S]*id="activity-view-btn"[\s\S]*id="apps-view-btn"[\s\S]*id="close-btn"/);
+    assert.doesNotMatch(headerActions, /assistant-mute-btn|voice-start-btn/);
+    assert.match(html, /class="composer-field"[\s\S]*id="voice-start-btn"[\s\S]*voice-start-symbol[\s\S]*&#10022;[\s\S]*id="input-box"[\s\S]*id="send-btn"/);
+    assert.match(html, /class="composer-field"[\s\S]*id="send-btn"[\s\S]*<\/div>[\s\S]*class="composer-mute-btn voice-btn" id="assistant-mute-btn"/);
+    assert.doesNotMatch(html, /voice-start-icon|&#127908;/);
+    assert.doesNotMatch(html, /id="quick-actions"|class="chip-btn"|Downloads|Volume up|System status|What can you do\?/);
     assert.match(html, /class="icon-btn about-btn settings-about-btn" id="about-btn"[\s\S]*id="settings-close-btn"/);
     assert.match(script, /panelHeader\.insertBefore\(panelActions, settingsCloseBtn\)/);
     assert.match(html, /Alarms & reminders/);
@@ -33,6 +39,12 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /const aboutButtons = Array\.from\(document\.querySelectorAll\('\[data-about-trigger\]'\)\)/);
     assert.match(css, /#header-left/);
     assert.match(css, /\.header-about-btn/);
+    assert.match(css, /\.composer-voice-btn/);
+    assert.match(css, /\.composer-mute-btn/);
+    assert.match(css, /\.voice-start-ring/);
+    assert.match(css, /\.voice-start-symbol/);
+    assert.match(css, /#send-btn\s*\{[\s\S]*border-radius:\s*50%/);
+    assert.match(css, /#send-btn span\s*\{[\s\S]*display:\s*none/);
     assert.match(css, /\.app-card/);
     assert.match(css, /\.settings-header-actions/);
   });
@@ -74,6 +86,8 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /window\.openx\?\.showGalleryPhoto\?\.\(photoId\)/);
     assert.match(css, /\.visual-result-strip\s*\{/);
     assert.match(css, /overflow-x:\s*auto/);
+    assert.match(css, /\.visual-result-strip::-webkit-scrollbar\s*\{[\s\S]*display:\s*block/);
+    assert.match(css, /\.visual-result-strip::-webkit-scrollbar-thumb\s*\{/);
     assert.match(css, /\.visual-result-card\s*\{/);
     assert.match(css, /scroll-snap-align:\s*start/);
     assert.match(css, /#chat-image-preview-overlay/);
@@ -111,8 +125,9 @@ describe('Chat Renderer UI', function() {
 
   it('should keep recurring scheduler reminders synced into Activity', function() {
     assert.match(script, /recurrence: entry\.recurrence \|\| ''/);
-    assert.match(script, /const recurring = Boolean\(String\(item\.recurrence \|\| ''\)\.trim\(\)\)/);
-    assert.match(script, /const windowMs = recurring \? ACTIVITY_RECURRING_WINDOW_MS : ACTIVITY_SCHEDULE_WINDOW_MS/);
+    assert.match(script, /function isActivityScheduleKind\(item = \{\}\)/);
+    assert.match(script, /return kind === 'alarm' \|\| kind === 'reminder'/);
+    assert.match(script, /return isSameLocalDay\(item\.dueAt, now\)/);
     assert.match(script, /repeats \$\{recurrence\.replace/);
     assert.match(script, /replaceScheduleItemsFromRuntime\(payload\?\.snapshot\?\.entries \|\| payload\?\.entries \|\| \[\]\)/);
   });
@@ -262,7 +277,7 @@ describe('Chat Renderer UI', function() {
   });
 
   it('should bound long-session rendering and coalesce glass tint updates', function() {
-    assert.match(script, /CHAT_HISTORY_LIMIT\s*=\s*250/);
+    assert.match(script, /CHAT_HISTORY_LIMIT\s*=\s*100/);
     assert.match(script, /MAX_RENDERED_MESSAGES\s*=\s*CHAT_HISTORY_LIMIT/);
     assert.match(script, /renderedMessages\[index\]\.remove\(\)/);
     assert.match(script, /function scheduleGlassTintUpdate\(/);
