@@ -63,6 +63,40 @@ describe('Visual Query Understanding', () => {
     assert(result.constraints.scenes.some(item => String(item.value).toLowerCase() === 'beach'));
   });
 
+  it('understands named-person photo phrasing without falling back to gallery navigation', () => {
+    const engine = new VisualQueryEngine();
+    const result = engine.understand({
+      rawInput: 'find a pic of jithu and vivek',
+      normalizedInput: 'find a pic of jithu and vivek',
+      resolvedContext: { conversationMemory: {}, confidence: 0.8 }
+    });
+
+    const people = result.constraints.people.map(item => String(item.value).toLowerCase());
+    assert.strictEqual(result.active, true);
+    assert.strictEqual(result.intent, VISUAL_QUERY_INTENTS.FIND);
+    assert(people.includes('jithu'));
+    assert(people.includes('vivek'));
+    assert.strictEqual(result.validation.valid, true);
+  });
+
+  it('understands direct person-pic phrasing and does not treat scenes as people', () => {
+    const engine = new VisualQueryEngine();
+    const person = engine.understand({
+      rawInput: 'find jithu pic',
+      normalizedInput: 'find jithu pic',
+      resolvedContext: { conversationMemory: {}, confidence: 0.8 }
+    });
+    const scene = engine.understand({
+      rawInput: 'find mountain pic',
+      normalizedInput: 'find mountain pic',
+      resolvedContext: { conversationMemory: {}, confidence: 0.8 }
+    });
+
+    assert(person.constraints.people.some(item => String(item.value).toLowerCase() === 'jithu'));
+    assert(!scene.constraints.people.some(item => String(item.value).toLowerCase() === 'mountain'));
+    assert(scene.constraints.scenes.some(item => String(item.value).toLowerCase() === 'mountain'));
+  });
+
   it('skips non-visual assistant commands', () => {
     const engine = new VisualQueryEngine();
     const result = engine.understand({
