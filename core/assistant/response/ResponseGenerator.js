@@ -1,4 +1,7 @@
 const path = require('path');
+
+const MAX_CHAT_VISUAL_RESULTS = 10;
+
 const { applyFormalAddress } = (() => {
 const ALLOWED_HONORIFICS = new Set(['sir', 'master', 'boss', 'commander']);
 
@@ -1120,9 +1123,16 @@ const RESPONSE_BUILDERS = {
       'Bringing up your OpenX Gallery.'
     ]),
     'visualMemory.search': context => {
-      const count = Number(valueFromContext(context, 'count', 0));
+      const visualSearch = valueFromContext(context, 'visualSearch', null);
+      const shown = Number(visualSearch?.shown || 0);
+      const rawCount = shown || Number(valueFromContext(context, 'count', 0));
+      const total = Number(visualSearch?.total || rawCount || 0);
+      const count = rawCount > MAX_CHAT_VISUAL_RESULTS ? MAX_CHAT_VISUAL_RESULTS : rawCount;
       if (count > 0) {
-        return count === 1 ? 'I found 1 possible photo.' : `I found ${count} possible photos.`;
+        if (count === 1) return 'I found 1 possible photo.';
+        return Number.isFinite(total) && total > count
+          ? `I found the best ${count} photo matches.`
+          : `I found ${count} possible photos.`;
       }
       return 'I searched your photo memories.';
     },

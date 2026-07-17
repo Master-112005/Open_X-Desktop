@@ -4219,6 +4219,15 @@ html[data-glass-contrast] #send-btn {
   max-inline-size: 100%;
 }
 
+.message.assistant .message-bubble--visual-results {
+  display: grid;
+  gap: 10px;
+  inline-size: min(100%, 430px);
+  max-inline-size: min(100%, calc(100vw - 96px));
+  overflow: visible;
+  white-space: normal;
+}
+
 #input-row,
 .composer-field {
   max-inline-size: 100%;
@@ -4233,7 +4242,7 @@ html[data-glass-contrast] #send-btn {
 .visual-result-strip {
   display: flex;
   gap: 10px;
-  inline-size: min(100%, 390px);
+  inline-size: min(100%, 410px);
   max-inline-size: 100%;
   min-inline-size: 0;
   overflow-x: auto;
@@ -4243,6 +4252,11 @@ html[data-glass-contrast] #send-btn {
   scroll-padding-inline: 2px;
   scrollbar-color: color-mix(in srgb, var(--accent-color) 48%, rgba(255, 255, 255, 0.26)) rgba(255, 255, 255, 0.055);
   scrollbar-width: thin;
+}
+
+.message-bubble--visual-results .visual-result-strip {
+  inline-size: 100%;
+  margin-top: 0;
 }
 
 .visual-result-strip::-webkit-scrollbar {
