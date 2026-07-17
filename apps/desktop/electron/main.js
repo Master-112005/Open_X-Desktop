@@ -366,6 +366,9 @@ const IPC_CHANNELS = [
   'gallery:showPhoto',
   'gallery:toggleFavorite',
   'gallery:nameFace',
+  'gallery:setFaceRelationship',
+  'gallery:updateFacePerson',
+  'gallery:deleteFacePerson',
   'gallery:addFaceToPerson',
   'gallery:removeFaceCluster',
   'gallery:scanPeople',
@@ -2011,6 +2014,46 @@ async function nameGalleryFace(clusterId, name, relationship = '') {
   return { success: true, data: result };
 }
 
+async function setGalleryFaceRelationship(identityId, relationship = '') {
+  const engine = await ensureVisualMemoryRuntime();
+  mainLogger.info('[Gallery] Updating a saved person relationship.', {
+    identityId,
+    relationship: relationship || ''
+  });
+  const result = await engine.api.setFaceRelationship(identityId, relationship, 'gallery-people-relation');
+  mainLogger.info('[Gallery] Saved person relationship updated.', {
+    identityId,
+    relationship: result?.relationship || relationship || ''
+  });
+  return { success: true, data: result };
+}
+
+async function updateGalleryFacePerson(identityId, name, relationship = '') {
+  const engine = await ensureVisualMemoryRuntime();
+  mainLogger.info('[Gallery] Updating a saved person.', {
+    identityId,
+    hasName: Boolean(String(name || '').trim()),
+    relationship: relationship || ''
+  });
+  const result = await engine.api.updateFaceIdentity(identityId, { name, relationship }, 'gallery-people-edit');
+  mainLogger.info('[Gallery] Saved person updated.', {
+    identityId,
+    name: result?.identity?.name || name,
+    relationship: result?.identity?.relationship || relationship || ''
+  });
+  return { success: true, data: result };
+}
+
+async function deleteGalleryFacePerson(identityId) {
+  const engine = await ensureVisualMemoryRuntime();
+  mainLogger.info('[Gallery] Deleting a saved person from Face Memory.', { identityId });
+  const deleted = await engine.api.deleteFaceIdentity(identityId);
+  mainLogger.info(deleted
+    ? '[Gallery] Saved person deleted from Face Memory.'
+    : '[Gallery] Saved person was already removed.', { identityId });
+  return { success: Boolean(deleted), data: { identityId, deleted: Boolean(deleted) } };
+}
+
 async function addGalleryFaceToPerson(clusterId, identityId) {
   const engine = await ensureVisualMemoryRuntime();
   mainLogger.info('[Gallery] Adding an unnamed detected face to an existing person.', { clusterId, identityId });
@@ -3447,6 +3490,18 @@ function setupIPC() {
 
   registerIpcHandler('gallery:nameFace', async (_event, { clusterId, name, relationship }) => {
     return nameGalleryFace(clusterId, name, relationship);
+  });
+
+  registerIpcHandler('gallery:setFaceRelationship', async (_event, { identityId, relationship }) => {
+    return setGalleryFaceRelationship(identityId, relationship);
+  });
+
+  registerIpcHandler('gallery:updateFacePerson', async (_event, { identityId, name, relationship }) => {
+    return updateGalleryFacePerson(identityId, name, relationship);
+  });
+
+  registerIpcHandler('gallery:deleteFacePerson', async (_event, { identityId }) => {
+    return deleteGalleryFacePerson(identityId);
   });
 
   registerIpcHandler('gallery:addFaceToPerson', async (_event, { clusterId, identityId }) => {

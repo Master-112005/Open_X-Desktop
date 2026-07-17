@@ -23,6 +23,27 @@ const personAssignCloseEl = document.getElementById('person-assign-close');
 const PAGE_SIZE = 80;
 const MAX_IMAGE_LOADS = 4;
 const SEARCH_DEBOUNCE_MS = 120;
+const RELATION_OPTIONS = Object.freeze([
+  ['', 'Relation'],
+  ['father', 'Daddy'],
+  ['mother', 'Mummy'],
+  ['grandfather', 'Grandpa'],
+  ['grandmother', 'Grandma'],
+  ['parents', 'Parent'],
+  ['brother', 'Brother'],
+  ['sister', 'Sister'],
+  ['friend', 'Friend'],
+  ['cousin', 'Cousin'],
+  ['uncle', 'Uncle'],
+  ['aunt', 'Aunt'],
+  ['wife', 'Wife'],
+  ['husband', 'Husband'],
+  ['child', 'Child'],
+  ['family', 'Family'],
+  ['colleague', 'Colleague'],
+  ['teacher', 'Teacher'],
+  ['other', 'Other']
+]);
 let page = 1;
 let hasMore = false;
 let total = 0;
@@ -257,11 +278,13 @@ function createPersonCard(person, type) {
 
   const body = document.createElement('div');
   body.className = 'person-body';
-  const name = document.createElement('strong');
-  name.textContent = type === 'unknown' ? 'Unnamed person' : person.name || 'Person';
-  const meta = document.createElement('span');
-  meta.textContent = `${person.photoCount || 0} photo${person.photoCount === 1 ? '' : 's'}`;
-  body.append(name, meta);
+  if (type !== 'unknown') {
+    const name = document.createElement('strong');
+    name.textContent = person.name || 'Person';
+    const meta = document.createElement('span');
+    meta.textContent = `${person.photoCount || 0} photo${person.photoCount === 1 ? '' : 's'}`;
+    body.append(name, meta);
+  }
 
   if (type === 'unknown') {
     const form = document.createElement('form');
@@ -274,21 +297,9 @@ function createPersonCard(person, type) {
     const save = document.createElement('button');
     save.type = 'submit';
     save.textContent = 'Save';
-    form.append(input, save);
-    form.addEventListener('submit', async event => {
-      event.preventDefault();
-      const value = input.value.replace(/\s+/g, ' ').trim();
-      if (!value) return;
-      save.disabled = true;
-      try {
-        const result = await window.openx?.nameGalleryFace?.(person.clusterId, value);
-        if (result?.success) await loadGalleryView('people');
-      } finally {
-        save.disabled = false;
-      }
-    });
-    body.appendChild(form);
-
+    save.className = 'person-action-save';
+    const relationship = createRelationSelect('', 'Set relationship');
+    relationship.classList.add('person-relation-select');
     const tools = document.createElement('div');
     tools.className = 'person-correction-tools';
     const addExisting = document.createElement('button');
@@ -315,8 +326,21 @@ function createPersonCard(person, type) {
         remove.disabled = false;
       }
     });
-    tools.append(addExisting, remove);
-    body.appendChild(tools);
+    tools.append(addExisting, remove, save);
+    form.append(input, relationship, tools);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const value = input.value.replace(/\s+/g, ' ').trim();
+      if (!value) return;
+      save.disabled = true;
+      try {
+        const result = await window.openx?.nameGalleryFace?.(person.clusterId, value, relationship.value);
+        if (result?.success) await loadGalleryView('people');
+      } finally {
+        save.disabled = false;
+      }
+    });
+    body.appendChild(form);
   }
 
   card.append(avatar, body);
@@ -383,20 +407,66 @@ function createAssignPersonButton(person = {}) {
 }
 
 function createNamedPersonTile(person = {}) {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'named-person-card';
+  const card = document.createElement('article');
+  card.className = 'named-person-card';
+  const identityId = person.identityIds?.[0] || '';
+  const avatarButton = document.createElement('button');
+  avatarButton.type = 'button';
+  avatarButton.className = 'named-person-avatar-button';
   const avatar = document.createElement('span');
   avatar.className = 'named-person-avatar person-avatar';
   avatar.textContent = String(person.name || 'Person').trim().slice(0, 2).toUpperCase();
+  avatarButton.appendChild(avatar);
+  const display = document.createElement('div');
+  display.className = 'named-person-display';
   const name = document.createElement('strong');
   name.textContent = person.name || 'Person';
-  const meta = document.createElement('span');
-  meta.textContent = `${person.photoCount || 0} photo${person.photoCount === 1 ? '' : 's'}`;
+  const relationText = document.createElement('span');
+  relationText.className = 'named-person-relation-text';
+  relationText.textContent = `(${relationDisplayLabel(person.relationship)})`;
+  display.append(name, relationText);
+  const actions = document.createElement('div');
+  actions.className = 'named-person-actions';
+  const edit = document.createElement('button');
+  edit.type = 'button';
+  edit.className = 'named-person-action edit';
+  edit.textContent = 'Edit';
+  edit.disabled = !identityId;
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'named-person-action delete';
+  remove.textContent = 'Delete';
+  remove.disabled = !identityId;
+  actions.append(edit, remove);
+  const editForm = createSavedPersonEditForm(person, identityId, display, actions);
+  edit.addEventListener('click', () => {
+    display.hidden = true;
+    actions.hidden = true;
+    editForm.hidden = false;
+    editForm.querySelector('input')?.focus();
+  });
+  remove.addEventListener('click', async () => {
+    if (remove.dataset.confirming !== 'true') {
+      remove.dataset.confirming = 'true';
+      remove.textContent = 'Delete?';
+      window.setTimeout(() => {
+        remove.dataset.confirming = 'false';
+        remove.textContent = 'Delete';
+      }, 2400);
+      return;
+    }
+    remove.disabled = true;
+    try {
+      const result = await window.openx?.deleteGalleryFacePerson?.(identityId);
+      if (result?.success) await loadGalleryView('people');
+    } finally {
+      remove.disabled = false;
+    }
+  });
   const photoId = person.representativePhotoId || person.photoIds?.[0] || '';
   if (photoId) {
-    button.dataset.photoId = photoId;
-    button.addEventListener('click', async () => {
+    avatarButton.dataset.photoId = photoId;
+    avatarButton.addEventListener('click', async () => {
       const result = await window.openx?.getGalleryImageData?.(photoId);
       await openViewer({
         id: photoId,
@@ -406,8 +476,153 @@ function createNamedPersonTile(person = {}) {
     });
   }
   loadPersonAvatar(avatar, person).catch(() => {});
-  button.append(avatar, name, meta);
-  return button;
+  card.append(avatarButton, display, actions, editForm);
+  return card;
+}
+
+function relationDisplayLabel(value = '') {
+  const normalized = String(value || '').trim();
+  if (!normalized) return 'No relation';
+  const match = RELATION_OPTIONS.find(([optionValue]) => optionValue === normalized);
+  return match?.[1] || normalized.replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function createSavedPersonEditForm(person = {}, identityId = '', display, actions) {
+  const form = document.createElement('form');
+  form.className = 'named-person-edit-form';
+  form.hidden = true;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.autocomplete = 'off';
+  input.maxLength = 120;
+  input.value = person.name || '';
+  input.placeholder = 'Name';
+  const relation = createRelationSelect(person.relationship || '', `Set ${person.name || 'person'} relationship`);
+  relation.classList.add('named-person-edit-relation');
+  const controls = document.createElement('div');
+  controls.className = 'named-person-edit-actions';
+  const save = document.createElement('button');
+  save.type = 'submit';
+  save.textContent = 'Save';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.textContent = 'Cancel';
+  controls.append(save, cancel);
+  form.append(input, relation, controls);
+  cancel.addEventListener('click', () => {
+    form.hidden = true;
+    display.hidden = false;
+    actions.hidden = false;
+  });
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const nextName = input.value.replace(/\s+/g, ' ').trim();
+    if (!identityId || !nextName) return;
+    save.disabled = true;
+    try {
+      const result = await window.openx?.updateGalleryFacePerson?.(identityId, nextName, relation.value);
+      if (result?.success) await loadGalleryView('people');
+    } finally {
+      save.disabled = false;
+    }
+  });
+  return form;
+}
+
+function createRelationSelect(value = '', label = 'Set relationship') {
+  const picker = document.createElement('div');
+  picker.className = 'relation-select';
+  picker.dataset.value = RELATION_OPTIONS.some(([optionValue]) => optionValue === value) ? value : '';
+  picker.setAttribute('aria-label', label);
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'relation-select-button';
+  button.setAttribute('aria-haspopup', 'listbox');
+  button.setAttribute('aria-expanded', 'false');
+
+  const list = document.createElement('div');
+  list.className = 'relation-select-list';
+  list.setAttribute('role', 'listbox');
+  list.hidden = true;
+
+  function selectedLabel() {
+    const match = RELATION_OPTIONS.find(([optionValue]) => optionValue === picker.dataset.value);
+    return match?.[1] || 'Relation';
+  }
+
+  function sync() {
+    button.textContent = selectedLabel();
+    button.title = selectedLabel();
+    list.querySelectorAll('.relation-select-option').forEach(option => {
+      option.toggleAttribute('aria-selected', option.dataset.value === picker.dataset.value);
+    });
+  }
+
+  function setOpen(open) {
+    if (picker.disabled) return;
+    if (open) closeRelationPickers(picker);
+    picker.classList.toggle('open', open);
+    list.hidden = !open;
+    button.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  for (const [optionValue, optionLabel] of RELATION_OPTIONS) {
+    const option = document.createElement('button');
+    option.type = 'button';
+    option.className = 'relation-select-option';
+    option.value = optionValue;
+    option.dataset.value = optionValue;
+    option.textContent = optionLabel;
+    option.setAttribute('role', 'option');
+    option.addEventListener('click', () => {
+      picker.dataset.value = optionValue;
+      sync();
+      setOpen(false);
+      picker.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    list.appendChild(option);
+  }
+
+  button.addEventListener('click', event => {
+    event.preventDefault();
+    setOpen(!picker.classList.contains('open'));
+  });
+
+  Object.defineProperty(picker, 'value', {
+    get() {
+      return picker.dataset.value || '';
+    },
+    set(nextValue) {
+      picker.dataset.value = RELATION_OPTIONS.some(([optionValue]) => optionValue === nextValue) ? nextValue : '';
+      sync();
+    }
+  });
+  Object.defineProperty(picker, 'disabled', {
+    get() {
+      return picker.dataset.disabled === 'true';
+    },
+    set(disabled) {
+      picker.dataset.disabled = disabled ? 'true' : 'false';
+      button.disabled = disabled;
+      if (disabled) setOpen(false);
+    }
+  });
+
+  picker.append(button, list);
+  sync();
+  return picker;
+}
+
+function closeRelationPickers(except = null) {
+  document.querySelectorAll('.relation-select.open').forEach(picker => {
+    if (picker === except) return;
+    picker.classList.remove('open');
+    const list = picker.querySelector('.relation-select-list');
+    const button = picker.querySelector('.relation-select-button');
+    if (list) list.hidden = true;
+    if (button) button.setAttribute('aria-expanded', 'false');
+  });
 }
 
 async function loadPersonAvatar(avatar, person = {}) {
@@ -884,11 +1099,19 @@ document.querySelectorAll('.nav-item').forEach(button => {
 });
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
+  if (document.querySelector('.relation-select.open')) {
+    closeRelationPickers();
+    return;
+  }
   if (personAssignOverlayEl && !personAssignOverlayEl.hidden) {
     closePersonAssignDialog();
     return;
   }
   if (!viewerEl.hidden) closeViewer();
+});
+document.addEventListener('click', event => {
+  if (event.target.closest?.('.relation-select')) return;
+  closeRelationPickers();
 });
 
 window.openx?.onGalleryView?.(view => {

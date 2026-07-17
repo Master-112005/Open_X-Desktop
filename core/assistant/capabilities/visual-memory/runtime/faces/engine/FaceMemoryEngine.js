@@ -189,6 +189,10 @@ class FaceMemoryEngine {
     return this.identities.deleteIdentity(identityId);
   }
 
+  updateIdentity(identityId, updates = {}, by = 'user-edit') {
+    return this.identities.updateIdentityDetails(identityId, updates, by);
+  }
+
   reset() {
     const result = this.privacy.deleteEverything();
     this.events.emit(FACE_MEMORY_EVENTS.RESET, result);

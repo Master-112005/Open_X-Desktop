@@ -82,6 +82,28 @@ describe('Face Memory System', () => {
     assert.strictEqual(timeline.photoCount, 2);
   });
 
+  it('updates saved person name and relationship for Gallery people cards', async () => {
+    const engine = await enabledEngine();
+    addTwoUnknownFaces(engine);
+    const [suggestion] = engine.getEnrollmentSuggestions();
+    const enrolled = engine.enrollCluster({
+      clusterId: suggestion.clusterId,
+      name: 'Rahul',
+      relationship: 'friend'
+    });
+
+    const updated = engine.updateIdentity(enrolled.identity.id, {
+      name: 'Daddy',
+      relationship: 'father'
+    }, 'test-edit');
+
+    assert.strictEqual(updated.identity.name, 'Daddy');
+    assert.strictEqual(updated.identity.relationship, 'father');
+    assert.strictEqual(updated.profile.name, 'Daddy');
+    assert.strictEqual(updated.profile.relationship, 'father');
+    assert.strictEqual(engine.searchFaces({ relationship: 'father' }).profiles[0].name, 'Daddy');
+  });
+
   it('supports explicit identity merge, split, delete, and privacy reset', async () => {
     const engine = await enabledEngine();
     addTwoUnknownFaces(engine);

@@ -182,6 +182,42 @@ class IdentityManager {
     return true;
   }
 
+  updateIdentityDetails(identityId, { name, relationship } = {}, by = 'user-edit') {
+    const identity = this.state.identities[identityId];
+    if (!identity) throw new Error('Identity not found.');
+    const profile = this.state.profiles[identity.profileId];
+    const next = {};
+    if (name !== undefined) {
+      const validation = this.validator.validateIdentityName(name);
+      if (!validation.valid) throw new Error(validation.reason);
+      next.name = validation.name;
+    }
+    if (relationship !== undefined) {
+      next.relationship = String(relationship || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    }
+    if (next.name !== undefined) {
+      identity.name = next.name;
+      if (profile) profile.name = next.name;
+    }
+    if (next.relationship !== undefined) {
+      identity.relationship = next.relationship;
+      if (profile) profile.relationship = next.relationship;
+      this.state.relationships[identityId] = {
+        identityId,
+        relationship: next.relationship,
+        source: by,
+        updatedAt: nowIso()
+      };
+    }
+    identity.history = Array.isArray(identity.history) ? identity.history : [];
+    identity.history.push({ action: 'updated', at: nowIso(), by });
+    identity.updatedAt = nowIso();
+    if (profile) profile.updatedAt = nowIso();
+    this.events?.emit?.('visual-memory.faces.identity.updated', { identityId, profileId: identity.profileId });
+    this.diagnostics?.record?.('identity-updated', { identityId, changedName: next.name !== undefined, changedRelationship: next.relationship !== undefined });
+    return { identity, profile: profile || null };
+  }
+
   listIdentities() {
     return Object.values(this.state.identities);
   }

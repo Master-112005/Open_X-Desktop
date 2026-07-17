@@ -881,6 +881,15 @@ const openxApi = {
   nameGalleryFace: (clusterId, name, relationship = '') =>
     ipcRenderer.invoke('gallery:nameFace', { clusterId, name, relationship }),
 
+  setGalleryFaceRelationship: (identityId, relationship = '') =>
+    ipcRenderer.invoke('gallery:setFaceRelationship', { identityId, relationship }),
+
+  updateGalleryFacePerson: (identityId, name, relationship = '') =>
+    ipcRenderer.invoke('gallery:updateFacePerson', { identityId, name, relationship }),
+
+  deleteGalleryFacePerson: (identityId) =>
+    ipcRenderer.invoke('gallery:deleteFacePerson', { identityId }),
+
   addGalleryFaceToPerson: (clusterId, identityId) =>
     ipcRenderer.invoke('gallery:addFaceToPerson', { clusterId, identityId }),
 

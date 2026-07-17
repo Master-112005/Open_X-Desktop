@@ -6,6 +6,8 @@ const OWNER_ALIASES = Object.freeze({
   mine: 'user',
   i: 'user',
   myself: 'user',
+  self: 'user',
+  owner: 'user',
   our: 'shared',
   ours: 'shared',
   us: 'shared',

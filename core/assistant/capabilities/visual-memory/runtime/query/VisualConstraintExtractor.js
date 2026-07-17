@@ -1,32 +1,15 @@
 'use strict';
 
+const {
+  allRelationshipTerms,
+  findRelationshipMentions,
+  findSelfReferences,
+  isRelationshipTerm,
+  isSelfReference,
+  normalizePersonReference,
+  normalizeRelationship
+} = require('../../../../entities/PersonLexicon');
 const { findVisualConcepts, getVisualConceptTerms } = require('../utils/VisualConceptLexicon');
-
-const RELATIONSHIPS = Object.freeze({
-  mom: 'mother',
-  mother: 'mother',
-  dad: 'father',
-  father: 'father',
-  parents: 'parents',
-  brother: 'brother',
-  sister: 'sister',
-  friend: 'friend',
-  friends: 'friends',
-  colleague: 'colleague',
-  coworker: 'colleague',
-  teacher: 'teacher',
-  boss: 'boss',
-  customer: 'customer',
-  wife: 'wife',
-  husband: 'husband',
-  cousin: 'cousin',
-  uncle: 'uncle',
-  aunt: 'aunt',
-  family: 'family',
-  children: 'children',
-  kid: 'child',
-  kids: 'children'
-});
 
 const SCENES = Object.freeze([
   'beach', 'mountain', 'forest', 'temple', 'palace', 'hotel', 'airport',
@@ -65,7 +48,7 @@ const TIME_PATTERNS = Object.freeze([
 ]);
 
 const NON_PERSON_TERMS = new Set([
-  ...Object.keys(RELATIONSHIPS),
+  ...allRelationshipTerms(),
   ...SCENES,
   ...EVENTS,
   ...DOCUMENT_TYPES,
@@ -79,8 +62,15 @@ const NON_PERSON_TERMS = new Set([
 
 function addUnique(target, item) {
   const value = String(item.value || '').toLowerCase();
-  const key = `${item.type}:${value}:${item.source || ''}`;
-  if (target.some(existing => `${existing.type}:${String(existing.value || '').toLowerCase()}:${existing.source || ''}` === key)) {
+  const key = `${item.type}:${value}`;
+  const existing = target.find(entry => `${entry.type}:${String(entry.value || '').toLowerCase()}` === key);
+  if (existing) {
+    if (Number(item.confidence || 0) > Number(existing.confidence || 0)) {
+      Object.assign(existing, {
+        ...item,
+        metadata: { ...(existing.metadata || {}), ...(item.metadata || {}) }
+      });
+    }
     return;
   }
   target.push(item);
@@ -114,7 +104,7 @@ class VisualConstraintExtractor {
     this._addMedia(constraints, parsed);
     this._addOwner(constraints, text);
     this._addPeople(constraints, context, text);
-    this._addRelationships(constraints, text);
+    this._addRelationships(constraints, context, text);
     this._addTimes(constraints, context, text);
     this._addLocations(constraints, context, text);
     this._addLexiconMatches(constraints.scenes, text, SCENES, 'scene', 0.82);
@@ -169,15 +159,27 @@ class VisualConstraintExtractor {
   }
 
   _addOwner(constraints, text) {
-    const ownerMatch = text.match(/\b(me|my|mine|myself|our|ours|us|family|friends|his|her|their|theirs)\b/i);
+    const ownerMatch = text.match(/\b(my|mine|myself|our|ours|us|family|friends|his|her|their|theirs)\b/i);
     const owner = ownerMatch ? this.normalizer.normalizeOwner(ownerMatch[1]) : 'user';
-    addUnique(constraints.owner, this._constraint('owner', owner, ownerMatch ? 0.88 : 0.72, 'visual-query.owner'));
+    addUnique(constraints.owner, this._constraint('owner', owner, ownerMatch ? 0.88 : 0.72, 'visual-query.owner', {
+      explicit: Boolean(ownerMatch),
+      raw: ownerMatch?.[1] || null
+    }));
   }
 
   _addPeople(constraints, context, text) {
+    this._addExplicitSelf(constraints, text);
+
     for (const entity of [...context.getEntities('people'), ...context.getEntities('contacts')]) {
       const value = entity.canonical || entity.value || entity.name || '';
-      if (value) addUnique(constraints.people, this._constraint('person', value, entity.confidence || 0.9, 'assistant.entities', { fromEntity: true }));
+      if (value) {
+        const normalized = normalizePersonReference(value);
+        addUnique(constraints.people, this._constraint('person', normalized, entity.confidence || 0.9, 'assistant.entities', {
+          fromEntity: true,
+          rawValue: entity.value || value,
+          self: normalized === 'user'
+        }));
+      }
     }
 
     const withPattern = /\b(?:with|and)\s+([a-z][a-z .'-]{1,40})(?=\s+(?:at|in|on|near|inside|outside|last|from|during|where|photo|picture|image|screenshot)\b|$)/gi;
@@ -200,8 +202,24 @@ class VisualConstraintExtractor {
     }
   }
 
+  _addExplicitSelf(constraints, text) {
+    for (const self of findSelfReferences(text)) {
+      addUnique(constraints.people, this._constraint('person', 'user', 0.94, 'visual-query.self-reference', {
+        raw: self.raw,
+        self: true
+      }));
+    }
+  }
+
   _addPersonCandidates(constraints, value, confidence, source) {
     for (const name of splitPersonNames(value)) {
+      if (isSelfReference(name)) {
+        addUnique(constraints.people, this._constraint('person', 'user', Math.max(confidence, 0.92), source, {
+          raw: name,
+          self: true
+        }));
+        continue;
+      }
       if (!this._isPersonCandidate(name)) continue;
       addUnique(constraints.people, this._constraint('person', this.normalizer.normalizeLabel(name), confidence, source));
     }
@@ -212,18 +230,28 @@ class VisualConstraintExtractor {
     const normalized = name.toLowerCase();
     if (!normalized || normalized.length < 2 || /^\d+$/.test(normalized)) return false;
     if (NON_PERSON_TERMS.has(normalized)) return false;
+    if (isRelationshipTerm(normalized)) return false;
     const tokens = normalized.split(/\s+/).filter(Boolean);
     if (tokens.length > 4) return false;
-    if (tokens.some(token => NON_PERSON_TERMS.has(token) || NON_PERSON_TERMS.has(token.replace(/s$/, '')))) return false;
+    if (tokens.some(token => NON_PERSON_TERMS.has(token) || NON_PERSON_TERMS.has(token.replace(/s$/, '')) || isRelationshipTerm(token))) return false;
     if (findVisualConcepts(normalized).length > 0) return false;
     return true;
   }
 
-  _addRelationships(constraints, text) {
-    for (const [term, relationship] of Object.entries(RELATIONSHIPS)) {
-      const pattern = new RegExp(`\\b(?:my\\s+)?${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-      if (pattern.test(text)) {
-        addUnique(constraints.relationships, this._constraint('relationship', relationship, 0.86, 'visual-query.relationship'));
+  _addRelationships(constraints, context, text) {
+    for (const relation of findRelationshipMentions(text)) {
+      addUnique(constraints.relationships, this._constraint('relationship', relation.value, 0.88, 'visual-query.relationship', {
+        raw: relation.raw,
+        alias: relation.alias
+      }));
+    }
+    for (const relationship of context.structuredEntities?.relationships || []) {
+      const normalized = normalizeRelationship(relationship.value || relationship.target || relationship.canonical);
+      if (normalized) {
+        addUnique(constraints.relationships, this._constraint('relationship', normalized, relationship.confidence || 0.8, 'assistant.entities.relationships', {
+          fromEntity: true,
+          raw: relationship.metadata?.raw || null
+        }));
       }
     }
   }
