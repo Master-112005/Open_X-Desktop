@@ -29,6 +29,22 @@ describe('Media Handling', function() {
     assert.equal(parsed.platform, 'youtube');
   });
 
+  it('should not treat short title words as media platforms', function() {
+    const { MediaParser, PlatformMapper } = require('../../core/automation/media');
+    const parser = new MediaParser();
+    const mapper = new PlatformMapper();
+
+    const parsed = parser.parse('play chaild in us song', { source: 'chat' });
+    const explicit = parser.parse('play chaild in us song in youtube', { source: 'chat' });
+
+    assert.equal(mapper.normalizePlatform('us'), null);
+    assert.equal(parsed.intent, 'media.play');
+    assert.equal(parsed.query, 'chaild in us song');
+    assert.equal(parsed.platform, 'youtube');
+    assert.equal(explicit.query, 'chaild in us song');
+    assert.equal(explicit.platform, 'youtube');
+  });
+
   it('should keep playdate as the requested media title when spoken as play date', function() {
     const { MediaParser } = require('../../core/automation/media');
     const parser = new MediaParser();

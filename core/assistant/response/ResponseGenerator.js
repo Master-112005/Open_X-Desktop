@@ -840,19 +840,27 @@ const RESPONSE_BUILDERS = {
       const replacedExisting = Boolean(valueFromContext(context, 'replacedExisting', false));
       const verification = valueFromContext(context, 'playbackVerification', null);
       const verified = Boolean(verification?.valid);
+      const targetType = valueFromContext(context, 'playbackTargetType', verification?.targetType || '');
       const seed = responseSeed(context, `media.play:${displayName}:${query}:${method}:${replacedExisting}`);
+      if (targetType === 'search' || (!verified && String(rawPlatform).toLowerCase() === 'youtube')) {
+        return chooseVariant(seed, [
+          `I could not lock onto a direct YouTube video for "${query}", so I opened the YouTube results for you.`,
+          `YouTube results are open for "${query}". Pick the result you want and it will play there.`,
+          `I opened YouTube search results for "${query}" because a direct playable result was not verified.`
+        ]);
+      }
       if (method === 'existing-window') {
         if (verified) {
           return chooseVariant(seed, replacedExisting
             ? [
-                `Verified ${displayName} was switched to "${query}".`,
-                `${displayName} is now set to "${query}" and the switch was verified.`,
-                `I verified the existing ${displayName} session is on "${query}".`
+                `Started "${query}" on ${displayName} and replaced the previous playback.`,
+                `${displayName} is now playing "${query}" in the existing session.`,
+                `I switched ${displayName} to "${query}".`
               ]
             : [
-                `Verified ${displayName} is ready for "${query}".`,
-                `${displayName} is ready with "${query}" and I verified the session.`,
-                `I found the active ${displayName} session and set it up for "${query}".`
+                `Started "${query}" on ${displayName}.`,
+                `${displayName} is playing "${query}" now.`,
+                `I set the active ${displayName} session to "${query}".`
               ]);
         }
         return chooseVariant(seed, replacedExisting
@@ -869,9 +877,9 @@ const RESPONSE_BUILDERS = {
       }
       if (verified) {
         return chooseVariant(seed, [
-          `Verified ${displayName} was opened for "${query}".`,
-          `${displayName} opened for "${query}" and the launch was verified.`,
-          `I verified ${displayName} is ready for "${query}".`
+          `Started "${query}" on ${displayName}.`,
+          `${displayName} is playing "${query}" now.`,
+          `I opened ${displayName} directly for "${query}".`
         ]);
       }
       if (method === 'browser') {

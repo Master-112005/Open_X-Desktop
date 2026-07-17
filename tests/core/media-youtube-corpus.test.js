@@ -181,4 +181,18 @@ describe('Media and YouTube natural-language routing', function() {
     assert.equal(result.entities.mediaQuery, 'dulander songs');
     assert.equal(Object.prototype.hasOwnProperty.call(result.entities, 'artist'), false);
   });
+
+  it('should default difficult song titles to YouTube without mistaking title words for apps', async function() {
+    const router = createRouter();
+
+    const implicit = await router.process('play chaild in us song', 'chat');
+    const explicit = await router.process('play chaild in us song in youtube', 'chat');
+
+    assert.equal(implicit.intent, 'media.play');
+    assert.equal(implicit.entities.mediaQuery, 'chaild in us song');
+    assert.equal(implicit.entities.mediaPlatform, 'youtube');
+    assert.equal(explicit.intent, 'media.play');
+    assert.equal(explicit.entities.mediaQuery, 'chaild in us song');
+    assert.equal(explicit.entities.mediaPlatform, 'youtube');
+  });
 });
