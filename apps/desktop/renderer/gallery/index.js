@@ -740,6 +740,7 @@ function render() {
     renderPeople();
     return;
   }
+  imageLoadQueue.length = 0;
   const groups = groupByDate(filteredPhotos);
   updateSummary(groups);
   emptyStateEl.hidden = groups.length > 0;
@@ -780,7 +781,7 @@ function scheduleRender() {
 }
 
 async function loadImageForCard(card) {
-  if (!card || card.classList.contains('loaded') || card.dataset.loading === 'true') return;
+  if (!card || !card.isConnected || card.classList.contains('loaded') || card.dataset.loading === 'true') return;
   card.dataset.loading = 'true';
   const image = card.querySelector('img');
   try {
@@ -804,7 +805,7 @@ async function loadImageForCard(card) {
 function pumpImageLoadQueue() {
   while (imageLoadsInFlight < MAX_IMAGE_LOADS && imageLoadQueue.length > 0) {
     const card = imageLoadQueue.shift();
-    if (!card || card.classList.contains('loaded')) continue;
+    if (!card || !card.isConnected || card.classList.contains('loaded')) continue;
     imageLoadsInFlight += 1;
     loadImageForCard(card).catch(() => {}).finally(() => {
       imageLoadsInFlight -= 1;
@@ -814,7 +815,7 @@ function pumpImageLoadQueue() {
 }
 
 function queueImageLoad(card) {
-  if (!card || card.dataset.queued === 'true' || card.classList.contains('loaded')) return;
+  if (!card || !card.isConnected || card.dataset.queued === 'true' || card.classList.contains('loaded')) return;
   card.dataset.queued = 'true';
   imageLoadQueue.push(card);
   pumpImageLoadQueue();
@@ -1018,6 +1019,7 @@ function setIndexingPoll(indexing) {
   }
   if (indexingPollTimer) return;
   indexingPollTimer = window.setInterval(() => {
+    if (document.hidden) return;
     loadPage(true).catch(() => {});
   }, 2500);
 }
@@ -1047,6 +1049,8 @@ closeWindowEl.addEventListener('click', () => window.openx?.closeGallery?.());
 window.addEventListener('beforeunload', () => {
   if (indexingPollTimer) window.clearInterval(indexingPollTimer);
   if (searchDebounceTimer) window.clearTimeout(searchDebounceTimer);
+  if (renderFrame) window.cancelAnimationFrame(renderFrame);
+  if (scrollFrame) window.cancelAnimationFrame(scrollFrame);
   imageObserver?.disconnect?.();
   imageLoadQueue.length = 0;
 });

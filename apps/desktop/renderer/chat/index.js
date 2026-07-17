@@ -94,6 +94,7 @@ const CHAT_HISTORY_LIMIT = 100;
 const MAX_RENDERED_MESSAGES = CHAT_HISTORY_LIMIT;
 const MAX_CHAT_VISUAL_RESULTS = 10;
 const ASSISTANT_MUTED_STORAGE_KEY = 'openx-assistant-voice-muted-v1';
+const STORAGE_SAVE_DEBOUNCE_MS = 180;
 
 let isProcessing = false;
 let pendingConfirmation = null;
@@ -128,6 +129,10 @@ let imagePreviewOverlay = null;
 let imagePreviewState = null;
 let chatHistorySaveQueue = Promise.resolve();
 let uiStateSaveQueue = Promise.resolve();
+let chatHistorySaveTimer = null;
+let uiStateSaveTimer = null;
+let pendingChatHistoryEntries = null;
+let pendingUiState = null;
 const scheduleTimers = new Map();
 
 const fieldIds = {
@@ -325,22 +330,47 @@ async function loadConversationHistory() {
   return merged.slice(-CHAT_HISTORY_LIMIT);
 }
 
-function saveConversationHistory() {
+function persistConversationHistory(entries = conversationHistory) {
+  if (!window.openx?.saveChatHistory) {
+    saveStoredList(CHAT_HISTORY_STORAGE_KEY, entries);
+    return chatHistorySaveQueue;
+  }
+  chatHistorySaveQueue = chatHistorySaveQueue
+    .catch(() => {})
+    .then(() => window.openx.saveChatHistory(entries))
+    .catch(() => {
+      saveStoredList(CHAT_HISTORY_STORAGE_KEY, entries);
+    });
+  return chatHistorySaveQueue;
+}
+
+function flushConversationHistorySave() {
+  if (chatHistorySaveTimer) {
+    clearTimeout(chatHistorySaveTimer);
+    chatHistorySaveTimer = null;
+  }
+  if (!pendingChatHistoryEntries) return chatHistorySaveQueue;
+  const entries = pendingChatHistoryEntries;
+  pendingChatHistoryEntries = null;
+  return persistConversationHistory(entries);
+}
+
+function saveConversationHistory(options = {}) {
   conversationHistory = conversationHistory
     .map(normalizeChatHistoryItem)
     .filter(Boolean)
     .slice(-chatHistoryLimit());
   updateChatStorageStatus(conversationHistory.length);
-  if (!window.openx?.saveChatHistory) {
-    saveStoredList(CHAT_HISTORY_STORAGE_KEY, conversationHistory);
-    return chatHistorySaveQueue;
+  pendingChatHistoryEntries = conversationHistory.slice();
+  if (options.immediate === true) {
+    return flushConversationHistorySave();
   }
-  chatHistorySaveQueue = chatHistorySaveQueue
-    .catch(() => {})
-    .then(() => window.openx.saveChatHistory(conversationHistory))
-    .catch(() => {
-      saveStoredList(CHAT_HISTORY_STORAGE_KEY, conversationHistory);
-    });
+  if (!chatHistorySaveTimer) {
+    chatHistorySaveTimer = setTimeout(() => {
+      chatHistorySaveTimer = null;
+      flushConversationHistorySave();
+    }, STORAGE_SAVE_DEBOUNCE_MS);
+  }
   return chatHistorySaveQueue;
 }
 
@@ -411,8 +441,7 @@ function clearLegacyUiStateStorage() {
   });
 }
 
-function saveUiState() {
-  const state = currentUiState();
+function persistUiState(state = currentUiState()) {
   if (!window.openx?.saveUiState) {
     saveStoredObject(UI_STATE_STORAGE_KEY, state);
     return uiStateSaveQueue;
@@ -423,6 +452,32 @@ function saveUiState() {
     .catch(() => {
       saveStoredObject(UI_STATE_STORAGE_KEY, state);
     });
+  return uiStateSaveQueue;
+}
+
+function flushUiStateSave() {
+  if (uiStateSaveTimer) {
+    clearTimeout(uiStateSaveTimer);
+    uiStateSaveTimer = null;
+  }
+  if (!pendingUiState) return uiStateSaveQueue;
+  const state = pendingUiState;
+  pendingUiState = null;
+  return persistUiState(state);
+}
+
+function saveUiState(options = {}) {
+  const state = currentUiState();
+  pendingUiState = state;
+  if (options.immediate === true) {
+    return flushUiStateSave();
+  }
+  if (!uiStateSaveTimer) {
+    uiStateSaveTimer = setTimeout(() => {
+      uiStateSaveTimer = null;
+      flushUiStateSave();
+    }, STORAGE_SAVE_DEBOUNCE_MS);
+  }
   return uiStateSaveQueue;
 }
 
@@ -448,7 +503,7 @@ async function loadUiState() {
   notificationHistory = stored.notifications.length > 0 ? stored.notifications : legacy.notifications;
   if (legacy.schedules.length > 0 || legacy.notifications.length > 0 || legacy.assistantMuted) {
     clearLegacyUiStateStorage();
-    await saveUiState();
+    await saveUiState({ immediate: true });
   }
 }
 
@@ -2179,6 +2234,11 @@ async function resetSettings() {
 async function clearConversationHistory() {
   if (clearChatHistoryBtn) clearChatHistoryBtn.disabled = true;
   try {
+    if (chatHistorySaveTimer) {
+      clearTimeout(chatHistorySaveTimer);
+      chatHistorySaveTimer = null;
+    }
+    pendingChatHistoryEntries = null;
     if (window.openx?.clearChatHistory) {
       await window.openx.clearChatHistory();
     }
@@ -2964,6 +3024,25 @@ document.addEventListener('keydown', (event) => {
     closePhoneDeviceRemoveDialog();
   }
 });
+
+function cleanupRendererResources() {
+  stopSettingsStatusPolling();
+  stopCloudPairingCountdown();
+  if (messageScrollAnimationFrame !== null) {
+    cancelAnimationFrame(messageScrollAnimationFrame);
+    messageScrollAnimationFrame = null;
+  }
+  if (glassTintAnimationFrame !== null) {
+    cancelAnimationFrame(glassTintAnimationFrame);
+    glassTintAnimationFrame = null;
+  }
+  scheduleTimers.forEach(timer => clearTimeout(timer));
+  scheduleTimers.clear();
+  flushConversationHistorySave();
+  flushUiStateSave();
+}
+
+window.addEventListener('beforeunload', cleanupRendererResources);
 
 if (window.openx) {
   window.openx.onSettingsChanged((snapshot) => {

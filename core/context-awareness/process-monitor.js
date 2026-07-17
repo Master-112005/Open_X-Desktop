@@ -57,6 +57,7 @@ class ProcessMonitor {
     this.processes = new Map();
     this.subscribers = new Set();
     this.isPolling = false;
+    this.hasSnapshot = false;
   }
 
   async _readProcesses() {
@@ -93,9 +94,14 @@ class ProcessMonitor {
         nextProcesses.set(this._key(processInfo), processInfo);
       });
 
+      const isInitialSnapshot = !this.hasSnapshot;
+      this.hasSnapshot = true;
+
       nextProcesses.forEach((processInfo, key) => {
         if (!this.processes.has(key)) {
-          this.logger.info(`[Process] Started -> ${processInfo.name}`);
+          if (!isInitialSnapshot) {
+            this.logger.info(`[Process] Started -> ${processInfo.name}`);
+          }
           this._publish(signals.SIGNAL_EVENTS.PROCESS_STARTED, processInfo);
         }
       });
@@ -133,6 +139,7 @@ class ProcessMonitor {
       this.timer = null;
     }
     this.isPolling = false;
+    this.hasSnapshot = false;
   }
 
   getProcesses() {
