@@ -669,8 +669,14 @@ class Assistant extends EventEmitter {
       return null;
     }
 
+    if (this._looksLikeScheduledMemoryRequest(normalized)) {
+      return null;
+    }
+
     const localPlannerCommand = /\b(?:open|show|display|launch|add|update|put|schedule|create|save)\b.*\b(?:calendar|calender|timetable|time table|daily schedule)\b/.test(normalized);
-    if (!localPlannerCommand && /\b(?:meetings?|calendar|next\s+event)\b/.test(normalized)) {
+    const calendarReadQuestion = /^(?:what|when|where|which|show|list|tell|read|display)\b.*\b(?:meetings?|calendar|next\s+event|events?)\b/.test(normalized) ||
+      /\b(?:meetings?|events?)\s+(?:do\s+i\s+have|are\s+scheduled|are\s+coming|today|tomorrow|this\s+week)\b/.test(normalized);
+    if (!localPlannerCommand && calendarReadQuestion) {
       return this._directContextResult(source, 'Calendar reading is not connected yet, so I cannot reliably list your meetings from the system.');
     }
 
@@ -1033,11 +1039,17 @@ class Assistant extends EventEmitter {
 
   _looksLikeScheduledMemoryRequest(input) {
     const raw = String(input || '').trim();
-    if (!/^(?:remember|note|save)\b/i.test(raw)) {
+    const parts = this.router?.entityExtractor?.extractReminderParts?.(raw);
+    const hasSchedule = Boolean(parts?.timeExpression || parts?.duration || parts?.recurrence);
+    if (!hasSchedule) {
       return false;
     }
-    const parts = this.router?.entityExtractor?.extractReminderParts?.(raw);
-    return Boolean(parts?.timeExpression || parts?.duration);
+
+    if (/^(?:remember|note|save)\b/i.test(raw)) {
+      return true;
+    }
+
+    return /\b(?:remind|reminder|notify|alert)\b/i.test(raw);
   }
 
   _appendLearningPrompt(response, input, routedInput, result) {

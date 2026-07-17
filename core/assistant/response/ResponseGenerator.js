@@ -1048,10 +1048,16 @@ const RESPONSE_BUILDERS = {
           ? ` in ${duration} minute${duration === 1 ? '' : 's'}`
           : '';
       const action = valueFromContext(context, 'operation') === 'update' ? 'Updated' : 'Added';
+      const reminderPrep = /^(?:call|drink|submit|go|wish|eat|sleep|stretch|sign|watch|take|buy|send|email|message|text|pay|finish|attend|join|leave|bring|pick|wake|study|work|exercise|open|close|check|read|write|complete|prepare)\b/i.test(txt)
+        ? 'to'
+        : 'about';
+      const displayText = /^(?:meeting|class|appointment|exam|event|lecture|interview|deadline|conference|session)\b/i.test(txt)
+        ? `your ${txt}`
+        : txt;
       return chooseVariant(responseSeed(context, `reminder.set:${txt}:${due}:${recurrence || ''}`), [
-        `${action} reminder: ${txt}${when}${repeat}.`,
-        `Okay, I will remind you to ${txt}${when}${repeat}.`,
-        `Reminder saved for ${txt}${when}${repeat}.`
+        `${action} reminder: ${displayText}${when}${repeat}.`,
+        `Okay, I will remind you ${reminderPrep} ${displayText}${when}${repeat}.`,
+        `Reminder saved for ${displayText}${when}${repeat}.`
       ]);
     },
     'timer.pause': context => {

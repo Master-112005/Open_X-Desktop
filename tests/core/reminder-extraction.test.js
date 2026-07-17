@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 
 const ActionRouter = require('../../core/assistant/automation/ActionRouter');
+const Assistant = require('../../core/assistant');
 const EntityExtractor = require('../../core/assistant/entities/EntityExtractor');
 const SchedulerController = require('../../core/automation/scheduler');
 
@@ -75,6 +76,16 @@ describe('Reminder Extraction', function() {
       text: 'drink water',
       time: '8pm',
       recurrence: 'daily'
+    },
+    {
+      input: 'i have a meeting at 6pm tomorrow remind me',
+      text: 'meeting',
+      time: '6pm tomorrow'
+    },
+    {
+      input: 'i have class tomorrow at 8am remind me',
+      text: 'class',
+      time: 'tomorrow at 8am'
     }
   ];
 
@@ -110,5 +121,38 @@ describe('Reminder Extraction', function() {
     assert.equal(result.entities.reminderText, 'eat lunch');
     assert.equal(result.entities.timeExpression, '8pm');
     assert.equal(result.entities.recurrence, 'weekly:saturday,monday');
+  });
+
+  it('should route natural trailing remind-me event sentences as reminders', function() {
+    const result = router._resolveExplicitReminderIntent(
+      'i have a meeting at 6pm tomorrow remind me',
+      { correctedText: 'i have a meeting at 6pm tomorrow remind me' }
+    );
+
+    assert.equal(result.intent.id, 'reminder.set');
+    assert.equal(result.entities.reminderText, 'meeting');
+    assert.equal(result.entities.timeExpression, '6pm tomorrow');
+  });
+
+  it('should not let learning steal natural trailing remind-me event sentences', async function() {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-reminder-assistant-'));
+    const assistant = new Assistant({
+      app: { dataDir, cleanupLegacySchedules: false },
+      activeLearning: { enabled: true, askForFeedback: false },
+      plugins: { enabled: false },
+      logging: { console: false, file: false }
+    });
+
+    try {
+      const result = await assistant.processCommand('i have a meeting at 6pm tomorrow remind me');
+
+      assert.equal(result.success, true);
+      assert.equal(result.intent, 'reminder.set');
+      assert.equal(result.entities.reminderText, 'meeting');
+      assert.equal(result.entities.timeExpression, '6pm tomorrow');
+      assert.doesNotMatch(result.response, /Noted, sir\. You have/i);
+    } finally {
+      await assistant.destroy();
+    }
   });
 });

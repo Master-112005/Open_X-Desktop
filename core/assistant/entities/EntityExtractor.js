@@ -935,8 +935,10 @@ class EntityExtractor {
     const escapePattern = value => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const removePhrase = (text, phrase) => String(text || '').replace(new RegExp(`(^|\\s)${escapePattern(phrase)}(?=\\s|$)`, 'i'), ' ');
 
-    let reminderText = source
-      .replace(new RegExp(`^.*?\\b(?:(?:(?:remind|notify|alert)(?:\\s+me)?|(?:remember|note|save)(?:\\s+(?:me|this|that))?)|(?:set|create|add|schedule)\\s+(?:a\\s+)?(?:new\\s+|recurring\\s+)?reminder|reminder)(?:\\s+(?:me|to|that|about|for|on|at|in|after|by|say|i\\s+have|i\\s+need\\s+to|my)\\b)?\\s*`, 'i'), ' ');
+    const trailingReminderDirective = /\b(?:please\s+)?(?:remind|notify|alert)\s+me\s*$/i;
+    let reminderText = trailingReminderDirective.test(source)
+      ? source.replace(trailingReminderDirective, ' ')
+      : source.replace(new RegExp(`^.*?\\b(?:(?:(?:remind|notify|alert)(?:\\s+me)?|(?:remember|note|save)(?:\\s+(?:me|this|that))?)|(?:set|create|add|schedule)\\s+(?:a\\s+)?(?:new\\s+|recurring\\s+)?reminder|reminder)(?:\\s+(?:me|to|that|about|for|on|at|in|after|by|say|i\\s+have|i\\s+need\\s+to|my)\\b)?\\s*`, 'i'), ' ');
     for (const match of scheduleMatches.sort((a, b) => {
       if (a.kind === 'recurrence' && b.kind !== 'recurrence') return -1;
       if (b.kind === 'recurrence' && a.kind !== 'recurrence') return 1;
@@ -952,6 +954,8 @@ class EntityExtractor {
       .trim()
       .replace(/^(?:\d{1,2})(?::|\s+)\d{1,2}\s*(?:am|pm)?\s+(?:to|that|about|for|say)\b/i, ' ')
       .replace(/^(?:\d{1,2})(?::|\s+)\d{1,2}\s*(?:am|pm)?\b/i, ' ')
+      .replace(/^(?:i\s+have|i'?ve\s+got|there\s+is|there'?s)\s+(?:a|an|the)?\s*/i, ' ')
+      .replace(/^(?:a|an|the)\s+(?=(?:meeting|class|appointment|call|exam|event|lecture|interview|deadline|conference|session)\b)/i, ' ')
       .replace(/^(?:me|to|that|about|for|on|at|in|after|by|say|t)\b\s*/i, ' ')
       .replace(/^(?:me|to|that|about|for|on|at|in|after|by|say|t)\b\s*/i, ' ')
       .replace(/\s+(?:me|to|that|about|for|on|at|in|after|by|say|t)$/i, ' ')

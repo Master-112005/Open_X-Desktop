@@ -96,6 +96,13 @@ const PERSONAL_FACT_LABELS = {
   name: 'name'
 };
 
+function looksLikeScheduleCommand(text) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+  if (!/\b(?:remind|reminder|notify|alert)\b/i.test(value)) return false;
+  return /\b(?:today|tomorrow|tonight|next\s+(?:week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|night|\d{1,2}(?:(?::|\s+)\d{1,2})?\s*(?:am|pm)|\d+\s*(?:seconds?|minutes?|mins?|hours?|hrs?))\b/i.test(value);
+}
+
 const PROTECTED_FACT_KEY_PATTERN = /(?:^|_)(?:password|passcode|pin|secret|token|api_key|credential|cookie|session_id|auth|authentication|authorization|otp|one_time_password|credit_card|card_number|cvv|bank_account|routing_number|iban|swift|passport|government_id|social_security|ssn|private_key|seed_phrase|mnemonic)(?:_|$)/i;
 const PROTECTED_FACT_VALUE_PATTERNS = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i,
@@ -1034,6 +1041,10 @@ class ActiveLearningStore {
     const text = cleanCommand(input);
     const normalized = normalizeCommand(text);
     if (!normalized) {
+      return null;
+    }
+
+    if (looksLikeScheduleCommand(text)) {
       return null;
     }
 
