@@ -218,6 +218,21 @@ describe('Electron Security Boundary', function() {
     );
   });
 
+  it('should validate Dynamic Island file transfer actions', function() {
+    assert.deepEqual(
+      IPC_VALIDATORS['cloud:fileTransferAction']({ transferId: 'cloud_mobile_transfer_abc-123', action: 'accept' }),
+      { transferId: 'cloud_mobile_transfer_abc-123', action: 'accept' }
+    );
+    assert.throws(
+      () => IPC_VALIDATORS['cloud:fileTransferAction']({ transferId: '..\\bad', action: 'accept' }),
+      /transferId is invalid/
+    );
+    assert.throws(
+      () => IPC_VALIDATORS['cloud:fileTransferAction']({ transferId: 'cloud_1', action: 'delete' }),
+      /file transfer action is not supported/
+    );
+  });
+
   it('should provide a validator for every registered IPC channel', function() {
     const expectedChannels = [
       'command:process', 'command:confirm', 'assistant:status', 'tts:speak', 'tts:stop', 'voice:start',
@@ -232,7 +247,7 @@ describe('Electron Security Boundary', function() {
       'cloud:pairingQR:create', 'cloud:pairing:status', 'cloud:pairing:approve', 'cloud:pairing:reject',
       'cloud:devices:list', 'cloud:device:rename', 'cloud:device:remove',
       'settings:save', 'settings:reset',
-      'schedule:alertAction', 'schedule:getSnapshot', 'timerWidget:getState', 'timerWidget:close',
+      'schedule:alertAction', 'cloud:fileTransferAction', 'schedule:getSnapshot', 'timerWidget:getState', 'timerWidget:close',
       'timerWidget:stopStopwatch', 'timerWidget:resumeStopwatch',
       'timerWidget:resetStopwatch', 'planner:getEntries', 'planner:addEntry',
       'planner:deleteEntry',

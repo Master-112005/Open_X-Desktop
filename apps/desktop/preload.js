@@ -430,6 +430,27 @@ function buildVoiceActionFeedback(action = {}, result = {}) {
       displayMode: 'medium'
     };
   }
+  if (kind === 'accept') {
+    const fileName = String(result?.data?.fileName || action.fileName || 'File').trim() || 'File';
+    return {
+      heading: 'Receiving',
+      response: `${fileName} is being saved to Documents\\OpenX.`,
+      icon: 'FI',
+      statusText: 'Receiving file',
+      intent: 'cloud.fileTransfer.action',
+      displayMode: 'medium'
+    };
+  }
+  if (kind === 'reject') {
+    return {
+      heading: 'Rejected',
+      response: 'Incoming file was rejected.',
+      icon: 'OK',
+      statusText: 'File rejected',
+      intent: 'cloud.fileTransfer.action',
+      displayMode: 'medium'
+    };
+  }
   return {
     heading: 'Done',
     response: 'Closed.',
@@ -470,7 +491,11 @@ function appendVoiceActions(fragment, payload = {}) {
           ? 'Stopping...'
           : kind === 'contact-select'
             ? 'Opening...'
-            : 'Closing...';
+            : kind === 'accept'
+              ? 'Accepting...'
+              : kind === 'reject'
+                ? 'Rejecting...'
+                : 'Closing...';
       stopVoiceAlertSound();
       if (['ok', 'dismiss', 'close'].includes(kind)) {
         const feedback = buildVoiceActionFeedback(action);
@@ -490,6 +515,27 @@ function appendVoiceActions(fragment, payload = {}) {
           icon: 'WA',
           hideAfterMs: 5000
         });
+        return;
+      }
+      if (['accept', 'reject'].includes(kind) && action.transferId) {
+        try {
+          const result = await ipcRenderer.invoke('cloud:fileTransferAction', {
+            transferId: action.transferId,
+            action: kind
+          });
+          if (!result?.success) {
+            throw new Error(result?.error || 'Action failed');
+          }
+          const feedback = buildVoiceActionFeedback(action, result);
+          collapseVoiceIslandAfter(80, {
+            statusText: feedback.statusText,
+            icon: feedback.icon,
+            hideAfterMs: kind === 'accept' ? 2500 : 5000
+          });
+        } catch (_) {
+          button.textContent = originalLabel;
+          setVoiceActionRowResolving(row, button, false);
+        }
         return;
       }
       try {

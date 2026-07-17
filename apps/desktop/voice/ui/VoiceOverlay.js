@@ -340,6 +340,7 @@ class VoiceOverlay extends EventEmitter {
     if (intent === 'phone.notification') {
       return String(result?.data?.notification?.appName || 'Phone notification').slice(0, 40);
     }
+    if (intent.startsWith('cloud.fileTransfer')) return 'File transfer';
     if (intent === 'phone.cloudCommand') return 'From mobile';
     if (intent === 'phone.cloudResult') return 'Mobile reply';
     if (/^(?:timer|alarm|reminder)\./.test(intent)) return 'Schedule';
@@ -430,6 +431,7 @@ class VoiceOverlay extends EventEmitter {
       label: String(action?.label || '').slice(0, 80),
       kind: String(action?.kind || '').slice(0, 40),
       scheduleId: String(action?.scheduleId || '').slice(0, 140),
+      transferId: String(action?.transferId || '').slice(0, 160),
       provider: String(action?.provider || '').slice(0, 40),
       draftId: String(action?.draftId || '').slice(0, 128),
       choiceIndex: Math.max(0, Math.min(8, Number(action?.choiceIndex) || 0)),
@@ -438,6 +440,7 @@ class VoiceOverlay extends EventEmitter {
     })).filter(action => {
       if (!action.id || !action.label) return false;
       if (['snooze', 'stop'].includes(action.kind || action.id)) return Boolean(action.scheduleId);
+      if (['accept', 'reject'].includes(action.kind || action.id)) return Boolean(action.transferId);
       if (['send', 'cancel'].includes(action.kind || action.id)) return Boolean(action.draftId);
       if ((action.kind || action.id) === 'contact-select') return action.choiceIndex > 0;
       return true;

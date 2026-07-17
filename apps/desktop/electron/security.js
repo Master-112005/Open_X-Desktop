@@ -242,6 +242,15 @@ function validateScheduleAction(payload) {
   return { id, action: action === 'end' ? 'stop' : action, minutes };
 }
 
+function validateCloudFileTransferAction(payload) {
+  requirePlainObject(payload);
+  const transferId = requireString(payload.transferId, 'transferId', { maxLength: 160 });
+  const action = requireString(payload.action, 'action', { maxLength: 20 });
+  if (!/^[A-Za-z0-9._:-]+$/.test(transferId)) throw new TypeError('transferId is invalid');
+  if (!['accept', 'reject'].includes(action)) throw new TypeError('file transfer action is not supported');
+  return { transferId, action };
+}
+
 function validateVoiceOverlayCollapse(payload) {
   if (payload === undefined) return {};
   requirePlainObject(payload);
@@ -467,6 +476,7 @@ const IPC_VALIDATORS = Object.freeze({
   'settings:save': validateSettings,
   'settings:reset': validateEmpty,
   'schedule:alertAction': validateScheduleAction,
+  'cloud:fileTransferAction': validateCloudFileTransferAction,
   'schedule:getSnapshot': validateEmpty,
   'timerWidget:getState': validateEmpty,
   'timerWidget:close': validateTimerWidgetClose,
