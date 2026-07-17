@@ -15,6 +15,7 @@ const { CommandFrameParser } = require('../linguistic/InputParser');
 const NaturalLanguageRouter = require('../semantic/NaturalLanguageRouter');
 const { AppCommandLanguage, BrowserCommandLanguage } = NaturalLanguageRouter;
 const ResponseGenerator = require('../response/ResponseGenerator');
+const { findVisualConcepts } = require('../capabilities/visual-memory/runtime/utils/VisualConceptLexicon');
 const {
   isCancellationError,
   throwIfAborted
@@ -366,6 +367,8 @@ class ActionRouter {
       ['_resolveExplicitMediaControlIntent', () => this._resolveExplicitMediaControlIntent(rawCommandText, preparedInput)],
       ['_resolveMediaIntent', () => this._resolveMediaIntent(rawCommandText, source)],
       ['_resolveExplicitMediaIntent', () => this._resolveExplicitMediaIntent(rawCommandText, preparedInput)],
+      ['_resolvePersonalPhotoIntent', () => this._resolvePersonalPhotoIntent(rawCommandText, preparedInput)],
+      ['_resolveVisualPhotoSearchIntent', () => this._resolveVisualPhotoSearchIntent(rawCommandText, preparedInput)],
       ['_resolveSmartFileIntent', () => this._resolveSmartFileIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitFileIntent', () => this._resolveExplicitFileIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitFolderMoveIntent', () => this._resolveExplicitFolderMoveIntent(rawCommandText, preparedInput)],
@@ -374,7 +377,6 @@ class ActionRouter {
       ['_resolveExplicitAppIntent', () => this._resolveExplicitAppIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitWindowIntent', () => this._resolveExplicitWindowIntent(rawCommandText, preparedInput)],
       ['_resolveSiteSearchIntent', () => this._resolveSiteSearchIntent(rawCommandText, preparedInput)],
-      ['_resolvePersonalPhotoIntent', () => this._resolvePersonalPhotoIntent(rawCommandText, preparedInput)],
       ['_resolveNaturalConditionIntent', () => this._resolveNaturalConditionIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitOpenIntent', () => this._resolveExplicitOpenIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitAppOpenIntent', () => this._resolveExplicitAppOpenIntent(rawCommandText, preparedInput)],
@@ -5708,15 +5710,110 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
       : '';
   }
 
+  _resolveVisualPhotoSearchIntent(rawText, preparedInput) {
+    const corrected = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
+    const raw = String(rawText || corrected || '').trim().toLowerCase();
+    const normalizedRaw = this._normalizePhotoSearchText(raw);
+    const normalizedCorrected = this._normalizePhotoSearchText(corrected);
+    const input = Array.from(new Set([normalizedRaw, normalizedCorrected].filter(Boolean))).join(' ');
+    const queryInput = normalizedRaw || normalizedCorrected || input;
+    if (!input) {
+      return null;
+    }
+
+    if (this._isExplicitExternalPhotoSurface(input)) {
+      return null;
+    }
+
+    if (/\bduplicates?\b/.test(input)) {
+      return null;
+    }
+
+    if (/\b(?:microsoft\s+photos|windows\s+photos|photos\s+app)\b/.test(input)) {
+      const intent = this.intentRegistry.get('app.open');
+      return intent ? { intent, confidence: 0.92, entities: { appName: 'photos' } } : null;
+    }
+
+    const hasPhotoTerm = /\b(?:photos?|pictures?|images?|pics?|photo\s+memories|visual\s+memories)\b/.test(input);
+    if (!hasPhotoTerm) {
+      return null;
+    }
+
+    const hasSearchAction = /\b(?:find|show|search|look\s+for|look|get|bring|display)\b/.test(input);
+    if (!hasSearchAction) {
+      return null;
+    }
+
+    if (/^(?:open|show|view|launch|display)\s+(?:my\s+)?(?:openx\s+)?(?:gallery|galary|gallary|galleary|photos?|pictures?|photo\s+library|memories)$/.test(input)) {
+      const intent = this.intentRegistry.get('visualMemory.openGallery');
+      return intent ? { intent, confidence: 0.99, entities: { view: 'timeline' } } : null;
+    }
+
+    const hasVisualTarget = this._hasVisualPhotoSearchTarget(input);
+    if (!hasVisualTarget && /\b(?:file|folder|directory|path)\b/.test(input)) {
+      return null;
+    }
+
+    const intent = this.intentRegistry.get('visualMemory.search');
+    return intent
+      ? {
+          intent,
+          confidence: hasVisualTarget ? 0.95 : 0.9,
+          entities: {
+            query: this._extractVisualPhotoSearchQuery(queryInput),
+            personalSearchType: 'photo'
+          }
+        }
+      : null;
+  }
+
+  _normalizePhotoSearchText(value) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/\bphotes\b/g, 'photos')
+      .replace(/\bphots\b/g, 'photos')
+      .replace(/\bpics?\b/g, 'photos')
+      .replace(/\bclassmetes\b/g, 'classmates')
+      .replace(/\bclassm[eai]tes\b/g, 'classmates')
+      .replace(/\bmoanitains?\b/g, 'mountains')
+      .replace(/\bbetchs?\b/g, 'beaches')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  _isExplicitExternalPhotoSurface(input) {
+    return /\bgoogle\s+photos?\b|\bphotos\.google\.com\b/.test(String(input || ''));
+  }
+
+  _hasVisualPhotoSearchTarget(input) {
+    const text = String(input || '');
+    if (/\b(?:dad|daddy|father|papa|appa|mom|mum|mummy|mother|mama|amma|parents?|brothers?|sisters?|grandpa|grandma|friend|friends|family|classmates?|me|myself|mine)\b/.test(text)) {
+      return true;
+    }
+    if (/\b(?:latest|newest|recent|today|yesterday|this\s+week|last\s+week|this\s+month|last\s+month|on\s+\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\b/.test(text)) {
+      return true;
+    }
+    if (/\b(?:of|with|containing|contains?|showing|near|at|in|from)\s+[a-z0-9]/.test(text)) {
+      return true;
+    }
+    if (findVisualConcepts(text).length > 0) {
+      return true;
+    }
+    return false;
+  }
+
+  _extractVisualPhotoSearchQuery(input) {
+    const text = this._normalizePhotoSearchText(input)
+      .replace(/^(?:please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+)?(?:find|show|search|look\s+for|look|get|bring|display)\s+(?:me\s+)?/i, '')
+      .replace(/\b(?:openx\s+)?(?:photo\s+memories|visual\s+memories)\b/g, 'photos')
+      .trim();
+    return text || 'photos';
+  }
+
   _resolvePersonalPhotoIntent(rawText, preparedInput) {
     const corrected = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
     const raw = String(rawText || corrected || '').trim().toLowerCase();
-    const input = `${raw} ${corrected}`
-      .replace(/\bclassmetes\b/g, 'classmates')
-      .replace(/\bclassm[eai]tes\b/g, 'classmates')
-      .replace(/\bpics?\b/g, 'photos')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const input = this._normalizePhotoSearchText(`${raw} ${corrected}`);
 
     if (!/\b(?:find|show|open|search|look)\b/.test(input)) {
       return null;
@@ -5734,7 +5831,9 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     }
 
     const photoLibrary = this.learningStore?.getPreference?.('photoLibrary')?.value || '';
-    const wantsGooglePhotos = /\bgoogle\s+photos?\b/.test(input) || photoLibrary === 'googlePhotos';
+    const selfOrRelationshipCue = relationshipCue || /\b(?:me|myself|mine|family)\b/.test(input);
+    const wantsGooglePhotos = this._isExplicitExternalPhotoSurface(input) ||
+      (photoLibrary === 'googlePhotos' && !selfOrRelationshipCue);
     if (wantsGooglePhotos) {
       const intent = this.intentRegistry.get('browser.siteSearch');
       return intent

@@ -3124,6 +3124,10 @@ describe('Action Router', function() {
     const local = await router.process('can you find me a pic me with my classmates', 'chat');
     const family = await router.process('find a pic that me and my dad in it', 'chat');
     const parents = await router.process('find a pic mummy and daddy', 'chat');
+    const parentPhotos = await router.process('find photos of mummy and daddy', 'chat');
+    const latestFamily = await router.process('find latest photo of me and daddy', 'chat');
+    const hills = await router.process('find photos of hills', 'chat');
+    const beach = await router.process('find images of beach', 'chat');
     const google = await router.process('find a pic with my classmates in google photos', 'chat');
     const photosApp = await router.process('find my family pictures in the photos app', 'chat');
 
@@ -3136,6 +3140,14 @@ describe('Action Router', function() {
     assert.equal(parents.intent, 'visualMemory.search');
     assert.equal(parents.entities.query, 'dad mom');
     assert.equal(parents.entities.personalSearchType, 'photo');
+    assert.equal(parentPhotos.intent, 'visualMemory.search');
+    assert.equal(parentPhotos.entities.query, 'dad mom');
+    assert.equal(latestFamily.intent, 'visualMemory.search');
+    assert.equal(latestFamily.entities.query, 'me dad');
+    assert.equal(hills.intent, 'visualMemory.search');
+    assert.equal(hills.entities.query, 'photos of hills');
+    assert.equal(beach.intent, 'visualMemory.search');
+    assert.equal(beach.entities.query, 'images of beach');
     assert.equal(google.intent, 'browser.siteSearch');
     assert.equal(google.entities.site, 'google photos');
     assert.equal(google.entities.query, 'classmates');
@@ -3176,10 +3188,13 @@ describe('Action Router', function() {
       }
     });
     const result = await router.process('find my classmates photo', 'chat');
+    const family = await router.process('find photos of mummy and daddy', 'chat');
 
     assert.equal(result.intent, 'browser.siteSearch');
     assert.equal(result.entities.site, 'google photos');
     assert.equal(result.entities.query, 'classmates');
+    assert.equal(family.intent, 'visualMemory.search');
+    assert.equal(family.entities.query, 'dad mom');
   });
 
   it('should keep reminder requests ahead of media routing', async function() {
