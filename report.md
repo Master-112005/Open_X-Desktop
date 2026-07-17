@@ -8,7 +8,7 @@ Package: `openx`
 
 Version source: `package.json`
 
-Current version: `6.10.22`
+Current version: `7.0.0`
 
 Branch / commit: `visual-memory-engine` / `1ee0f82`
 
@@ -37,17 +37,24 @@ Approximate scan size from the 2026-07-17 refresh:
 
 ## Current Working Tree
 
-The repository is actively modified. Current modified areas from the latest scan include:
+The source working tree was clean at the start of this report update. This documentation refresh updates `report.md` to reflect the current `7.0.0` package version and the latest assistant stabilization work.
 
+Recent stabilization areas covered by this report include:
+
+- `core/automation/media.js`
+- `core/assistant/automation/ActionRouter.js`
+- `core/assistant/entities/EntityExtractor.js`
+- `core/assistant/index.js`
+- `core/assistant/learning/ActiveLearningStore.js`
+- `core/assistant/response/ResponseGenerator.js`
 - `core/assistant/capabilities/visual-memory/runtime/api/VisualMemoryAPI.js`
 - `core/assistant/capabilities/visual-memory/runtime/intelligence/context/MemorySearchContext.js`
 - `core/assistant/capabilities/visual-memory/runtime/intelligence/ranking/MemoryRankingEngine.js`
 - `core/assistant/capabilities/visual-memory/runtime/intelligence/utils/intelligence-utils.js`
 - `core/assistant/entities/PersonLexicon.js`
-- `tests/core/visual-memory-intelligence.test.js`
-- `report.md`
+- focused media, reminder, router, learning, response, visual-memory, and gallery tests under `tests/`
 
-These modifications are not reverted or discarded. The report reflects the current workspace state.
+The report reflects the current workspace state and does not add a second directory tree.
 
 ## Validation Performed
 
@@ -198,6 +205,72 @@ Result:
 23 passing
 3 passing
 49 passing
+```
+
+### Latest Assistant Stabilization Validation - 2026-07-17
+
+The latest production-stabilization pass focused on two user-visible assistant failures: media playback routing and natural reminder commands.
+
+Passed focused media playback validation:
+
+```powershell
+npx mocha tests/automation/media.test.js tests/core/responses.test.js tests/media-handling/media-handling.test.js tests/core/media-youtube-corpus.test.js --timeout 180000 --reporter dot --exit
+```
+
+Result:
+
+```text
+76 passing
+```
+
+Passed focused router validation for YouTube/default-platform behavior:
+
+```powershell
+npx mocha tests/core/router.test.js --grep "natural playback|short title words|dulander|YouTube|youtube" --timeout 180000 --reporter dot --exit
+```
+
+Result:
+
+```text
+4 passing
+```
+
+Passed focused reminder, learning, and router validation:
+
+```powershell
+npx mocha tests/core/reminder-extraction.test.js tests/core/learning.test.js tests/core/router.test.js --grep "Reminder Extraction|Active Learning Store|reminder|trailing remind-me|schedule|alarm" --timeout 180000 --reporter dot --exit
+```
+
+Result:
+
+```text
+52 passing
+```
+
+Passed focused assistant calendar/reminder validation:
+
+```powershell
+npx mocha tests/core/assistant.test.js --grep "Calendar reading|unsupported personal|reminder|schedule" --timeout 180000 --reporter dot --exit
+```
+
+Result:
+
+```text
+6 passing
+```
+
+Passed focused lint:
+
+```powershell
+npx eslint core/automation/media.js core/assistant/entities/EntityExtractor.js core/assistant/automation/ActionRouter.js core/assistant/index.js core/assistant/learning/ActiveLearningStore.js core/assistant/response/ResponseGenerator.js tests/automation/media.test.js tests/core/media-youtube-corpus.test.js tests/core/responses.test.js tests/core/reminder-extraction.test.js tests/core/router.test.js tests/core/learning.test.js tests/media-handling/media-handling.test.js
+```
+
+Passed production smoke checks:
+
+```text
+play chaild in us song -> mediaQuery="chaild in us song", mediaPlatform="youtube"
+play chaild in us song in youtube -> mediaQuery="chaild in us song", mediaPlatform="youtube"
+i have a meeting at 6pm tomorrow remind me -> reminder.set, reminderText="meeting", timeExpression="6pm tomorrow"
 ```
 
 ## Major Current Capabilities Confirmed
@@ -1527,7 +1600,11 @@ Important media behavior:
 
 - preserve full song/title phrase;
 - avoid splitting title words as separate commands;
-- infer platform when not explicit;
+- infer YouTube as the default playback platform when the user asks to play a song without naming another supported service;
+- respect explicit platform phrases such as `in youtube` or `on youtube`;
+- preserve short title words and prepositions inside media names, including phrases such as `child in us`, instead of treating `us` as Apple Music;
+- resolve YouTube playback to a watch target when a video result can be identified;
+- avoid claiming verified playback when only a search-results fallback was opened;
 - support pause/resume/stop/next/previous and media volume controls.
 
 ### Schedule Workflow
@@ -1560,12 +1637,21 @@ Schedule commands support:
 - timers;
 - reminders;
 - alarms;
+- natural event reminders such as `i have a meeting at 6pm tomorrow remind me`;
 - recurrence;
 - snooze;
 - stop/cancel;
 - list/clear;
 - local planner/calendar integration;
 - mobile sync through cloud command paths.
+
+Recent reminder stabilization:
+
+- trailing `remind me` requests now route to `reminder.set` when a time expression is present;
+- event nouns such as `meeting`, `class`, `appointment`, and similar phrases become reminder text instead of personal facts;
+- the learning layer does not store scheduled reminders as unsupported personal memories;
+- calendar-reading fallback is limited to actual read/list/show calendar requests;
+- reminder responses use natural wording such as `about your meeting` for event reminders.
 
 Incomplete schedule handling:
 
