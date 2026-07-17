@@ -339,6 +339,32 @@ function validateGalleryFaceAssign(payload) {
   return { clusterId, identityId };
 }
 
+function validateGalleryFaceRelationship(payload) {
+  requirePlainObject(payload);
+  const identityId = requireString(payload.identityId, 'identityId', { maxLength: 160 });
+  if (!/^[A-Za-z0-9._:-]+$/.test(identityId)) throw new TypeError('identityId is invalid');
+  return {
+    identityId,
+    relationship: typeof payload.relationship === 'string'
+      ? payload.relationship.replace(/\s+/g, ' ').trim().slice(0, 80)
+      : ''
+  };
+}
+
+function validateGalleryFacePersonUpdate(payload) {
+  const data = validateGalleryFaceRelationship(payload);
+  const name = requireString(payload.name, 'name', { maxLength: 120 }).replace(/\s+/g, ' ').trim();
+  if (!name) throw new TypeError('name is required');
+  return { ...data, name };
+}
+
+function validateGalleryFaceIdentity(payload) {
+  requirePlainObject(payload);
+  const identityId = requireString(payload.identityId, 'identityId', { maxLength: 160 });
+  if (!/^[A-Za-z0-9._:-]+$/.test(identityId)) throw new TypeError('identityId is invalid');
+  return { identityId };
+}
+
 function validateGalleryFaceCluster(payload) {
   requirePlainObject(payload);
   const clusterId = requireString(payload.clusterId, 'clusterId', { maxLength: 160 });
@@ -454,6 +480,9 @@ const IPC_VALIDATORS = Object.freeze({
   'gallery:showPhoto': validateGalleryPhoto,
   'gallery:toggleFavorite': validateGalleryFavorite,
   'gallery:nameFace': validateGalleryFaceName,
+  'gallery:setFaceRelationship': validateGalleryFaceRelationship,
+  'gallery:updateFacePerson': validateGalleryFacePersonUpdate,
+  'gallery:deleteFacePerson': validateGalleryFaceIdentity,
   'gallery:addFaceToPerson': validateGalleryFaceAssign,
   'gallery:removeFaceCluster': validateGalleryFaceCluster,
   'gallery:scanPeople': validateGalleryPeopleScan,

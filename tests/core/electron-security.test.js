@@ -238,6 +238,7 @@ describe('Electron Security Boundary', function() {
       'planner:deleteEntry',
       'gallery:getView', 'gallery:getPhotos', 'gallery:getImageData', 'gallery:openPhoto',
       'gallery:showPhoto', 'gallery:toggleFavorite', 'gallery:nameFace',
+      'gallery:setFaceRelationship', 'gallery:updateFacePerson', 'gallery:deleteFacePerson',
       'gallery:addFaceToPerson', 'gallery:removeFaceCluster', 'gallery:scanPeople',
       'app:quit'
     ];

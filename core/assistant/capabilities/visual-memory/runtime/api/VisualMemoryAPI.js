@@ -4,6 +4,7 @@ const path = require('path');
 const { IMAGE_EXTENSIONS } = require('../utils/constants');
 const { listFilesRecursive } = require('../utils/FileSystemUtils');
 const { cosineSimilarity, faceQualityScore } = require('../faces/utils/face-utils');
+const { relationshipAliasesFor } = require('../../../../entities/PersonLexicon');
 
 const DEFAULT_FACE_SCAN_OPTIONS = Object.freeze({
   maxPhotos: 10000,
@@ -543,6 +544,13 @@ class VisualMemoryAPI {
     return result;
   }
 
+  async updateFaceIdentity(identityId, updates = {}, source = 'user-edit') {
+    await this.engine.initialize();
+    const result = this.engine.faces.updateIdentity(identityId, updates, source);
+    await this.engine.persistFaceMemory();
+    return result;
+  }
+
   async resetFaceMemory() {
     await this.engine.initialize();
     const result = this.engine.faces.reset();
@@ -618,20 +626,7 @@ class VisualMemoryAPI {
 
   _relationshipSearchTerms(value = '') {
     const normalized = String(value || '').toLowerCase().trim();
-    const aliases = {
-      father: ['father', 'dad', 'papa'],
-      mother: ['mother', 'mom', 'mummy', 'amma'],
-      parents: ['parents', 'family'],
-      brother: ['brother'],
-      sister: ['sister'],
-      friend: ['friend', 'friends'],
-      friends: ['friend', 'friends'],
-      family: ['family'],
-      wife: ['wife', 'spouse'],
-      husband: ['husband', 'spouse'],
-      colleague: ['colleague', 'coworker']
-    };
-    return aliases[normalized] || (normalized ? [normalized] : []);
+    return normalized ? relationshipAliasesFor(normalized) : [];
   }
 
   async setFaceRelationship(identityId, relationship, source = 'user') {

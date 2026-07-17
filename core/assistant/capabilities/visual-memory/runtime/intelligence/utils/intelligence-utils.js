@@ -1,5 +1,11 @@
 'use strict';
 
+const {
+  personValuesMatch,
+  relationshipValuesMatch,
+  textMentionsPerson,
+  textMentionsRelationship
+} = require('../../../../../entities/PersonLexicon');
 const { findVisualConcepts } = require('../../utils/VisualConceptLexicon');
 
 function normalize(value) {
@@ -11,6 +17,11 @@ function constraintValues(visualQuery, keys = []) {
   return keys.flatMap(key => Array.isArray(constraints[key]) ? constraints[key] : [])
     .map(item => String(item.value || '').trim())
     .filter(Boolean);
+}
+
+function constraintItems(visualQuery, keys = []) {
+  const constraints = visualQuery?.constraints || {};
+  return keys.flatMap(key => Array.isArray(constraints[key]) ? constraints[key] : []);
 }
 
 function includesAny(text, values = []) {
@@ -25,6 +36,22 @@ function normalizeList(values = []) {
 function countExactMatches(values = [], requested = []) {
   const available = new Set(normalizeList(values));
   return normalizeList(requested).filter(value => available.has(value)).length;
+}
+
+function countPersonMatches(values = [], requested = []) {
+  return normalizeList(requested).filter(request => values.some(value => personValuesMatch(value, request))).length;
+}
+
+function countRelationshipMatches(values = [], requested = []) {
+  return normalizeList(requested).filter(request => values.some(value => relationshipValuesMatch(value, request))).length;
+}
+
+function includesPersonMention(text, requested = []) {
+  return normalizeList(requested).some(value => textMentionsPerson(text, value));
+}
+
+function includesRelationshipMention(text, requested = []) {
+  return normalizeList(requested).some(value => textMentionsRelationship(text, value));
 }
 
 function candidateEvidence(candidate = {}, vision = {}) {
@@ -85,9 +112,14 @@ function dateMs(candidate = {}) {
 
 module.exports = {
   candidateEvidence,
+  constraintItems,
   constraintValues,
   countExactMatches,
+  countPersonMatches,
+  countRelationshipMatches,
   dateMs,
+  includesPersonMention,
+  includesRelationshipMention,
   includesAny,
   normalize,
   normalizeList

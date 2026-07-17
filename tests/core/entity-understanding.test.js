@@ -117,6 +117,17 @@ describe('Assistant Entity Understanding Layer', function() {
     assert.equal(entities.media.filter(entity => /Stars/i.test(entity.value)).length, 1);
   });
 
+  it('extracts visual person names, visible self, and family relationships from photo requests', async function() {
+    const entities = await buildStructuredEntities('find a pic of me and daddy with jithu and vivek');
+    const people = entities.people.map(entity => String(entity.canonical || entity.value).toLowerCase());
+
+    assert.ok(people.includes('user'));
+    assert.ok(people.includes('jithu'));
+    assert.ok(people.includes('vivek'));
+    assert.ok(!people.includes('daddy'));
+    assert.ok(entities.relationships.some(relationship => relationship.target === 'father'));
+  });
+
   it('extracts recurring reminder task, days, time, and recurrence metadata', async function() {
     const entities = await buildStructuredEntities('remind me every saturday monday to eat lunch at 8pm');
 

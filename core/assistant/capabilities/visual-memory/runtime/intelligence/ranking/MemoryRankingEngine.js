@@ -2,7 +2,13 @@
 
 const MemoryRecord = require('../memories/MemoryRecord');
 const { MEMORY_RESULT_TYPES } = require('../contracts/MemoryIntelligenceContracts');
-const { candidateEvidence, constraintValues, countExactMatches, includesAny } = require('../utils/intelligence-utils');
+const {
+  candidateEvidence,
+  constraintValues,
+  countPersonMatches,
+  countRelationshipMatches,
+  includesAny
+} = require('../utils/intelligence-utils');
 
 class MemoryRankingEngine {
   constructor({ configuration, confidenceEngine, similarityEngine } = {}) {
@@ -96,14 +102,14 @@ class MemoryRankingEngine {
     if (constraints.documents.length && includesAny(evidence.text, constraints.documents)) score += 0.22;
     if (constraints.sourceApps.length && includesAny(evidence.text, constraints.sourceApps)) score += 0.22;
     if (constraints.people.length) {
-      const exact = countExactMatches(evidence.peopleNames || [], constraints.people);
+      const exact = countPersonMatches(evidence.peopleNames || [], constraints.people);
       score += exact > 0 ? Math.min(0.4, 0.22 + (exact / constraints.people.length) * 0.18) : 0;
     }
     if (constraints.relationships.length) {
-      const exact = countExactMatches(evidence.relationships || [], constraints.relationships);
+      const exact = countRelationshipMatches(evidence.relationships || [], constraints.relationships);
       score += exact > 0 ? Math.min(0.34, 0.18 + (exact / constraints.relationships.length) * 0.16) : 0;
     }
-    if (constraints.owners.length && countExactMatches(evidence.peopleNames || [], ['me', 'myself', 'user']) > 0) score += 0.2;
+    if (constraints.owners.length && countPersonMatches(evidence.peopleNames || [], constraints.owners) > 0) score += 0.2;
     if (Array.isArray(evidence.vision.objects) && evidence.vision.objects.length) score += 0.12;
     if (Array.isArray(evidence.vision.scenes) && evidence.vision.scenes.length) score += 0.12;
     if (Array.isArray(evidence.vision.ocr) && evidence.vision.ocr.length) score += 0.12;

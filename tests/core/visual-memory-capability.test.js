@@ -138,7 +138,7 @@ describe('Assistant Visual Memory Capability', () => {
     assert.strictEqual(output.response.requiresVerification, true);
   });
 
-  it('registers in the assistant pipeline after Visual Memory Intelligence and before reasoning', async () => {
+  it('registers in the assistant pipeline after Visual Memory Intelligence and keeps search results in chat', async () => {
     let openedSearch = false;
     const fakeApi = {
       async buildCandidatePool() {
@@ -170,9 +170,10 @@ describe('Assistant Visual Memory Capability', () => {
     const output = await manager.process({ input: 'show me photos from my Goa trip', source: 'chat' });
     const capabilityStage = output.stageResults.find(item => item.stageId === 'assistant.capability.visualMemory');
 
-    assert.strictEqual(openedSearch, true);
+    assert.strictEqual(openedSearch, false);
     assert(capabilityStage);
     assert.strictEqual(capabilityStage.output.action, 'search');
+    assert.strictEqual(capabilityStage.output.resultCount, 1);
     assert.strictEqual(output.context.shared['assistant.visualMemoryCapability.active'], true);
 
     await manager.destroy();

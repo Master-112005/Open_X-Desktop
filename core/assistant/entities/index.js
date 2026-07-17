@@ -27,6 +27,7 @@ module.exports = {
   MediaExtractor: require('./MediaExtractor'),
   ContactExtractor: require('./ContactExtractor'),
   PersonExtractor: require('./PersonExtractor'),
+  PersonLexicon: require('./PersonLexicon'),
   DeviceExtractor: require('./DeviceExtractor'),
   LocationExtractor: require('./LocationExtractor'),
   DateExtractor: require('./DateExtractor'),

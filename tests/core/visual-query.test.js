@@ -79,6 +79,36 @@ describe('Visual Query Understanding', () => {
     assert.strictEqual(result.validation.valid, true);
   });
 
+  it('treats visible self and family aliases as people and relationship constraints', () => {
+    const engine = new VisualQueryEngine();
+    const result = engine.understand({
+      rawInput: 'find latest photo of me and my daddy',
+      normalizedInput: 'find latest photo of me and my daddy',
+      resolvedContext: { conversationMemory: {}, confidence: 0.8 }
+    });
+
+    const people = result.constraints.people.map(item => String(item.value).toLowerCase());
+    const relationships = result.constraints.relationships.map(item => String(item.value).toLowerCase());
+    assert.strictEqual(result.active, true);
+    assert(people.includes('user'));
+    assert(relationships.includes('father'));
+    assert(!people.includes('daddy'));
+  });
+
+  it('does not treat display phrasing as a visible self constraint', () => {
+    const engine = new VisualQueryEngine();
+    const result = engine.understand({
+      rawInput: 'show me photos from my Goa trip',
+      normalizedInput: 'show me photos from my goa trip',
+      resolvedContext: { conversationMemory: {}, confidence: 0.8 }
+    });
+
+    const people = result.constraints.people.map(item => String(item.value).toLowerCase());
+    assert.strictEqual(result.active, true);
+    assert(!people.includes('user'));
+    assert.strictEqual(result.owner, 'user');
+  });
+
   it('understands direct person-pic phrasing and does not treat scenes as people', () => {
     const engine = new VisualQueryEngine();
     const person = engine.understand({
