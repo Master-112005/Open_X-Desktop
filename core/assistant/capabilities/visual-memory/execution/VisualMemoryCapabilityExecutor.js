@@ -2,6 +2,8 @@
 
 const { topResult } = require('../utils/visual-memory-capability-utils');
 
+const MAX_CHAT_VISUAL_RESULTS = 10;
+
 class VisualMemoryCapabilityExecutor {
   constructor({ visualMemoryApi = null, verification, diagnostics } = {}) {
     this.visualMemoryApi = visualMemoryApi;
@@ -51,7 +53,7 @@ class VisualMemoryCapabilityExecutor {
         currentSearch: visualSearch,
         currentMemory,
         currentImage: currentMemory?.photoId || null,
-        currentSelection: results.slice(0, 12).map(result => result.photoId).filter(Boolean)
+        currentSelection: results.slice(0, MAX_CHAT_VISUAL_RESULTS).map(result => result.photoId).filter(Boolean)
       }
     };
   }

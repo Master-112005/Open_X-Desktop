@@ -77,6 +77,8 @@ const CANCEL_PATTERNS = [
   /\b(?:do\s+not|dont)\s+(?:continue|do|proceed|run|execute|close|delete|shutdown|restart)\b/
 ];
 
+const MAX_CHAT_VISUAL_RESULTS = 10;
+
 const SPOKEN_CHOICE_NUMBERS = Object.freeze({
   one: 1,
   'this one': 1,
@@ -2128,7 +2130,7 @@ class Assistant extends EventEmitter {
     const results = Array.isArray(visualSearch?.results) ? visualSearch.results : [];
     if (!result || results.length === 0) return result;
 
-    const visualResults = results.slice(0, 12).map((entry, index) => {
+    const visualResults = results.slice(0, MAX_CHAT_VISUAL_RESULTS).map((entry, index) => {
       const photo = entry?.candidate?.photo || {};
       const metadata = entry?.candidate?.metadata || {};
       const path = String(entry?.path || photo.filePath || metadata.filePath || '');
@@ -2151,15 +2153,19 @@ class Assistant extends EventEmitter {
       visualSearch: {
         success: visualSearch.success === true,
         total: Number(visualSearch.total || results.length),
+        shown: visualResults.length,
         strategies: visualSearch.reasoning?.strategies || [],
         continuationToken: visualSearch.continuationToken || null
       },
       visualResults
     };
-    const count = Number(visualSearch.total || visualResults.length);
-    result.response = count === 1
+    const shownCount = visualResults.length;
+    const totalCount = Number(visualSearch.total || results.length || shownCount);
+    result.response = shownCount === 1
       ? 'I found 1 possible photo.'
-      : `I found ${count} possible photos.`;
+      : (Number.isFinite(totalCount) && totalCount > shownCount
+        ? `I found the best ${shownCount} photo matches.`
+        : `I found ${shownCount} possible photos.`);
     return result;
   }
 

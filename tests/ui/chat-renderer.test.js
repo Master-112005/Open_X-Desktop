@@ -75,7 +75,9 @@ describe('Chat Renderer UI', function() {
   it('should render visual memory results as a horizontal photo strip', function() {
     assert.match(html, /img-src 'self' file: data:/);
     assert.match(script, /const visualResults = Array\.isArray\(result\?\.data\?\.visualResults\)/);
-    assert.match(script, /visualResults\.slice\(0, 12\)/);
+    assert.match(script, /MAX_CHAT_VISUAL_RESULTS\s*=\s*10/);
+    assert.match(script, /visualResults\.slice\(0, MAX_CHAT_VISUAL_RESULTS\)/);
+    assert.match(script, /message-bubble--visual-results/);
     assert.match(script, /type: 'photo'/);
     assert.match(script, /function addVisualResultCards\(bubble, resultEntries\)/);
     assert.match(script, /className = 'visual-result-strip'/);
@@ -86,6 +88,8 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /window\.openx\?\.showGalleryPhoto\?\.\(photoId\)/);
     assert.match(css, /\.visual-result-strip\s*\{/);
     assert.match(css, /overflow-x:\s*auto/);
+    assert.match(css, /\.message\.assistant \.message-bubble--visual-results\s*\{/);
+    assert.match(css, /\.message-bubble--visual-results \.visual-result-strip\s*\{/);
     assert.match(css, /\.visual-result-strip::-webkit-scrollbar\s*\{[\s\S]*display:\s*block/);
     assert.match(css, /\.visual-result-strip::-webkit-scrollbar-thumb\s*\{/);
     assert.match(css, /\.visual-result-card\s*\{/);

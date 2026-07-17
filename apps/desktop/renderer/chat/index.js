@@ -92,6 +92,7 @@ const UI_STATE_STORAGE_KEY = 'openx-ui-state-v1';
 const MAX_NOTIFICATION_HISTORY = 30;
 const CHAT_HISTORY_LIMIT = 100;
 const MAX_RENDERED_MESSAGES = CHAT_HISTORY_LIMIT;
+const MAX_CHAT_VISUAL_RESULTS = 10;
 const ASSISTANT_MUTED_STORAGE_KEY = 'openx-assistant-voice-muted-v1';
 
 let isProcessing = false;
@@ -467,7 +468,7 @@ function normalizeResultEntries(result) {
   const intent = String(result?.intent || '');
   const visualResults = Array.isArray(result?.data?.visualResults) ? result.data.visualResults : [];
   if (visualResults.length > 0) {
-    return visualResults.slice(0, 12).map((entry, index) => ({
+    return visualResults.slice(0, MAX_CHAT_VISUAL_RESULTS).map((entry, index) => ({
       index: index + 1,
       name: String(entry?.title || entry?.fileName || `Photo ${index + 1}`),
       type: 'photo',
@@ -709,6 +710,10 @@ function addMessage(text, type, meta, options = {}) {
   bubble.className = 'message-bubble';
   bubble.textContent = safeText;
   const resultEntries = Array.isArray(options.resultEntries) ? options.resultEntries : [];
+  const hasVisualResultEntries = type === 'assistant' && resultEntries.some(entry => entry?.type === 'photo');
+  if (hasVisualResultEntries) {
+    bubble.classList.add('message-bubble--visual-results');
+  }
   if (type === 'assistant' && resultEntries.length > 0) {
     addResultCards(bubble, resultEntries);
   }
