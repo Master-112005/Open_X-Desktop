@@ -10,7 +10,11 @@ const {
   normalizedFaceBoxDistance,
   weightedMeanVector
 } = require('../faces/utils/face-utils');
-const { relationshipAliasesFor } = require('../../../../entities/PersonLexicon');
+const {
+  personValuesMatch,
+  relationshipAliasesFor,
+  relationshipValuesMatch
+} = require('../../../../entities/PersonLexicon');
 
 const DEFAULT_FACE_SCAN_OPTIONS = Object.freeze({
   maxPhotos: null,
@@ -295,13 +299,14 @@ class VisualMemoryAPI {
   async searchMemories(input = {}) {
     this.engine.ensureReady();
     const candidatePool = input.candidatePool || await this.buildCandidatePool(input.visualQuery, input.filtering || {});
-    this._attachFaceMemoryEvidence(candidatePool);
+    this._attachFaceMemoryEvidence(candidatePool, input.visualQuery);
     const result = await this.engine.intelligence.search({
       visualQuery: input.visualQuery,
       candidatePool,
       visionResults: input.visionResults || {},
       assistantContext: input.assistantContext || input.pipelineContext || null,
       previousSearch: input.previousSearch || null,
+      faceSearchContext: candidatePool.faceSearchContext || null,
       options: input.options || {}
     });
     await this.engine.diagnostics.record('memory-intelligence-search', {
@@ -636,12 +641,14 @@ class VisualMemoryAPI {
     return this.engine.faces.getTimeline(identityId);
   }
 
-  _attachFaceMemoryEvidence(candidatePool) {
+  _attachFaceMemoryEvidence(candidatePool, visualQuery = null) {
     const candidates = Array.isArray(candidatePool?.candidates) ? candidatePool.candidates : [];
     if (candidates.length === 0) return candidatePool;
     const state = this.engine.faces?.state || {};
     const profiles = state.profiles || {};
     const identities = state.identities || {};
+    const faceSearchContext = this._buildFaceSearchContext(visualQuery || candidatePool.visualQuery, profiles, identities);
+    candidatePool.faceSearchContext = faceSearchContext;
     const byPhoto = new Map();
     for (const embedding of Object.values(state.embeddings || {})) {
       if (!embedding?.photoId || !embedding.identityId) continue;
@@ -677,6 +684,7 @@ class VisualMemoryAPI {
         profileIds: Array.from(evidence.profileIds),
         faceCount: evidence.faceCount
       };
+      candidate.faceMemorySearch = this._scoreCandidateFaceEvidence(candidate.faceMemory, faceSearchContext);
       candidate.metadata = {
         ...(candidate.metadata || {}),
         peopleNames,
@@ -685,6 +693,81 @@ class VisualMemoryAPI {
       };
     }
     return candidatePool;
+  }
+
+  _buildFaceSearchContext(visualQuery = null, profiles = {}, identities = {}) {
+    const constraints = visualQuery?.constraints || {};
+    const values = key => (Array.isArray(constraints[key]) ? constraints[key] : [])
+      .filter(item => key !== 'owner' || item.metadata?.explicit !== false)
+      .map(item => String(item.value || '').trim())
+      .filter(Boolean);
+    const people = values('people');
+    const relationships = values('relationships');
+    const owners = values('owner');
+    const identityEvidence = Object.values(identities || {}).map(identity => {
+      const profile = profiles?.[identity.profileId] || {};
+      const names = [identity.name, profile.name].filter(Boolean);
+      const relationshipTerms = [
+        ...this._relationshipSearchTerms(identity.relationship || ''),
+        ...this._relationshipSearchTerms(profile.relationship || '')
+      ];
+      return {
+        identityId: identity.id,
+        profileId: profile.id || identity.profileId || null,
+        names,
+        relationships: Array.from(new Set(relationshipTerms))
+      };
+    });
+    const resolvablePeople = people.filter(request => identityEvidence.some(identity => (
+      identity.names.some(name => personValuesMatch(name, request))
+    )));
+    const resolvableOwners = owners.filter(request => identityEvidence.some(identity => (
+      identity.names.some(name => personValuesMatch(name, request))
+    )));
+    const resolvableRelationships = relationships.filter(request => identityEvidence.some(identity => (
+      identity.relationships.some(relationship => relationshipValuesMatch(relationship, request)) ||
+      identity.names.some(name => relationshipValuesMatch(name, request))
+    )));
+    const resolvable = resolvablePeople.length + resolvableRelationships.length + resolvableOwners.length;
+    return {
+      active: people.length > 0 || relationships.length > 0 || owners.length > 0,
+      strict: resolvable > 0,
+      people,
+      relationships,
+      owners,
+      resolvablePeople,
+      resolvableRelationships,
+      resolvableOwners,
+      identityCount: identityEvidence.length,
+      resolvable
+    };
+  }
+
+  _scoreCandidateFaceEvidence(faceMemory = {}, faceSearchContext = {}) {
+    if (!faceSearchContext?.active) {
+      return { active: false, strict: false, coverage: 0, matched: 0, required: 0 };
+    }
+    const peopleNames = Array.isArray(faceMemory.peopleNames) ? faceMemory.peopleNames : [];
+    const relationships = Array.isArray(faceMemory.relationships) ? faceMemory.relationships : [];
+    const requiredPeople = faceSearchContext.strict ? faceSearchContext.resolvablePeople : faceSearchContext.people;
+    const requiredRelationships = faceSearchContext.strict ? faceSearchContext.resolvableRelationships : faceSearchContext.relationships;
+    const requiredOwners = faceSearchContext.strict ? faceSearchContext.resolvableOwners : faceSearchContext.owners;
+    const matchedPeople = requiredPeople.filter(request => peopleNames.some(name => personValuesMatch(name, request)));
+    const matchedRelationships = requiredRelationships.filter(request => relationships.some(relationship => relationshipValuesMatch(relationship, request)));
+    const matchedOwners = requiredOwners.filter(request => peopleNames.some(name => personValuesMatch(name, request)));
+    const required = requiredPeople.length + requiredRelationships.length + requiredOwners.length;
+    const matched = matchedPeople.length + matchedRelationships.length + matchedOwners.length;
+    return {
+      active: true,
+      strict: faceSearchContext.strict === true,
+      required,
+      matched,
+      coverage: required > 0 ? matched / required : 0,
+      matchedPeople,
+      matchedRelationships,
+      matchedOwners,
+      hasNamedFaceEvidence: peopleNames.length > 0 || relationships.length > 0
+    };
   }
 
   _relationshipSearchTerms(value = '') {

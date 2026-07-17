@@ -162,10 +162,56 @@ describe('Visual Memory Intelligence', () => {
 
     assert.strictEqual(result.success, true);
     assert.strictEqual(result.results[0].photoId, 'both');
-    assert(result.results.length >= 3);
+    assert.strictEqual(result.total, 1);
     assert(result.results[0].candidate.faceMemory.peopleNames.includes('me'));
     assert(result.results[0].candidate.faceMemory.relationships.includes('father'));
-    assert(result.results[0].evidence.relationshipScore > result.results.find(item => item.photoId === 'popularTrip').evidence.relationshipScore);
+    assert.strictEqual(result.results[0].evidence.faceSearchStrict, true);
+    assert.strictEqual(result.results[0].evidence.faceSearchCoverage, 1);
+    assert(!result.results.some(item => item.photoId === 'popularTrip'));
+
+    await engine.api.shutdown();
+  });
+
+  it('requires saved face evidence for relationship-only parent searches', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-memory-parent-search-'));
+    const engine = new VisualMemoryEngine({ dataDir, logging: { console: false, file: false }, faces: { enrollment: { minUnknownPhotos: 2 } } });
+    await engine.api.start();
+    await engine.database.replaceTable('photos', {
+      bothParents: { id: 'bothParents', fileName: 'parents.jpg', filePath: 'C:/Pictures/parents.jpg', fileType: 'jpg', createdAt: ago(1) },
+      mummyOnly: { id: 'mummyOnly', fileName: 'mummy.jpg', filePath: 'C:/Pictures/mummy.jpg', fileType: 'jpg', createdAt: ago(2) },
+      daddyOnly: { id: 'daddyOnly', fileName: 'daddy.jpg', filePath: 'C:/Pictures/daddy.jpg', fileType: 'jpg', createdAt: ago(3) },
+      genericFamily: { id: 'genericFamily', fileName: 'family-trip.jpg', filePath: 'C:/Pictures/Family/family-trip.jpg', fileType: 'jpg', createdAt: ago(0) }
+    });
+    await engine.database.replaceTable('metadata', {
+      bothParents: { id: 'bothParents', photoId: 'bothParents', filePath: 'C:/Pictures/parents.jpg', fileType: 'jpg', createdAt: ago(1) },
+      mummyOnly: { id: 'mummyOnly', photoId: 'mummyOnly', filePath: 'C:/Pictures/mummy.jpg', fileType: 'jpg', createdAt: ago(2) },
+      daddyOnly: { id: 'daddyOnly', photoId: 'daddyOnly', filePath: 'C:/Pictures/daddy.jpg', fileType: 'jpg', createdAt: ago(3) },
+      genericFamily: { id: 'genericFamily', photoId: 'genericFamily', filePath: 'C:/Pictures/Family/family-trip.jpg', fileType: 'jpg', createdAt: ago(0), rankingScore: 100, semanticTags: ['family'] }
+    });
+    await engine.api.enableFaceMemory({ acceptedBy: 'test-user' });
+    await engine.api.ingestUnknownFace({ vector: [1, 0], photoId: 'bothParents', faceId: 'mother-1', confidence: 0.96 });
+    await engine.api.ingestUnknownFace({ vector: [0.99, 0.01], photoId: 'mummyOnly', faceId: 'mother-2', confidence: 0.95 });
+    const motherSuggestion = (await engine.api.getFaceEnrollmentSuggestions())[0];
+    await engine.api.enrollFaceCluster({ clusterId: motherSuggestion.clusterId, name: 'mummy', relationship: 'mother' });
+    await engine.api.ingestUnknownFace({ vector: [0, 1], photoId: 'bothParents', faceId: 'father-1', confidence: 0.96 });
+    await engine.api.ingestUnknownFace({ vector: [0.01, 0.99], photoId: 'daddyOnly', faceId: 'father-2', confidence: 0.95 });
+    const fatherSuggestion = (await engine.api.getFaceEnrollmentSuggestions()).find(item => item.clusterId !== motherSuggestion.clusterId);
+    await engine.api.enrollFaceCluster({ clusterId: fatherSuggestion.clusterId, name: 'daddy', relationship: 'father' });
+
+    const visualQuery = new VisualQueryEngine().understand({
+      rawInput: 'find photos of mummy and daddy',
+      normalizedInput: 'find photos of mummy and daddy',
+      resolvedContext: { confidence: 0.8 }
+    });
+    const result = await engine.api.searchMemories({ visualQuery });
+
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.total, 1);
+    assert.strictEqual(result.results[0].photoId, 'bothParents');
+    assert.deepStrictEqual(result.results[0].candidate.faceMemorySearch.matchedRelationships.sort(), ['father', 'mother']);
+    assert(!result.results.some(item => item.photoId === 'genericFamily'));
+    assert(!result.results.some(item => item.photoId === 'mummyOnly'));
+    assert(!result.results.some(item => item.photoId === 'daddyOnly'));
 
     await engine.api.shutdown();
   });

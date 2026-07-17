@@ -8,6 +8,7 @@ class MemorySearchContext {
     this.assistantContext = input.assistantContext || input.pipelineContext || null;
     this.previousSearch = input.previousSearch || null;
     this.options = { ...(input.options || {}) };
+    this.faceSearchContext = input.faceSearchContext || input.candidatePool?.faceSearchContext || null;
     this.createdAt = Date.now();
   }
 
@@ -18,6 +19,10 @@ class MemorySearchContext {
   getVisionFor(candidate) {
     const id = candidate?.photoId || candidate?.id || '';
     return this.visionResults?.[id] || candidate?.vision || {};
+  }
+
+  getFaceSearchContext() {
+    return this.faceSearchContext || this.candidatePool?.faceSearchContext || null;
   }
 }
 
