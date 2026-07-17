@@ -3,14 +3,31 @@
 const path = require('path');
 const { IMAGE_EXTENSIONS } = require('../utils/constants');
 const { listFilesRecursive } = require('../utils/FileSystemUtils');
-const { cosineSimilarity, faceQualityScore } = require('../faces/utils/face-utils');
+const {
+  cosineSimilarity,
+  faceQualityScore,
+  normalizeFaceBox,
+  normalizedFaceBoxDistance,
+  weightedMeanVector
+} = require('../faces/utils/face-utils');
 const { relationshipAliasesFor } = require('../../../../entities/PersonLexicon');
 
 const DEFAULT_FACE_SCAN_OPTIONS = Object.freeze({
-  maxPhotos: 10000,
+  maxPhotos: null,
   faceConfidence: 0.86,
   embeddingConfidence: 0.82,
-  faceQuality: 0.56
+  faceQuality: 0.56,
+  minFacePixels: 32,
+  minFaceAreaRatio: 0.0006,
+  maxFaceAreaRatio: 0.68,
+  minFaceAspect: 0.45,
+  maxFaceAspect: 1.75,
+  minFaceSharpness: 0.012,
+  minFaceContrast: 0.018,
+  minFaceTextureEnergy: 0.012,
+  minFaceVectorDimensions: 64,
+  duplicateClusterSimilarity: 0.985,
+  duplicateClusterMargin: 0.012
 });
 
 class VisualMemoryAPI {
@@ -354,17 +371,35 @@ class VisualMemoryAPI {
       ...DEFAULT_FACE_SCAN_OPTIONS,
       ...(options || {})
     };
-    scanOptions.maxPhotos = Math.max(1, Math.min(100000, Number(scanOptions.maxPhotos) || DEFAULT_FACE_SCAN_OPTIONS.maxPhotos));
+    const requestedMaxPhotos = Number(scanOptions.maxPhotos);
+    scanOptions.maxPhotos = Number.isFinite(requestedMaxPhotos) && requestedMaxPhotos > 0
+      ? Math.max(1, Math.min(500000, Math.floor(requestedMaxPhotos)))
+      : null;
     scanOptions.faceConfidence = Math.max(0.5, Math.min(0.99, Number(scanOptions.faceConfidence) || DEFAULT_FACE_SCAN_OPTIONS.faceConfidence));
     scanOptions.embeddingConfidence = Math.max(0.5, Math.min(0.99, Number(scanOptions.embeddingConfidence) || DEFAULT_FACE_SCAN_OPTIONS.embeddingConfidence));
     scanOptions.faceQuality = Math.max(0.35, Math.min(0.95, Number(scanOptions.faceQuality) || this.engine.faces?.configuration?.quality?.minScanQuality || DEFAULT_FACE_SCAN_OPTIONS.faceQuality));
+    scanOptions.minFacePixels = Math.max(16, Math.min(160, Number(scanOptions.minFacePixels) || DEFAULT_FACE_SCAN_OPTIONS.minFacePixels));
+    scanOptions.minFaceAreaRatio = Math.max(0.0001, Math.min(0.04, Number(scanOptions.minFaceAreaRatio) || DEFAULT_FACE_SCAN_OPTIONS.minFaceAreaRatio));
+    scanOptions.maxFaceAreaRatio = Math.max(0.12, Math.min(0.9, Number(scanOptions.maxFaceAreaRatio) || DEFAULT_FACE_SCAN_OPTIONS.maxFaceAreaRatio));
+    scanOptions.minFaceAspect = Math.max(0.25, Math.min(0.9, Number(scanOptions.minFaceAspect) || DEFAULT_FACE_SCAN_OPTIONS.minFaceAspect));
+    scanOptions.maxFaceAspect = Math.max(1.1, Math.min(3, Number(scanOptions.maxFaceAspect) || DEFAULT_FACE_SCAN_OPTIONS.maxFaceAspect));
+    scanOptions.minFaceSharpness = Math.max(0, Math.min(0.2, Number(scanOptions.minFaceSharpness) || DEFAULT_FACE_SCAN_OPTIONS.minFaceSharpness));
+    scanOptions.minFaceContrast = Math.max(0, Math.min(0.2, Number(scanOptions.minFaceContrast) || DEFAULT_FACE_SCAN_OPTIONS.minFaceContrast));
+    scanOptions.minFaceTextureEnergy = Math.max(0, Math.min(0.2, Number(scanOptions.minFaceTextureEnergy) || DEFAULT_FACE_SCAN_OPTIONS.minFaceTextureEnergy));
+    scanOptions.minFaceVectorDimensions = Math.max(0, Math.min(512, Number(scanOptions.minFaceVectorDimensions) || DEFAULT_FACE_SCAN_OPTIONS.minFaceVectorDimensions));
+    scanOptions.duplicateClusterSimilarity = Math.max(0.95, Math.min(0.9999, Number(scanOptions.duplicateClusterSimilarity) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterSimilarity));
+    scanOptions.duplicateClusterMargin = Math.max(0, Math.min(0.08, Number(scanOptions.duplicateClusterMargin) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterMargin));
     const startedAt = Date.now();
 
     this._logInfo('People scan started. OpenX will check indexed photos for clear, verified faces.', {
-      maxPhotos: scanOptions.maxPhotos,
+      maxPhotos: scanOptions.maxPhotos || 'all-indexed-photos',
       faceConfidence: scanOptions.faceConfidence,
       embeddingConfidence: scanOptions.embeddingConfidence,
-      faceQuality: scanOptions.faceQuality
+      faceQuality: scanOptions.faceQuality,
+      minFacePixels: scanOptions.minFacePixels,
+      minFaceSharpness: scanOptions.minFaceSharpness,
+      duplicateClusterSimilarity: scanOptions.duplicateClusterSimilarity,
+      duplicateClusterMargin: scanOptions.duplicateClusterMargin
     });
 
     const vision = await this._resolveVisionEngine();
@@ -401,13 +436,14 @@ class VisualMemoryAPI {
       .map(embedding => embedding.photoId)
       .filter(Boolean));
     const skipAlreadyKnownPhotos = scanOptions.rescan === false;
-    const photos = Object.values(this.engine.database.getTable('photos') || {})
-      .filter(photo => photo?.id && photo.filePath && (!skipAlreadyKnownPhotos || !existingPhotoIds.has(photo.id)))
-      .slice(0, scanOptions.maxPhotos);
+    const allPhotos = Object.values(this.engine.database.getTable('photos') || {})
+      .filter(photo => photo?.id && photo.filePath && (!skipAlreadyKnownPhotos || !existingPhotoIds.has(photo.id)));
+    const photos = scanOptions.maxPhotos ? allPhotos.slice(0, scanOptions.maxPhotos) : allPhotos;
     this._logInfo(`People scan will analyze ${photos.length} photo${photos.length === 1 ? '' : 's'}.`, {
       indexedPhotos: Object.keys(this.engine.database.getTable('photos') || {}).length,
       alreadyKnownPhotos: existingPhotoIds.size,
-      queuedPhotos: photos.length
+      queuedPhotos: photos.length,
+      scanLimit: scanOptions.maxPhotos || 'all'
     });
 
     const summary = {
@@ -417,13 +453,18 @@ class VisualMemoryAPI {
       grouped: 0,
       detectedFaces: 0,
       verifiedFaces: 0,
+      lowQualityFaces: 0,
+      falsePositiveFaces: 0,
       autoAssigned: 0,
       duplicateSuppressed: 0,
+      duplicateClustersMerged: 0,
+      invalidClustersRemoved: 0,
       skipped: 0,
       reset: resetSummary,
       warnings: [],
       verification: this._faceScanVerification(scanOptions)
     };
+    const acceptedFaceIndex = [];
 
     for (const photo of photos) {
       summary.scanned += 1;
@@ -432,22 +473,36 @@ class VisualMemoryAPI {
         const result = await vision.engine.infer({
           imagePath: photo.filePath,
           tasks: ['faces', 'faceEmbedding'],
-          options: { source: 'gallery-people-scan', photoId: photo.id }
+          options: {
+            source: 'gallery-people-scan',
+            photoId: photo.id,
+            faceDetection: {
+              minFacePixels: scanOptions.minFacePixels
+            }
+          }
         });
         const verified = this._verifiedFaceEmbeddings(result, photo.id, scanOptions);
         summary.detectedFaces += verified.detectedFaces;
-        summary.verifiedFaces += verified.items.length;
+        summary.lowQualityFaces += verified.lowQualityFaces || 0;
+        summary.falsePositiveFaces += verified.falsePositiveFaces || 0;
         summary.warnings.push(...verified.warnings);
-        if (verified.items.length === 0) {
+        const uniqueItems = this._dedupeScanFaceItems(verified.items, acceptedFaceIndex, scanOptions);
+        const scanDuplicates = verified.items.length - uniqueItems.length;
+        if (scanDuplicates > 0) {
+          summary.duplicateSuppressed += scanDuplicates;
+          summary.warnings.push({ photoId: photo.id, code: 'scan-duplicate-face-suppressed', count: scanDuplicates });
+        }
+        summary.verifiedFaces += uniqueItems.length;
+        if (uniqueItems.length === 0) {
           summary.skipped += 1;
           continue;
         }
-        this._logDebug(`Verified ${verified.items.length} face${verified.items.length === 1 ? '' : 's'} in ${this._photoLabel(photo)}.`, {
+        this._logDebug(`Verified ${uniqueItems.length} face${uniqueItems.length === 1 ? '' : 's'} in ${this._photoLabel(photo)}.`, {
           photoId: photo.id,
           detectedFaces: verified.detectedFaces,
-          verifiedFaces: verified.items.length
+          verifiedFaces: uniqueItems.length
         });
-        for (const item of verified.items) {
+        for (const item of uniqueItems) {
           const grouped = this.engine.faces.ingestUnknownFace(item);
           if (grouped?.autoAssigned) {
             summary.autoAssigned += 1;
@@ -470,6 +525,13 @@ class VisualMemoryAPI {
       }
     }
 
+    const cleanup = this._cleanupUnknownFaceClusters(scanOptions);
+    summary.cleanup = cleanup;
+    summary.duplicateClustersMerged = cleanup.mergedClusters;
+    summary.invalidClustersRemoved = cleanup.removedClusters;
+    if (cleanup.mergedClusters > 0 || cleanup.removedClusters > 0) {
+      this._logInfo('People scan cleanup removed unclear faces and merged duplicate unnamed people.', cleanup);
+    }
     await this.engine.persistFaceMemory();
     summary.people = this.engine.galleryExperience.getPeople();
     summary.durationMs = Date.now() - startedAt;
@@ -481,9 +543,10 @@ class VisualMemoryAPI {
       newUnnamedPeople: summary.grouped,
       namedPeople: peopleSummary.namedPeople || 0,
       readyToName: peopleSummary.readyToName || 0,
-      waitingForMoreEvidence: peopleSummary.waitingForEvidence || peopleSummary.reviewLater || 0,
       knownPeopleMatched: summary.autoAssigned,
       duplicateFacesSkipped: summary.duplicateSuppressed,
+      duplicatePeopleMerged: summary.duplicateClustersMerged,
+      unclearFacesRemoved: summary.lowQualityFaces + summary.falsePositiveFaces + summary.invalidClustersRemoved,
       skipped: summary.skipped,
       warnings: summary.warnings.length,
       durationMs: summary.durationMs,
@@ -882,48 +945,99 @@ class VisualMemoryAPI {
     return {
       requireFaceDetection: true,
       requireFaceEmbedding: true,
+      requireClearFaceCrop: true,
+      suppressObjectLikeDetections: true,
+      removeDuplicateFaces: true,
+      requireFeatureVectorComparison: true,
+      scanAllIndexedPhotos: !options.maxPhotos,
       faceConfidenceThreshold: options.faceConfidence,
       embeddingConfidenceThreshold: options.embeddingConfidence,
       faceQualityThreshold: options.faceQuality,
+      minFacePixels: options.minFacePixels,
+      minFaceSharpness: options.minFaceSharpness,
+      duplicateClusterSimilarity: options.duplicateClusterSimilarity,
+      duplicateClusterMargin: options.duplicateClusterMargin,
       source: 'ai-vision'
     };
   }
 
   _verifiedFaceEmbeddings(result = {}, photoId = '', options = {}) {
-    const faces = (Array.isArray(result.faces) ? result.faces : [])
-      .filter(face => Number(face.confidence || 0) >= options.faceConfidence);
-    const embeddings = (Array.isArray(result.embeddings) ? result.embeddings : [])
-      .filter(embedding => Array.isArray(embedding.vector)
-        && embedding.vector.length > 0
-        && embedding.vector.every(Number.isFinite)
-        && Number(embedding.confidence || 0) >= options.embeddingConfidence);
+    const rawFaces = Array.isArray(result.faces) ? result.faces : [];
+    const rawEmbeddings = Array.isArray(result.embeddings) ? result.embeddings : [];
     const warnings = Array.isArray(result.warnings) ? result.warnings.slice(0, 5) : [];
-    const count = Math.min(faces.length, embeddings.length);
-    if (faces.length > 0 && embeddings.length === 0) warnings.push({ photoId, code: 'face-embedding-missing' });
-    if (faces.length === 0 && embeddings.length > 0) warnings.push({ photoId, code: 'face-detection-missing' });
+    const count = Math.min(rawFaces.length, rawEmbeddings.length);
+    if (rawFaces.length > 0 && rawEmbeddings.length === 0) warnings.push({ photoId, code: 'face-embedding-missing' });
+    if (rawFaces.length === 0 && rawEmbeddings.length > 0) warnings.push({ photoId, code: 'face-detection-missing' });
+    if (rawFaces.length > rawEmbeddings.length) {
+      warnings.push({ photoId, code: 'face-embedding-count-mismatch', count: rawFaces.length - rawEmbeddings.length });
+    }
+    if (rawEmbeddings.length > rawFaces.length) {
+      warnings.push({ photoId, code: 'face-detection-count-mismatch', count: rawEmbeddings.length - rawFaces.length });
+    }
     const paired = [];
+    let lowConfidenceFaces = 0;
+    let invalidEmbeddings = 0;
+    let lowQualityFaces = 0;
+    let falsePositiveFaces = 0;
     for (let index = 0; index < count; index += 1) {
-      const face = faces[index];
-      const embedding = embeddings[index];
+      const face = rawFaces[index];
+      const embedding = rawEmbeddings[index];
+      const faceConfidence = Number(face?.confidence || 0);
+      const embeddingConfidence = Number(embedding?.confidence || 0);
+      if (faceConfidence < options.faceConfidence) {
+        lowConfidenceFaces += 1;
+        continue;
+      }
+      if (!Array.isArray(embedding?.vector) ||
+        embedding.vector.length === 0 ||
+        !embedding.vector.every(Number.isFinite) ||
+        embeddingConfidence < options.embeddingConfidence) {
+        invalidEmbeddings += 1;
+        continue;
+      }
+      if (this._hasRuntimeQualitySignals(embedding) &&
+        embedding.vector.length < (Number(options.minFaceVectorDimensions) || DEFAULT_FACE_SCAN_OPTIONS.minFaceVectorDimensions)) {
+        invalidEmbeddings += 1;
+        continue;
+      }
+      const imageWidth = Number(face.imageWidth || face.box?.imageWidth || 0) || null;
+      const imageHeight = Number(face.imageHeight || face.box?.imageHeight || 0) || null;
+      const confidence = Math.min(faceConfidence, embeddingConfidence);
+      const quality = faceQualityScore({
+        confidence,
+        faceBox: face.box || null,
+        imageWidth,
+        imageHeight,
+        vector: embedding.vector
+      });
+      const validation = this._validateClearFaceCandidate({
+        face,
+        embedding,
+        faceBox: face.box || null,
+        imageWidth,
+        imageHeight,
+        confidence,
+        quality
+      }, options);
+      if (!validation.valid) {
+        if (validation.reason === 'low-quality-face') lowQualityFaces += 1;
+        else falsePositiveFaces += 1;
+        continue;
+      }
       paired.push({
         face,
         embedding,
         index,
-        confidence: Math.min(Number(face.confidence || 0), Number(embedding.confidence || 0)),
-        quality: faceQualityScore({
-          confidence: Math.min(Number(face.confidence || 0), Number(embedding.confidence || 0)),
-          faceBox: face.box || null,
-          imageWidth: Number(face.imageWidth || face.box?.imageWidth || 0) || null,
-          imageHeight: Number(face.imageHeight || face.box?.imageHeight || 0) || null,
-          vector: embedding.vector
-        })
+        confidence,
+        quality
       });
     }
-    const qualityPairs = paired.filter(pair => pair.quality >= (Number(options.faceQuality) || DEFAULT_FACE_SCAN_OPTIONS.faceQuality));
-    const lowQuality = paired.length - qualityPairs.length;
-    if (lowQuality > 0) warnings.push({ photoId, code: 'low-quality-face-suppressed', count: lowQuality });
-    const uniquePairs = this._dedupeFacePairs(qualityPairs);
-    const suppressed = qualityPairs.length - uniquePairs.length;
+    if (lowConfidenceFaces > 0) warnings.push({ photoId, code: 'low-confidence-face-suppressed', count: lowConfidenceFaces });
+    if (invalidEmbeddings > 0) warnings.push({ photoId, code: 'invalid-face-embedding-suppressed', count: invalidEmbeddings });
+    if (lowQualityFaces > 0) warnings.push({ photoId, code: 'low-quality-face-suppressed', count: lowQualityFaces });
+    if (falsePositiveFaces > 0) warnings.push({ photoId, code: 'object-like-face-suppressed', count: falsePositiveFaces });
+    const uniquePairs = this._dedupeFacePairs(paired);
+    const suppressed = paired.length - uniquePairs.length;
     if (suppressed > 0) warnings.push({ photoId, code: 'duplicate-face-detection-suppressed', count: suppressed });
     const items = [];
     for (const pair of uniquePairs) {
@@ -940,7 +1054,55 @@ class VisualMemoryAPI {
         quality
       });
     }
-    return { items, detectedFaces: faces.length, warnings };
+    return { items, detectedFaces: rawFaces.length, warnings, lowQualityFaces, falsePositiveFaces };
+  }
+
+  _validateClearFaceCandidate(input = {}, options = {}) {
+    const qualitySignals = this._faceQualitySignals(input.embedding);
+    const box = normalizeFaceBox(input.faceBox, input.imageWidth, input.imageHeight);
+    if (!box || box.width <= 0 || box.height <= 0) return { valid: false, reason: 'invalid-face-box' };
+    const minPixels = Number(options.minFacePixels) || DEFAULT_FACE_SCAN_OPTIONS.minFacePixels;
+    if (Math.min(box.width, box.height) < minPixels) return { valid: false, reason: 'unclear-face-too-small' };
+    const aspect = box.width / Math.max(1, box.height);
+    if (aspect < options.minFaceAspect || aspect > options.maxFaceAspect) {
+      return { valid: false, reason: 'object-like-face-aspect' };
+    }
+    if (box.imageWidth > 0 && box.imageHeight > 0) {
+      const imageArea = box.imageWidth * box.imageHeight;
+      const faceAreaRatio = (box.width * box.height) / Math.max(1, imageArea);
+      if (faceAreaRatio < options.minFaceAreaRatio) return { valid: false, reason: 'unclear-face-area' };
+      if (faceAreaRatio > options.maxFaceAreaRatio) return { valid: false, reason: 'object-like-face-too-large' };
+      if ((box.width / box.imageWidth) > 0.92 || (box.height / box.imageHeight) > 0.92) {
+        return { valid: false, reason: 'object-like-face-frame' };
+      }
+    }
+    if (qualitySignals) {
+      const sharpness = Number(qualitySignals.sharpness ?? qualitySignals.meanGradient ?? 0);
+      const contrast = Number(qualitySignals.contrast ?? 0);
+      const textureEnergy = Number(qualitySignals.textureEnergy ?? 0);
+      if (Number.isFinite(textureEnergy) && textureEnergy < options.minFaceTextureEnergy) {
+        return { valid: false, reason: 'object-like-face-texture' };
+      }
+      if (Number.isFinite(sharpness) && sharpness < options.minFaceSharpness) {
+        return { valid: false, reason: 'low-quality-face' };
+      }
+      if (Number.isFinite(contrast) && contrast < options.minFaceContrast) {
+        return { valid: false, reason: 'low-quality-face' };
+      }
+    }
+    if ((Number(input.quality) || 0) < (Number(options.faceQuality) || DEFAULT_FACE_SCAN_OPTIONS.faceQuality)) {
+      return { valid: false, reason: 'low-quality-face' };
+    }
+    return { valid: true, reason: 'clear-face' };
+  }
+
+  _hasRuntimeQualitySignals(embedding = {}) {
+    return Boolean(embedding?.metadata?.vectorType || embedding?.metadata?.qualitySignals || embedding?.qualitySignals);
+  }
+
+  _faceQualitySignals(embedding = {}) {
+    const signals = embedding?.metadata?.qualitySignals || embedding?.qualitySignals || null;
+    return signals && typeof signals === 'object' ? signals : null;
   }
 
   _dedupeFacePairs(pairs = []) {
@@ -1001,6 +1163,163 @@ class VisualMemoryAPI {
     const intersection = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
     const union = (leftWidth * leftHeight) + (rightWidth * rightHeight) - intersection;
     return union > 0 ? intersection / union : 0;
+  }
+
+  _dedupeScanFaceItems(items = [], acceptedFaceIndex = [], options = {}) {
+    const selected = [];
+    for (const item of items) {
+      const duplicate = selected.some(existing => this._isDuplicateFaceItem(item, existing, options)) ||
+        acceptedFaceIndex.some(existing => this._isDuplicateFaceItem(item, existing, options));
+      if (duplicate) continue;
+      selected.push(item);
+      acceptedFaceIndex.push(item);
+    }
+    return selected;
+  }
+
+  _isDuplicateFaceItem(left = {}, right = {}, options = {}) {
+    if (!left || !right) return false;
+    const leftVector = Array.isArray(left.vector) ? left.vector : [];
+    const rightVector = Array.isArray(right.vector) ? right.vector : [];
+    const similarity = leftVector.length && rightVector.length ? cosineSimilarity(leftVector, rightVector) : 0;
+    const leftBox = normalizeFaceBox(left.faceBox, left.imageWidth, left.imageHeight);
+    const rightBox = normalizeFaceBox(right.faceBox, right.imageWidth, right.imageHeight);
+    const duplicateThreshold = Number(this.engine.faces?.configuration?.thresholds?.duplicate ?? 0.998);
+    const crossPhotoThreshold = Number(this.engine.faces?.configuration?.thresholds?.duplicateCrossPhoto ?? 0.9995);
+    const samePhoto = left.photoId && right.photoId && left.photoId === right.photoId;
+    if (samePhoto) {
+      if (left.faceId && right.faceId && left.faceId === right.faceId) return true;
+      if (leftBox && rightBox && this._isDuplicateFaceBox(leftBox, rightBox)) return true;
+      return similarity >= duplicateThreshold;
+    }
+    if (similarity < crossPhotoThreshold || !leftBox || !rightBox) return false;
+    return normalizedFaceBoxDistance(leftBox, rightBox) <= 0.018;
+  }
+
+  _cleanupUnknownFaceClusters(options = {}) {
+    const state = this.engine.faces?.state || {};
+    const clusters = state.unknownClusters || {};
+    const embeddings = state.embeddings || {};
+    let removedClusters = 0;
+    let removedEmbeddings = 0;
+    for (const [clusterId, cluster] of Object.entries(clusters)) {
+      if (cluster.status !== 'unknown') continue;
+      const validEmbeddingIds = (cluster.embeddingIds || []).filter(embeddingId => embeddings[embeddingId]);
+      if (validEmbeddingIds.length === 0) {
+        for (const embeddingId of cluster.embeddingIds || []) {
+          if (embeddings[embeddingId]) {
+            delete embeddings[embeddingId];
+            removedEmbeddings += 1;
+          }
+        }
+        delete clusters[clusterId];
+        removedClusters += 1;
+        continue;
+      }
+      cluster.embeddingIds = Array.from(new Set(validEmbeddingIds));
+      cluster.photoIds = Array.from(new Set((cluster.photoIds || []).filter(Boolean)));
+      cluster.faceIds = Array.from(new Set((cluster.faceIds || []).filter(Boolean)));
+      cluster.faceBoxes = this._dedupeClusterFaceBoxes(cluster.faceBoxes || []);
+      if (!cluster.representativeFaceBox && cluster.faceBoxes.length > 0) cluster.representativeFaceBox = cluster.faceBoxes[0];
+    }
+
+    const ordered = Object.values(clusters)
+      .filter(cluster => cluster.status === 'unknown' && !cluster.ignoredAt && !cluster.neverAskAgain)
+      .sort((left, right) => (right.photoIds?.length || 0) - (left.photoIds?.length || 0) ||
+        (right.confidence || 0) - (left.confidence || 0));
+    const kept = [];
+    let mergedClusters = 0;
+    for (const cluster of ordered) {
+      if (!clusters[cluster.id]) continue;
+      const duplicateTarget = this._findDuplicateUnknownClusterTarget(cluster, kept, options);
+      if (duplicateTarget) {
+        this._mergeUnknownFaceCluster(cluster.id, duplicateTarget.id);
+        mergedClusters += 1;
+      } else {
+        kept.push(cluster);
+      }
+    }
+    return { removedClusters, removedEmbeddings, mergedClusters };
+  }
+
+  _dedupeClusterFaceBoxes(faceBoxes = []) {
+    const selected = [];
+    for (const box of faceBoxes) {
+      const normalized = normalizeFaceBox(box, box?.imageWidth, box?.imageHeight);
+      if (!normalized) continue;
+      const key = `${box.photoId || ''}:${box.faceId || ''}`;
+      const duplicate = selected.some(existing => {
+        const existingKey = `${existing.photoId || ''}:${existing.faceId || ''}`;
+        const hasStableKey = Boolean(box.photoId || box.faceId) && Boolean(existing.photoId || existing.faceId);
+        return (hasStableKey && key === existingKey) ||
+          (box.photoId && existing.photoId && box.photoId === existing.photoId && this._isDuplicateFaceBox(box, existing));
+      });
+      if (!duplicate) selected.push({ ...box, ...normalized });
+    }
+    return selected;
+  }
+
+  _findDuplicateUnknownClusterTarget(cluster = {}, candidates = [], options = {}) {
+    if (!cluster?.id || candidates.length === 0) return null;
+    const sourceVector = this._clusterCentroidVector(cluster);
+    if (!sourceVector.length) return null;
+    const scored = candidates
+      .filter(candidate => candidate?.id && candidate.id !== cluster.id)
+      .map(candidate => ({
+        cluster: candidate,
+        similarity: cosineSimilarity(sourceVector, this._clusterCentroidVector(candidate))
+      }))
+      .filter(item => Number.isFinite(item.similarity))
+      .sort((left, right) => right.similarity - left.similarity);
+    const best = scored[0] || null;
+    if (!best) return null;
+    const second = scored[1] || null;
+    const threshold = Number(options.duplicateClusterSimilarity) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterSimilarity;
+    const margin = best.similarity - (second?.similarity || 0);
+    const requiredMargin = Number(options.duplicateClusterMargin) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterMargin;
+    return best.similarity >= threshold && margin >= requiredMargin ? best.cluster : null;
+  }
+
+  _clusterCentroidVector(cluster = {}) {
+    const embeddings = cluster.embeddingIds
+      ?.map(embeddingId => this.engine.faces?.state?.embeddings?.[embeddingId])
+      .filter(embedding => embedding && Array.isArray(embedding.vector)) || [];
+    return weightedMeanVector(embeddings.map(embedding => ({
+      vector: embedding.vector,
+      weight: Math.max(0.05, Number(embedding.quality ?? embedding.confidence ?? 0.75))
+    })));
+  }
+
+  _mergeUnknownFaceCluster(sourceId, targetId) {
+    const state = this.engine.faces?.state || {};
+    const source = state.unknownClusters?.[sourceId];
+    const target = state.unknownClusters?.[targetId];
+    if (!source || !target || sourceId === targetId) return false;
+    for (const embeddingId of source.embeddingIds || []) {
+      const embedding = state.embeddings?.[embeddingId];
+      if (!embedding) continue;
+      embedding.clusterId = targetId;
+      if (!target.embeddingIds.includes(embeddingId)) target.embeddingIds.push(embeddingId);
+    }
+    for (const photoId of source.photoIds || []) {
+      if (photoId && !target.photoIds.includes(photoId)) target.photoIds.push(photoId);
+    }
+    for (const faceId of source.faceIds || []) {
+      if (faceId && !target.faceIds.includes(faceId)) target.faceIds.push(faceId);
+    }
+    target.faceBoxes = this._dedupeClusterFaceBoxes([...(target.faceBoxes || []), ...(source.faceBoxes || [])]);
+    const representative = [target.representativeFaceBox, source.representativeFaceBox, ...target.faceBoxes]
+      .filter(Boolean)
+      .sort((left, right) => (Number(right.confidence) || 0) - (Number(left.confidence) || 0))[0];
+    target.representativeFaceBox = representative || target.representativeFaceBox || null;
+    target.confidence = Math.max(Number(target.confidence) || 0, Number(source.confidence) || 0);
+    target.quality = Math.max(Number(target.quality) || 0, Number(source.quality) || 0);
+    target.duplicateCount = (Number(target.duplicateCount) || 0) + (Number(source.duplicateCount) || 0) + 1;
+    target.latestSeenAt = [target.latestSeenAt, source.latestSeenAt]
+      .filter(Boolean)
+      .sort((left, right) => Date.parse(right) - Date.parse(left))[0] || target.latestSeenAt;
+    delete state.unknownClusters[sourceId];
+    return true;
   }
 
   _resetGalleryScanUnknownFaces() {

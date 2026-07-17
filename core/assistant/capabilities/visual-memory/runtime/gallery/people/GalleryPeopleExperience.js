@@ -3,7 +3,6 @@
 const DEFAULT_MIN_NAMEABLE_PHOTOS = 2;
 const DEFAULT_SUGGESTION_CONFIDENCE = 0.78;
 const MAX_NAMEABLE_UNKNOWN = 96;
-const MAX_REVIEW_PREVIEW = 24;
 
 class GalleryPeopleExperience {
   build(faceMemory = {}) {
@@ -14,16 +13,13 @@ class GalleryPeopleExperience {
       .filter(cluster => cluster.status === 'unknown' && !cluster.neverAskAgain && !cluster.ignoredAt);
     const minNameablePhotos = this._minNameablePhotos(faceMemory);
     const suggestionConfidence = this._suggestionConfidence(faceMemory);
-    const { ready, reviewLater } = this._splitUnknownClusters(allUnknown, minNameablePhotos, suggestionConfidence);
-    const nameableUnknown = ready.slice(0, MAX_NAMEABLE_UNKNOWN).map(cluster => this._unknownClusterView(cluster, {
+    const sortedUnknown = allUnknown
+      .slice()
+      .sort((left, right) => this._sortUnknownClusters(left, right));
+    const nameableUnknown = sortedUnknown.slice(0, MAX_NAMEABLE_UNKNOWN).map(cluster => this._unknownClusterView(cluster, {
       nameable: true,
       status: 'ready-to-name',
-      reason: `Seen in at least ${minNameablePhotos} photos.`
-    }));
-    const reviewPreview = reviewLater.slice(0, MAX_REVIEW_PREVIEW).map(cluster => this._unknownClusterView(cluster, {
-      nameable: false,
-      status: 'needs-more-evidence',
-      reason: `Needs another matching photo before OpenX asks for a name.`
+      reason: 'Clear face found during People scan.'
     }));
     const relationshipGroups = {};
     for (const profile of profiles) {
@@ -35,38 +31,23 @@ class GalleryPeopleExperience {
       view: 'people',
       known: profiles,
       unknown: nameableUnknown,
-      reviewLater: reviewPreview,
+      reviewLater: [],
       summary: {
         totalPeople: profiles.length + allUnknown.length,
         namedPeople: profiles.length,
         savedPeople: profiles.length,
         unnamedPeople: allUnknown.length,
-        readyToName: ready.length,
+        readyToName: allUnknown.length,
         displayedReadyToName: nameableUnknown.length,
-        waitingForEvidence: reviewLater.length,
-        reviewLater: reviewLater.length,
-        hiddenReviewPeople: Math.max(0, reviewLater.length - reviewPreview.length),
+        waitingForEvidence: 0,
+        reviewLater: 0,
+        hiddenReviewPeople: Math.max(0, allUnknown.length - nameableUnknown.length),
         minNameablePhotos,
         suggestionConfidence
       },
       relationshipGroups,
       performsRecognition: false
     };
-  }
-
-  _splitUnknownClusters(clusters = [], minNameablePhotos, suggestionConfidence) {
-    const ready = [];
-    const reviewLater = [];
-    for (const cluster of clusters.slice().sort((left, right) => this._sortUnknownClusters(left, right))) {
-      const photoCount = this._unknownPhotoCount(cluster);
-      const confidence = this._unknownConfidence(cluster);
-      if (photoCount >= minNameablePhotos && confidence >= suggestionConfidence) {
-        ready.push(cluster);
-      } else {
-        reviewLater.push(cluster);
-      }
-    }
-    return { ready, reviewLater };
   }
 
   _unknownClusterView(cluster = {}, options = {}) {

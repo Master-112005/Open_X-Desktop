@@ -54,7 +54,7 @@ class WindowsFaceRuntimeAdapter {
     });
   }
 
-  async analyze(imagePath) {
+  async analyze(imagePath, options = {}) {
     const normalizedPath = path.resolve(String(imagePath || ''));
     if (!normalizedPath || !fs.existsSync(normalizedPath)) {
       const error = new Error('Image path is not available for Windows face analysis.');
@@ -63,7 +63,7 @@ class WindowsFaceRuntimeAdapter {
     }
 
     const stat = fs.statSync(normalizedPath);
-    const cacheKey = `${normalizedPath}:${stat.mtimeMs}:${stat.size}`;
+    const cacheKey = `${normalizedPath}:${stat.mtimeMs}:${stat.size}:${this._analysisOptionKey(options)}`;
     const cached = this.cache.get(cacheKey);
     if (cached) {
       this._debug('Using cached face analysis result.', { image: path.basename(normalizedPath) });
@@ -80,7 +80,7 @@ class WindowsFaceRuntimeAdapter {
 
     this._debug('Checking image for faces with Windows face analysis.', { image: path.basename(normalizedPath) });
     try {
-      const result = await this._runScript(normalizedPath);
+      const result = await this._runScript(normalizedPath, options);
       const faceCount = Array.isArray(result.faces) ? result.faces.length : 0;
       const embeddingCount = Array.isArray(result.embeddings) ? result.embeddings.length : 0;
       if (faceCount > 0 || embeddingCount > 0) {
@@ -124,9 +124,9 @@ class WindowsFaceRuntimeAdapter {
     return error;
   }
 
-  _runScript(imagePath) {
+  _runScript(imagePath, options = {}) {
     return new Promise((resolve, reject) => {
-      execFile('powershell.exe', [
+      const args = [
         '-NoProfile',
         '-ExecutionPolicy',
         'Bypass',
@@ -134,7 +134,12 @@ class WindowsFaceRuntimeAdapter {
         this.scriptPath,
         '-ImagePath',
         imagePath
-      ], {
+      ];
+      const minFaceSize = this._boundedInteger(options.minFacePixels || options.minFaceSize, 0, 4096);
+      const maxFaceSize = this._boundedInteger(options.maxFacePixels || options.maxFaceSize, 0, 8192);
+      if (minFaceSize > 0) args.push('-MinFaceSize', String(minFaceSize));
+      if (maxFaceSize > 0) args.push('-MaxFaceSize', String(maxFaceSize));
+      execFile('powershell.exe', args, {
         windowsHide: true,
         timeout: this.timeoutMs,
         maxBuffer: 1024 * 1024 * 6
@@ -188,6 +193,18 @@ class WindowsFaceRuntimeAdapter {
     });
   }
 
+  _analysisOptionKey(options = {}) {
+    const minFaceSize = this._boundedInteger(options.minFacePixels || options.minFaceSize, 0, 4096);
+    const maxFaceSize = this._boundedInteger(options.maxFacePixels || options.maxFaceSize, 0, 8192);
+    return `min:${minFaceSize};max:${maxFaceSize}`;
+  }
+
+  _boundedInteger(value, min, max) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 0;
+    return Math.max(min, Math.min(max, Math.floor(number)));
+  }
+
   _info(message, data = {}) {
     this.logger?.info?.(`[Windows Face] ${message}`, data);
   }
@@ -220,7 +237,7 @@ class WindowsFaceRuntimeSession {
   }
 
   async run(input = {}, options = {}) {
-    const analysis = await this.adapter.analyze(input.imagePath);
+    const analysis = await this.adapter.analyze(input.imagePath, this._analysisOptions(options));
     const task = options.task || '';
     if (this.model.id === MODEL_IDS.SCRFD || task === 'faces') {
       return {
@@ -235,6 +252,15 @@ class WindowsFaceRuntimeSession {
       };
     }
     return { confidence: 0 };
+  }
+
+  _analysisOptions(options = {}) {
+    const requestOptions = options.request?.options || {};
+    return {
+      ...(requestOptions.faceDetection || {}),
+      minFacePixels: requestOptions.minFacePixels || requestOptions.faceDetection?.minFacePixels || null,
+      maxFacePixels: requestOptions.maxFacePixels || requestOptions.faceDetection?.maxFacePixels || null
+    };
   }
 
   _confidence(items = []) {

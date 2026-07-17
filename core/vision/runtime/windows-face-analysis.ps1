@@ -1,6 +1,8 @@
 param(
   [Parameter(Mandatory = $true)]
-  [string]$ImagePath
+  [string]$ImagePath,
+  [int]$MinFaceSize = 32,
+  [int]$MaxFaceSize = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,6 +13,7 @@ $null = [Windows.Storage.StorageFile, Windows.Storage, ContentType=WindowsRuntim
 $null = [Windows.Storage.Streams.IRandomAccessStreamWithContentType, Windows.Storage.Streams, ContentType=WindowsRuntime]
 $null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics.Imaging, ContentType=WindowsRuntime]
 $null = [Windows.Graphics.Imaging.SoftwareBitmap, Windows.Graphics.Imaging, ContentType=WindowsRuntime]
+$null = [Windows.Graphics.Imaging.BitmapSize, Windows.Graphics.Imaging, ContentType=WindowsRuntime]
 $null = [Windows.Media.FaceAnalysis.FaceDetector, Windows.Media.FaceAnalysis, ContentType=WindowsRuntime]
 
 function Wait-WinRtAsyncOperation($operation, [Type]$resultType) {
@@ -39,6 +42,18 @@ function Divide-Scalar($left, $right) {
   $denominator = Convert-ToDoubleScalar $right
   if ([Math]::Abs($denominator) -lt 0.000001) { return 0.0 }
   return (Convert-ToDoubleScalar $left) / $denominator
+}
+
+function Clamp-Double([double]$value, [double]$min, [double]$max) {
+  return [Math]::Max($min, [Math]::Min($max, $value))
+}
+
+function New-BitmapSize([int]$size) {
+  $safeSize = [Math]::Max(1, $size)
+  $bitmapSize = New-Object Windows.Graphics.Imaging.BitmapSize
+  $bitmapSize.Width = [uint32]$safeSize
+  $bitmapSize.Height = [uint32]$safeSize
+  return $bitmapSize
 }
 
 function Read-CellFeatures([System.Drawing.Bitmap]$bitmap, [int]$x0, [int]$y0, [int]$x1, [int]$y1) {
@@ -139,6 +154,56 @@ function New-FaceVector([System.Drawing.Bitmap]$bitmap, [int]$x, [int]$y, [int]$
   return $vector.ToArray()
 }
 
+function Get-FaceQualitySignals([System.Drawing.Bitmap]$bitmap, [int]$x, [int]$y, [int]$width, [int]$height) {
+  $left = [int][Math]::Max(0, $x)
+  $top = [int][Math]::Max(0, $y)
+  $right = [int][Math]::Min($bitmap.Width, $x + $width)
+  $bottom = [int][Math]::Min($bitmap.Height, $y + $height)
+  if ($right -le $left -or $bottom -le $top) {
+    return @{
+      contrast = 0.0
+      sharpness = 0.0
+      textureEnergy = 0.0
+      areaRatio = 0.0
+    }
+  }
+
+  $grayValues = New-Object System.Collections.Generic.List[double]
+  $gradientValues = New-Object System.Collections.Generic.List[double]
+  $cells = 6
+  for ($row = 0; $row -lt $cells; $row++) {
+    for ($col = 0; $col -lt $cells; $col++) {
+      $cx0 = [int][Math]::Floor($left + (($right - $left) * $col / $cells))
+      $cx1 = [int][Math]::Floor($left + (($right - $left) * ($col + 1) / $cells))
+      $cy0 = [int][Math]::Floor($top + (($bottom - $top) * $row / $cells))
+      $cy1 = [int][Math]::Floor($top + (($bottom - $top) * ($row + 1) / $cells))
+      $features = @(Read-CellFeatures $bitmap $cx0 $cy0 ([int][Math]::Max($cx0 + 1, $cx1)) ([int][Math]::Max($cy0 + 1, $cy1)))
+      $grayValues.Add((Convert-ToDoubleScalar $features[0]))
+      $gradientValues.Add((Convert-ToDoubleScalar $features[4]))
+    }
+  }
+
+  $grayMean = ($grayValues | Measure-Object -Average).Average
+  $gradientMean = ($gradientValues | Measure-Object -Average).Average
+  $variance = 0.0
+  $textureEnergy = 0.0
+  foreach ($value in $grayValues) {
+    $delta = (Convert-ToDoubleScalar $value) - (Convert-ToDoubleScalar $grayMean)
+    $variance += $delta * $delta
+    $textureEnergy += [Math]::Abs($delta)
+  }
+  $count = [Math]::Max(1, $grayValues.Count)
+  $contrast = [Math]::Sqrt((Divide-Scalar $variance $count))
+  $texture = Divide-Scalar $textureEnergy $count
+  $areaRatio = Divide-Scalar (($right - $left) * ($bottom - $top)) ([Math]::Max(1.0, ($bitmap.Width * $bitmap.Height)))
+  return @{
+    contrast = [Math]::Round((Clamp-Double $contrast 0.0 1.0), 6)
+    sharpness = [Math]::Round((Clamp-Double $gradientMean 0.0 1.0), 6)
+    textureEnergy = [Math]::Round((Clamp-Double $texture 0.0 1.0), 6)
+    areaRatio = [Math]::Round((Clamp-Double $areaRatio 0.0 1.0), 8)
+  }
+}
+
 if (-not [Windows.Media.FaceAnalysis.FaceDetector]::IsSupported) {
   @{ success = $false; reason = 'windows-face-detector-unsupported'; faces = @(); embeddings = @() } | ConvertTo-Json -Depth 6 -Compress
   exit 0
@@ -149,12 +214,25 @@ $stream = Wait-WinRtAsyncOperation ($file.OpenReadAsync()) ([Windows.Storage.Str
 $decoder = Wait-WinRtAsyncOperation ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
 $bitmap = Wait-WinRtAsyncOperation ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
 $detector = Wait-WinRtAsyncOperation ([Windows.Media.FaceAnalysis.FaceDetector]::CreateAsync()) ([Windows.Media.FaceAnalysis.FaceDetector])
+$warnings = New-Object System.Collections.Generic.List[object]
+try {
+  if ($MinFaceSize -gt 0) {
+    $detector.MinDetectableFaceSize = New-BitmapSize $MinFaceSize
+  }
+  if ($MaxFaceSize -gt 0) {
+    $detector.MaxDetectableFaceSize = New-BitmapSize $MaxFaceSize
+  }
+} catch {
+  $warnings.Add(@{
+    code = 'face-detector-size-bounds-unavailable'
+    message = $_.Exception.Message
+  })
+}
 $detectedFaces = Wait-WinRtAsyncOperation ($detector.DetectFacesAsync($bitmap)) ([System.Collections.Generic.IList[Windows.Media.FaceAnalysis.DetectedFace]])
 
 $drawingBitmap = $null
 $faces = New-Object System.Collections.Generic.List[object]
 $embeddings = New-Object System.Collections.Generic.List[object]
-$warnings = New-Object System.Collections.Generic.List[object]
 try {
   if ($detectedFaces.Count -gt 0) {
     try {
@@ -188,12 +266,20 @@ try {
     if ($null -ne $drawingBitmap) {
       try {
         $vector = @(New-FaceVector $drawingBitmap ([int]$box.X) ([int]$box.Y) ([int]$box.Width) ([int]$box.Height))
+        $qualitySignals = Get-FaceQualitySignals $drawingBitmap ([int]$box.X) ([int]$box.Y) ([int]$box.Width) ([int]$box.Height)
         if ($vector.Count -gt 0) {
           $embeddings.Add(@{
             faceId = $faceId
             confidence = 0.9
             vector = $vector
             source = 'windows-face-region-vector'
+            metadata = @{
+              vectorType = 'local-face-region-v2'
+              cells = 6
+              qualitySignals = $qualitySignals
+              minDetectableFaceSize = [int]$MinFaceSize
+              maxDetectableFaceSize = [int]$MaxFaceSize
+            }
           })
         }
       } catch {

@@ -105,12 +105,12 @@ describe('OpenX Gallery Experience', () => {
       imageHeight: 1400
     });
     const unnamedPeople = await engine.api.getOpenXGalleryPeople();
-    assert.strictEqual(unnamedPeople.summary.readyToName, 1);
-    assert.strictEqual(unnamedPeople.summary.reviewLater, 1);
+    assert.strictEqual(unnamedPeople.summary.readyToName, 2);
+    assert.strictEqual(unnamedPeople.summary.reviewLater, 0);
     assert.strictEqual(unnamedPeople.unknown[0].nameable, true);
     assert.strictEqual(unnamedPeople.unknown[0].representativePhotoId, 'goaBeach');
-    assert.strictEqual(unnamedPeople.reviewLater[0].nameable, false);
-    assert.strictEqual(unnamedPeople.reviewLater[0].status, 'needs-more-evidence');
+    assert.strictEqual(unnamedPeople.unknown[1].nameable, true);
+    assert.strictEqual(unnamedPeople.reviewLater.length, 0);
     const [suggestion] = await engine.api.getFaceEnrollmentSuggestions();
     await engine.api.enrollFaceCluster({ clusterId: suggestion.clusterId, name: 'Rahul', relationship: 'friend' });
 
@@ -135,6 +135,30 @@ describe('OpenX Gallery Experience', () => {
           return {
             faces: [{ id: 'face-low', confidence: 0.42, imageWidth: 1000, imageHeight: 800, box: { x: 100, y: 120, width: 80, height: 80 } }],
             embeddings: [{ vector: [0, 1], confidence: 0.91 }],
+            warnings: []
+          };
+        }
+        if (/receipt/i.test(request.imagePath || '')) {
+          return {
+            faces: [{
+              id: 'object-false-positive',
+              confidence: 0.96,
+              imageWidth: 1000,
+              imageHeight: 800,
+              box: { x: 120, y: 160, width: 22, height: 190 }
+            }],
+            embeddings: [{
+              vector: Array.from({ length: 80 }, (_, index) => index % 2 === 0 ? 0.3 : 0.7),
+              confidence: 0.93,
+              metadata: {
+                vectorType: 'local-face-region-v2',
+                qualitySignals: {
+                  sharpness: 0.006,
+                  contrast: 0.007,
+                  textureEnergy: 0.005
+                }
+              }
+            }],
             warnings: []
           };
         }
@@ -196,6 +220,8 @@ describe('OpenX Gallery Experience', () => {
     assert.strictEqual(result.reset.removedClusters, 1);
     assert.strictEqual(result.scanned, 4);
     assert.strictEqual(result.grouped, 2);
+    assert.strictEqual(result.falsePositiveFaces, 1);
+    assert(result.warnings.some(item => item.code === 'object-like-face-suppressed'));
     assert(result.warnings.some(item => item.code === 'duplicate-face-detection-suppressed'));
     assert.strictEqual(result.verification.requireFaceDetection, true);
     assert.strictEqual(result.verification.requireFaceEmbedding, true);
