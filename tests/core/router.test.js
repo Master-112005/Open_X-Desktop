@@ -2350,6 +2350,24 @@ describe('Action Router', function() {
     assert.equal(result.entities.reminderText, 'sleep');
   });
 
+  it('should route trailing remind-me event sentences without noisy repair', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const stubEngine = {
+      execute(actionId, entities) {
+        return { success: true, data: { actionId, ...entities, dueAt: new Date().toISOString(), kind: 'Reminder' } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const result = await router.process('i have a meeting at 6pm tomorrow remind me', 'chat');
+
+    assert.equal(result.intent, 'reminder.set');
+    assert.equal(result.entities.timeExpression, '6pm tomorrow');
+    assert.equal(result.entities.reminderText, 'meeting');
+  });
+
   it('should preserve reminder time when "at" is mistyped as "t"', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }

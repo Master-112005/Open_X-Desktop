@@ -2771,6 +2771,10 @@ class ActionRouter {
   }
 
   _shouldUseNoisyRepair(preparedInput, rawText, source) {
+    if (this._looksLikeScheduleRequest(rawText)) {
+      return false;
+    }
+
     if (/\b(?:setup|session|workspace|focus\s+mode|everything\s+i\s+need|apps?\s+i\s+use)\b/i.test(String(rawText || ''))) {
       return false;
     }
@@ -2828,6 +2832,18 @@ class ActionRouter {
 
     return Number(preparedInput?.noiseTokenCount || 0) > 0
       || Number(preparedInput?.repairContextTokenCount || 0) > 0;
+  }
+
+  _looksLikeScheduleRequest(rawText) {
+    const text = String(rawText || '').trim();
+    if (!text) return false;
+
+    const hasScheduleAction = /\b(?:remind|reminder|notify|alert|alarm|timer)\b/i.test(text) ||
+      /\b(?:set|create|add|schedule)\b.*\b(?:reminder|alarm|timer)\b/i.test(text);
+    if (!hasScheduleAction) return false;
+
+    const hasScheduleTime = /\b(?:today|tomorrow|tonight|next\s+(?:week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|night|\d{1,2}(?:(?::|\s+)\d{1,2})?\s*(?:am|pm)|\d+\s*(?:seconds?|minutes?|mins?|hours?|hrs?))\b/i.test(text);
+    return hasScheduleTime;
   }
 
   _resolveYouTubeMediaIntent(rawText, preparedInput = {}) {

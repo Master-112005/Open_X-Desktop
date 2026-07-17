@@ -156,6 +156,15 @@ describe('Active Learning Store', function() {
     assert.equal(answer.response, 'Your name is rakes, sir.');
   });
 
+  it('should not learn scheduled reminder commands as personal possessions', function() {
+    const { store } = createStore();
+
+    const learned = store.learnFromText('i have a meeting at 6pm tomorrow remind me');
+
+    assert.equal(learned, null);
+    assert.equal(store.getUserFact('possessions'), null);
+  });
+
   it('should reject password storage and never return password values', function() {
     const { tempDir, store } = createStore();
 
