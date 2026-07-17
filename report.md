@@ -1,6 +1,6 @@
 # OpenX Repository Report
 
-Report date: 2026-07-15
+Report date: 2026-07-17
 
 Repository: `OpenX`
 
@@ -8,9 +8,9 @@ Package: `openx`
 
 Version source: `package.json`
 
-Current version: `6.9.22`
+Current version: `6.10.22`
 
-Branch / commit: `visual-memory-engine` / `d233a8c`
+Branch / commit: `visual-memory-engine` / `1ee0f82`
 
 ## Scope Scanned
 
@@ -22,34 +22,30 @@ Branch / commit: `visual-memory-engine` / `d233a8c`
 - Test suites under `tests`.
 - Package/build configuration in `package.json`, `package-lock.json`, `config.js`, and Electron builder settings.
 
-Approximate scan size:
+Approximate scan size from the 2026-07-17 refresh:
 
-- `809` files under `core`, `apps`, and `tests`.
-- `68` core test files under `tests/core`.
-- Visual Memory capability and gallery work has added new runtime, gallery, vision, and test surfaces under `core/assistant/capabilities`, `core/vision`, `apps/desktop/renderer/gallery`, and `tests/core`.
+- `883` filtered files in the working tree after excluding generated, dependency, cache, and local-heavy folders.
+- `633` files under `core`.
+- `114` files under `apps`.
+- `94` files under `tests`.
+- `11` files under `docs`.
+- `11` files under `plugins`.
+- `4` files under top-level `models`.
+- `5` files under `build`, `1` file under `scripts`, and `10` root-level config/docs/package files.
+- `826` JavaScript files, `17` Markdown files, `9` JSON files, `8` ONNX model/data files, `5` HTML files, `4` CSS files, plus PowerShell/config/build metadata files.
+- Visual Memory, Gallery, AI Vision, model assets, face memory, and face-search ranking now account for the largest active feature area.
 
 ## Current Working Tree
 
-The repository is actively modified. Current modified areas include:
+The repository is actively modified. Current modified areas from the latest scan include:
 
-- `apps/desktop/electron/main.js`
-- `apps/desktop/electron/security.js`
-- `apps/desktop/preload.js`
-- `apps/desktop/renderer/gallery`
-- `config.js`
-- `core/assistant/capabilities`
-- `core/assistant/capabilities/visual-memory/runtime/faces`
-- `core/assistant/capabilities/visual-memory/runtime/gallery`
-- `core/assistant/automation/ActionRouter.js`
-- `core/assistant/index.js`
-- `core/assistant/pipeline/PipelineManager.js`
-- `core/assistant/reasoning/IntentRegistry.js`
-- `core/assistant/response/ResponseGenerator.js`
-- `core/automation`
-- `core/vision`
-- `core/vision/runtime/WindowsFaceRuntimeAdapter.js`
-- `core/vision/runtime/windows-face-analysis.ps1`
-- Visual Memory tests under `tests/core`
+- `core/assistant/capabilities/visual-memory/runtime/api/VisualMemoryAPI.js`
+- `core/assistant/capabilities/visual-memory/runtime/intelligence/context/MemorySearchContext.js`
+- `core/assistant/capabilities/visual-memory/runtime/intelligence/ranking/MemoryRankingEngine.js`
+- `core/assistant/capabilities/visual-memory/runtime/intelligence/utils/intelligence-utils.js`
+- `core/assistant/entities/PersonLexicon.js`
+- `tests/core/visual-memory-intelligence.test.js`
+- `report.md`
 
 These modifications are not reverted or discarded. The report reflects the current workspace state.
 
@@ -169,6 +165,40 @@ VisualMemoryAPI.scanGalleryPeople -> success=true, reason=completed
 Known caveat:
 
 - Full `tests/core/assistant.test.js` still has unrelated expectation failures around normalized casing, time punctuation, and feedback prompt behavior. Those failures existed outside the latest plural-app follow-up change and should be handled in a dedicated cleanup pass.
+
+Latest focused validation from the 2026-07-17 scan and face-search update:
+
+```powershell
+node -c core\assistant\capabilities\visual-memory\runtime\api\VisualMemoryAPI.js
+node -c core\assistant\capabilities\visual-memory\runtime\intelligence\context\MemorySearchContext.js
+node -c core\assistant\capabilities\visual-memory\runtime\intelligence\ranking\MemoryRankingEngine.js
+node -c core\assistant\capabilities\visual-memory\runtime\intelligence\utils\intelligence-utils.js
+node -c core\assistant\entities\PersonLexicon.js
+```
+
+Passed focused lint:
+
+```powershell
+npx eslint core\assistant\capabilities\visual-memory\runtime\api\VisualMemoryAPI.js core\assistant\capabilities\visual-memory\runtime\intelligence\context\MemorySearchContext.js core\assistant\capabilities\visual-memory\runtime\intelligence\ranking\MemoryRankingEngine.js core\assistant\capabilities\visual-memory\runtime\intelligence\utils\intelligence-utils.js core\assistant\entities\PersonLexicon.js tests\core\visual-memory-intelligence.test.js
+```
+
+Passed focused face-search, visual-memory, gallery, routing, and entity validation:
+
+```powershell
+npx mocha tests\core\visual-memory-intelligence.test.js tests\core\visual-query.test.js tests\core\face-memory.test.js --timeout 120000
+npx mocha tests\core\visual-memory-capability.test.js tests\core\openx-gallery-experience.test.js tests\core\visual-filtering.test.js tests\core\vision-engine.test.js --timeout 120000
+npx mocha tests\core\router.test.js --grep "photo|visual|gallery|mummy|daddy|personal photo" --timeout 180000
+npx mocha tests\core\entity-understanding.test.js tests\core\entities.test.js --timeout 120000
+```
+
+Result:
+
+```text
+33 passing
+23 passing
+3 passing
+49 passing
+```
 
 ## Major Current Capabilities Confirmed
 
@@ -1658,6 +1688,170 @@ For production debugging, the most useful fields are:
 - `error`
 - `executionContext.operationId`
 
+## 2026-07-17 Scan Refresh And Face Search Update
+
+This refresh scanned the current OpenX workspace, reviewed the Visual Memory and AI Vision paths, and updated the report to reflect the latest face-search behavior.
+
+### Current Scan Summary
+
+Filtered scan exclusions:
+
+- `node_modules/`
+- `.git/`
+- `dist/`
+- `graphify-out/`
+- `.codex/`
+- `.code-review-graph/`
+- `.agents/`
+- `coverage/`
+- `.next/`
+- `.expo/`
+- `.gradle/`
+- generated mobile-native build folders when present
+
+Current file distribution:
+
+| Area | Files |
+|---|---:|
+| `core` | `633` |
+| `apps` | `114` |
+| `tests` | `94` |
+| `docs` | `11` |
+| `plugins` | `11` |
+| top-level `models` | `4` |
+| `build` | `5` |
+| `scripts` | `1` |
+| root config/docs/package files | `10` |
+| total filtered scan | `883` |
+
+Current extension distribution:
+
+| Extension | Files |
+|---|---:|
+| `.js` | `826` |
+| `.md` | `17` |
+| `.json` | `9` |
+| `.onnx` | `8` |
+| `.html` | `5` |
+| `.css` | `4` |
+| `.data` | `2` |
+| `.ini` | `2` |
+| `.yml` | `2` |
+| `.ps1` | `1` |
+| `.txt` | `1` |
+| `.mjs` | `1` |
+| `.gitignore` | `1` |
+| `.ico` | `1` |
+| `.exe` | `1` |
+| `.nsh` | `1` |
+| `.png` | `1` |
+
+### Face Search Problem Addressed
+
+The main issue was not that photo search failed to return results. The weaker behavior was that person-focused searches could still be ranked by generic metadata, folder text, or loose family terms after Visual Memory found a candidate pool.
+
+Example weak behavior:
+
+```text
+find photos of mummy and daddy
+  -> broad Visual Memory search
+  -> generic Family / Photo Memory results
+  -> partial or unrelated photo matches can appear
+```
+
+The updated behavior treats saved Face Memory evidence as the strongest source for person search:
+
+```text
+find photos of mummy and daddy
+  -> visual query extracts relationships: mother + father
+  -> VisualMemoryAPI resolves those relationships against saved Face Memory identities
+  -> candidate photos receive faceMemorySearch coverage
+  -> MemoryRankingEngine requires full saved-face coverage when the requested identities are known
+  -> generic family-folder photos and one-parent-only photos are removed from strict results
+```
+
+### Updated Face Search Flow
+
+Current person-search flow:
+
+```text
+User query
+  -> ActionRouter routes local personal photo search to visualMemory.search
+  -> VisualQueryEngine extracts people, relationships, owner, time, scene, and query text constraints
+  -> CandidateFilterEngine builds deterministic local candidates from indexed Gallery photos
+  -> VisualMemoryAPI attaches saved Face Memory evidence by photo id
+  -> VisualMemoryAPI builds faceSearchContext from saved identities and relationships
+  -> MemorySearchContext carries faceSearchContext into intelligence ranking
+  -> MemoryRankingEngine computes faceSearchScore and faceSearchCoverage
+  -> strict known-identity searches reject incomplete face evidence
+  -> chat receives the best capped visual results
+```
+
+### Files Updated In This Pass
+
+| File | Update |
+|---|---|
+| `core/assistant/capabilities/visual-memory/runtime/api/VisualMemoryAPI.js` | Builds `faceSearchContext`, resolves requested people/relationships against saved Face Memory identities, attaches `candidate.faceMemorySearch`, and passes face-search context into memory intelligence. |
+| `core/assistant/capabilities/visual-memory/runtime/intelligence/context/MemorySearchContext.js` | Stores and exposes `faceSearchContext` to ranking and search components. |
+| `core/assistant/capabilities/visual-memory/runtime/intelligence/ranking/MemoryRankingEngine.js` | Adds strict face-search scoring, coverage tracking, and rejection of incomplete known-person matches. |
+| `core/assistant/capabilities/visual-memory/runtime/intelligence/utils/intelligence-utils.js` | Exposes `candidate.faceMemorySearch` through candidate evidence. |
+| `core/assistant/entities/PersonLexicon.js` | Adds grouped relationship matching for `parents`, `family`, `friends`, `children`, and related aliases. |
+| `tests/core/visual-memory-intelligence.test.js` | Adds regression coverage for full saved-face coverage in `me and dad` and `mummy and daddy` searches. |
+
+### Face Search Accuracy Rules
+
+The latest behavior separates three kinds of evidence:
+
+| Evidence | Strength | Use |
+|---|---|---|
+| Saved Face Memory identity on the candidate photo | Strong | Used for strict person and relationship searches. |
+| Saved relationship on a named identity, such as `father` or `mother` | Strong | Used to satisfy relationship aliases like `dad`, `daddy`, `mummy`, and `parents`. |
+| Folder, filename, semantic tag, visual concept, or generic text | Weak | Still useful for scene/object/date searches, but not enough to satisfy known-person searches. |
+
+Strict face search is enabled when the requested person or relationship can be resolved to saved Face Memory identities. In that case:
+
+- `me and dad` must match both the saved user identity and a saved father/dad identity.
+- `mummy and daddy` must match both saved mother and father evidence.
+- `parents` can match father and mother relationship identities through grouped relationship matching.
+- `family` can match saved family relationships, but generic `family` file/folder text does not outrank actual face evidence.
+- partial matches, such as only `mummy` or only `daddy`, are rejected for strict multi-person requests.
+- if no saved identity exists for the requested person or relationship, OpenX can still use weaker metadata and visual evidence instead of returning nothing immediately.
+
+### Reference Basis
+
+The design follows common production face-search practice:
+
+- FaceNet-style embedding search maps faces into a vector space where identity similarity can be compared for recognition and clustering.
+- ArcFace-style normalized discriminative embeddings motivate using identity separation and stricter thresholds instead of loose text matches.
+- RetinaFace-style localization motivates separating face detection/localization from recognition and ranking.
+
+The current OpenX implementation keeps those ideas inside the existing local-first architecture:
+
+- face detection and embeddings stay local;
+- user naming remains explicit;
+- relationships are user-controlled metadata;
+- search ranking uses saved face evidence without auto-naming unknown people;
+- generic photo metadata remains useful for object, scene, date, folder, screenshot, and document searches.
+
+### Expected Search Behavior After This Update
+
+| Query | Expected behavior |
+|---|---|
+| `find photos of mummy and daddy` | Return photos with both saved mother and father face evidence when those identities exist. |
+| `find latest photo of me and daddy` | Prefer recent photos containing both the saved user identity and saved father/dad identity. |
+| `find photo of jithu` | Prefer photos where saved Face Memory has `jithu` evidence. |
+| `find my parents photos` | Use grouped parent relationship matching. |
+| `find family trip photos` | If it is not asking for a specific saved person, scene/folder/event evidence can still rank results. |
+| `find hills or mountain photos` | Use visual concept and natural-location constraints, not face evidence. |
+
+### Developer Notes
+
+- The face-search ranking update does not replace the face detector or the embedding runtime.
+- The strict search gate only applies when a requested person/relationship is resolvable through saved Face Memory.
+- Existing `FaceMemoryEngine` auto-assignment safety remains unchanged: weak, low-quality, or ambiguous face matches are still deferred for review.
+- Current model assets now include SCRFD, MobileFaceNet, MobileCLIP, and PaddleOCR paths under Visual Memory runtime models. These are documented in the refreshed directory tree below.
+- A future production upgrade should continue toward a real local ONNX face embedding adapter while preserving the same `FaceMemory` and `faceSearchContext` contracts.
+
 ## Blockers And Risks
 
 1. Full assistant suite drift
@@ -1721,74 +1915,9 @@ For production debugging, the most useful fields are:
    - notification grouping test
    - installer smoke test
 
-## Latest Directory Tree Additions
+## Current Directory Tree
 
-The full filtered tree below is retained for repository orientation. The latest Visual Memory and Gallery work adds these important paths that should be kept in sync during future tree refreshes:
-
-```text
-apps/desktop/renderer/gallery/
-|-- index.css
-|-- index.html
-`-- index.js
-
-core/assistant/capabilities/
-`-- visual-memory/
-    |-- VisualMemoryCapabilityStage.js
-    |-- contracts/
-    |-- execution/
-    |-- responses/
-    |-- routing/
-    `-- runtime/
-        |-- api/
-        |-- candidates/
-        |-- configuration/
-        |-- contracts/
-        |-- database/
-        |-- diagnostics/
-        |-- engine/
-        |-- events/
-        |-- faces/
-        |-- filtering/
-        |-- folders/
-        |-- gallery/
-        |-- intelligence/
-        |-- learning/
-        |-- lifecycle/
-        |-- metadata/
-        |-- privacy/
-        |-- query/
-        |-- settings/
-        |-- thumbnails/
-        |-- utils/
-        `-- validation/
-
-core/vision/
-|-- index.js
-|-- runtime/
-|   |-- RuntimeManager.js
-|   |-- WindowsFaceRuntimeAdapter.js
-|   `-- windows-face-analysis.ps1
-|-- engine/
-|-- inference/
-|-- models/
-|-- postprocessing/
-|-- preprocessing/
-`-- validation/
-
-tests/core/
-|-- face-memory.test.js
-|-- gallery-recent.test.js
-|-- openx-gallery-experience.test.js
-|-- vision-engine.test.js
-|-- visual-filtering.test.js
-|-- visual-memory-capability.test.js
-|-- visual-memory-intelligence.test.js
-|-- visual-memory-learning.test.js
-|-- visual-memory.test.js
-`-- visual-query.test.js
-```
-
-## Full Filtered Directory Tree
+This is the only directory tree in this report. It was generated from the current OpenX workspace on 2026-07-17 and excludes dependency, build-output, cache, local graph, and other generated folders so the documentation stays focused on source, tests, configuration, docs, and checked-in assets.
 
 Excluded generated/local-heavy paths:
 
@@ -1799,35 +1928,48 @@ Excluded generated/local-heavy paths:
 - `.codex/`
 - `.code-review-graph/`
 - `.agents/`
+- `coverage/`
+- `.next/`
+- `.expo/`
+- `.gradle/`
+- `.cache/`
+- `tmp/`
+- `temp/`
+
+Filtered tree scan: `883` files.
 
 ```text
 OpenX/
-|-- .github
-|   `-- workflows
-|-- apps
-|   `-- desktop
-|       |-- electron
+|-- .github/
+|   `-- workflows/
+|-- apps/
+|   `-- desktop/
+|       |-- electron/
 |       |   |-- crash-recovery.js
 |       |   |-- main.js
 |       |   `-- security.js
-|       |-- renderer
-|       |   |-- chat
+|       |-- renderer/
+|       |   |-- chat/
 |       |   |   |-- index.css
 |       |   |   |-- index.html
 |       |   |   `-- index.js
-|       |   |-- planner
+|       |   |-- gallery/
 |       |   |   |-- index.css
 |       |   |   |-- index.html
 |       |   |   `-- index.js
-|       |   |-- timer-widget
+|       |   |-- planner/
 |       |   |   |-- index.css
 |       |   |   |-- index.html
 |       |   |   `-- index.js
-|       |   `-- voice-capture
+|       |   |-- timer-widget/
+|       |   |   |-- index.css
+|       |   |   |-- index.html
+|       |   |   `-- index.js
+|       |   `-- voice-capture/
 |       |       |-- index.html
 |       |       `-- index.js
-|       |-- voice
-|       |   |-- audio
+|       |-- voice/
+|       |   |-- audio/
 |       |   |   |-- AudioBuffer.js
 |       |   |   |-- AudioCapture.js
 |       |   |   |-- AudioConfiguration.js
@@ -1837,9 +1979,9 @@ OpenX/
 |       |   |   |-- AudioFrame.js
 |       |   |   |-- AudioPermissions.js
 |       |   |   `-- index.js
-|       |   |-- config
+|       |   |-- config/
 |       |   |   `-- VoiceSettings.js
-|       |   |-- diagnostics
+|       |   |-- diagnostics/
 |       |   |   |-- DiagnosticsConfiguration.js
 |       |   |   |-- DiagnosticsErrors.js
 |       |   |   |-- DiagnosticsEvents.js
@@ -1857,7 +1999,7 @@ OpenX/
 |       |   |   |-- SessionStatistics.js
 |       |   |   |-- VoiceLogger.js
 |       |   |   `-- VoiceMetrics.js
-|       |   |-- integration
+|       |   |-- integration/
 |       |   |   |-- AssistantDispatcher.js
 |       |   |   |-- AssistantInputAdapter.js
 |       |   |   |-- index.js
@@ -1867,7 +2009,7 @@ OpenX/
 |       |   |   |-- VoiceIntegrationErrors.js
 |       |   |   |-- VoiceIntegrationEvents.js
 |       |   |   `-- VoiceResponseHandler.js
-|       |   |-- normalization
+|       |   |-- normalization/
 |       |   |   |-- AcronymNormalizer.js
 |       |   |   |-- ApplicationNormalizer.js
 |       |   |   |-- CommandNormalizer.js
@@ -1882,7 +2024,7 @@ OpenX/
 |       |   |   |-- TextValidator.js
 |       |   |   |-- TranscriptNormalizer.js
 |       |   |   `-- TranscriptProcessor.js
-|       |   |-- preprocessing
+|       |   |-- preprocessing/
 |       |   |   |-- AudioFrameProcessor.js
 |       |   |   |-- AudioPipeline.js
 |       |   |   |-- AudioProcessingErrors.js
@@ -1894,12 +2036,12 @@ OpenX/
 |       |   |   |-- RNNoiseProcessor.js
 |       |   |   |-- SpeechSourceClassifier.js
 |       |   |   `-- VoiceActivityDetector.js
-|       |   |-- session
+|       |   |-- session/
 |       |   |   |-- SessionEvents.js
 |       |   |   |-- VoiceSession.js
 |       |   |   |-- VoiceSessionManager.js
 |       |   |   `-- VoiceStateMachine.js
-|       |   |-- stt
+|       |   |-- stt/
 |       |   |   |-- DecoderState.js
 |       |   |   |-- index.js
 |       |   |   |-- ModelLoader.js
@@ -1913,7 +2055,7 @@ OpenX/
 |       |   |   |-- TranscriptAssembler.js
 |       |   |   |-- TranscriptResult.js
 |       |   |   `-- TranscriptSegment.js
-|       |   |-- ui
+|       |   |-- ui/
 |       |   |   |-- index.js
 |       |   |   |-- TranscriptPublisher.js
 |       |   |   |-- VoiceAccessibility.js
@@ -1933,15 +2075,15 @@ OpenX/
 |       |-- preload.js
 |       |-- security-lock.js
 |       `-- settings.js
-|-- build
+|-- build/
 |   |-- icon.ico
 |   |-- icon.png
 |   |-- ICON_README.md
 |   |-- installer.nsh
 |   `-- openx-chrome-host.exe
-|-- core
-|   |-- assistant
-|   |   |-- acquisition
+|-- core/
+|   |-- assistant/
+|   |   |-- acquisition/
 |   |   |   |-- AcquisitionErrors.js
 |   |   |   |-- AcquisitionSanitizer.js
 |   |   |   |-- APIAdapter.js
@@ -1963,7 +2105,7 @@ OpenX/
 |   |   |   |-- SourceConfidenceCalculator.js
 |   |   |   |-- SourceNormalizer.js
 |   |   |   `-- VoiceAdapter.js
-|   |   |-- automation
+|   |   |-- automation/
 |   |   |   |-- ActionRouter.js
 |   |   |   |-- AssistantExecutionStage.js
 |   |   |   |-- AutomationContext.js
@@ -1976,7 +2118,291 @@ OpenX/
 |   |   |   |-- DecisionValidationAutomationStage.js
 |   |   |   |-- index.js
 |   |   |   `-- NaturalLanguageExecution.js
-|   |   |-- context
+|   |   |-- capabilities/
+|   |   |   |-- visual-memory/
+|   |   |   |   |-- actions/
+|   |   |   |   |   `-- VisualMemoryActionRegistry.js
+|   |   |   |   |-- capability/
+|   |   |   |   |   `-- VisualMemoryCapability.js
+|   |   |   |   |-- configuration/
+|   |   |   |   |   `-- VisualMemoryCapabilityConfiguration.js
+|   |   |   |   |-- context/
+|   |   |   |   |   `-- VisualMemoryContextContributor.js
+|   |   |   |   |-- contracts/
+|   |   |   |   |   `-- VisualMemoryCapabilityContracts.js
+|   |   |   |   |-- diagnostics/
+|   |   |   |   |   `-- VisualMemoryCapabilityDiagnostics.js
+|   |   |   |   |-- events/
+|   |   |   |   |   `-- VisualMemoryCapabilityEvents.js
+|   |   |   |   |-- execution/
+|   |   |   |   |   `-- VisualMemoryCapabilityExecutor.js
+|   |   |   |   |-- lifecycle/
+|   |   |   |   |   `-- VisualMemoryCapabilityLifecycle.js
+|   |   |   |   |-- responses/
+|   |   |   |   |   `-- VisualMemoryStructuredResponse.js
+|   |   |   |   |-- routing/
+|   |   |   |   |   `-- VisualMemoryCapabilityRouter.js
+|   |   |   |   |-- runtime/
+|   |   |   |   |   |-- api/
+|   |   |   |   |   |   `-- VisualMemoryAPI.js
+|   |   |   |   |   |-- contracts/
+|   |   |   |   |   |   |-- APIContract.js
+|   |   |   |   |   |   |-- index.js
+|   |   |   |   |   |   `-- VisualMemoryContract.js
+|   |   |   |   |   |-- database/
+|   |   |   |   |   |   `-- VisualMemoryDatabase.js
+|   |   |   |   |   |-- diagnostics/
+|   |   |   |   |   |   `-- DiagnosticsManager.js
+|   |   |   |   |   |-- engine/
+|   |   |   |   |   |   `-- VisualMemoryEngine.js
+|   |   |   |   |   |-- events/
+|   |   |   |   |   |   `-- VisualMemoryEvents.js
+|   |   |   |   |   |-- faces/
+|   |   |   |   |   |   |-- collections/
+|   |   |   |   |   |   |   `-- FaceCollectionManager.js
+|   |   |   |   |   |   |-- configuration/
+|   |   |   |   |   |   |   `-- FaceMemoryConfiguration.js
+|   |   |   |   |   |   |-- consent/
+|   |   |   |   |   |   |   `-- ConsentManager.js
+|   |   |   |   |   |   |-- contracts/
+|   |   |   |   |   |   |   `-- FaceMemoryContracts.js
+|   |   |   |   |   |   |-- diagnostics/
+|   |   |   |   |   |   |   `-- FaceMemoryDiagnostics.js
+|   |   |   |   |   |   |-- embeddings/
+|   |   |   |   |   |   |   `-- FaceEmbeddingStore.js
+|   |   |   |   |   |   |-- engine/
+|   |   |   |   |   |   |   `-- FaceMemoryEngine.js
+|   |   |   |   |   |   |-- enrollment/
+|   |   |   |   |   |   |   `-- FaceEnrollmentManager.js
+|   |   |   |   |   |   |-- events/
+|   |   |   |   |   |   |   `-- FaceMemoryEvents.js
+|   |   |   |   |   |   |-- grouping/
+|   |   |   |   |   |   |   `-- FaceGroupingEngine.js
+|   |   |   |   |   |   |-- identities/
+|   |   |   |   |   |   |   `-- IdentityManager.js
+|   |   |   |   |   |   |-- lifecycle/
+|   |   |   |   |   |   |   `-- FaceMemoryLifecycle.js
+|   |   |   |   |   |   |-- matching/
+|   |   |   |   |   |   |   `-- FaceMatchingEngine.js
+|   |   |   |   |   |   |-- privacy/
+|   |   |   |   |   |   |   `-- FacePrivacyManager.js
+|   |   |   |   |   |   |-- profiles/
+|   |   |   |   |   |   |   `-- PersonProfileManager.js
+|   |   |   |   |   |   |-- relationships/
+|   |   |   |   |   |   |   `-- FaceRelationshipManager.js
+|   |   |   |   |   |   |-- timelines/
+|   |   |   |   |   |   |   `-- FaceTimelineManager.js
+|   |   |   |   |   |   |-- utils/
+|   |   |   |   |   |   |   `-- face-utils.js
+|   |   |   |   |   |   |-- validation/
+|   |   |   |   |   |   |   `-- FaceMemoryValidator.js
+|   |   |   |   |   |   `-- index.js
+|   |   |   |   |   |-- filtering/
+|   |   |   |   |   |   |-- AlbumFilter.js
+|   |   |   |   |   |   |-- BaseCandidateFilter.js
+|   |   |   |   |   |   |-- CameraFilter.js
+|   |   |   |   |   |   |-- CandidateContracts.js
+|   |   |   |   |   |   |-- CandidateFilterEngine.js
+|   |   |   |   |   |   |-- CandidateFilteringStage.js
+|   |   |   |   |   |   |-- CandidateFilterPipeline.js
+|   |   |   |   |   |   |-- CandidatePool.js
+|   |   |   |   |   |   |-- CandidateRanker.js
+|   |   |   |   |   |   |-- CandidateValidator.js
+|   |   |   |   |   |   |-- DateFilter.js
+|   |   |   |   |   |   |-- DuplicateFilter.js
+|   |   |   |   |   |   |-- filter-utils.js
+|   |   |   |   |   |   |-- FolderFilter.js
+|   |   |   |   |   |   |-- GPSFilter.js
+|   |   |   |   |   |   |-- index.js
+|   |   |   |   |   |   |-- MetadataFilter.js
+|   |   |   |   |   |   |-- PersonCountFilter.js
+|   |   |   |   |   |   `-- ScreenshotFilter.js
+|   |   |   |   |   |-- folders/
+|   |   |   |   |   |   `-- FolderManager.js
+|   |   |   |   |   |-- gallery/
+|   |   |   |   |   |   |-- accessibility/
+|   |   |   |   |   |   |   `-- GalleryAccessibilityManager.js
+|   |   |   |   |   |   |-- albums/
+|   |   |   |   |   |   |   `-- GalleryAlbumManager.js
+|   |   |   |   |   |   |-- collections/
+|   |   |   |   |   |   |   `-- GalleryCollectionExperience.js
+|   |   |   |   |   |   |-- configuration/
+|   |   |   |   |   |   |   `-- GalleryExperienceConfiguration.js
+|   |   |   |   |   |   |-- contracts/
+|   |   |   |   |   |   |   `-- GalleryExperienceContracts.js
+|   |   |   |   |   |   |-- diagnostics/
+|   |   |   |   |   |   |   `-- GalleryExperienceDiagnostics.js
+|   |   |   |   |   |   |-- engine/
+|   |   |   |   |   |   |   `-- OpenXGalleryEngine.js
+|   |   |   |   |   |   |-- events/
+|   |   |   |   |   |   |   |-- EventGalleryExperience.js
+|   |   |   |   |   |   |   `-- GalleryExperienceEvents.js
+|   |   |   |   |   |   |-- favorites/
+|   |   |   |   |   |   |   `-- FavoriteManager.js
+|   |   |   |   |   |   |-- filters/
+|   |   |   |   |   |   |   `-- GalleryFilterManager.js
+|   |   |   |   |   |   |-- interactions/
+|   |   |   |   |   |   |   `-- GalleryInteractionManager.js
+|   |   |   |   |   |   |-- lifecycle/
+|   |   |   |   |   |   |   `-- GalleryExperienceLifecycle.js
+|   |   |   |   |   |   |-- navigation/
+|   |   |   |   |   |   |   `-- GalleryNavigationManager.js
+|   |   |   |   |   |   |-- objects/
+|   |   |   |   |   |   |   `-- GalleryObjectsExperience.js
+|   |   |   |   |   |   |-- people/
+|   |   |   |   |   |   |   `-- GalleryPeopleExperience.js
+|   |   |   |   |   |   |-- places/
+|   |   |   |   |   |   |   `-- GalleryPlacesExperience.js
+|   |   |   |   |   |   |-- recent/
+|   |   |   |   |   |   |   `-- RecentManager.js
+|   |   |   |   |   |   |-- search/
+|   |   |   |   |   |   |   `-- GallerySearchExperience.js
+|   |   |   |   |   |   |-- selection/
+|   |   |   |   |   |   |   `-- SelectionManager.js
+|   |   |   |   |   |   |-- similarity/
+|   |   |   |   |   |   |   `-- GallerySimilarityExperience.js
+|   |   |   |   |   |   |-- timeline/
+|   |   |   |   |   |   |   `-- GalleryTimelineExperience.js
+|   |   |   |   |   |   |-- utils/
+|   |   |   |   |   |   |   `-- gallery-utils.js
+|   |   |   |   |   |   |-- validation/
+|   |   |   |   |   |   |   `-- GalleryExperienceValidator.js
+|   |   |   |   |   |   |-- viewer/
+|   |   |   |   |   |   |   `-- GalleryViewer.js
+|   |   |   |   |   |   |-- GalleryManager.js
+|   |   |   |   |   |   `-- index.js
+|   |   |   |   |   |-- intelligence/
+|   |   |   |   |   |   |-- collections/
+|   |   |   |   |   |   |   `-- SmartCollectionManager.js
+|   |   |   |   |   |   |-- confidence/
+|   |   |   |   |   |   |   `-- MemoryConfidenceEngine.js
+|   |   |   |   |   |   |-- configuration/
+|   |   |   |   |   |   |   `-- MemoryIntelligenceConfiguration.js
+|   |   |   |   |   |   |-- context/
+|   |   |   |   |   |   |   `-- MemorySearchContext.js
+|   |   |   |   |   |   |-- contracts/
+|   |   |   |   |   |   |   `-- MemoryIntelligenceContracts.js
+|   |   |   |   |   |   |-- diagnostics/
+|   |   |   |   |   |   |   `-- MemoryIntelligenceDiagnostics.js
+|   |   |   |   |   |   |-- engine/
+|   |   |   |   |   |   |   `-- VisualMemoryIntelligenceEngine.js
+|   |   |   |   |   |   |-- events/
+|   |   |   |   |   |   |   |-- EventIntelligence.js
+|   |   |   |   |   |   |   `-- MemoryIntelligenceEvents.js
+|   |   |   |   |   |   |-- lifecycle/
+|   |   |   |   |   |   |   `-- MemoryIntelligenceLifecycle.js
+|   |   |   |   |   |   |-- memories/
+|   |   |   |   |   |   |   `-- MemoryRecord.js
+|   |   |   |   |   |   |-- ranking/
+|   |   |   |   |   |   |   `-- MemoryRankingEngine.js
+|   |   |   |   |   |   |-- reasoning/
+|   |   |   |   |   |   |   `-- MemoryReasoningEngine.js
+|   |   |   |   |   |   |-- relationships/
+|   |   |   |   |   |   |   `-- RelationshipIntelligence.js
+|   |   |   |   |   |   |-- search/
+|   |   |   |   |   |   |   |-- MemorySearchEngine.js
+|   |   |   |   |   |   |   `-- SearchSessionManager.js
+|   |   |   |   |   |   |-- similarity/
+|   |   |   |   |   |   |   `-- MemorySimilarityEngine.js
+|   |   |   |   |   |   |-- timelines/
+|   |   |   |   |   |   |   `-- TimelineIntelligence.js
+|   |   |   |   |   |   |-- utils/
+|   |   |   |   |   |   |   `-- intelligence-utils.js
+|   |   |   |   |   |   |-- validation/
+|   |   |   |   |   |   |   `-- MemorySearchValidator.js
+|   |   |   |   |   |   |-- index.js
+|   |   |   |   |   |   `-- MemoryIntelligenceStage.js
+|   |   |   |   |   |-- learning/
+|   |   |   |   |   |   |-- configuration/
+|   |   |   |   |   |   |   `-- VisualMemoryLearningConfiguration.js
+|   |   |   |   |   |   |-- contracts/
+|   |   |   |   |   |   |   `-- VisualMemoryLearningContracts.js
+|   |   |   |   |   |   |-- corrections/
+|   |   |   |   |   |   |   `-- VisualMemoryCorrectionEngine.js
+|   |   |   |   |   |   |-- dashboard/
+|   |   |   |   |   |   |   `-- VisualMemoryLearningDashboard.js
+|   |   |   |   |   |   |-- diagnostics/
+|   |   |   |   |   |   |   `-- VisualMemoryLearningDiagnostics.js
+|   |   |   |   |   |   |-- engine/
+|   |   |   |   |   |   |   `-- VisualMemoryLearningEngine.js
+|   |   |   |   |   |   |-- events/
+|   |   |   |   |   |   |   `-- VisualMemoryLearningEvents.js
+|   |   |   |   |   |   |-- feedback/
+|   |   |   |   |   |   |   `-- VisualMemoryFeedbackEngine.js
+|   |   |   |   |   |   |-- lifecycle/
+|   |   |   |   |   |   |   `-- VisualMemoryLearningLifecycle.js
+|   |   |   |   |   |   |-- preferences/
+|   |   |   |   |   |   |   `-- VisualMemoryPreferenceEngine.js
+|   |   |   |   |   |   |-- ranking/
+|   |   |   |   |   |   |   `-- VisualMemoryRankingLearning.js
+|   |   |   |   |   |   |-- recommendations/
+|   |   |   |   |   |   |   `-- VisualMemoryRecommendationEngine.js
+|   |   |   |   |   |   |-- utils/
+|   |   |   |   |   |   |   `-- learning-utils.js
+|   |   |   |   |   |   |-- validation/
+|   |   |   |   |   |   |   `-- VisualMemoryLearningValidator.js
+|   |   |   |   |   |   `-- index.js
+|   |   |   |   |   |-- lifecycle/
+|   |   |   |   |   |   `-- LifecycleManager.js
+|   |   |   |   |   |-- metadata/
+|   |   |   |   |   |   `-- MetadataManager.js
+|   |   |   |   |   |-- models/
+|   |   |   |   |   |   |-- mobileclip/
+|   |   |   |   |   |   |   |-- config.json
+|   |   |   |   |   |   |   |-- desktop.ini
+|   |   |   |   |   |   |   |-- mobileclip_s2.onnx
+|   |   |   |   |   |   |   `-- mobileclip_s2.onnx.data
+|   |   |   |   |   |   |-- mobilefacenet/
+|   |   |   |   |   |   |   |-- desktop.ini
+|   |   |   |   |   |   |   |-- MobileFaceNet.onnx
+|   |   |   |   |   |   |   `-- MobileFaceNet.onnx.data
+|   |   |   |   |   |   |-- paddleocr/
+|   |   |   |   |   |   |   |-- detection/
+|   |   |   |   |   |   |   |   |-- inference.json
+|   |   |   |   |   |   |   |   |-- inference.onnx
+|   |   |   |   |   |   |   |   `-- inference.yml
+|   |   |   |   |   |   |   `-- Recognition/
+|   |   |   |   |   |   |       |-- inference (1).json
+|   |   |   |   |   |   |       |-- inference.onnx
+|   |   |   |   |   |   |       `-- inference.yml
+|   |   |   |   |   |   `-- scrfd/
+|   |   |   |   |   |       `-- 2.5g_bnkps.onnx
+|   |   |   |   |   |-- privacy/
+|   |   |   |   |   |   `-- PrivacyManager.js
+|   |   |   |   |   |-- query/
+|   |   |   |   |   |   |-- index.js
+|   |   |   |   |   |   |-- VisualConstraintExtractor.js
+|   |   |   |   |   |   |-- VisualQueryContext.js
+|   |   |   |   |   |   |-- VisualQueryContracts.js
+|   |   |   |   |   |   |-- VisualQueryEngine.js
+|   |   |   |   |   |   |-- VisualQueryNormalizer.js
+|   |   |   |   |   |   |-- VisualQueryParser.js
+|   |   |   |   |   |   |-- VisualQueryResult.js
+|   |   |   |   |   |   |-- VisualQueryUnderstandingStage.js
+|   |   |   |   |   |   `-- VisualQueryValidator.js
+|   |   |   |   |   |-- settings/
+|   |   |   |   |   |   `-- SettingsManager.js
+|   |   |   |   |   |-- thumbnails/
+|   |   |   |   |   |   `-- ThumbnailManager.js
+|   |   |   |   |   |-- utils/
+|   |   |   |   |   |   |-- constants.js
+|   |   |   |   |   |   |-- FileSystemUtils.js
+|   |   |   |   |   |   `-- VisualConceptLexicon.js
+|   |   |   |   |   |-- validation/
+|   |   |   |   |   |   `-- VisualMemoryValidator.js
+|   |   |   |   |   `-- index.js
+|   |   |   |   |-- sessions/
+|   |   |   |   |   `-- VisualMemorySessionManager.js
+|   |   |   |   |-- utils/
+|   |   |   |   |   `-- visual-memory-capability-utils.js
+|   |   |   |   |-- validation/
+|   |   |   |   |   `-- VisualMemoryCapabilityValidator.js
+|   |   |   |   |-- verification/
+|   |   |   |   |   `-- VisualMemoryVerificationManager.js
+|   |   |   |   |-- index.js
+|   |   |   |   `-- VisualMemoryCapabilityStage.js
+|   |   |   `-- index.js
+|   |   |-- context/
 |   |   |   |-- ApplicationContext.js
 |   |   |   |-- BrowserContext.js
 |   |   |   |-- CalendarContext.js
@@ -1991,7 +2417,7 @@ OpenX/
 |   |   |   |-- TimeContext.js
 |   |   |   |-- UserContext.js
 |   |   |   `-- WindowContext.js
-|   |   |-- contracts
+|   |   |-- contracts/
 |   |   |   |-- ErrorContract.js
 |   |   |   |-- index.js
 |   |   |   |-- LoggerContract.js
@@ -2001,7 +2427,7 @@ OpenX/
 |   |   |   |-- PipelineResultContract.js
 |   |   |   |-- PipelineStageContract.js
 |   |   |   `-- StageResultContract.js
-|   |   |-- decision
+|   |   |-- decision/
 |   |   |   |-- BaseDecision.js
 |   |   |   |-- ClarificationDecision.js
 |   |   |   |-- ConfirmationDecision.js
@@ -2019,7 +2445,7 @@ OpenX/
 |   |   |   |-- ExecutionDecision.js
 |   |   |   |-- index.js
 |   |   |   `-- PolicyDecision.js
-|   |   |-- entities
+|   |   |-- entities/
 |   |   |   |-- AlarmExtractor.js
 |   |   |   |-- ApplicationExtractor.js
 |   |   |   |-- BaseEntityExtractor.js
@@ -2052,6 +2478,7 @@ OpenX/
 |   |   |   |-- NetworkExtractor.js
 |   |   |   |-- PathExtractor.js
 |   |   |   |-- PersonExtractor.js
+|   |   |   |-- PersonLexicon.js
 |   |   |   |-- ReminderExtractor.js
 |   |   |   |-- StructuredEntities.js
 |   |   |   |-- TimeExtractor.js
@@ -2059,11 +2486,11 @@ OpenX/
 |   |   |   |-- VolumeExtractor.js
 |   |   |   |-- WebsiteExtractor.js
 |   |   |   `-- WindowExtractor.js
-|   |   |-- events
+|   |   |-- events/
 |   |   |   |-- index.js
 |   |   |   |-- PipelineEventDispatcher.js
 |   |   |   `-- PipelineEvents.js
-|   |   |-- learning
+|   |   |-- learning/
 |   |   |   |-- ActiveLearningManager.js
 |   |   |   |-- ActiveLearningStore.js
 |   |   |   |-- AliasLearning.js
@@ -2101,7 +2528,7 @@ OpenX/
 |   |   |   |-- UsageStatsStore.js
 |   |   |   |-- WorkflowLearning.js
 |   |   |   `-- WorkflowStore.js
-|   |   |-- linguistic
+|   |   |-- linguistic/
 |   |   |   |-- AnalyzerRegistry.js
 |   |   |   |-- BaseAnalyzer.js
 |   |   |   |-- ClauseAnalyzer.js
@@ -2129,7 +2556,7 @@ OpenX/
 |   |   |   |-- SubjectDetector.js
 |   |   |   |-- Tokenizer.js
 |   |   |   `-- VerbDetector.js
-|   |   |-- memory
+|   |   |-- memory/
 |   |   |   |-- BaseMemoryProvider.js
 |   |   |   |-- ConversationMemory.js
 |   |   |   |-- DialogueHistory.js
@@ -2148,7 +2575,7 @@ OpenX/
 |   |   |   |-- SessionMemory.js
 |   |   |   |-- TopicTracker.js
 |   |   |   `-- WorkingMemory.js
-|   |   |-- models
+|   |   |-- models/
 |   |   |   |-- AssistantRequest.js
 |   |   |   |-- AssistantResponse.js
 |   |   |   |-- DiagnosticRecord.js
@@ -2159,7 +2586,7 @@ OpenX/
 |   |   |   |-- RawUserInput.js
 |   |   |   |-- StageMetadata.js
 |   |   |   `-- TimingInformation.js
-|   |   |-- normalization
+|   |   |-- normalization/
 |   |   |   |-- AbbreviationExpander.js
 |   |   |   |-- BaseNormalizer.js
 |   |   |   |-- CommandPreprocessor.js
@@ -2188,7 +2615,7 @@ OpenX/
 |   |   |   |-- UnicodeNormalizer.js
 |   |   |   |-- UnitNormalizer.js
 |   |   |   `-- WhitespaceNormalizer.js
-|   |   |-- pipeline
+|   |   |-- pipeline/
 |   |   |   |-- index.js
 |   |   |   |-- PipelineBuilder.js
 |   |   |   |-- PipelineConfiguration.js
@@ -2203,7 +2630,7 @@ OpenX/
 |   |   |   |-- PipelineResult.js
 |   |   |   |-- PipelineStage.js
 |   |   |   `-- StageResult.js
-|   |   |-- planning
+|   |   |-- planning/
 |   |   |   |-- BasePlanner.js
 |   |   |   |-- DependencyPlanner.js
 |   |   |   |-- ExecutionBlueprint.js
@@ -2225,7 +2652,7 @@ OpenX/
 |   |   |   |-- TaskPlanner.js
 |   |   |   |-- TaskPlanningStage.js
 |   |   |   `-- WorkflowPlanner.js
-|   |   |-- reasoning
+|   |   |-- reasoning/
 |   |   |   |-- ActionReasoner.js
 |   |   |   |-- BaseReasoner.js
 |   |   |   |-- ClarificationEngine.js
@@ -2250,7 +2677,7 @@ OpenX/
 |   |   |   |-- ReasoningRegistry.js
 |   |   |   |-- ReasoningResult.js
 |   |   |   `-- TaskReasoner.js
-|   |   |-- references
+|   |   |-- references/
 |   |   |   |-- AliasResolver.js
 |   |   |   |-- ContextResolver.js
 |   |   |   |-- ConversationResolver.js
@@ -2258,7 +2685,7 @@ OpenX/
 |   |   |   |-- PronounResolver.js
 |   |   |   |-- ReferenceGraphBuilder.js
 |   |   |   `-- ReferenceResolver.js
-|   |   |-- response
+|   |   |-- response/
 |   |   |   |-- AssistantResponse.js
 |   |   |   |-- BaseResponseGenerator.js
 |   |   |   |-- ChatFormatter.js
@@ -2281,7 +2708,7 @@ OpenX/
 |   |   |   |-- SuggestionResponse.js
 |   |   |   |-- SummaryResponse.js
 |   |   |   `-- VoiceFormatter.js
-|   |   |-- semantic
+|   |   |-- semantic/
 |   |   |   |-- BaseSemanticAnalyzer.js
 |   |   |   |-- ConfidenceEngine.js
 |   |   |   |-- ConversationClassifier.js
@@ -2305,7 +2732,7 @@ OpenX/
 |   |   |   |-- SemanticUnderstandingStage.js
 |   |   |   |-- SimilarityEngine.js
 |   |   |   `-- WebTargets.js
-|   |   |-- utils
+|   |   |-- utils/
 |   |   |   |-- AsyncHelpers.js
 |   |   |   |-- Cancellation.js
 |   |   |   |-- ConfigurationLoader.js
@@ -2320,7 +2747,7 @@ OpenX/
 |   |   |   |-- Stopwatch.js
 |   |   |   |-- Timer.js
 |   |   |   `-- ValidationHelpers.js
-|   |   |-- validation
+|   |   |-- validation/
 |   |   |   |-- AutomationValidator.js
 |   |   |   |-- BaseValidator.js
 |   |   |   |-- ConfirmationValidator.js
@@ -2339,7 +2766,7 @@ OpenX/
 |   |   |   |-- ValidationPipeline.js
 |   |   |   |-- ValidationRegistry.js
 |   |   |   `-- ValidationResult.js
-|   |   |-- verification
+|   |   |-- verification/
 |   |   |   |-- ApplicationVerifier.js
 |   |   |   |-- BaseVerifier.js
 |   |   |   |-- BrowserVerifier.js
@@ -2364,8 +2791,8 @@ OpenX/
 |   |   |-- AssistantEngine.js
 |   |   |-- Data.js
 |   |   `-- index.js
-|   |-- automation
-|   |   |-- common
+|   |-- automation/
+|   |   |-- common/
 |   |   |   |-- action-confirm.js
 |   |   |   |-- action-velidation.js
 |   |   |   |-- action-verification.js
@@ -2386,7 +2813,7 @@ OpenX/
 |   |   |-- system.js
 |   |   |-- volume.js
 |   |   `-- windows.js
-|   |-- cloud
+|   |-- cloud/
 |   |   |-- CloudCommandManager.js
 |   |   |-- CloudCommandRouter.js
 |   |   |-- CloudConnectionManager.js
@@ -2399,7 +2826,7 @@ OpenX/
 |   |   |-- CloudResponseSerializer.js
 |   |   |-- CloudTransferIntegrity.js
 |   |   `-- index.js
-|   |-- communication
+|   |-- communication/
 |   |   |-- CommunicationEngine.js
 |   |   |-- CommunicationErrors.js
 |   |   |-- CommunicationEvents.js
@@ -2408,69 +2835,114 @@ OpenX/
 |   |   |-- CommunicationResult.js
 |   |   |-- index.js
 |   |   `-- OperationScheduler.js
-|   `-- context-awareness
-|       |-- active-window.js
-|       |-- app-registry.js
-|       |-- context-engine.js
-|       |-- mode-engine.js
-|       |-- process-monitor.js
-|       `-- signals.js
-|-- docs
-|   |-- architecture
+|   |-- context-awareness/
+|   |   |-- active-window.js
+|   |   |-- app-registry.js
+|   |   |-- context-engine.js
+|   |   |-- mode-engine.js
+|   |   |-- process-monitor.js
+|   |   `-- signals.js
+|   `-- vision/
+|       |-- confidence/
+|       |   `-- ConfidenceEngine.js
+|       |-- configuration/
+|       |   `-- VisionConfiguration.js
+|       |-- contracts/
+|       |   `-- VisionContracts.js
+|       |-- diagnostics/
+|       |   `-- VisionDiagnostics.js
+|       |-- embeddings/
+|       |   `-- EmbeddingManager.js
+|       |-- engine/
+|       |   `-- VisionEngine.js
+|       |-- events/
+|       |   `-- VisionEvents.js
+|       |-- inference/
+|       |   |-- InferenceCoordinator.js
+|       |   `-- VisionResult.js
+|       |-- lifecycle/
+|       |   `-- VisionLifecycle.js
+|       |-- managers/
+|       |   `-- ResourceManager.js
+|       |-- models/
+|       |   `-- ModelManager.js
+|       |-- postprocessing/
+|       |   `-- VisionPostprocessor.js
+|       |-- preprocessing/
+|       |   `-- ImagePreprocessingPipeline.js
+|       |-- registry/
+|       |   `-- ModelRegistry.js
+|       |-- runtime/
+|       |   |-- RuntimeManager.js
+|       |   |-- windows-face-analysis.ps1
+|       |   `-- WindowsFaceRuntimeAdapter.js
+|       |-- validation/
+|       |   `-- VisionValidator.js
+|       `-- index.js
+|-- docs/
+|   |-- architecture/
 |   |   |-- overview.md
 |   |   |-- production-finalization.md
 |   |   `-- repository-audit.md
-|   |-- modules
+|   |-- modules/
 |   |   |-- assistant-communication.md
 |   |   |-- communications.md
 |   |   |-- core-engine.md
 |   |   |-- nlp-pipeline.md
 |   |   `-- settings.md
-|   |-- plugins
+|   |-- plugins/
 |   |   `-- development.md
-|   |-- setup
+|   |-- setup/
 |   |   `-- installation.md
-|   `-- workflows
+|   `-- workflows/
 |       `-- command-execution.md
-|-- models
-|   `-- parakeet
+|-- models/
+|   `-- parakeet/
 |       |-- decoder.int8.onnx
 |       |-- encoder.int8.onnx
 |       |-- joiner.int8.onnx
 |       `-- tokens.txt
-|-- plugins
-|   |-- chrome
+|-- plugins/
+|   |-- chrome/
 |   |   |-- index.js
 |   |   `-- plugin.json
-|   |-- discord
+|   |-- discord/
 |   |   |-- index.js
 |   |   `-- plugin.json
-|   |-- forms
+|   |-- forms/
 |   |   |-- index.js
 |   |   `-- understanding.js
-|   |-- sample_plugin
+|   |-- sample_plugin/
 |   |   |-- index.js
 |   |   `-- plugin.json
-|   |-- youtube
+|   |-- youtube/
 |   |   |-- index.js
 |   |   `-- plugin.json
 |   `-- plugin-controller.js
-|-- scripts
+|-- scripts/
 |   `-- start-electron.js
-|-- tests
-|   |-- automation
+|-- tests/
+|   |-- automation/
+|   |   |-- action-confirm.test.js
+|   |   |-- action-validation.test.js
+|   |   |-- action-verification.test.js
 |   |   |-- apps.test.js
 |   |   |-- automation.test.js
 |   |   |-- browser.test.js
 |   |   |-- communications.test.js
 |   |   |-- file-management.test.js
+|   |   |-- launcher.test.js
 |   |   |-- media.test.js
+|   |   |-- path-utils.test.js
+|   |   |-- screenshot-recording.test.js
+|   |   |-- system.test.js
 |   |   |-- volume-brightness.test.js
+|   |   |-- windows.test.js
 |   |   `-- windows-session.test.js
-|   |-- context-awareness
+|   |-- context-awareness/
 |   |   |-- context-awareness.test.js
 |   |   `-- mode-engine.test.js
-|   |-- core
+|   |-- core/
 |   |   |-- acquisition-layer.test.js
 |   |   |-- active-learning-v2.test.js
 |   |   |-- app-language.test.js
@@ -2490,10 +2962,13 @@ OpenX/
 |   |   |-- crash-recovery.test.js
 |   |   |-- data-root.test.js
 |   |   |-- decision-automation.test.js
+|   |   |-- electron-config-ipc.test.js
 |   |   |-- electron-security.test.js
 |   |   |-- electron-shortcut.test.js
 |   |   |-- entities.test.js
 |   |   |-- entity-understanding.test.js
+|   |   |-- face-memory.test.js
+|   |   |-- gallery-recent.test.js
 |   |   |-- human-context.test.js
 |   |   |-- input-acquisition.test.js
 |   |   |-- intents.test.js
@@ -2508,6 +2983,7 @@ OpenX/
 |   |   |-- models.test.js
 |   |   |-- nlp.test.js
 |   |   |-- nlu.test.js
+|   |   |-- openx-gallery-experience.test.js
 |   |   |-- parser.test.js
 |   |   |-- performance-memory.test.js
 |   |   |-- permissions.test.js
@@ -2529,11 +3005,19 @@ OpenX/
 |   |   |-- utils.test.js
 |   |   |-- validation.test.js
 |   |   |-- verification-response.test.js
+|   |   |-- vision-engine.test.js
+|   |   |-- visual-filtering.test.js
+|   |   |-- visual-memory.test.js
+|   |   |-- visual-memory-capability.test.js
+|   |   |-- visual-memory-intelligence.test.js
+|   |   |-- visual-memory-learning.test.js
+|   |   |-- visual-query.test.js
 |   |   `-- voice-subsystem.test.js
-|   |-- media-handling
+|   |-- media-handling/
 |   |   `-- media-handling.test.js
-|   `-- ui
+|   `-- ui/
 |       |-- chat-renderer.test.js
+|       |-- gallery-renderer.test.js
 |       |-- planner-renderer.test.js
 |       |-- schedule-alert-renderer.test.js
 |       `-- timer-widget-renderer.test.js

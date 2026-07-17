@@ -46,6 +46,31 @@ const RELATIONSHIP_LOOKUP = Object.freeze(Object.entries(RELATIONSHIP_ALIASES).r
 
 const RELATIONSHIP_TERMS = Object.freeze(Object.keys(RELATIONSHIP_LOOKUP));
 
+const RELATIONSHIP_GROUPS = Object.freeze({
+  parents: ['parents', 'father', 'mother'],
+  parent: ['parents', 'father', 'mother'],
+  children: ['children', 'child'],
+  kids: ['children', 'child'],
+  friends: ['friends', 'friend'],
+  family: [
+    'family',
+    'father',
+    'mother',
+    'parents',
+    'brother',
+    'sister',
+    'grandfather',
+    'grandmother',
+    'uncle',
+    'aunt',
+    'cousin',
+    'wife',
+    'husband',
+    'child',
+    'children'
+  ]
+});
+
 function normalizeToken(value) {
   return String(value || '')
     .toLowerCase()
@@ -142,7 +167,11 @@ function personValuesMatch(available, requested) {
 function relationshipValuesMatch(available, requested) {
   const requestedCanonical = normalizeRelationship(requested) || normalizeToken(requested);
   const availableCanonical = normalizeRelationship(available) || normalizeToken(available);
-  return Boolean(requestedCanonical && availableCanonical && requestedCanonical === availableCanonical);
+  if (!requestedCanonical || !availableCanonical) return false;
+  if (requestedCanonical === availableCanonical) return true;
+  const requestedGroup = RELATIONSHIP_GROUPS[requestedCanonical] || [requestedCanonical];
+  const availableGroup = RELATIONSHIP_GROUPS[availableCanonical] || [availableCanonical];
+  return requestedGroup.includes(availableCanonical) || availableGroup.includes(requestedCanonical);
 }
 
 function textMentionsPerson(text, requested) {

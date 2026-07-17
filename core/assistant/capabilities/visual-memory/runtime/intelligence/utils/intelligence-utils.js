@@ -58,7 +58,10 @@ function candidateEvidence(candidate = {}, vision = {}) {
   const photo = candidate.photo || {};
   const metadata = candidate.metadata || {};
   const folder = candidate.folder || {};
-  const faceMemory = candidate.faceMemory || {};
+  const faceMemory = {
+    ...(candidate.faceMemory || {}),
+    search: candidate.faceMemorySearch || candidate.faceMemory?.search || null
+  };
   const peopleNames = [
     ...(Array.isArray(metadata.peopleNames) ? metadata.peopleNames : []),
     ...(Array.isArray(faceMemory.peopleNames) ? faceMemory.peopleNames : [])

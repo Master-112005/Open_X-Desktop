@@ -19,7 +19,9 @@ class MemoryRankingEngine {
 
   rank(context, reasoning) {
     const candidates = reasoning.timelinePlan.sort(context.getCandidates());
-    const records = candidates.map(candidate => this._recordForCandidate(context, reasoning, candidate));
+    const records = candidates
+      .map(candidate => this._recordForCandidate(context, reasoning, candidate))
+      .filter(Boolean);
     records.sort((left, right) => right.score - left.score || Date.parse(right.createdAt || 0) - Date.parse(left.createdAt || 0));
     const limit = Number(context.options.limit || this.configuration.search.defaultLimit);
     return records.slice(0, limit);
@@ -33,6 +35,8 @@ class MemoryRankingEngine {
     const scenes = constraintValues(context.visualQuery, ['scenes']);
     const documents = constraintValues(context.visualQuery, ['documentTypes']);
     const sourceApps = constraintValues(context.visualQuery, ['sourceApps']);
+    const faceSearch = this._faceSearchScore(context, evidence);
+    if (faceSearch.reject) return null;
     const visualScore = this._visualScore(evidence, {
       locations,
       events: eventConstraints,
@@ -43,7 +47,7 @@ class MemoryRankingEngine {
       relationships: reasoning.relationshipPlan.relationships,
       owners: reasoning.relationshipPlan.owners
     });
-    const relationshipScore = reasoning.relationshipPlan.score(candidate, evidence);
+    const relationshipScore = Math.max(reasoning.relationshipPlan.score(candidate, evidence), faceSearch.score);
     const timelineScore = reasoning.timelinePlan.score(candidate);
     const matchedEvents = reasoning.eventPlan.classify(candidate, evidence);
     const eventScore = matchedEvents.reduce((best, event) => Math.max(best, event.confidence || 0), 0);
@@ -76,7 +80,10 @@ class MemoryRankingEngine {
         timelineScore,
         eventScore,
         candidateScore,
-        similarityScore
+        similarityScore,
+        faceSearchScore: faceSearch.score,
+        faceSearchCoverage: faceSearch.coverage,
+        faceSearchStrict: faceSearch.strict === true
       },
       collections,
       reasoning: { strategies: reasoning.strategies, events: matchedEvents },
@@ -116,15 +123,56 @@ class MemoryRankingEngine {
     return Math.min(1, score || (constrained ? 0.05 : 0.18));
   }
 
+  _faceSearchScore(context, evidence) {
+    const faceSearchContext = context.getFaceSearchContext?.() || context.faceSearchContext || null;
+    if (!faceSearchContext?.active) {
+      return { active: false, strict: false, score: 0, coverage: 0, reject: false };
+    }
+    const existing = evidence.faceMemory?.search || null;
+    if (existing?.active) {
+      const score = this._scoreFromCoverage(existing.coverage, existing.hasNamedFaceEvidence);
+      return {
+        active: true,
+        strict: existing.strict === true,
+        score,
+        coverage: Number(existing.coverage || 0),
+        reject: existing.strict === true && Number(existing.required || 0) > 0 && Number(existing.coverage || 0) < 1
+      };
+    }
+    const requiredPeople = faceSearchContext.strict ? faceSearchContext.resolvablePeople : faceSearchContext.people;
+    const requiredRelationships = faceSearchContext.strict ? faceSearchContext.resolvableRelationships : faceSearchContext.relationships;
+    const requiredOwners = faceSearchContext.strict ? faceSearchContext.resolvableOwners : faceSearchContext.owners;
+    const required = requiredPeople.length + requiredRelationships.length + requiredOwners.length;
+    const matched = countPersonMatches(evidence.peopleNames || [], requiredPeople)
+      + countRelationshipMatches(evidence.relationships || [], requiredRelationships)
+      + countPersonMatches(evidence.peopleNames || [], requiredOwners);
+    const coverage = required > 0 ? matched / required : 0;
+    const hasNamedFaceEvidence = (evidence.peopleNames || []).length > 0 || (evidence.relationships || []).length > 0;
+    return {
+      active: true,
+      strict: faceSearchContext.strict === true,
+      score: this._scoreFromCoverage(coverage, hasNamedFaceEvidence),
+      coverage,
+      reject: faceSearchContext.strict === true && required > 0 && coverage < 1
+    };
+  }
+
+  _scoreFromCoverage(coverage, hasNamedFaceEvidence) {
+    const bounded = Math.max(0, Math.min(1, Number(coverage || 0)));
+    if (bounded <= 0) return 0;
+    const base = hasNamedFaceEvidence ? 0.72 : 0.42;
+    return Math.min(1, base + (bounded * 0.26) + (bounded >= 1 ? 0.02 : 0));
+  }
+
   _rankingWeights(relationshipPlan = {}) {
     const weights = { ...this.configuration.ranking };
     if (!relationshipPlan.active) return weights;
     return {
       ...weights,
-      relationshipWeight: Math.max(Number(weights.relationshipWeight || 0), 0.28),
+      relationshipWeight: Math.max(Number(weights.relationshipWeight || 0), 0.42),
       visualWeight: Math.max(Number(weights.visualWeight || 0), 0.24),
-      candidateWeight: Math.min(Number(weights.candidateWeight ?? 0.18), 0.12),
-      contextWeight: Math.min(Number(weights.contextWeight ?? 0.18), 0.12)
+      candidateWeight: Math.min(Number(weights.candidateWeight ?? 0.18), 0.08),
+      contextWeight: Math.min(Number(weights.contextWeight ?? 0.18), 0.08)
     };
   }
 
