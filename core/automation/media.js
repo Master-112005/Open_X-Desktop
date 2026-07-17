@@ -13,9 +13,10 @@ const DEFAULT_PLATFORM = 'youtube';
 const VK_MEDIA_STOP = 178;
 const VK_MEDIA_PLAY_PAUSE = 179;
 const DEFAULT_YOUTUBE_FETCH_TIMEOUT_MS = 4500;
-const DEFAULT_YOUTUBE_FETCH_MAX_BYTES = 900000;
+const DEFAULT_YOUTUBE_FETCH_MAX_BYTES = 3_000_000;
 const DEFAULT_YOUTUBE_CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_MEDIA_QUERY_LENGTH = 180;
+const YOUTUBE_LOOKUP_ROLLING_BUFFER_BYTES = 180_000;
 
 function envDirectory(name) {
   return String(process.env[name] || '').trim();
@@ -129,6 +130,7 @@ class MediaController {
 
     let replacement = this._prepareReplacementPlayback(platformKey, { beforeReuse: true });
     const playbackTarget = await this._buildPlaybackTarget(cleanQuery, platformKey, definition);
+    const playbackReady = playbackTarget.targetType !== 'search';
     const reuseResult = this._tryReuseExistingSession(platformKey, playbackTarget.playUrl);
 
     if (reuseResult.success) {
@@ -149,16 +151,22 @@ class MediaController {
           appName: definition.appName,
           launchMethod: 'existing-window',
           url: playbackTarget.playUrl,
+          playbackTargetType: playbackTarget.targetType,
+          playbackTargetResolved: playbackTarget.targetResolved,
+          playbackLookupReason: playbackTarget.reason || null,
           replacedExisting: true,
           stoppedPreviousPlayback: replacement.stoppedPreviousPlayback,
           closedPreviousPlayback: replacement.closedPreviousPlayback,
-          verified: true,
+          verified: playbackReady,
           playbackVerification: this._buildPlaybackVerification({
             query: cleanQuery,
             platform: platformKey,
             appName: definition.appName,
             launchMethod: 'existing-window',
             url: playbackTarget.playUrl,
+            targetType: playbackTarget.targetType,
+            targetResolved: playbackTarget.targetResolved,
+            reason: playbackTarget.reason,
             replacement
           }),
           matchedWindow: reuseResult.data?.matchedWindow || null
@@ -194,19 +202,25 @@ class MediaController {
             appName: definition.appName,
             launchMethod: localResult.method || 'local',
             url: localResult.url || null,
+            playbackTargetType: playbackTarget.targetType,
+            playbackTargetResolved: playbackTarget.targetResolved,
+            playbackLookupReason: playbackTarget.reason || null,
             replacedExisting: replacement.replacementAttempted,
             stoppedPreviousPlayback: replacement.stoppedPreviousPlayback,
             closedPreviousPlayback: replacement.closedPreviousPlayback,
-            verified: true,
+            verified: playbackReady,
             playbackVerification: this._buildPlaybackVerification({
               query: cleanQuery,
               platform: platformKey,
               appName: definition.appName,
               launchMethod: localResult.method || 'local',
               url: localResult.url || playbackTarget.playUrl || null,
+              targetType: playbackTarget.targetType,
+              targetResolved: playbackTarget.targetResolved,
+              reason: playbackTarget.reason,
               replacement
             })
-          })
+          }, { controllerVerified: playbackReady })
         };
       }
 
@@ -247,6 +261,9 @@ class MediaController {
         appName: definition.appName,
         launchMethod: 'browser',
         url: fallbackUrl,
+        playbackTargetType: playbackTarget.targetType,
+        playbackTargetResolved: playbackTarget.targetResolved,
+        playbackLookupReason: playbackTarget.reason || null,
         replacedExisting: replacement.replacementAttempted,
         stoppedPreviousPlayback: replacement.stoppedPreviousPlayback,
         closedPreviousPlayback: replacement.closedPreviousPlayback,
@@ -257,6 +274,9 @@ class MediaController {
           appName: definition.appName,
           launchMethod: 'browser',
           url: fallbackUrl,
+          targetType: playbackTarget.targetType,
+          targetResolved: playbackTarget.targetResolved,
+          reason: playbackTarget.reason,
           replacement
         })
       }, { controllerVerified: false })
@@ -405,55 +425,93 @@ class MediaController {
         timeout: this.youtubeLookupTimeoutMs
       };
 
+      let settled = false;
+      const finish = (videoId) => {
+        if (settled) return;
+        settled = true;
+        this._rememberYouTubeLookup(cacheKey, videoId || null);
+        resolve(videoId || null);
+      };
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
+
       const req = https.get(options, (res) => {
         if (res.statusCode === 301 || res.statusCode === 302) {
-          this._rememberYouTubeLookup(cacheKey, null);
-          resolve(null);
+          finish(null);
           return;
         }
 
-        let rawData = '';
+        let rollingData = '';
         let receivedBytes = 0;
+        const seen = new Set();
         res.on('data', (chunk) => {
+          if (settled) return;
           receivedBytes += chunk.length;
           if (receivedBytes > this.youtubeLookupMaxBytes) {
-            req.destroy(new Error('YouTube lookup response exceeded the memory budget'));
+            req.destroy();
+            finish(null);
             return;
           }
-          rawData += chunk;
+
+          rollingData += chunk.toString('utf8');
+          if (rollingData.length > YOUTUBE_LOOKUP_ROLLING_BUFFER_BYTES) {
+            rollingData = rollingData.slice(-YOUTUBE_LOOKUP_ROLLING_BUFFER_BYTES);
+          }
+
+          const videoId = this._extractFirstYouTubeVideoId(rollingData, seen);
+          if (videoId) {
+            req.destroy();
+            finish(videoId);
+          }
         });
         res.on('end', () => {
           try {
-            const videoIdRegex = /"videoId":"([a-zA-Z0-9_-]{11})"/g;
-            const seen = new Set();
-            let match;
-
-            while ((match = videoIdRegex.exec(rawData)) !== null) {
-              const videoId = match[1];
-              if (seen.has(videoId)) {
-                continue;
-              }
-
-              seen.add(videoId);
-              this._rememberYouTubeLookup(cacheKey, videoId);
-              resolve(videoId);
-              return;
-            }
-
-            this._rememberYouTubeLookup(cacheKey, null);
-            resolve(null);
+            finish(this._extractFirstYouTubeVideoId(rollingData, seen));
           } catch (err) {
-            reject(err);
+            fail(err);
           }
         });
       });
 
-      req.on('error', reject);
+      req.on('error', error => {
+        if (settled && ['ECONNRESET', 'ERR_STREAM_PREMATURE_CLOSE'].includes(error?.code)) {
+          return;
+        }
+        fail(error);
+      });
       req.on('timeout', () => {
         req.destroy();
-        reject(new Error('YouTube fetch timed out'));
+        fail(new Error('YouTube fetch timed out'));
       });
     });
+  }
+
+  _extractFirstYouTubeVideoId(source, seen = new Set()) {
+    const text = String(source || '');
+    if (!text) return null;
+
+    const patterns = [
+      /"videoId":"([a-zA-Z0-9_-]{11})"/g,
+      /watch\?v=([a-zA-Z0-9_-]{11})/g,
+      /\/shorts\/([a-zA-Z0-9_-]{11})/g
+    ];
+
+    for (const pattern of patterns) {
+      let match;
+      while ((match = pattern.exec(text)) !== null) {
+        const videoId = match[1];
+        if (!videoId || seen.has(videoId)) {
+          continue;
+        }
+        seen.add(videoId);
+        return videoId;
+      }
+    }
+
+    return null;
   }
 
   _rememberYouTubeLookup(cacheKey, videoId) {
@@ -544,20 +602,36 @@ class MediaController {
 
   async _buildPlaybackTarget(query, platformKey, definition) {
     if (platformKey !== 'youtube') {
-      return { playUrl: definition.searchUrl(query) };
+      return { playUrl: definition.searchUrl(query), targetType: 'search', targetResolved: true };
     }
 
     try {
       const videoId = await this._fetchFirstYouTubeVideoId(query);
       if (videoId) {
         this.logger.info(`MediaController: resolved YouTube video ID: ${videoId}`);
-        return { playUrl: `https://www.youtube.com/watch?v=${videoId}&autoplay=1` };
+        return {
+          playUrl: `https://www.youtube.com/watch?v=${videoId}&autoplay=1`,
+          targetType: 'watch',
+          targetResolved: true,
+          videoId
+        };
       }
     } catch (err) {
       this.logger.info(`MediaController: YouTube ID fetch failed (${err.message}), using search URL`);
+      return {
+        playUrl: definition.searchUrl(query),
+        targetType: 'search',
+        targetResolved: false,
+        reason: err.message || 'youtube-lookup-failed'
+      };
     }
 
-    return { playUrl: definition.searchUrl(query) };
+    return {
+      playUrl: definition.searchUrl(query),
+      targetType: 'search',
+      targetResolved: false,
+      reason: 'youtube-video-not-resolved'
+    };
   }
 
   _tryReuseExistingSession(platformKey, playUrl) {
@@ -605,15 +679,19 @@ class MediaController {
     return replacement;
   }
 
-  _buildPlaybackVerification({ query, platform, appName, launchMethod, url, replacement }) {
+  _buildPlaybackVerification({ query, platform, appName, launchMethod, url, targetType, targetResolved, reason, replacement }) {
+    const playableTarget = platform !== 'youtube' || targetType === 'watch';
     return {
       type: 'media.play',
-      valid: Boolean(query && platform && url && launchMethod !== 'browser'),
+      valid: Boolean(query && platform && url && launchMethod !== 'browser' && playableTarget),
       requestedQuery: query,
       requestedPlatform: platform,
       appName,
       launchMethod,
       targetUrl: url,
+      targetType: targetType || null,
+      targetResolved: targetResolved !== false,
+      reason: reason || null,
       replacedExisting: Boolean(replacement?.replacementAttempted),
       stoppedPreviousPlayback: Boolean(replacement?.stoppedPreviousPlayback),
       closedPreviousPlayback: Boolean(replacement?.closedPreviousPlayback)
@@ -1470,6 +1548,13 @@ class PlatformMapper {
       return { platform: phoneticMatch.platform.id, confidence: 0.91, reason: 'phonetic' };
     }
 
+    const sourceTokens = source.split(/\s+/).filter(Boolean);
+    const isShortAmbiguousText = source.length < 4 ||
+      (sourceTokens.length === 1 && !['yt'].includes(source));
+    if (isShortAmbiguousText) {
+      return null;
+    }
+
     const result = this.fuse.search(source, { limit: 1 })[0];
     if (!result || 1 - result.score < 0.72) {
       return null;
@@ -1568,6 +1653,33 @@ const CONTROL_PATTERNS = [
 
 const PLAY_VERB_PATTERN = /\b(?:play|stream|listen\s+to|watch|queue|put\s+on|start\s+playing)\b/;
 const SEARCH_VERB_PATTERN = /\b(?:search|find|look\s+up)\b/;
+const PLATFORM_ALIASES = [
+  'apple music',
+  'amazon music',
+  'local media',
+  'soundcloud',
+  'jiosaavn',
+  'you tube',
+  'spoti fy',
+  'spotify',
+  'youtube',
+  'saavn',
+  'gaana',
+  'browser',
+  'chrome',
+  'edge',
+  'firefox',
+  'local',
+  'yt'
+];
+const PLATFORM_CLAUSE_PATTERN = new RegExp(
+  `\\b(?:on|in|via|using)\\s+(?:${PLATFORM_ALIASES.map(escapeRegex).join('|')})\\b`,
+  'g'
+);
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+}
 
 function cleanup(input) {
   return String(input || '')
@@ -1592,7 +1704,7 @@ function stripPoliteNoise(input) {
 
 function removePlatformClause(input) {
   return String(input || '')
-    .replace(/\b(?:on|in|via|using)\s+(?:youtube|spotify|apple music|amazon music|soundcloud|gaana|jiosaavn|saavn|you tube|spoti fy|browser|chrome|edge|firefox|local media|local)\b/g, ' ')
+    .replace(PLATFORM_CLAUSE_PATTERN, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -1713,13 +1825,21 @@ class MediaParser {
 
   _extractPlatformText(input) {
     const source = cleanup(input);
-    const match = source.match(/\b(?:on|in|via|using|open)\s+([a-z\s]+?)(?=\s+(?:and|play|songs?|tracks?|$)|$)/);
-    if (match && match[1]) {
-      return match[1].trim();
+
+    const clauseMatches = Array.from(source.matchAll(PLATFORM_CLAUSE_PATTERN));
+    if (clauseMatches.length > 0) {
+      const last = clauseMatches[clauseMatches.length - 1][0];
+      return last.replace(/^(?:on|in|via|using)\s+/, '').trim();
     }
 
-    for (const platform of ['apple music', 'amazon music', 'soundcloud', 'jiosaavn', 'saavn', 'youtube', 'you tube', 'spotify', 'spoti fy', 'gaana', 'chrome', 'browser', 'local media']) {
-      if (source.includes(platform)) {
+    const openPlatform = source.match(/\bopen\s+(youtube|you tube|spotify|apple music|amazon music|soundcloud|gaana|jiosaavn|saavn|spoti fy|browser|chrome|edge|firefox|local media)\b/);
+    if (openPlatform && openPlatform[1]) {
+      return openPlatform[1].trim();
+    }
+
+    for (const platform of PLATFORM_ALIASES) {
+      const platformPattern = new RegExp(`\\b${escapeRegex(platform)}\\b`);
+      if (platformPattern.test(source)) {
         return platform;
       }
     }
@@ -1729,7 +1849,8 @@ class MediaParser {
 
   _cleanEntityText(input) {
     return String(input || '')
-      .replace(/\b(?:play|open|on|in|via|using)\b/g, ' ')
+      .replace(/\b(?:play|open|via|using)\b/g, ' ')
+      .replace(/\b(?:on|in)\s*$/g, ' ')
       .replace(/\b(?:the|a|an|called|named)\b/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();

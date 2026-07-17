@@ -2492,6 +2492,27 @@ describe('Action Router', function() {
     assert.equal(result.entities.mediaPlatform, 'youtube');
   });
 
+  it('should keep short title words out of platform inference for media playback', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const stubEngine = {
+      execute(actionId, entities) {
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+    const implicit = await router.process('play chaild in us song', 'chat');
+    const explicit = await router.process('play chaild in us song in youtube', 'chat');
+
+    assert.equal(implicit.intent, 'media.play');
+    assert.equal(implicit.entities.mediaQuery, 'chaild in us song');
+    assert.equal(implicit.entities.mediaPlatform, 'youtube');
+    assert.equal(explicit.intent, 'media.play');
+    assert.equal(explicit.entities.mediaQuery, 'chaild in us song');
+    assert.equal(explicit.entities.mediaPlatform, 'youtube');
+  });
+
   it('should preserve song titles that contain and as one media request', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }

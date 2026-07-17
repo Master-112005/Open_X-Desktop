@@ -371,7 +371,7 @@ describe('Response Generator', function() {
 
     assert.match(result, /YouTube/i);
     assert.match(result, /playdate song/i);
-    assert.match(result, /verified/i);
+    assert.match(result, /started|playing|switched/i);
   });
 
   it('should confirm verified managed media launches', function() {
@@ -396,7 +396,34 @@ describe('Response Generator', function() {
 
     assert.match(result, /YouTube/i);
     assert.match(result, /playdate song/i);
-    assert.match(result, /verified/i);
+    assert.match(result, /started|playing|opened/i);
+  });
+
+  it('should explain YouTube search fallback without claiming playback', function() {
+    const gen = new ResponseGenerator();
+    const result = gen.generate('success', 'media.play', {
+      result: {
+        data: {
+          query: 'dulander song',
+          platform: 'youtube',
+          appName: 'YouTube',
+          launchMethod: 'chrome-pwa',
+          playbackTargetType: 'search',
+          playbackTargetResolved: false,
+          playbackVerification: {
+            valid: false,
+            requestedQuery: 'dulander song',
+            requestedPlatform: 'youtube',
+            targetType: 'search'
+          }
+        }
+      }
+    });
+
+    assert.match(result, /YouTube/i);
+    assert.match(result, /dulander song/i);
+    assert.match(result, /results|search/i);
+    assert.doesNotMatch(result, /verified|playing now/i);
   });
 
   it('should include task and time in schedule confirmations', function() {

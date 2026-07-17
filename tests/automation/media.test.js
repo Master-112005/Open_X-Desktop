@@ -81,6 +81,37 @@ describe('Media Controller', function() {
     assert.equal(launched, true);
   });
 
+  it('should not verify YouTube playback when lookup only opens search results', async function() {
+    const controller = createController();
+    controller._fetchFirstYouTubeVideoId = async () => null;
+
+    let launchedRequest = null;
+    controller._launchYouTubeLocal = async (query, url) => {
+      launchedRequest = { query, url };
+      return {
+        success: true,
+        method: 'chrome-pwa',
+        url,
+        managedWindow: true,
+        windowQuery: 'youtube'
+      };
+    };
+
+    const result = await controller.play('dulander song', 'youtube');
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.launchMethod, 'chrome-pwa');
+    assert.equal(result.data.verified, false);
+    assert.equal(result.data.controllerVerified, false);
+    assert.equal(result.data.playbackTargetType, 'search');
+    assert.equal(result.data.playbackVerification.valid, false);
+    assert.match(result.data.url, /youtube\.com\/results/);
+    assert.deepEqual(launchedRequest, {
+      query: 'dulander song',
+      url: result.data.url
+    });
+  });
+
   it('should close a managed session before launching replacement playback', async function() {
     const controller = createController();
     controller.activeSession = {
@@ -205,6 +236,20 @@ describe('Media Controller', function() {
     const result = await controller._fetchFirstYouTubeVideoId('playdate');
 
     assert.equal(result, 'rODr5Zfj8RA');
+  });
+
+  it('should extract YouTube video IDs from streamed page fragments', function() {
+    const controller = createController();
+    const seen = new Set();
+
+    const result = controller._extractFirstYouTubeVideoId(
+      'prefix {"videoId":"rODr5Zfj8RA"} suffix',
+      seen
+    );
+
+    assert.equal(result, 'rODr5Zfj8RA');
+    assert.equal(controller._extractFirstYouTubeVideoId('watch?v=rODr5Zfj8RA', seen), null);
+    assert.equal(controller._extractFirstYouTubeVideoId('/shorts/Pb2KJlBGids', seen), 'Pb2KJlBGids');
   });
 
   it('should report global media key fallback metadata for controls', function() {
