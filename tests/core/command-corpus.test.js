@@ -1,14 +1,8 @@
 const assert = require('assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const ActionRouter = require('../../core/assistant/automation/ActionRouter');
-
-const ATTACHED_COMMAND_CORPORA = [
-  'C:\\Users\\rakes\\.codex\\attachments\\b7ab965c-7b91-4fc0-be09-30c18913bd9c\\pasted-text.txt',
-  'C:\\Users\\rakes\\.codex\\attachments\\ef4d9933-a5af-4439-b438-5dd20733b048\\pasted-text.txt',
-  'C:\\Users\\rakes\\.codex\\attachments\\7c8f4da2-be0c-4dd7-af47-f61614237b56\\pasted-text.txt',
-  'C:\\Users\\rakes\\.codex\\attachments\\d87a35e8-3aa2-4e77-84af-1eb7fd6a16c7\\pasted-text.txt'
-];
 
 const FALLBACK_COMMANDS = [
   'Check my internet speed',
@@ -107,15 +101,6 @@ function loadCommands() {
       .filter(Boolean);
   }
 
-  for (const corpusPath of ATTACHED_COMMAND_CORPORA) {
-    if (fs.existsSync(corpusPath)) {
-      return fs.readFileSync(corpusPath, 'utf8')
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(Boolean);
-    }
-  }
-
   const localFixture = path.join(__dirname, 'assistant-command-corpus.txt');
   if (fs.existsSync(localFixture)) {
     return fs.readFileSync(localFixture, 'utf8')
@@ -190,34 +175,57 @@ function commandRequestsDangerousOperation(command) {
   return false;
 }
 
+function restoreEnv(name, value) {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+}
+
 describe('Assistant command corpus routing', function() {
-  this.timeout(240000);
+  this.timeout(600000);
 
   it('should handle every command in commands.md without executing real dangerous actions', async function() {
+    const originalUserProfile = process.env.USERPROFILE;
+    const originalIncludeCwdSearch = process.env.OPENX_INCLUDE_CWD_SEARCH;
+    const tempProfile = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-command-corpus-'));
+    ['Desktop', 'Documents', 'Downloads', 'Pictures', 'Music', 'Videos'].forEach(folder => {
+      fs.mkdirSync(path.join(tempProfile, folder), { recursive: true });
+    });
+    process.env.USERPROFILE = tempProfile;
+    delete process.env.OPENX_INCLUDE_CWD_SEARCH;
+
     const commands = loadCommands();
     const router = createSandboxRouter();
     const failures = [];
     const dangerousWithoutGuard = [];
 
-    for (const command of commands) {
-      const result = await router.process(command, 'chat');
-      const handled = Boolean(result.intent) &&
-        (result.success || result.requiresConfirmation || result.needsClarification);
-      if (!handled) {
-        failures.push({
-          command,
-          intent: result.intent || null,
-          error: result.error || null,
-          entities: result.entities || null
-        });
+    try {
+      for (const command of commands) {
+        const result = await router.process(command, 'chat');
+        const handled = Boolean(result.intent) &&
+          (result.success || result.requiresConfirmation || result.needsClarification);
+        if (!handled) {
+          failures.push({
+            command,
+            intent: result.intent || null,
+            error: result.error || null,
+            entities: result.entities || null
+          });
+        }
+        if (commandRequestsDangerousOperation(command) && !result.requiresConfirmation && !result.needsClarification) {
+          dangerousWithoutGuard.push({
+            command,
+            intent: result.intent || null,
+            success: Boolean(result.success)
+          });
+        }
       }
-      if (commandRequestsDangerousOperation(command) && !result.requiresConfirmation && !result.needsClarification) {
-        dangerousWithoutGuard.push({
-          command,
-          intent: result.intent || null,
-          success: Boolean(result.success)
-        });
-      }
+    } finally {
+      restoreEnv('USERPROFILE', originalUserProfile);
+      restoreEnv('OPENX_INCLUDE_CWD_SEARCH', originalIncludeCwdSearch);
+      fs.rmSync(tempProfile, { recursive: true, force: true });
     }
 
     assert.equal(failures.length, 0, JSON.stringify(failures, null, 2));

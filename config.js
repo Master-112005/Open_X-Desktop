@@ -1,10 +1,13 @@
 const path = require('path');
-const os = require('os');
-const { buildDataPaths } = require('./core/assistant/Data');
+const { buildDataPaths, resolveLegacyDataRoot } = require('./core/assistant/Data');
 const packageJson = require('./package.json');
 
 const DATA_PATHS = buildDataPaths();
-const LEGACY_DATA_DIR = path.join(os.homedir(), '.jarvis');
+const LEGACY_DATA_DIR = resolveLegacyDataRoot();
+
+function envPath(name) {
+  return process.env[name] || '';
+}
 
 const CONFIG = {
   app: {
@@ -99,9 +102,9 @@ const CONFIG = {
     brightnessStep: 10,
     maxRecentApps: 20,
     browserPaths: {
-      chrome: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-      edge: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-      firefox: 'C:\\Program Files\\Mozilla Firefox\\firefox.exe'
+      chrome: envPath('OPENX_CHROME_PATH'),
+      edge: envPath('OPENX_EDGE_PATH'),
+      firefox: envPath('OPENX_FIREFOX_PATH')
     }
   },
 

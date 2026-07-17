@@ -1,6 +1,7 @@
 const os = require('os');
 const { execFileSync } = require('child_process');
 const Logger = require('../assistant/Data').Logger;
+const { getSpecialFolderPaths } = require('./common/path-utils');
 
 class SystemController {
   constructor(config) {
@@ -623,9 +624,17 @@ class SystemController {
 
   _getLargestUserFoldersNow() {
     try {
-      const home = os.homedir();
-      const folders = ['Desktop', 'Documents', 'Downloads', 'Pictures', 'Videos', 'Music']
-        .map(name => `${home}\\${name}`);
+      const folders = Array.from(new Set(
+        ['desktop', 'documents', 'downloads', 'pictures', 'videos', 'music']
+          .flatMap(name => getSpecialFolderPaths(name))
+          .filter(Boolean)
+      ));
+      if (!folders.length) {
+        return this._success('insight', { insightType: 'storageUsage', folders: [] }, {
+          metricSource: 'known-folder-resolver',
+          responseVariantSeed: 'insight:storage:0:0'
+        });
+      }
       const script = [
         `$paths = @(${folders.map(folder => `'${folder.replace(/'/g, "''")}'`).join(',')});`,
         '$items = foreach ($p in $paths) {',

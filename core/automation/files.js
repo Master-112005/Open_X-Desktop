@@ -6,8 +6,8 @@ const Validator = require('../assistant/Data').Validator;
 const {
   findEntriesByName,
   findEntryByName,
+  getDefaultSearchRoots,
   getHomeDirectory,
-  getSpecialFolders,
   requireSafeUserPath,
   resolveDestinationPath,
   resolveDirectory,
@@ -17,11 +17,7 @@ const {
 } = require('./common/path-utils');
 const { launchTarget } = require('./common/launcher');
 
-const SEARCH_ROOTS = () => [
-  process.cwd(),
-  ...Object.values(getSpecialFolders()),
-  getHomeDirectory()
-].filter(Boolean);
+const SEARCH_ROOTS = () => getDefaultSearchRoots().filter(Boolean);
 
 const FILE_TYPE_EXTENSIONS = {
   document: ['.doc', '.docx', '.pdf', '.txt', '.rtf', '.odt', '.md'],

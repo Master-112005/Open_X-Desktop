@@ -1,16 +1,13 @@
 'use strict';
 
-const path = require('path');
-const os = require('os');
-
 const KNOWN_FOLDERS = Object.freeze({
-  desktop: () => path.join(os.homedir(), 'Desktop'),
-  downloads: () => path.join(os.homedir(), 'Downloads'),
-  documents: () => path.join(os.homedir(), 'Documents'),
-  pictures: () => path.join(os.homedir(), 'Pictures'),
-  music: () => path.join(os.homedir(), 'Music'),
-  videos: () => path.join(os.homedir(), 'Videos'),
-  home: () => os.homedir()
+  desktop: 'desktop',
+  downloads: 'downloads',
+  documents: 'documents',
+  pictures: 'pictures',
+  music: 'music',
+  videos: 'videos',
+  home: 'home'
 });
 
 function normalizeList(values) {
@@ -30,7 +27,7 @@ class EntityResolver {
     for (const folder of context.entities.folders) {
       const key = String(folder.value || folder.canonical || '').toLowerCase().replace(/\s+folder$/, '');
       if (KNOWN_FOLDERS[key]) {
-        folder.resolved = { kind: 'known-system-folder', path: KNOWN_FOLDERS[key]() };
+        folder.resolved = { kind: 'known-system-folder', location: KNOWN_FOLDERS[key] };
       }
     }
 

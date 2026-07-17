@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 
 const DATA_ROOT_NAME = 'OpenX_Data';
 const LEGACY_DATA_ROOT_NAME = '.jarvis';
@@ -13,6 +14,87 @@ const DEFAULT_JSON_MAX_BYTES = 5 * 1024 * 1024;
 const PRIVATE_FILE_MODE = 0o600;
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const securedDirectories = new Set();
+const OS_HOME_DIRECTORY = os.homedir();
+let documentsDirectoryCacheKey = null;
+let documentsDirectoryCache = null;
+
+function pathEquals(left, right) {
+  if (!left || !right) return false;
+  return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
+}
+
+function userProfileLooksOverridden() {
+  const userProfile = process.env.USERPROFILE;
+  return Boolean(userProfile && OS_HOME_DIRECTORY && !pathEquals(userProfile, OS_HOME_DIRECTORY));
+}
+
+function existingDirectory(candidate) {
+  if (!candidate) return null;
+  try {
+    return fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()
+      ? path.resolve(candidate)
+      : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function readWindowsDocumentsDirectory() {
+  if (process.platform !== 'win32' || userProfileLooksOverridden()) return null;
+  try {
+    const output = execFileSync('powershell.exe', [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      "Write-Output ([Environment]::GetFolderPath('MyDocuments'))"
+    ], {
+      encoding: 'utf8',
+      timeout: 1200,
+      windowsHide: true
+    }).trim();
+    return output || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function resolveDocumentsDirectory() {
+  const home = process.env.USERPROFILE || os.homedir();
+  const cacheKey = [
+    home,
+    OS_HOME_DIRECTORY,
+    process.env.OneDrive || '',
+    process.env.OneDriveCommercial || '',
+    process.env.OneDriveConsumer || ''
+  ].join('|');
+  if (documentsDirectoryCache && documentsDirectoryCacheKey === cacheKey) {
+    return documentsDirectoryCache;
+  }
+
+  const fallbackCandidates = [
+    path.join(home, 'Documents'),
+    ...(userProfileLooksOverridden()
+    ? []
+    : [process.env.OneDrive, process.env.OneDriveCommercial, process.env.OneDriveConsumer]
+        .filter(Boolean)
+        .map(root => path.join(root, 'Documents')))
+  ];
+  const existingFallback = fallbackCandidates.find(candidate => existingDirectory(candidate));
+  const candidates = [
+    existingFallback,
+    existingFallback ? null : readWindowsDocumentsDirectory(),
+    ...fallbackCandidates
+  ].filter(Boolean);
+  documentsDirectoryCache =
+    candidates.find(candidate => existingDirectory(candidate)) ||
+    candidates[0] ||
+    path.join(home, 'Documents');
+  documentsDirectoryCacheKey = cacheKey;
+  return documentsDirectoryCache;
+}
 
 function resolveDataRoot(config = {}) {
   const configured = String(config?.app?.dataDir || process.env.OPENX_DATA_DIR || '').trim();
@@ -31,7 +113,8 @@ function buildDataPaths(config = {}) {
   const cloudDir = path.join(root, 'cloud');
   const securityDir = path.join(root, 'security');
   const visualMemoryDir = path.join(root, 'visual-memory');
-  const cloudReceivedDir = path.join(os.homedir(), 'Documents', 'OpenX');
+  const configuredReceivedDir = String(config?.app?.cloudReceivedDir || process.env.OPENX_RECEIVED_FILES_DIR || '').trim();
+  const cloudReceivedDir = path.resolve(configuredReceivedDir || path.join(resolveDocumentsDirectory(), 'OpenX'));
 
   return {
     root,
@@ -324,6 +407,7 @@ return {
   LEGACY_DATA_ROOT_NAME,
   resolveDataRoot,
   resolveLegacyDataRoot,
+  resolveDocumentsDirectory,
   buildDataPaths,
   ensureDataRoot,
   purgeDeprecatedContactStorage,

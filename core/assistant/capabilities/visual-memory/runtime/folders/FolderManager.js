@@ -1,20 +1,24 @@
 'use strict';
 
-const os = require('os');
+const fs = require('fs');
 const path = require('path');
+const { getSpecialFolderPaths } = require('../../../../../automation/common/path-utils');
 const { hashPath, listFilesRecursive } = require('../utils/FileSystemUtils');
 const { IMAGE_EXTENSIONS } = require('../utils/constants');
 
 function defaultFolders() {
-  const home = os.homedir();
   const candidates = [
-    path.join(home, 'Pictures'),
-    process.env.OneDrive ? path.join(process.env.OneDrive, 'Pictures') : '',
-    process.env.OneDriveConsumer ? path.join(process.env.OneDriveConsumer, 'Pictures') : '',
-    process.env.OneDriveCommercial ? path.join(process.env.OneDriveCommercial, 'Pictures') : '',
+    ...getSpecialFolderPaths('pictures'),
     process.env.PUBLIC ? path.join(process.env.PUBLIC, 'Pictures') : ''
   ].filter(Boolean);
-  return Array.from(new Set(candidates.map(folder => path.resolve(folder))));
+  return Array.from(new Set(candidates.map(folder => path.resolve(folder))))
+    .filter(folder => {
+      try {
+        return fs.existsSync(folder) && fs.statSync(folder).isDirectory();
+      } catch (_) {
+        return false;
+      }
+    });
 }
 
 class FolderManager {
@@ -46,14 +50,43 @@ class FolderManager {
 
   async addDefaultFolders() {
     const added = [];
-    for (const folder of defaultFolders()) {
+    const folders = defaultFolders();
+    await this._removeStaleDefaultFolders(folders);
+    for (const folder of folders) {
       try {
-        added.push(await this.addFolder(folder, { source: 'default' }));
+        added.push(await this.addFolder(folder, {
+          source: 'default',
+          label: this._defaultFolderLabel(folder)
+        }));
       } catch (_) {
         // Missing default folders are normal on some Windows profiles.
       }
     }
     return added;
+  }
+
+  async _removeStaleDefaultFolders(activeDefaultFolders = []) {
+    const activeKeys = new Set(activeDefaultFolders.map(folder => path.resolve(folder).toLowerCase()));
+    const folders = this.database.getTable('folders');
+    for (const folder of Object.values(folders)) {
+      if (folder?.source !== 'default') continue;
+      const folderPath = String(folder.path || '').trim();
+      const folderKey = folderPath ? path.resolve(folderPath).toLowerCase() : '';
+      const exists = folderPath && fs.existsSync(folderPath);
+      if (exists && activeKeys.has(folderKey)) continue;
+      await this.database.remove('folders', folder.id);
+      this.events?.emit?.(
+        this.events.VISUAL_MEMORY_EVENTS?.FOLDER_REMOVED || 'visual-memory.folder.removed',
+        { ...folder, reason: exists ? 'not-current-default-folder' : 'missing-default-folder' }
+      );
+    }
+  }
+
+  _defaultFolderLabel(folderPath) {
+    const basename = path.basename(folderPath);
+    if (/^pictures$/i.test(basename)) return 'Pictures';
+    const parent = path.basename(path.dirname(folderPath));
+    return parent ? `${parent} ${basename}` : basename || 'Pictures';
   }
 
   async removeFolder(folderIdOrPath) {

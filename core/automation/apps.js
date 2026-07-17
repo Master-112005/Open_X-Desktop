@@ -1,9 +1,57 @@
 const fs = require('fs');
+const path = require('path');
 const { execFileSync } = require('child_process');
 const Logger = require('../assistant/Data').Logger;
 const Normalizer = require('../assistant/Data').Normalizer;
 const { launchTarget } = require('./common/launcher');
 const WindowsSessionController = require('./common/windows-session');
+
+function envDirectory(name, fallback = '') {
+  return String(process.env[name] || fallback || '').trim();
+}
+
+function windowsRootPath(...segments) {
+  return path.join(envDirectory('SystemRoot', 'C:\\Windows'), ...segments);
+}
+
+function programFilePath(envName, ...segments) {
+  const root = envDirectory(envName);
+  return root ? path.join(root, ...segments) : null;
+}
+
+function localAppDataPath(...segments) {
+  const root = envDirectory('LOCALAPPDATA');
+  return root ? path.join(root, ...segments) : null;
+}
+
+function appPathCandidates(...candidates) {
+  return candidates.filter(Boolean);
+}
+
+function browserExecutablePaths(browserName) {
+  if (browserName === 'chrome') {
+    return appPathCandidates(
+      programFilePath('ProgramFiles', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      programFilePath('ProgramFiles(x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      localAppDataPath('Google', 'Chrome', 'Application', 'chrome.exe')
+    );
+  }
+  if (browserName === 'edge') {
+    return appPathCandidates(
+      programFilePath('ProgramFiles', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      programFilePath('ProgramFiles(x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      localAppDataPath('Microsoft', 'Edge', 'Application', 'msedge.exe')
+    );
+  }
+  if (browserName === 'firefox') {
+    return appPathCandidates(
+      programFilePath('ProgramFiles', 'Mozilla Firefox', 'firefox.exe'),
+      programFilePath('ProgramFiles(x86)', 'Mozilla Firefox', 'firefox.exe'),
+      localAppDataPath('Mozilla Firefox', 'firefox.exe')
+    );
+  }
+  return [];
+}
 
 const KNOWN_APPS = {
   'code': {
@@ -15,7 +63,7 @@ const KNOWN_APPS = {
     newWindowVerification: { initialDelayMs: 600, attempts: 2, retryDelayMs: 350 }
   },
   'chrome': {
-    path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    paths: browserExecutablePaths('chrome'),
     cmd: 'chrome',
     newWindowArgs: ['--new-window'],
     closeStrategy: 'window',
@@ -23,22 +71,22 @@ const KNOWN_APPS = {
     preferredTitleTokens: ['chrome', 'new tab', '- google chrome'],
     preferredProcessNames: ['chrome', 'ApplicationFrameHost']
   },
-  'msedge': { path: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', cmd: 'msedge', newWindowArgs: ['--new-window'] },
-  'edge': { path: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', cmd: 'msedge', newWindowArgs: ['--new-window'] },
-  'firefox': { path: 'C:\\Program Files\\Mozilla Firefox\\firefox.exe', cmd: 'firefox', newWindowArgs: ['--new-window'] },
+  'msedge': { paths: browserExecutablePaths('edge'), cmd: 'msedge', newWindowArgs: ['--new-window'] },
+  'edge': { paths: browserExecutablePaths('edge'), cmd: 'msedge', newWindowArgs: ['--new-window'] },
+  'firefox': { paths: browserExecutablePaths('firefox'), cmd: 'firefox', newWindowArgs: ['--new-window'] },
   'brave': { cmd: 'brave', newWindowArgs: ['--new-window'] },
-  'notepad': { path: 'C:\\Windows\\System32\\notepad.exe', cmd: 'notepad', newTabShortcut: '^n' },
-  'calc': { path: 'C:\\Windows\\System32\\calc.exe', cmd: 'calc' },
-  'mspaint': { path: 'C:\\Windows\\System32\\mspaint.exe', cmd: 'mspaint' },
-  'cmd': { path: 'C:\\Windows\\System32\\cmd.exe', cmd: 'cmd' },
-  'powershell': { path: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', cmd: 'powershell' },
-  'explorer': { path: 'C:\\Windows\\explorer.exe', cmd: 'explorer', newWindowArgs: ['/n'] },
-  'taskmgr': { path: 'C:\\Windows\\System32\\Taskmgr.exe', cmd: 'taskmgr' },
-  'devmgmt.msc': { path: 'C:\\Windows\\System32\\mmc.exe', cmd: 'mmc', args: ['devmgmt.msc'] },
-  'diskmgmt.msc': { path: 'C:\\Windows\\System32\\mmc.exe', cmd: 'mmc', args: ['diskmgmt.msc'] },
-  'services.msc': { path: 'C:\\Windows\\System32\\mmc.exe', cmd: 'mmc', args: ['services.msc'] },
-  'control': { path: 'C:\\Windows\\System32\\control.exe', cmd: 'control' },
-  'snippingtool': { path: 'C:\\Windows\\System32\\SnippingTool.exe', cmd: 'SnippingTool' },
+  'notepad': { paths: [windowsRootPath('System32', 'notepad.exe')], cmd: 'notepad', newTabShortcut: '^n' },
+  'calc': { paths: [windowsRootPath('System32', 'calc.exe')], cmd: 'calc' },
+  'mspaint': { paths: [windowsRootPath('System32', 'mspaint.exe')], cmd: 'mspaint' },
+  'cmd': { paths: [windowsRootPath('System32', 'cmd.exe')], cmd: 'cmd' },
+  'powershell': { paths: [windowsRootPath('System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')], cmd: 'powershell' },
+  'explorer': { paths: [windowsRootPath('explorer.exe')], cmd: 'explorer', newWindowArgs: ['/n'] },
+  'taskmgr': { paths: [windowsRootPath('System32', 'Taskmgr.exe')], cmd: 'taskmgr' },
+  'devmgmt.msc': { paths: [windowsRootPath('System32', 'mmc.exe')], cmd: 'mmc', args: ['devmgmt.msc'] },
+  'diskmgmt.msc': { paths: [windowsRootPath('System32', 'mmc.exe')], cmd: 'mmc', args: ['diskmgmt.msc'] },
+  'services.msc': { paths: [windowsRootPath('System32', 'mmc.exe')], cmd: 'mmc', args: ['services.msc'] },
+  'control': { paths: [windowsRootPath('System32', 'control.exe')], cmd: 'control' },
+  'snippingtool': { paths: [windowsRootPath('System32', 'SnippingTool.exe')], cmd: 'SnippingTool' },
   'winword': { cmd: 'winword', newWindowArgs: ['/n'] },
   'excel': { cmd: 'excel', newWindowArgs: ['/x'] },
   'powerpoint': { cmd: 'powerpnt', processName: 'POWERPNT', newWindowArgs: ['/n'] },
@@ -72,7 +120,7 @@ const SPECIAL_LAUNCHERS = {
   'ms-settings:': { target: 'ms-settings:' },
   'windows settings': { target: 'ms-settings:' },
   'system settings': { target: 'ms-settings:' },
-  'recycle bin': { target: 'C:\\Windows\\explorer.exe', args: ['shell:RecycleBinFolder'] },
+  'recycle bin': { target: windowsRootPath('explorer.exe'), args: ['shell:RecycleBinFolder'] },
   'microsoft store': { target: 'ms-windows-store:' },
   'soundrecorder': { target: 'ms-soundrecorder:' },
   'camera': { target: 'microsoft.windows.camera:' },
@@ -185,12 +233,13 @@ class AppController {
         }
       }
 
-      if (app && app.path) {
-        if (fs.existsSync(app.path)) {
-          launchTarget(app.path, launchArgs);
+      const executablePath = this._resolveExecutablePath(app);
+      if (executablePath) {
+        if (fs.existsSync(executablePath)) {
+          launchTarget(executablePath, launchArgs);
           return this._completeAppOpen(name, {
             success: true,
-            data: { app: name, launchMethod: 'executable', target: app.path }
+            data: { app: name, launchMethod: 'executable', target: executablePath }
           }, { forceNewWindow, requestedOperation, beforeWindowCount, launchArgs, displayName });
         }
       }
@@ -484,6 +533,25 @@ class AppController {
     };
   }
 
+  _resolveExecutablePath(app) {
+    const paths = [
+      ...(Array.isArray(app?.paths) ? app.paths : []),
+      app?.path
+    ].filter(Boolean);
+
+    for (const candidate of paths) {
+      try {
+        if (fs.existsSync(candidate)) {
+          return candidate;
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+
+    return null;
+  }
+
   _getStartApps() {
     const now = Date.now();
     if (this._startAppsCache && now < this._startAppsCacheExpiresAt) {
@@ -585,7 +653,7 @@ class AppController {
       return;
     }
 
-    launchTarget('C:\\Windows\\explorer.exe', [`shell:AppsFolder\\${appId}`]);
+    launchTarget(windowsRootPath('explorer.exe'), [`shell:AppsFolder\\${appId}`]);
   }
 
   _isSafeStartAppId(appId) {
@@ -666,7 +734,12 @@ class AppController {
     }
     candidates.add(name);
 
-    const needsStartMenuResolution = !app?.processName && !app?.cmd && !app?.path && !app?.closeStrategy;
+    const needsStartMenuResolution =
+      !app?.processName &&
+      !app?.cmd &&
+      !app?.path &&
+      !Array.isArray(app?.paths) &&
+      !app?.closeStrategy;
     const startApp = needsStartMenuResolution ? this._resolveStartApp(name) : null;
     if (startApp?.name) {
       candidates.add(startApp.name);
