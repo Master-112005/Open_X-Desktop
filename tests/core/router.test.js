@@ -1676,6 +1676,27 @@ describe('Action Router', function() {
     assert.deepEqual(executed.map(step => step.actionId), ['browser.closeTab', 'browser.closeTab']);
   });
 
+  it('should route trusted web app close commands to tab close instead of app close', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const result = await router.process('close chatgpt', 'chat');
+
+    assert.equal(result.intent, 'browser.closeTab');
+    assert.equal(result.entities.browserName, 'chrome');
+    assert.equal(result.entities.tabQuery, 'chatgpt');
+    assert.deepEqual(executed.map(step => step.actionId), ['browser.closeTab']);
+  });
+
   it('should route browser tab listing commands before process status', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }

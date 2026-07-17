@@ -762,6 +762,32 @@ describe('App Controller', function() {
     assert.deepEqual(fallbackOptions.preferredTitleTokens, ['chrome']);
   });
 
+  it('should not close a browser window when an unknown app name only matches the tab title', function() {
+    const controller = new AppController({});
+    let closedWindow = false;
+
+    controller._getRunningProcessDetails = () => [];
+    controller.windowSession.findWindow = (windowQuery) => {
+      assert.equal(windowQuery, 'chatgpt');
+      return {
+        id: 401,
+        title: 'ChatGPT - Google Chrome',
+        handle: 9001,
+        processName: 'chrome'
+      };
+    };
+    controller.windowSession.closeWindow = () => {
+      closedWindow = true;
+      return { success: true, data: { matchedWindow: 'ChatGPT - Google Chrome', processName: 'chrome' } };
+    };
+
+    const result = controller.close('chatgpt');
+
+    assert.equal(result.success, false);
+    assert.equal(closedWindow, false);
+    assert.match(result.error, /browser tab/i);
+  });
+
   it('should treat a regular YouTube tab as part of Chrome, not as a PWA', function() {
     const controller = new AppController({});
     controller._getRunningProcessDetails = () => ([{

@@ -501,6 +501,9 @@ class AppController {
       if (windowClose.success) {
         return windowClose;
       }
+      if (/browser tab/i.test(String(windowClose.error || ''))) {
+        return windowClose;
+      }
 
       return { success: false, error: `Could not close: ${name}` };
     } catch (err) {
@@ -511,6 +514,17 @@ class AppController {
   _closeAppWindow(name, app = KNOWN_APPS[name], options = {}) {
     const windowQuery = app?.windowQuery || name;
     const matchOptions = this._windowMatchOptions(name, app);
+    const matchedWindow = this.windowSession.findWindow(windowQuery, {
+      ...matchOptions,
+      requireTitleTokenMatch: Boolean(options.requireBrowserIdentity) || matchOptions.requireTitleTokenMatch
+    });
+
+    if (!app && this._isSharedBrowserProcess(matchedWindow?.processName)) {
+      return {
+        success: false,
+        error: `${name} looks like a browser tab, so I will not close the whole browser window from app close. Close the browser tab instead.`
+      };
+    }
 
     const closeResult = this.windowSession.closeWindow(windowQuery, {
       ...matchOptions,
@@ -975,6 +989,11 @@ class AppController {
 
   _isBrowserAppName(name) {
     return BROWSER_APP_NAMES.has(this._normalizeAppName(name));
+  }
+
+  _isSharedBrowserProcess(processName) {
+    const normalized = Normalizer.normalizeText(processName);
+    return ['chrome', 'msedge', 'firefox', 'brave'].includes(normalized);
   }
 
   _failure(error, code = 'app.error', data = {}) {

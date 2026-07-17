@@ -1625,6 +1625,59 @@ describe('Assistant Confirmation Flow', function() {
     assert.deepEqual(routedInputs, ['open instagram', 'close instagram']);
   });
 
+  it('should close web fallback app follow-ups as browser tabs', async function() {
+    const routedInputs = [];
+    const router = {
+      process: async input => {
+        routedInputs.push(input);
+        if (input === 'open chatgpt') {
+          return {
+            commandId: 'cmd-open-chatgpt',
+            success: true,
+            intent: 'app.open',
+            confidence: 1,
+            entities: {
+              appName: 'chatgpt',
+              webFallbackUrl: 'https://chatgpt.com/',
+              webFallbackBrowser: 'chrome'
+            },
+            data: {
+              app: 'chatgpt',
+              launchMethod: 'chrome-web-app-fallback',
+              webFallback: true,
+              webFallbackUrl: 'https://chatgpt.com/',
+              webFallbackBrowser: 'chrome',
+              tabQuery: 'chatgpt',
+              tabTitle: 'ChatGPT'
+            },
+            response: 'Opened ChatGPT.'
+          };
+        }
+        return {
+          commandId: 'cmd-close-chatgpt-tab',
+          success: true,
+          intent: 'browser.closeTab',
+          confidence: 1,
+          entities: { browserName: 'chrome', tabQuery: 'chatgpt' },
+          data: { action: 'closeTab', browserName: 'chrome', tabQuery: 'chatgpt' },
+          response: 'Closed the ChatGPT tab.'
+        };
+      }
+    };
+
+    const assistant = new Assistant({}, {
+      router,
+      learning: { enabled: false },
+      automation: {},
+      eventBus: { publish() {} }
+    });
+
+    await assistant.processCommand('open chatgpt');
+    await assistant.processCommand('close it');
+
+    assert.deepEqual(routedInputs, ['open chatgpt', 'close chatgpt tab in chrome']);
+  });
+
   it('should resolve plural app follow-ups like close them after opening multiple apps', async function() {
     const routedInputs = [];
     const router = {

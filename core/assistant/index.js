@@ -1901,6 +1901,10 @@ class Assistant extends EventEmitter {
     }
 
     if (/^(?:close|quit|exit)\s+(?:it|that|this|current\s+one|current\s+app)$/i.test(normalized)) {
+      const webFallbackClose = this._resolveWebFallbackCloseFollowUp();
+      if (webFallbackClose) {
+        return webFallbackClose;
+      }
       return lastReference ? `close ${lastReference}` : '';
     }
 
@@ -2459,6 +2463,45 @@ class Assistant extends EventEmitter {
     }
 
     return '';
+  }
+
+  _resolveWebFallbackCloseFollowUp() {
+    const entry = this.context.findRecent(candidate => {
+      if (!candidate?.success || candidate?.requiresConfirmation || candidate?.needsClarification) {
+        return false;
+      }
+      if (candidate.intent !== 'app.open') {
+        return false;
+      }
+      const data = candidate.data || {};
+      const entities = candidate.entities || {};
+      return data.webFallback === true ||
+        data.launchMethod === 'chrome-web-app-fallback' ||
+        Boolean(data.webFallbackUrl || entities.webFallbackUrl);
+    }, 12);
+    if (!entry) {
+      return '';
+    }
+
+    const data = entry.data || {};
+    const entities = entry.entities || {};
+    const browser = String(
+      data.webFallbackBrowser ||
+      data.browserName ||
+      entities.webFallbackBrowser ||
+      'chrome'
+    ).trim() || 'chrome';
+    const target = String(
+      data.tabQuery ||
+      data.tabTitle ||
+      entities.appName ||
+      data.app ||
+      ''
+    ).trim();
+    if (!target) {
+      return '';
+    }
+    return `close ${target} tab in ${browser}`;
   }
 
   _rememberCurrentChatRequest(input, source) {
