@@ -65,6 +65,19 @@ const WEBSITE_URL_MAP = {
   'mozilla firefox': 'https://www.mozilla.org/firefox'
 };
 
+const DIRECT_WEB_TAB_CLOSE_TARGETS = new Set([
+  'chatgpt',
+  'claude ai',
+  'google gemini',
+  'perplexity ai',
+  'gmail',
+  'google maps',
+  'google photos',
+  'google drive',
+  'google docs',
+  'google colab'
+]);
+
 class ActionRouter {
   constructor(config, automationEngine) {
     this.logger = new Logger(config?.logging || { level: 'info' });
@@ -4684,6 +4697,27 @@ class ActionRouter {
     const tabInput = `${input} ${rawInput}`.replace(/\s+/g, ' ').trim();
     const browserMatch = (tabInput.match(/\b(?:in|on)\s+(?:the\s+)?(chrome|browser|edge|firefox)\b/));
 
+    const directWebClose = input.match(
+      /^(?:close|remove|shut|quit|exit)\s+(?:the\s+)?(.+?)(?:\s+(?:web\s+app|website|site|page))?(?:\s+(?:in|on)\s+(chrome|browser|edge|firefox))?$/i
+    );
+    if (directWebClose?.[1]) {
+      const tabQuery = this._normalizeDirectWebTabCloseTarget(directWebClose[1]);
+      if (tabQuery) {
+        const intent = this.intentRegistry.get('browser.closeTab');
+        return intent
+          ? {
+              intent,
+              confidence: 1,
+              entities: {
+                browserName: directWebClose[2] || browserMatch?.[1] || 'chrome',
+                tabQuery,
+                routeSource: 'trusted-web-tab-close'
+              }
+            }
+          : null;
+      }
+    }
+
     if (
       /^(?:what|which|show|list|tell)\b/.test(input) &&
       /\btabs?\b/.test(tabInput) &&
@@ -4795,6 +4829,30 @@ const newTabMatch = input.match(
       return cleaned;
     }
     return this._normalizeKnownWebTarget(cleaned) || cleaned;
+  }
+
+  _normalizeDirectWebTabCloseTarget(value) {
+    const cleaned = String(value || '')
+      .toLowerCase()
+      .replace(/\bphotes\b/g, 'photos')
+      .replace(/\bphots\b/g, 'photos')
+      .replace(/\bgoogle\s+photo\b/g, 'google photos')
+      .replace(/^(?:the|a|an)\s+/i, '')
+      .replace(/\s+(?:tab|tabs|page|pages|window|windows)$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!cleaned) {
+      return '';
+    }
+
+    if (/^(?:photos|instagram|youtube|you tube|facebook|fb)$/.test(cleaned)) {
+      return '';
+    }
+
+    const target = resolveTrustedWebTarget(cleaned);
+    return target?.key && DIRECT_WEB_TAB_CLOSE_TARGETS.has(target.key)
+      ? target.key
+      : '';
   }
 
   _extractEmailComposeEntities(input) {

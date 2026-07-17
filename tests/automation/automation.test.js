@@ -169,6 +169,9 @@ describe('Automation Engine', function() {
     assert.equal(result.data.launchMethod, 'chrome-web-app-fallback');
     assert.equal(opened.options.browserName, 'chrome');
     assert.equal(opened.url, 'https://www.instagram.com/');
+    assert.equal(result.data.webFallback, true);
+    assert.equal(result.data.webFallbackBrowser, 'chrome');
+    assert.equal(result.data.tabQuery, 'instagram');
   });
 
   it('should not open unknown app requests in Chrome', async function() {

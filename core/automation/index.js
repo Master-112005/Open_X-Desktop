@@ -294,8 +294,9 @@ class AutomationEngine {
       return this.browser.offlineResponse();
     }
 
+    const requestedBrowser = entities.webFallbackBrowser || 'chrome';
     const opened = this.browser.open(url, {
-      browserName: entities.webFallbackBrowser || 'chrome',
+      browserName: requestedBrowser,
       newTab: entities.newTab === true
     });
     return opened?.success
@@ -306,6 +307,11 @@ class AutomationEngine {
             app: appName,
             appId: appName.toLowerCase(),
             url,
+            webFallback: true,
+            webFallbackUrl: url,
+            webFallbackBrowser: opened.data?.browserName || requestedBrowser,
+            tabQuery: trusted?.key || Normalizer.normalizeText(appName),
+            tabTitle: trusted?.title || appName,
             launchMethod: 'chrome-web-app-fallback',
             localLaunchError: localResult?.error || null
           }

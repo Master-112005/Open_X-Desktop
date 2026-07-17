@@ -818,7 +818,16 @@ class ContextManager {
       'matchedWindow',
       'launchMethod',
       'app',
-      'appId'
+      'appId',
+      'browserName',
+      'requestedBrowserName',
+      'webFallback',
+      'webFallbackUrl',
+      'webFallbackBrowser',
+      'tabQuery',
+      'tabTitle',
+      'closedTabTitle',
+      'action'
     ].forEach(key => {
       if (data[key] !== undefined && data[key] !== null && !SENSITIVE_KEY_PATTERN.test(key)) {
         compact[key] = this._compactPrimitive(data[key]);
