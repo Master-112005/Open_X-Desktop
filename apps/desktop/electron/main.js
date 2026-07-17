@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, globalShortcut, session, screen, powerMonitor, dialog, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, globalShortcut, session, screen, powerMonitor, safeStorage, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -300,6 +300,7 @@ let cloudPairingManager = null;
 let cloudCommandManager = null;
 let cloudFileTransferManager = null;
 let cloudProfileSyncRegistered = false;
+const cloudFileTransferUiProgress = new Map();
 const rendererCrashHistory = new Map();
 const recoveryTimeouts = new Set();
 const unresponsiveTimeouts = new Map();
@@ -350,6 +351,7 @@ const IPC_CHANNELS = [
   'settings:save',
   'settings:reset',
   'schedule:alertAction',
+  'cloud:fileTransferAction',
   'schedule:getSnapshot',
   'timerWidget:getState',
   'timerWidget:close',
@@ -2470,6 +2472,149 @@ function presentPhoneNotificationInDynamicIsland(notification = {}, metadata = {
   return true;
 }
 
+function formatTransferSize(bytes) {
+  const size = Math.max(0, Number(bytes) || 0);
+  if (size < 1024) return `${size} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let value = size / 1024;
+  let unit = units[0];
+  for (let index = 1; index < units.length && value >= 1024; index += 1) {
+    value /= 1024;
+    unit = units[index];
+  }
+  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${unit}`;
+}
+
+function cloudTransferDisplayName(transfer = {}) {
+  return String(transfer.fileName || 'file').replace(/\s+/g, ' ').trim().slice(0, 160) || 'file';
+}
+
+function presentCloudFileTransferPrompt(transfer = {}) {
+  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
+  const transferId = String(transfer.transferId || '').trim();
+  if (!transferId) return false;
+  const fileName = cloudTransferDisplayName(transfer);
+  const fileSize = formatTransferSize(transfer.fileSize);
+  const sourceLabel = String(transfer.sourceDeviceName || transfer.sourceDeviceId || 'OpenX Mobile')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 100) || 'OpenX Mobile';
+  try {
+    voiceOverlay.displayAssistantResult({
+      success: true,
+      intent: 'cloud.fileTransfer.incoming',
+      response: `${sourceLabel} wants to send ${fileName}.`,
+      data: {
+        transfer: {
+          transferId,
+          fileName,
+          fileSize: Math.max(0, Number(transfer.fileSize) || 0),
+          fileSizeLabel: fileSize,
+          sourceDeviceId: String(transfer.sourceDeviceId || '').slice(0, 128),
+          destination: path.join(os.homedir(), 'Documents', 'OpenX')
+        },
+        actions: [
+          {
+            id: 'reject',
+            label: 'Reject',
+            kind: 'reject',
+            transferId
+          },
+          {
+            id: 'accept',
+            label: 'Accept',
+            kind: 'accept',
+            transferId,
+            primary: true
+          }
+        ],
+        resultEntries: [
+          {
+            index: 1,
+            name: fileName,
+            type: 'incoming file',
+            location: fileSize,
+            snippet: `Save to Documents\\OpenX`
+          }
+        ]
+      },
+      ui: {
+        icon: 'FI',
+        previewStatus: `Incoming file - ${fileSize}`,
+        preExpandDelayMs: 100,
+        autoHideMs: 0,
+        persistUntilAction: true
+      }
+    });
+    return true;
+  } catch (error) {
+    mainLogger.warn('[CLOUD-FILE] Dynamic Island transfer prompt failed', {
+      transferId,
+      error: error.message
+    });
+    return false;
+  }
+}
+
+function presentCloudFileTransferStatus(transfer = {}, status = 'progress') {
+  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
+  const fileName = cloudTransferDisplayName(transfer);
+  const percent = Math.max(0, Math.min(100, Math.round(Number(transfer.percent) || 0)));
+  const filePath = String(transfer.filePath || transfer.destination || '').trim();
+  const completed = status === 'completed';
+  const failed = status === 'failed';
+  const response = completed
+    ? `${fileName} was saved to Documents\\OpenX.`
+    : failed
+      ? `${fileName} transfer failed.`
+      : `Receiving ${fileName}: ${percent}%.`;
+  try {
+    voiceOverlay.displayAssistantResult({
+      success: !failed,
+      intent: `cloud.fileTransfer.${status}`,
+      response,
+      data: {
+        resultEntries: [
+          {
+            index: 1,
+            name: fileName,
+            type: completed ? 'saved file' : 'file transfer',
+            location: completed ? 'Documents\\OpenX' : `${percent}%`,
+            snippet: filePath || response
+          }
+        ],
+        actions: []
+      },
+      ui: {
+        icon: failed ? '!' : 'FI',
+        previewStatus: completed ? 'File received' : failed ? 'Transfer failed' : `Receiving ${percent}%`,
+        preExpandDelayMs: completed || failed ? 600 : 0,
+        autoHideMs: completed || failed ? 8000 : 0,
+        persistUntilAction: false
+      }
+    });
+    return true;
+  } catch (error) {
+    mainLogger.warn('[CLOUD-FILE] Dynamic Island transfer status failed', {
+      transferId: transfer.transferId || null,
+      status,
+      error: error.message
+    });
+    return false;
+  }
+}
+
+function shouldPresentCloudFileTransferProgress(transfer = {}) {
+  const transferId = String(transfer.transferId || '').trim();
+  if (!transferId) return false;
+  const percent = Math.max(0, Math.min(100, Math.round(Number(transfer.percent) || 0)));
+  const last = cloudFileTransferUiProgress.get(transferId) || { percent: -1, at: 0 };
+  const now = Date.now();
+  if (percent < 100 && percent < last.percent + 10 && now - last.at < 1500) return false;
+  cloudFileTransferUiProgress.set(transferId, { percent, at: now });
+  return true;
+}
+
 function getTimerWidgetState(preferredId = null, options = {}) {
   const includeStopwatch = options.includeStopwatch === true || timerWidgetMode === 'stopwatch';
   const state = assistant?.automation?.scheduler?.getTimerWidgetState?.(preferredId, { includeStopwatch });
@@ -2814,30 +2959,19 @@ function initializeCloudFileTransfers() {
     timeoutMs: runtimeConfig?.cloud?.fileTransferTimeoutMs || 10 * 60 * 1000
   });
   cloudFileTransferManager.on('incoming-transfer', transfer => {
-    const fileSize = Number(transfer.fileSize || 0);
-    const message = `${transfer.fileName} (${Math.max(0, fileSize)} bytes) from cloud device ${transfer.sourceDeviceId}`;
-    dialog.showMessageBox({
-      type: 'question',
-      buttons: ['Accept', 'Reject'],
-      defaultId: 0,
-      cancelId: 1,
-      title: 'Incoming OpenX Cloud File',
-      message: 'Accept incoming file transfer?',
-      detail: message,
-      noLink: true
-    }).then(result => {
-      if (result.response === 0) {
-        cloudFileTransferManager?.acceptTransfer?.(transfer.transferId);
-      } else {
-        cloudFileTransferManager?.rejectTransfer?.(transfer.transferId, 'rejected-by-desktop');
-      }
-    }).catch(error => {
-      mainLogger.warn('[CLOUD-FILE] Incoming transfer prompt failed', {
-        transferId: transfer.transferId,
-        error: error.message
-      });
-      cloudFileTransferManager?.rejectTransfer?.(transfer.transferId, 'prompt-failed');
+    mainLogger.info('[CLOUD-FILE] Incoming file transfer needs approval', {
+      transferId: transfer.transferId,
+      fileName: transfer.fileName,
+      fileSize: transfer.fileSize,
+      sourceDeviceId: transfer.sourceDeviceId,
+      destination: path.join(os.homedir(), 'Documents', 'OpenX')
     });
+    const presented = presentCloudFileTransferPrompt(transfer);
+    if (!presented) {
+      mainLogger.warn('[CLOUD-FILE] Transfer is waiting for approval but Dynamic Island is unavailable', {
+        transferId: transfer.transferId
+      });
+    }
   });
   cloudFileTransferManager.on('progress', transfer => {
     mainLogger.info('[CLOUD-FILE] Transfer progress', {
@@ -2845,12 +2979,39 @@ function initializeCloudFileTransfers() {
       state: transfer.state,
       percent: transfer.percent
     });
-    const busyStates = new Set(['pending', 'accepted', 'transferring', 'receiving']);
+    if (
+      String(transfer.direction || '').toLowerCase() === 'phone-to-desktop' &&
+      ['accepted', 'downloading', 'receiving'].includes(String(transfer.state || '').toLowerCase()) &&
+      shouldPresentCloudFileTransferProgress(transfer)
+    ) {
+      presentCloudFileTransferStatus(transfer, 'progress');
+    }
+    const busyStates = new Set(['pending', 'accepted', 'transferring', 'receiving', 'downloading', 'uploading', 'waiting-approval']);
     if (busyStates.has(String(transfer.state || '').toLowerCase())) {
       manager.updatePresence?.('busy', { reason: 'file-transfer' });
     } else {
       manager.updatePresence?.('online', { reason: 'file-transfer-complete' });
     }
+  });
+  cloudFileTransferManager.on('completed', transfer => {
+    cloudFileTransferUiProgress.delete(String(transfer.transferId || ''));
+    mainLogger.info('[CLOUD-FILE] Transfer completed', {
+      transferId: transfer.transferId,
+      fileName: transfer.fileName,
+      filePath: transfer.filePath || null
+    });
+    presentCloudFileTransferStatus(transfer, 'completed');
+    manager.updatePresence?.('online', { reason: 'file-transfer-complete' });
+  });
+  cloudFileTransferManager.on('failed', transfer => {
+    cloudFileTransferUiProgress.delete(String(transfer.transferId || ''));
+    mainLogger.warn('[CLOUD-FILE] Transfer failed', {
+      transferId: transfer.transferId,
+      fileName: transfer.fileName || null,
+      reason: transfer.reason || transfer.error || 'unknown'
+    });
+    presentCloudFileTransferStatus(transfer, 'failed');
+    manager.updatePresence?.('online', { reason: 'file-transfer-failed' });
   });
   cloudFileTransferManager.start();
   return cloudFileTransferManager;
@@ -3395,6 +3556,40 @@ function setupIPC() {
       if (action === 'stop') clearLiveScheduleActivity(result.data);
     }
     return result || { success: false, error: 'Scheduler unavailable' };
+  });
+
+  registerIpcHandler('cloud:fileTransferAction', async (_event, { transferId, action }) => {
+    const manager = initializeCloudFileTransfers();
+    const transfer = manager?.incoming?.get?.(transferId);
+    if (!transfer) {
+      return { success: false, error: 'File transfer is no longer available.' };
+    }
+    const fileName = cloudTransferDisplayName(transfer);
+    if (action === 'accept') {
+      const accepted = manager.acceptTransfer(transferId);
+      if (accepted) {
+        presentCloudFileTransferStatus({ ...transfer, percent: transfer.percent || 0 }, 'progress');
+      }
+      return {
+        success: accepted,
+        data: {
+          fileName,
+          status: accepted ? 'accepted' : 'failed',
+          destination: path.join(os.homedir(), 'Documents', 'OpenX')
+        },
+        error: accepted ? null : 'File transfer could not be accepted.'
+      };
+    }
+    const rejected = manager.rejectTransfer(transferId, 'rejected-by-desktop');
+    cloudFileTransferUiProgress.delete(String(transferId || ''));
+    return {
+      success: rejected,
+      data: {
+        fileName,
+        status: rejected ? 'rejected' : 'failed'
+      },
+      error: rejected ? null : 'File transfer could not be rejected.'
+    };
   });
 
   registerIpcHandler('schedule:getSnapshot', async () => getScheduleSyncSnapshot());
@@ -4110,6 +4305,7 @@ function registerPowerRecoveryHandlers() {
 function isTrustedVoiceOverlayIpcSender(event, channel) {
   if (![
     'schedule:alertAction',
+    'cloud:fileTransferAction',
     'voiceOverlay:collapse',
     'voiceOverlay:expandLiveSchedule'
   ].includes(channel)) return false;
