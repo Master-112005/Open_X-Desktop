@@ -373,10 +373,13 @@ function validateGalleryFaceCluster(payload) {
 }
 
 function validateGalleryPeopleScan(payload = {}) {
-  if (payload === undefined) return { maxPhotos: 10000 };
+  if (payload === undefined) return { maxPhotos: null };
   requirePlainObject(payload);
+  const requestedMaxPhotos = Number(payload.maxPhotos);
   return {
-    maxPhotos: Math.max(1, Math.min(100000, Number(payload.maxPhotos) || 10000))
+    maxPhotos: Number.isFinite(requestedMaxPhotos) && requestedMaxPhotos > 0
+      ? Math.max(1, Math.min(500000, Math.floor(requestedMaxPhotos)))
+      : null
   };
 }
 

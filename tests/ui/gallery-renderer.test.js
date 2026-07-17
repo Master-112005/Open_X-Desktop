@@ -65,8 +65,7 @@ describe('Gallery Renderer UI', function() {
     assert.match(script, /strip\.className = 'named-people-strip'/);
     assert.match(script, /list\.className = 'people-grid unnamed-grid'/);
     assert.match(script, /People To Name/);
-    assert.match(script, /Needs More Evidence/);
-    assert.match(script, /Single-photo faces are held back\./);
+    assert.match(script, /scanGalleryPeople\?\.\(\{\}\)/);
     assert.match(css, /\.people-view\s*\{/);
     assert.match(css, /\.named-people-strip\s*\{/);
     assert.match(css, /\.named-person-card\s*\{/);
@@ -91,8 +90,6 @@ describe('Gallery Renderer UI', function() {
     assert.match(css, /\.person-correction-tools\s*\{/);
     assert.match(css, /grid-template-columns:\s*36px 36px minmax\(0, 1fr\)/);
     assert.match(css, /\.person-action-save\s*\{/);
-    assert.match(css, /\.people-review-section\s*\{/);
-    assert.match(css, /\.people-review-note\s*\{/);
     assert.match(css, /\.person-assign-dialog\s*\{/);
     assert.match(css, /\.person-assign-option\s*\{/);
     assert.match(css, /\.person-avatar img\s*\{/);

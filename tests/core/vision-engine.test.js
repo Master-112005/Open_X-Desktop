@@ -24,6 +24,7 @@ function createFakeOnnxAdapter() {
             };
           }
           if (model.id === MODEL_IDS.SCRFD) {
+            assert.strictEqual(options.request?.options?.faceDetection?.minFacePixels, 40);
             return {
               faces: [{ box: [0, 0, 10, 10], landmarks: [], confidence: 0.97 }],
               confidence: 0.97
@@ -112,7 +113,8 @@ describe('VisionEngine', () => {
 
     const result = await engine.infer({
       imagePath: 'C:/Users/rakes/Pictures/sample.jpg',
-      tasks: ['embedding', 'faces', 'ocr']
+      tasks: ['embedding', 'faces', 'ocr'],
+      options: { faceDetection: { minFacePixels: 40 } }
     });
 
     assert.strictEqual(result.success, true);

@@ -215,15 +215,12 @@ function updateSummary(groups) {
     const summary = peopleData?.summary || {};
     const knownCount = peopleData?.known?.length || 0;
     const unknownCount = peopleData?.unknown?.length || 0;
-    const reviewCount = Number(summary.reviewLater ?? summary.waitingForEvidence ?? peopleData?.reviewLater?.length ?? 0) || 0;
-    const totalPeople = Number(summary.totalPeople ?? (knownCount + unknownCount + reviewCount)) || 0;
+    const totalPeople = Number(summary.totalPeople ?? (knownCount + unknownCount)) || 0;
     photoCountEl.textContent = `${totalPeople} person${totalPeople === 1 ? '' : 's'}`;
-    dateCountEl.textContent = knownCount > 0 ? `${knownCount} saved` : `${unknownCount + reviewCount} unnamed`;
+    dateCountEl.textContent = knownCount > 0 ? `${knownCount} saved` : `${unknownCount} unnamed`;
     rangeLabelEl.textContent = unknownCount > 0
       ? `${unknownCount} ready to name`
-      : reviewCount > 0
-        ? `${reviewCount} waiting for more evidence`
-        : 'No unnamed people';
+      : 'No unnamed people';
     loadMoreEl.hidden = true;
     return;
   }
@@ -693,10 +690,8 @@ function applyPersonFaceCrop(avatar, image, crop) {
 function renderPeople() {
   const known = Array.isArray(peopleData?.known) ? peopleData.known : [];
   const unknown = Array.isArray(peopleData?.unknown) ? peopleData.unknown : [];
-  const reviewLater = Array.isArray(peopleData?.reviewLater) ? peopleData.reviewLater : [];
-  const reviewCount = Number(peopleData?.summary?.reviewLater ?? peopleData?.summary?.waitingForEvidence ?? reviewLater.length) || 0;
   updateSummary([]);
-  emptyStateEl.hidden = known.length + unknown.length + reviewCount > 0;
+  emptyStateEl.hidden = known.length + unknown.length > 0;
   headingEl.textContent = 'People';
   imageObserver?.disconnect?.();
 
@@ -735,29 +730,6 @@ function renderPeople() {
     unknown.forEach(person => list.appendChild(createPersonCard(person, 'unknown')));
     unnamedSection.append(heading, list);
     view.appendChild(unnamedSection);
-  }
-
-  if (reviewCount > 0) {
-    const reviewSection = document.createElement('section');
-    reviewSection.className = 'people-review-section';
-    const heading = document.createElement('div');
-    heading.className = 'people-section-head';
-    const title = document.createElement('h2');
-    title.textContent = 'Needs More Evidence';
-    const count = document.createElement('span');
-    count.textContent = `${reviewCount} waiting`;
-    heading.append(title, count);
-
-    const note = document.createElement('div');
-    note.className = 'people-review-note';
-    const strong = document.createElement('strong');
-    strong.textContent = 'Single-photo faces are held back.';
-    const copy = document.createElement('span');
-    const minPhotos = Number(peopleData?.summary?.minNameablePhotos || 2);
-    copy.textContent = `OpenX will ask you to name them after it finds the same person in ${minPhotos} or more photos.`;
-    note.append(strong, copy);
-    reviewSection.append(heading, note);
-    view.appendChild(reviewSection);
   }
 
   timelineEl.replaceChildren(view);
@@ -953,7 +925,7 @@ async function scanPeople() {
   peopleScanButtonEl.textContent = 'Scanning...';
   setPeopleScanStatus('Scanning photos for verified people...');
   try {
-    const result = await window.openx?.scanGalleryPeople?.({ maxPhotos: 100000 });
+    const result = await window.openx?.scanGalleryPeople?.({});
     await loadGalleryView('people');
     setPeopleScanStatus(describePeopleScan(result));
   } catch (error) {
