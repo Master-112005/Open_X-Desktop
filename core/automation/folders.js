@@ -6,6 +6,7 @@ const Validator = require('../assistant/Data').Validator;
 const {
   findEntriesByName,
   findEntryByName,
+  getDefaultSearchRoots,
   getHomeDirectory,
   getSpecialFolders,
   normalizeLocation,
@@ -60,7 +61,7 @@ function uniquePaths(paths) {
 }
 
 function searchRoots() {
-  return uniquePaths([process.cwd(), getHomeDirectory(), ...Object.values(getSpecialFolders())]);
+  return uniquePaths(getDefaultSearchRoots());
 }
 
 function hasSearchTimeRemaining(startedAt, maxElapsedMs) {

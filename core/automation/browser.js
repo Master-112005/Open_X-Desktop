@@ -5,10 +5,50 @@ const { resolveTrustedWebTarget } = require('../assistant/semantic/WebTargets');
 const dns = require('dns');
 const fs = require('fs');
 const https = require('https');
+const path = require('path');
 
 const INTERNET_ERROR_MESSAGE = 'Please check your connection.';
 const CONNECTIVITY_CACHE_TTL_MS = 10000;
 const CONNECTIVITY_TIMEOUT_MS = 1500;
+
+function envDirectory(name) {
+  return String(process.env[name] || '').trim();
+}
+
+function programFilePath(envName, ...segments) {
+  const root = envDirectory(envName);
+  return root ? path.join(root, ...segments) : null;
+}
+
+function localAppDataPath(...segments) {
+  const root = envDirectory('LOCALAPPDATA');
+  return root ? path.join(root, ...segments) : null;
+}
+
+function browserExecutableCandidates(browserName) {
+  if (browserName === 'chrome') {
+    return [
+      programFilePath('ProgramFiles', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      programFilePath('ProgramFiles(x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      localAppDataPath('Google', 'Chrome', 'Application', 'chrome.exe')
+    ].filter(Boolean);
+  }
+  if (browserName === 'edge' || browserName === 'msedge') {
+    return [
+      programFilePath('ProgramFiles', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      programFilePath('ProgramFiles(x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      localAppDataPath('Microsoft', 'Edge', 'Application', 'msedge.exe')
+    ].filter(Boolean);
+  }
+  if (browserName === 'firefox') {
+    return [
+      programFilePath('ProgramFiles', 'Mozilla Firefox', 'firefox.exe'),
+      programFilePath('ProgramFiles(x86)', 'Mozilla Firefox', 'firefox.exe'),
+      localAppDataPath('Mozilla Firefox', 'firefox.exe')
+    ].filter(Boolean);
+  }
+  return [];
+}
 
 const SITE_SEARCH_TARGETS = [
   {
@@ -204,9 +244,9 @@ class BrowserController {
 
   _detectBrowser() {
     const browsers = [
-      { path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', name: 'chrome' },
-      { path: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', name: 'msedge' },
-      { path: 'C:\\Program Files\\Mozilla Firefox\\firefox.exe', name: 'firefox' }
+      ...browserExecutableCandidates('chrome').map(candidate => ({ path: candidate, name: 'chrome' })),
+      ...browserExecutableCandidates('edge').map(candidate => ({ path: candidate, name: 'msedge' })),
+      ...browserExecutableCandidates('firefox').map(candidate => ({ path: candidate, name: 'firefox' }))
     ];
 
     for (const browser of browsers) {
@@ -222,22 +262,7 @@ class BrowserController {
 
   _resolveBrowserExecutable(requestedBrowser) {
     const browserName = this._normalizeBrowserName(requestedBrowser);
-    const candidates = {
-      chrome: [
-        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'
-      ],
-      edge: [
-        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-        'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
-      ],
-      firefox: [
-        'C:\\Program Files\\Mozilla Firefox\\firefox.exe',
-        'C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe'
-      ]
-    };
-
-    for (const candidate of candidates[browserName] || []) {
+    for (const candidate of browserExecutableCandidates(browserName)) {
       try {
         if (fs.existsSync(candidate)) return candidate;
       } catch (e) {

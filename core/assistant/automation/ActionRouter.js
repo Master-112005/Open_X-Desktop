@@ -371,6 +371,7 @@ class ActionRouter {
       ['_resolveVisualPhotoSearchIntent', () => this._resolveVisualPhotoSearchIntent(rawCommandText, preparedInput)],
       ['_resolveSmartFileIntent', () => this._resolveSmartFileIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitFileIntent', () => this._resolveExplicitFileIntent(rawCommandText, preparedInput)],
+      ['_resolveExplicitFolderIntent', () => this._resolveExplicitFolderIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitFolderMoveIntent', () => this._resolveExplicitFolderMoveIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitModeIntent', () => this._resolveExplicitModeIntent(rawCommandText, preparedInput)],
       ['_resolveLocalInfoIntent', () => this._resolveLocalInfoIntent(rawCommandText, preparedInput)],
@@ -470,6 +471,26 @@ class ActionRouter {
     if (/\bumbrella\b/.test(input) &&
       /\b(?:need|take|bring|carry|rain|raining|weather|forecast)\b/.test(input)) {
       return search('weather forecast do I need an umbrella today', 0.97);
+    }
+
+    if (/\b(?:screen|display|monitor|brightness|bright)\b/.test(input) &&
+      /\b(?:maximum|max|full|hundred|100)\b/.test(input)) {
+      return route('brightness.set', { value: 100 }, 0.99);
+    }
+
+    if (/\b(?:screen|display|monitor|brightness|bright)\b/.test(input) &&
+      /\b(?:minimum|min|zero|0)\b/.test(input)) {
+      return route('brightness.set', { value: 0 }, 0.99);
+    }
+
+    if (/\b(?:speaker|speakers|sound|audio|volume|vol)\b/.test(input) &&
+      /\b(?:maximum|max|full|hundred|100)\b/.test(input)) {
+      return route('volume.set', { value: 100 }, 0.99);
+    }
+
+    if (/\b(?:speaker|speakers|sound|audio|volume|vol)\b/.test(input) &&
+      /\b(?:minimum|min|zero|0)\b/.test(input)) {
+      return route('volume.set', { value: 0 }, 0.99);
     }
 
     if (/\b(?:screen|display|monitor|brightness|light)\b/.test(input) &&
@@ -748,7 +769,7 @@ class ActionRouter {
       ['learning', /\b(?:beginner-friendly|from scratch|good .*course|devops resources|interview|coding challenge|technical questions|test my .*knowledge|quiz me|sql|java knowledge|easier to understand|beginner)\b/],
       ['local-file-natural', /\b(?:downloaded something recently|save .*document yesterday|files .*worked on|show .*files .*week|find it|looking for|search my computer|look everywhere|most recent version|similar documents|last thing i worked on)\b/],
       ['streaming', /\b(?:subscriptions|watch later|latest video|continue watching|trending shows|watchlist|action movies|last show|shuffle .*playlist|movie for tonight|watch something|what'?s trending|next episode|podcasts?|educational|teach me something|interesting)\b/],
-      ['messaging', /\b(?:unread messages|new messages|open my messages|texted me|message me|talk to my friends|search .*chat|specific conversation|share a file|pin this chat|archive this conversation|direct messages|mute all notifications|unnecessary notifications)\b/],
+      ['messaging', /\b(?:unread messages|new messages|missed messages|missed calls|open my messages|texted me|message me|talk to my friends|search .*chat|specific conversation|share a file|pin this chat|archive this conversation|direct messages|mute all notifications|unnecessary notifications)\b/],
       ['meeting', /\b(?:start a meeting|join .*meeting|share my screen|voice channel|team notifications|shared files)\b/],
       ['window', /\b(?:restore .*windows?|bring .*to front|focus on)\b/],
       ['system-power', /\b(?:sign out|hibernate|cancel shutdown|cancel restart|shutdown .*in \d+|restart .*in \d+)\b/],
@@ -1589,6 +1610,11 @@ class ActionRouter {
       const corrected = String(prepared?.correctedText || rawClause || '').trim();
       const normalized = corrected.toLowerCase();
       const leadingVerb = normalized.match(/^(open|launch|start|run|close|quit|exit|terminate|minimize|maximize|switch|focus)\b/)?.[1] || '';
+      const standaloneAction = normalized.match(/^(search|google|look\s+up|find|play|pause|resume|unpause|stop|set|turn|send|share|transfer|copy|move|message|text|call|remind|notify|alert|create|delete|rename|save|show|list)\b/);
+      if (!leadingVerb && standaloneAction) {
+        result.push(corrected);
+        continue;
+      }
       if (leadingVerb) {
         carriedVerb = verbsThatCanCarry.has(leadingVerb) ? (verbMap[leadingVerb] || leadingVerb) : null;
         result.push(corrected);
@@ -1757,7 +1783,7 @@ class ActionRouter {
         return `search for ${standaloneQuestionMatch[1].trim()}`;
       }
 
-      if (/^(?:ask|tell|message|text|search|google|look\s+up|find|what|who|when|where|why|how|which|remind|set|turn|save|saved)\b/.test(normalized)) {
+      if (/^(?:ask|tell|send|message|text|search|google|look\s+up|find|show|list|what|who|when|where|why|how|which|remind|set|turn|save|saved)\b/.test(normalized)) {
         carriedVerb = null;
         const settingMatch = normalized.match(/^set\s+(?:the\s+)?(?:vol|volume|sound|audio|brightness|screen|display)\b/);
         if (settingMatch) {
@@ -2574,6 +2600,10 @@ class ActionRouter {
       return this._rememberRouterCache(this.matchIntentCache, cacheKey, bestExactMatch);
     }
 
+    if (this._shouldSkipFuzzyIntentMatch(preparedInput, normalized)) {
+      return this._rememberRouterCache(this.matchIntentCache, cacheKey, null);
+    }
+
     let bestMatch = null;
     for (const candidate of this.nlp.getPreparedIntentPatterns()) {
       const confidence = this.nlp.scorePattern(preparedInput, candidate.prepared);
@@ -2595,6 +2625,28 @@ class ActionRouter {
       intent: bestMatch.intent,
       confidence: bestMatch.confidence
     });
+  }
+
+  _shouldSkipFuzzyIntentMatch(preparedInput, normalizedText = '') {
+    const query = preparedInput?.query || {};
+    const semanticFrame = preparedInput?.semanticFrame || {};
+    const intentPhrase = semanticFrame.intentPhrase || preparedInput?.intentPhrase || {};
+    if (query.actionVerb ||
+      query.isQuestion ||
+      query.isKnowledgeQuestion ||
+      query.isLocalFileQuestion ||
+      semanticFrame.actionVerb ||
+      intentPhrase.action) {
+      return false;
+    }
+
+    const text = String(normalizedText || preparedInput?.correctedText || '').toLowerCase();
+    if (/\b(?:open|launch|start|run|close|quit|exit|terminate|minimize|maximize|switch|focus|search|google|look\s+up|find|locate|show|list|play|pause|resume|stop|set|turn|send|share|transfer|copy|move|message|text|call|remind|notify|alert|create|delete|rename|save|download|install|scan|sync|clean|clear)\b/.test(text)) {
+      return false;
+    }
+
+    const domain = String(intentPhrase.domain || semanticFrame.domain || '').toLowerCase();
+    return domain === 'conversation' || domain === 'unknown';
   }
 
   _buildLanguageUnderstanding(preparedInput, intentResult, missingRequired = [], status = 'passed') {
@@ -2945,7 +2997,7 @@ class ActionRouter {
       return mediaRoute('media.repeat');
     }
 
-    if (/\bshuffle\b.*\b(?:songs?|playlist|everything|tracks?)\b|\bshuffle\s+everything\b/.test(textToUse)) {
+    if (/\bshuffle\b.*\b(?:songs?|playlist|everything|tracks?|playback|media)\b|\bshuffle\s+everything\b/.test(textToUse)) {
       return mediaRoute('media.shuffle');
     }
 
@@ -3425,6 +3477,51 @@ class ActionRouter {
       return '';
     }
     return '';
+  }
+
+  _resolveExplicitFolderIntent(rawText, preparedInput) {
+    const input = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
+    if (!input || !/\b(?:folder|folders|directory|directories|desktop|downloads|documents|pictures|music|videos|home)\b/.test(input)) {
+      return null;
+    }
+    const hasFolderWord = /\b(?:folder|folders|directory|directories)\b/.test(input);
+    const opensKnownFolderOnly = /^(?:open|show|launch|start|go\s+to)\s+(?:desktop|downloads?|documents?|pictures?|videos?|home)$/i.test(input);
+    if (!hasFolderWord && !opensKnownFolderOnly) {
+      return null;
+    }
+
+    const configs = [
+      { intentId: 'folder.create', pattern: /^(?:create|new|make|add)\b/ },
+      { intentId: 'folder.open', pattern: /^(?:open|show|launch|start|go\s+to)\b/ },
+      { intentId: 'folder.delete', pattern: /^(?:delete|remove|erase)\b/ },
+      { intentId: 'folder.search', pattern: /^(?:locate|find|search|look(?:\s+(?:inside|in|for))?)\b/ }
+    ];
+
+    for (const config of configs) {
+      if (!config.pattern.test(input)) {
+        continue;
+      }
+      if (config.intentId === 'folder.search' &&
+        /\b(?:file|files|pdf|pdfs|document|documents|docx?|xlsx?|pptx?|csv|json|image|images|photo|photos|picture|pictures|video|videos|screenshot|screenshots)\b/.test(input)) {
+        continue;
+      }
+      const intent = this.intentRegistry.get(config.intentId);
+      if (!intent) {
+        continue;
+      }
+      const rawEntities = this.entityExtractor.extract(intent, rawText);
+      const correctedEntities = this.entityExtractor.extract(intent, input);
+      const entities = { ...correctedEntities, ...rawEntities };
+      if (config.intentId === 'folder.search') {
+        entities.query = this._extractLocalFileSearchQuery(rawText, input) || entities.query || entities.folderName;
+      }
+      const missing = this._checkRequiredEntities(intent, entities);
+      if (missing.length === 0) {
+        return { intent, confidence: 1, entities };
+      }
+    }
+
+    return null;
   }
 
   _resolveExplicitFolderMoveIntent(rawText, preparedInput) {
@@ -5656,13 +5753,18 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
   _resolveLocalFileSearchIntent(rawText, preparedInput) {
     const input = String(preparedInput?.correctedText || rawText || '').trim();
     const lower = input.toLowerCase();
-    if (!/^(?:locate|find|search|where\s+is|where\s+are|what\s+is\s+the\s+location\s+of|show\s+me\s+where)\b/.test(lower)) {
+    if (!/^(?:locate|find|search|look(?:\s+(?:inside|in|for))?|where\s+is|where\s+are|what\s+is\s+the\s+location\s+of|show\s+me\s+where)\b/.test(lower)) {
       return null;
     }
     if (/^search(?:\s+for)?\b/i.test(lower) && this._looksLikeWebSearchQuery(lower)) {
       return null;
     }
-    const query = this._extractLocalFileSearchQuery(rawText || input, input);
+    const extractedQuery = this._extractLocalFileSearchQuery(rawText || input, input);
+    const requestedType = String(preparedInput?.query?.requestedFileType || '').trim().toLowerCase();
+    const noisyLocalQuery = /^(?:look|search|find)\b|\b(?:inside|in|on|from|downloads?|documents?|desktop|pictures?|folders?)\b/.test(extractedQuery);
+    const query = requestedType && (!extractedQuery || noisyLocalQuery)
+      ? requestedType
+      : extractedQuery;
     if (!query) {
       return null;
     }
@@ -5688,6 +5790,8 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     const clean = value => String(value || '')
       .trim()
       .replace(/^(?:locate|find|search|serch|seach|searh|saerch|serach)(?:\s+for)?\s+/i, '')
+      .replace(/^look(?:\s+(?:inside|in|for))?\s+/i, '')
+      .replace(/^(?:inside|in|from|on)\s+(?:my\s+)?(?:desktop|downloads?|documents?|pictures?|photos?|videos?|music|folders?)\s+(?:for\s+)?/i, '')
       .replace(/^(?:where\s+(?:is|are|i)|whare\s+i|what\s+is\s+the\s+location\s+of|show\s+me\s+where)\s+/i, '')
       .replace(/^(?:(?:the|a|an|my)\s+)?(?:file|folder|foldr|floder|foler|directory|diretory|dirctory)\s+/i, '')
       .replace(/^(?:the|a|an|my)\s+/i, '')

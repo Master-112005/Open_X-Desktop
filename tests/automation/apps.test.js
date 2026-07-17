@@ -1,4 +1,7 @@
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 describe('App Controller', function() {
   let AppController;
@@ -771,6 +774,27 @@ describe('App Controller', function() {
 
     const target = controller.findVisibleApp('chrome', { allowWindowFallback: false });
     assert.equal(target.Id, 902);
+  });
+
+  it('should resolve the first existing executable from install-location candidates', function() {
+    const controller = new AppController({});
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-app-paths-'));
+    const executablePath = path.join(tempDir, 'Example.exe');
+
+    try {
+      fs.writeFileSync(executablePath, '', 'utf8');
+
+      const resolved = controller._resolveExecutablePath({
+        paths: [
+          path.join(tempDir, 'missing.exe'),
+          executablePath
+        ]
+      });
+
+      assert.equal(resolved, executablePath);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it('should reject invalid app names before automation starts', function() {

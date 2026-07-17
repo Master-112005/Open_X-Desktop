@@ -17,11 +17,25 @@ const DEFAULT_YOUTUBE_FETCH_MAX_BYTES = 900000;
 const DEFAULT_YOUTUBE_CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_MEDIA_QUERY_LENGTH = 180;
 
+function envDirectory(name) {
+  return String(process.env[name] || '').trim();
+}
+
+function programFilePath(envName, ...segments) {
+  const root = envDirectory(envName);
+  return root ? path.join(root, ...segments) : null;
+}
+
+function localAppDataPath(...segments) {
+  const root = envDirectory('LOCALAPPDATA');
+  return root ? path.join(root, ...segments) : null;
+}
+
 const CHROME_PATHS = [
-  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-  path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe')
-];
+  programFilePath('ProgramFiles', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+  programFilePath('ProgramFiles(x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+  localAppDataPath('Google', 'Chrome', 'Application', 'chrome.exe')
+].filter(Boolean);
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +

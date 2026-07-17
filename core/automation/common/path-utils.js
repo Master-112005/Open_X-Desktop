@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const Normalizer = require('../../assistant/Data').Normalizer;
 
 const DEFAULT_EXCLUDED_SEARCH_DIRECTORIES = new Set([
@@ -46,6 +47,24 @@ const WINDOWS_RESERVED_NAMES = new Set([
 
 const WINDOWS_INVALID_NAME_CHARS = /[<>:"/\\|?*\x00-\x1f]/;
 const DEFAULT_MAX_WINDOWS_PATH_LENGTH = 260;
+const WINDOWS_KNOWN_FOLDER_TIMEOUT_MS = 1500;
+const OS_HOME_DIRECTORY = os.homedir();
+const SPECIAL_FOLDER_NAMES = Object.freeze({
+  desktop: 'Desktop',
+  documents: 'Documents',
+  downloads: 'Downloads',
+  pictures: 'Pictures',
+  music: 'Music',
+  videos: 'Videos'
+});
+
+let specialFolderCacheKey = null;
+let specialFolderCache = null;
+
+function pathEquals(left, right) {
+  if (!left || !right) return false;
+  return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
+}
 
 function cleanEntityName(value, options = {}) {
   const { stripTypeWords = false } = options;
@@ -71,17 +90,159 @@ function getHomeDirectory() {
   return process.env.USERPROFILE || os.homedir();
 }
 
-function getSpecialFolders() {
-  const home = getHomeDirectory();
-  return {
-    home,
-    desktop: path.join(home, 'Desktop'),
-    documents: path.join(home, 'Documents'),
-    downloads: path.join(home, 'Downloads'),
-    pictures: path.join(home, 'Pictures'),
-    music: path.join(home, 'Music'),
-    videos: path.join(home, 'Videos')
+function userProfileLooksOverridden() {
+  const userProfile = process.env.USERPROFILE;
+  const home = OS_HOME_DIRECTORY;
+  return Boolean(userProfile && home && !pathEquals(userProfile, home));
+}
+
+function existingDirectoryOrNull(candidate) {
+  if (!candidate) return null;
+  try {
+    return fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()
+      ? path.resolve(candidate)
+      : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function readWindowsKnownFolder(folderKey) {
+  if (process.platform !== 'win32' || userProfileLooksOverridden()) {
+    return null;
+  }
+
+  const specialFolderMap = {
+    desktop: 'Desktop',
+    documents: 'MyDocuments',
+    pictures: 'MyPictures',
+    music: 'MyMusic',
+    videos: 'MyVideos'
   };
+
+  const script = folderKey === 'downloads'
+    ? [
+        "$ErrorActionPreference = 'Stop'",
+        "$value = (Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders').'{374DE290-123F-4565-9164-39C4925E467B}'",
+        "if (-not $value) { $value = (Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders').'{374DE290-123F-4565-9164-39C4925E467B}' }",
+        "if ($value) { [Environment]::ExpandEnvironmentVariables($value) }"
+      ].join('; ')
+    : `Write-Output ([Environment]::GetFolderPath('${specialFolderMap[folderKey] || ''}'))`;
+
+  if (!script || script.includes("''")) {
+    return null;
+  }
+
+  try {
+    const output = execFileSync('powershell.exe', [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      script
+    ], {
+      encoding: 'utf8',
+      timeout: WINDOWS_KNOWN_FOLDER_TIMEOUT_MS,
+      windowsHide: true
+    }).trim();
+    return output || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function oneDriveRoots() {
+  if (userProfileLooksOverridden()) {
+    return [];
+  }
+  return [
+    process.env.OneDrive,
+    process.env.OneDriveCommercial,
+    process.env.OneDriveConsumer
+  ].filter(Boolean);
+}
+
+function specialFolderFallbacks(folderKey) {
+  const home = getHomeDirectory();
+  const folderName = SPECIAL_FOLDER_NAMES[folderKey];
+  if (!folderName) return [];
+
+  const candidates = [path.join(home, folderName)];
+  for (const oneDriveRoot of oneDriveRoots()) {
+    candidates.push(path.join(oneDriveRoot, folderName));
+  }
+  return candidates;
+}
+
+function buildSpecialFolderMap() {
+  const folders = { home: getHomeDirectory() };
+  for (const folderKey of Object.keys(SPECIAL_FOLDER_NAMES)) {
+    const fallbackCandidates = specialFolderFallbacks(folderKey);
+    const existingFallback = fallbackCandidates.find(candidate => existingDirectoryOrNull(candidate));
+    const candidates = dedupe([
+      existingFallback,
+      existingFallback ? null : readWindowsKnownFolder(folderKey),
+      ...fallbackCandidates
+    ]);
+    folders[folderKey] =
+      candidates.find(candidate => existingDirectoryOrNull(candidate)) ||
+      candidates[0] ||
+      path.join(getHomeDirectory(), SPECIAL_FOLDER_NAMES[folderKey]);
+  }
+  return folders;
+}
+
+function getSpecialFolders() {
+  const cacheKey = [
+    getHomeDirectory(),
+    os.homedir(),
+    process.env.OneDrive || '',
+    process.env.OneDriveCommercial || '',
+    process.env.OneDriveConsumer || ''
+  ].join('|');
+  if (specialFolderCache && specialFolderCacheKey === cacheKey) {
+    return { ...specialFolderCache };
+  }
+
+  specialFolderCacheKey = cacheKey;
+  specialFolderCache = buildSpecialFolderMap();
+  return { ...specialFolderCache };
+}
+
+function getSpecialFolderPaths(folderKey) {
+  const normalized = normalizeLocation(folderKey);
+  if (normalized === 'home') {
+    return dedupe([getHomeDirectory()]);
+  }
+  if (!SPECIAL_FOLDER_NAMES[normalized]) {
+    return [];
+  }
+  const primary = getSpecialFolders()[normalized];
+  const fallbackCandidates = specialFolderFallbacks(normalized);
+  const existingCandidate = [primary, ...fallbackCandidates].find(candidate => existingDirectoryOrNull(candidate));
+  return dedupe([
+    primary,
+    existingCandidate ? null : readWindowsKnownFolder(normalized),
+    ...fallbackCandidates
+  ]);
+}
+
+function getWorkingDirectorySearchRoot() {
+  if (process.env.OPENX_INCLUDE_CWD_SEARCH !== '1') {
+    return null;
+  }
+
+  const cwd = path.resolve(process.cwd());
+  return isSafeUserPath(cwd, { allowRoot: true }) ? cwd : null;
+}
+
+function getDefaultSearchRoots() {
+  return dedupe([
+    getWorkingDirectorySearchRoot(),
+    ...Object.keys(SPECIAL_FOLDER_NAMES).flatMap(folderKey => getSpecialFolderPaths(folderKey))
+  ]);
 }
 
 function normalizeLocation(value) {
@@ -209,7 +370,7 @@ function validateWindowsPathLength(candidate, options = {}) {
 function getSafeUserRoots() {
   return dedupe([
     getHomeDirectory(),
-    ...Object.values(getSpecialFolders())
+    ...Object.keys(SPECIAL_FOLDER_NAMES).flatMap(folderKey => getSpecialFolderPaths(folderKey))
   ]);
 }
 
@@ -299,7 +460,8 @@ function resolveDirectory(location, options = {}) {
   const specialFolders = getSpecialFolders();
 
   if (specialFolders[normalized]) {
-    const resolved = specialFolders[normalized];
+    const paths = getSpecialFolderPaths(normalized);
+    const resolved = paths.find(candidate => !mustExist || existingDirectoryOrNull(candidate)) || specialFolders[normalized];
     return !mustExist || fs.existsSync(resolved) ? resolved : null;
   }
 
@@ -308,14 +470,17 @@ function resolveDirectory(location, options = {}) {
     maxDistance: 2
   });
   if (fuzzySpecialFolder) {
-    const resolved = specialFolders[fuzzySpecialFolder.normalizedMatch];
+    const paths = getSpecialFolderPaths(fuzzySpecialFolder.normalizedMatch);
+    const resolved = paths.find(candidate => !mustExist || existingDirectoryOrNull(candidate)) ||
+      specialFolders[fuzzySpecialFolder.normalizedMatch];
     return !mustExist || fs.existsSync(resolved) ? resolved : null;
   }
 
+  const workingDirectoryRoot = getWorkingDirectorySearchRoot();
   const candidatePaths = dedupe([
     path.isAbsolute(raw) ? raw : null,
     path.resolve(baseDir, raw),
-    path.resolve(process.cwd(), raw),
+    workingDirectoryRoot ? path.resolve(workingDirectoryRoot, raw) : null,
     path.resolve(getHomeDirectory(), raw)
   ]).filter(candidate => isSafeUserPath(candidate, { allowRoot: true }));
 
@@ -370,9 +535,7 @@ function findEntriesByName(name, options = {}) {
   const startedAt = Date.now();
   const matches = [];
   const candidateRoots = dedupe(roots.length > 0 ? roots : [
-    process.cwd(),
-    getHomeDirectory(),
-    ...Object.values(getSpecialFolders())
+    ...getDefaultSearchRoots()
   ]);
 
   for (const root of candidateRoots) {
@@ -483,9 +646,12 @@ function resolveDestinationPath(destination, sourcePath, options = {}) {
 module.exports = {
   findEntriesByName,
   findEntryByName,
+  getDefaultSearchRoots,
   getHomeDirectory,
   getSafeUserRoots,
+  getSpecialFolderPaths,
   getSpecialFolders,
+  getWorkingDirectorySearchRoot,
   isSafeUserPath,
   normalizeLocation,
   pathSafety,

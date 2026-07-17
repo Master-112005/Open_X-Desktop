@@ -2489,6 +2489,12 @@ function cloudTransferDisplayName(transfer = {}) {
   return String(transfer.fileName || 'file').replace(/\s+/g, ' ').trim().slice(0, 160) || 'file';
 }
 
+function getCloudReceivedDirectory() {
+  return runtimeConfig?.app?.dataPaths?.cloudReceivedDir ||
+    BASE_CONFIG.app?.dataPaths?.cloudReceivedDir ||
+    path.join(app.getPath('documents'), 'OpenX');
+}
+
 function presentCloudFileTransferPrompt(transfer = {}) {
   if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
   const transferId = String(transfer.transferId || '').trim();
@@ -2511,7 +2517,7 @@ function presentCloudFileTransferPrompt(transfer = {}) {
           fileSize: Math.max(0, Number(transfer.fileSize) || 0),
           fileSizeLabel: fileSize,
           sourceDeviceId: String(transfer.sourceDeviceId || '').slice(0, 128),
-          destination: path.join(os.homedir(), 'Documents', 'OpenX')
+          destination: getCloudReceivedDirectory()
         },
         actions: [
           {
@@ -2964,7 +2970,7 @@ function initializeCloudFileTransfers() {
       fileName: transfer.fileName,
       fileSize: transfer.fileSize,
       sourceDeviceId: transfer.sourceDeviceId,
-      destination: path.join(os.homedir(), 'Documents', 'OpenX')
+      destination: getCloudReceivedDirectory()
     });
     const presented = presentCloudFileTransferPrompt(transfer);
     if (!presented) {
@@ -3575,7 +3581,7 @@ function setupIPC() {
         data: {
           fileName,
           status: accepted ? 'accepted' : 'failed',
-          destination: path.join(os.homedir(), 'Documents', 'OpenX')
+          destination: getCloudReceivedDirectory()
         },
         error: accepted ? null : 'File transfer could not be accepted.'
       };

@@ -28,12 +28,30 @@ describe('Assistant Data Root', function() {
     assert.equal(paths.voiceDir, path.join(paths.root, 'voice'));
     assert.equal(paths.voiceDiagnosticsDir, path.join(paths.voiceDir, 'diagnostics'));
     assert.equal(paths.cloudDir, path.join(paths.root, 'cloud'));
-    assert.equal(paths.cloudReceivedDir, path.join(os.homedir(), 'Documents', 'OpenX'));
+    assert.equal(paths.cloudReceivedDir, path.join(dataRoot.resolveDocumentsDirectory(), 'OpenX'));
     assert.equal(paths.cloudTempDir, path.join(paths.root, 'runtime', 'cloud-transfer'));
     assert.equal(paths.visualMemoryDir, path.join(paths.root, 'visual-memory'));
     assert.equal(paths.visualMemoryDatabasePath, path.join(paths.visualMemoryDir, 'visual-memory-db.json'));
     assert.equal(paths.visualMemoryThumbnailDir, path.join(paths.visualMemoryDir, 'thumbnails'));
     assert.equal(paths.legacyPhoneDir, undefined);
+  });
+
+  it('should resolve received files under the active Documents folder', function() {
+    const originalUserProfile = process.env.USERPROFILE;
+    const tempProfile = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-documents-profile-'));
+    const documentsDir = path.join(tempProfile, 'Documents');
+    fs.mkdirSync(documentsDir, { recursive: true });
+
+    try {
+      process.env.USERPROFILE = tempProfile;
+      const paths = dataRoot.buildDataPaths({});
+
+      assert.equal(paths.cloudReceivedDir, path.join(documentsDir, 'OpenX'));
+    } finally {
+      if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = originalUserProfile;
+      fs.rmSync(tempProfile, { recursive: true, force: true });
+    }
   });
 
   it('should keep managed paths under a configured data root', function() {

@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const EventEmitter = require('events');
+const { resolveDocumentsDirectory } = require('../../core/assistant/Data');
 const { CloudFileTransferManager, CloudFileTransferProtocol } = require('../../core/cloud');
 
 function createConnection() {
@@ -49,7 +50,7 @@ describe('CloudFileTransferManager', () => {
       logger: { info() {}, warn() {}, error() {} }
     });
 
-    assert.equal(manager.getReceiveDirectory(), path.join(os.homedir(), 'Documents', 'OpenX'));
+    assert.equal(manager.getReceiveDirectory(), path.join(resolveDocumentsDirectory(), 'OpenX'));
     assert.equal(manager.getTempDirectory(), path.join(tempDir, 'runtime', 'cloud-transfer'));
   });
 

@@ -107,6 +107,61 @@ describe('VisualMemoryEngine', () => {
     await engine.api.shutdown();
   });
 
+  it('registers the current Windows Pictures folder as the default Gallery library', async () => {
+    const originalUserProfile = process.env.USERPROFILE;
+    const dataDir = makeTempDir();
+    const profileDir = path.join(dataDir, 'profile');
+    const picturesDir = path.join(profileDir, 'Pictures');
+    fs.mkdirSync(picturesDir, { recursive: true });
+    writeMinimalPng(path.join(picturesDir, 'default-library.png'), 3, 3);
+    process.env.USERPROFILE = profileDir;
+
+    const engine = new VisualMemoryEngine({ dataDir: path.join(dataDir, 'state'), logging: { console: false, file: false } });
+    try {
+      await engine.api.start();
+      const folders = await engine.api.addDefaultFolders();
+      const summary = await engine.api.refreshGallery();
+      const gallery = engine.api.getPhotos({ pageSize: 10 });
+
+      assert.ok(folders.some(folder => folder.path === picturesDir));
+      assert.strictEqual(summary.indexed, 1);
+      assert.strictEqual(gallery.items[0].fileName, 'default-library.png');
+    } finally {
+      await engine.api.shutdown();
+      process.env.USERPROFILE = originalUserProfile;
+    }
+  });
+
+  it('removes stale default Gallery folders copied from another laptop', async () => {
+    const originalUserProfile = process.env.USERPROFILE;
+    const dataDir = makeTempDir();
+    const profileDir = path.join(dataDir, 'profile');
+    const picturesDir = path.join(profileDir, 'Pictures');
+    fs.mkdirSync(picturesDir, { recursive: true });
+    process.env.USERPROFILE = profileDir;
+
+    const engine = new VisualMemoryEngine({ dataDir: path.join(dataDir, 'state'), logging: { console: false, file: false } });
+    try {
+      await engine.api.start();
+      await engine.database.upsert('folders', 'stale-default', {
+        id: 'stale-default',
+        path: path.join(dataDir, 'old-laptop', 'Pictures'),
+        label: 'Old Laptop Pictures',
+        source: 'default',
+        enabled: true
+      });
+
+      await engine.api.addDefaultFolders();
+      const folders = engine.api.listFolders();
+
+      assert.equal(engine.api.getFolder('stale-default'), null);
+      assert.ok(folders.some(folder => folder.path === picturesDir));
+    } finally {
+      await engine.api.shutdown();
+      process.env.USERPROFILE = originalUserProfile;
+    }
+  });
+
   it('generates thumbnail cache records without image processing dependencies', async () => {
     const dataDir = makeTempDir();
     const photoDir = path.join(dataDir, 'photos');
