@@ -27,6 +27,7 @@ const { SettingsService } = require('../settings');
 const { AssistantEventBus, EVENTS, Logger } = require('../../../core/assistant/Data');
 const { ensureDataRoot, migrateLegacyData, readJsonFile, writeJsonAtomic } = require('../../../core/assistant/Data');
 const { VisualMemoryEngine } = require('../../../core/assistant/capabilities/visual-memory');
+const { ConversationManager } = require('../../../core/chat/conversations');
 const { CloudCommandManager, CloudConnectionManager, CloudFileTransferManager, CloudLogger, CloudPairingManager } = require('../../../core/cloud');
 const CrashRecoveryPolicy = require('./crash-recovery');
 const OpenXSecurityLock = require('../security-lock');
@@ -295,6 +296,8 @@ let signalHandling = false;
 let stableRuntimeHandle = null;
 let chatLoweredForPlanner = false;
 let securityLockService = null;
+let desktopChatConversationManager = null;
+let desktopChatConversationReady = null;
 let cloudConnectionManager = null;
 let cloudPairingManager = null;
 let cloudCommandManager = null;
@@ -333,6 +336,10 @@ const IPC_CHANNELS = [
   'chatHistory:get',
   'chatHistory:save',
   'chatHistory:clear',
+  'desktopChat:list',
+  'desktopChat:open',
+  'desktopChat:create',
+  'desktopChat:send',
   'uiState:get',
   'uiState:save',
   'security:status',
@@ -970,6 +977,161 @@ function writeChatHistory(entries = []) {
 function clearChatHistory() {
   writeJsonAtomic(chatHistoryPath(), [], { backup: true, maxBytes: 1024 * 1024 });
   return { success: true, count: 0, entries: [] };
+}
+
+function desktopChatConversationsPath() {
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG?.app?.dataPaths || {};
+  return dataPaths.chatConversationsPath || path.join(dataPaths.root || BASE_CONFIG.app.dataDir || app.getPath('userData'), 'chat-conversations.json');
+}
+
+async function getDesktopChatConversationManager() {
+  if (!desktopChatConversationManager) {
+    desktopChatConversationManager = new ConversationManager({
+      config: {
+        storagePath: desktopChatConversationsPath(),
+        defaultPageSize: 30,
+        maxPageSize: 100
+      }
+    });
+    desktopChatConversationReady = desktopChatConversationManager.initialize();
+  }
+  await desktopChatConversationReady;
+  return desktopChatConversationManager;
+}
+
+function normalizeDesktopChatText(value, maxLength = 1200) {
+  return String(value || '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+    .replace(/[\u202A-\u202E\u2066-\u2069]/g, '')
+    .trim()
+    .slice(0, maxLength);
+}
+
+function serializeDesktopChatHistory(history = []) {
+  return (Array.isArray(history) ? history : [])
+    .map((entry, index) => {
+      const text = normalizeDesktopChatText(entry.searchText || entry.text || entry.preview, 1200);
+      if (!text) return null;
+      return {
+        messageId: normalizeDesktopChatText(entry.messageId || `message-${index}`, 100),
+        text,
+        direction: entry.direction === 'outgoing' ? 'outgoing' : 'incoming',
+        timestamp: entry.timestamp || entry.createdAt || new Date().toISOString()
+      };
+    })
+    .filter(Boolean)
+    .slice(-60);
+}
+
+function serializeDesktopChatConversation(conversation = {}, history = []) {
+  const metadata = conversation.metadata && typeof conversation.metadata === 'object' ? conversation.metadata : {};
+  const safeHistory = serializeDesktopChatHistory(history);
+  const lastHistory = safeHistory.length > 0 ? safeHistory[safeHistory.length - 1] : null;
+  const title = normalizeDesktopChatText(metadata.title || metadata.name || conversation.title || 'New Chat', 80) || 'New Chat';
+  const peerHandle = normalizeDesktopChatText(metadata.peerHandle || metadata.openxId || '', 120);
+  const status = normalizeDesktopChatText(metadata.status || peerHandle || 'Local messages', 120) || 'Local messages';
+  return {
+    conversationId: normalizeDesktopChatText(conversation.conversationId, 100),
+    relationshipId: normalizeDesktopChatText(conversation.relationshipId, 100),
+    title,
+    status,
+    peerHandle,
+    peerType: normalizeDesktopChatText(metadata.peerType || 'openx', 40) || 'openx',
+    preview: normalizeDesktopChatText(conversation.preview || lastHistory?.text || 'No messages yet', 140),
+    unreadCount: Math.max(0, Number(conversation.unreadCount || 0)),
+    pinned: conversation.pinned === true,
+    muted: conversation.muted === true,
+    lastMessageTimestamp: conversation.lastMessageTimestamp || lastHistory?.timestamp || conversation.updatedAt || conversation.createdAt || null,
+    updatedAt: conversation.updatedAt || null,
+    createdAt: conversation.createdAt || null,
+    metadata: {
+      title,
+      status,
+      peerHandle,
+      peerType: normalizeDesktopChatText(metadata.peerType || 'openx', 40) || 'openx'
+    },
+    history: safeHistory
+  };
+}
+
+async function listDesktopChatConversations(input = {}) {
+  const manager = await getDesktopChatConversationManager();
+  const query = normalizeDesktopChatText(input.query, 120);
+  const limit = Math.max(1, Math.min(50, Number(input.limit || 30)));
+  const page = query
+    ? await manager.search({ query, limit, includeArchived: false, includeMessages: false })
+    : await manager.list({ limit, includeArchived: false });
+  const conversations = (Array.isArray(page.items) ? page.items : [])
+    .map(item => item.conversation || item)
+    .filter(Boolean);
+  const serialized = [];
+  for (const conversation of conversations) {
+    const history = await manager.storage.listHistory(conversation.conversationId);
+    serialized.push(serializeDesktopChatConversation(conversation, history.slice(-6)));
+  }
+  return {
+    success: true,
+    count: serialized.length,
+    conversations: serialized,
+    nextCursor: page.nextCursor || null
+  };
+}
+
+async function openDesktopChatConversation(input = {}) {
+  const manager = await getDesktopChatConversationManager();
+  const conversation = await manager.markRead(input.conversationId);
+  const history = await manager.storage.listHistory(conversation.conversationId);
+  return {
+    success: true,
+    conversation: serializeDesktopChatConversation(conversation, history)
+  };
+}
+
+async function createDesktopChatConversation(input = {}) {
+  const manager = await getDesktopChatConversationManager();
+  const title = normalizeDesktopChatText(input.peerName || input.name || input.title || 'New Chat', 80) || 'New Chat';
+  const peerHandle = normalizeDesktopChatText(input.peerHandle || input.openxId || input.identifier, 120);
+  const peerType = normalizeDesktopChatText(input.peerType || 'openx', 40) || 'openx';
+  const relationshipSeed = peerHandle
+    ? `${peerType}:${peerHandle.toLowerCase()}`
+    : `local:${crypto.randomBytes(32).toString('hex')}`;
+  const conversation = await manager.createConversation({
+    relationshipId: `rel_${crypto.createHash('sha256').update(`openx-chat-peer:${relationshipSeed}`).digest('hex')}`,
+    metadata: {
+      title,
+      name: title,
+      peerHandle,
+      peerType,
+      status: peerHandle || 'Local messages',
+      addedFrom: 'desktop-chat'
+    }
+  });
+  const history = await manager.storage.listHistory(conversation.conversationId);
+  return {
+    success: true,
+    conversation: serializeDesktopChatConversation(conversation, history)
+  };
+}
+
+async function sendDesktopChatMessage(input = {}) {
+  const manager = await getDesktopChatConversationManager();
+  const text = normalizeDesktopChatText(input.text, 1200);
+  if (!text) throw new Error('Message text is required.');
+  const conversation = await manager.addMessage({
+    conversationId: input.conversationId,
+    messageId: `msg_${crypto.randomBytes(32).toString('hex')}`,
+    text,
+    searchText: text,
+    preview: text,
+    direction: 'outgoing',
+    unread: false,
+    timestamp: new Date().toISOString()
+  });
+  const history = await manager.storage.listHistory(conversation.conversationId);
+  return {
+    success: true,
+    conversation: serializeDesktopChatConversation(conversation, history)
+  };
 }
 
 function normalizeUiStateText(value, limit = 1000) {
@@ -3393,6 +3555,22 @@ function setupIPC() {
 
   registerIpcHandler('chatHistory:clear', async () => {
     return clearChatHistory();
+  });
+
+  registerIpcHandler('desktopChat:list', async (_event, payload) => {
+    return listDesktopChatConversations(payload || {});
+  });
+
+  registerIpcHandler('desktopChat:open', async (_event, payload) => {
+    return openDesktopChatConversation(payload || {});
+  });
+
+  registerIpcHandler('desktopChat:create', async (_event, payload) => {
+    return createDesktopChatConversation(payload || {});
+  });
+
+  registerIpcHandler('desktopChat:send', async (_event, payload) => {
+    return sendDesktopChatMessage(payload || {});
   });
 
   registerIpcHandler('uiState:get', async () => {

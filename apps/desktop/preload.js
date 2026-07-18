@@ -825,6 +825,18 @@ const openxApi = {
   clearChatHistory: () =>
     ipcRenderer.invoke('chatHistory:clear'),
 
+  listDesktopChatConversations: (query = {}) =>
+    ipcRenderer.invoke('desktopChat:list', query),
+
+  openDesktopChatConversation: (conversationId) =>
+    ipcRenderer.invoke('desktopChat:open', { conversationId }),
+
+  createDesktopChatConversation: (conversation = {}) =>
+    ipcRenderer.invoke('desktopChat:create', conversation),
+
+  sendDesktopChatMessage: (message = {}) =>
+    ipcRenderer.invoke('desktopChat:send', message),
+
   getUiState: () =>
     ipcRenderer.invoke('uiState:get'),
 

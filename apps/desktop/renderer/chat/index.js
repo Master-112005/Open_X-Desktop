@@ -71,12 +71,32 @@ const securityUnlockConfirm = document.getElementById('security-unlock-confirm')
 const chatViewBtn = document.getElementById('chat-view-btn');
 const activityViewBtn = document.getElementById('activity-view-btn');
 const appsViewBtn = document.getElementById('apps-view-btn');
+const peopleChatAppBtn = document.getElementById('people-chat-app-btn');
 const calendarAppBtn = document.getElementById('calendar-app-btn');
 const galleryAppBtn = document.getElementById('gallery-app-btn');
 const settingsAppBtn = document.getElementById('settings-app-btn');
 const conversationView = document.getElementById('conversation-view');
+const peopleChatView = document.getElementById('people-chat-view');
 const activityView = document.getElementById('activity-view');
 const appsView = document.getElementById('apps-view');
+const peopleChatShellEl = document.querySelector('.people-chat-shell');
+const peopleChatListEl = document.getElementById('people-chat-list');
+const peopleChatThreadEl = document.getElementById('people-chat-thread');
+const peopleChatTitleEl = document.getElementById('people-chat-thread-title');
+const peopleChatStatusEl = document.getElementById('people-chat-thread-status');
+const peopleChatAvatarEl = document.getElementById('people-chat-thread-avatar');
+const peopleChatInputEl = document.getElementById('people-chat-input');
+const peopleChatSearchEl = document.getElementById('people-chat-search');
+const peopleChatComposerEl = document.getElementById('people-chat-composer');
+const peopleChatNewBtn = document.getElementById('people-chat-new-btn');
+const peopleChatCloseBtn = document.getElementById('people-chat-close-btn');
+const peopleChatBackBtn = document.getElementById('people-chat-back-btn');
+const peopleChatAddUserEl = document.getElementById('people-chat-add-user');
+const peopleChatUserNameEl = document.getElementById('people-chat-user-name');
+const peopleChatUserIdEl = document.getElementById('people-chat-user-id');
+const peopleChatAddCancelBtn = document.getElementById('people-chat-add-cancel');
+const peopleChatAddStatusEl = document.getElementById('people-chat-add-status');
+const peopleChatFilterButtons = document.querySelectorAll('.people-chat-filter');
 const activityBadge = document.getElementById('activity-badge');
 const scheduleListEl = document.getElementById('schedule-list');
 const scheduleCountEl = document.getElementById('schedule-count');
@@ -93,8 +113,29 @@ const MAX_NOTIFICATION_HISTORY = 30;
 const CHAT_HISTORY_LIMIT = 100;
 const MAX_RENDERED_MESSAGES = CHAT_HISTORY_LIMIT;
 const MAX_CHAT_VISUAL_RESULTS = 10;
+const PEOPLE_CHAT_LIMIT = 30;
+const PEOPLE_CHAT_HISTORY_LIMIT = 60;
 const ASSISTANT_MUTED_STORAGE_KEY = 'openx-assistant-voice-muted-v1';
 const STORAGE_SAVE_DEBOUNCE_MS = 180;
+
+const PEOPLE_CHAT_FALLBACK_CONVERSATIONS = Object.freeze([
+  {
+    conversationId: 'local-demo-openx',
+    title: 'OpenX Chat',
+    status: 'Local chat ready',
+    pinned: true,
+    unreadCount: 0,
+    lastMessageTimestamp: new Date().toISOString(),
+    history: [
+      {
+        messageId: 'local-demo-message',
+        direction: 'incoming',
+        text: 'Start a local chat from this app.',
+        timestamp: new Date().toISOString()
+      }
+    ]
+  }
+]);
 
 let isProcessing = false;
 let pendingConfirmation = null;
@@ -110,6 +151,14 @@ let selectedModeIndex = 0;
 const selectedModeApps = new Map();
 let activeWorkspaceView = 'chat';
 let activeAboutTrigger = null;
+let peopleChatConversations = [];
+let activePeopleChatId = null;
+let peopleChatFilter = 'all';
+let peopleChatLoaded = false;
+let peopleChatLoading = false;
+let peopleChatSearchTimer = null;
+let peopleChatThreadOpen = false;
+let peopleChatAddUserOpen = false;
 let scheduleItems = [];
 let notificationHistory = [];
 let conversationHistory = [];
@@ -870,13 +919,381 @@ function hideTyping() {
   }
 }
 
+function peopleChatInitials(name) {
+  const words = String(name || 'OpenX Chat').trim().split(/\s+/).filter(Boolean);
+  const initials = words.slice(0, 2).map(word => word[0]).join('').toUpperCase();
+  return initials || 'OX';
+}
+
+function formatPeopleChatTime(value) {
+  const timestamp = new Date(value || Date.now()).getTime();
+  if (!Number.isFinite(timestamp)) return '';
+  const date = new Date(timestamp);
+  const now = new Date();
+  const sameDay = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  return sameDay
+    ? date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function normalizePeopleChatHistory(history = []) {
+  return (Array.isArray(history) ? history : [])
+    .map((entry, index) => {
+      const text = String(entry?.text || entry?.searchText || entry?.preview || '').trim().slice(0, 1200);
+      if (!text) return null;
+      return {
+        messageId: String(entry?.messageId || `local-message-${index}`),
+        text,
+        direction: entry?.direction === 'outgoing' ? 'outgoing' : 'incoming',
+        timestamp: entry?.timestamp || entry?.createdAt || new Date().toISOString()
+      };
+    })
+    .filter(Boolean)
+    .slice(-PEOPLE_CHAT_HISTORY_LIMIT);
+}
+
+function normalizePeopleChatConversation(entry = {}) {
+  const metadata = entry.metadata && typeof entry.metadata === 'object' ? entry.metadata : {};
+  const title = String(entry.title || metadata.title || metadata.name || 'New Chat').trim().slice(0, 80) || 'New Chat';
+  const peerHandle = String(entry.peerHandle || metadata.peerHandle || metadata.openxId || '').trim().slice(0, 120);
+  const history = normalizePeopleChatHistory(entry.history);
+  const lastMessage = history.length > 0 ? history[history.length - 1] : null;
+  const lastMessageTimestamp = entry.lastMessageTimestamp || lastMessage?.timestamp || entry.updatedAt || entry.createdAt || new Date().toISOString();
+  return {
+    conversationId: String(entry.conversationId || entry.id || '').trim(),
+    relationshipId: String(entry.relationshipId || '').trim(),
+    title,
+    status: String(entry.status || metadata.status || peerHandle || 'Local messages').trim().slice(0, 120) || 'Local messages',
+    peerHandle,
+    peerType: String(entry.peerType || metadata.peerType || 'openx').trim().slice(0, 40) || 'openx',
+    preview: String(entry.preview || entry.lastMessagePreview || lastMessage?.text || 'No messages yet').trim().slice(0, 140),
+    unreadCount: Math.max(0, Number(entry.unreadCount || 0)),
+    pinned: entry.pinned === true,
+    muted: entry.muted === true,
+    lastMessageTimestamp,
+    history
+  };
+}
+
+function replacePeopleChatConversation(conversation) {
+  const normalized = normalizePeopleChatConversation(conversation);
+  if (!normalized.conversationId) return null;
+  const index = peopleChatConversations.findIndex(item => item.conversationId === normalized.conversationId);
+  if (index >= 0) {
+    peopleChatConversations[index] = normalized;
+  } else {
+    peopleChatConversations.unshift(normalized);
+  }
+  peopleChatConversations.sort((left, right) => {
+    if (left.pinned !== right.pinned) return left.pinned ? -1 : 1;
+    return Date.parse(right.lastMessageTimestamp || 0) - Date.parse(left.lastMessageTimestamp || 0);
+  });
+  return normalized;
+}
+
+function visiblePeopleChatConversations() {
+  const query = String(peopleChatSearchEl?.value || '').trim().toLowerCase();
+  return peopleChatConversations.filter(conversation => {
+    if (peopleChatFilter === 'unread' && conversation.unreadCount <= 0) return false;
+    if (peopleChatFilter === 'pinned' && !conversation.pinned) return false;
+    if (!query) return true;
+    return [
+      conversation.title,
+      conversation.status,
+      conversation.preview
+    ].join(' ').toLowerCase().includes(query);
+  });
+}
+
+function renderPeopleChatList() {
+  if (!peopleChatListEl) return;
+  peopleChatListEl.replaceChildren();
+  if (peopleChatLoading) {
+    const loading = document.createElement('div');
+    loading.className = 'people-chat-empty';
+    loading.textContent = 'Loading chats...';
+    peopleChatListEl.appendChild(loading);
+    return;
+  }
+
+  const conversations = visiblePeopleChatConversations();
+  if (conversations.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'people-chat-empty';
+    empty.textContent = peopleChatConversations.length === 0 ? 'No chats yet.' : 'No chats match this view.';
+    peopleChatListEl.appendChild(empty);
+    return;
+  }
+
+  conversations.forEach(conversation => {
+    const row = document.createElement('button');
+    row.className = 'people-chat-row';
+    row.type = 'button';
+    row.dataset.conversationId = conversation.conversationId;
+    row.setAttribute('role', 'listitem');
+    row.classList.toggle('active', conversation.conversationId === activePeopleChatId);
+
+    const avatar = document.createElement('span');
+    avatar.className = 'people-chat-avatar';
+    avatar.textContent = peopleChatInitials(conversation.title);
+
+    const copy = document.createElement('span');
+    copy.className = 'people-chat-row-copy';
+    const title = document.createElement('strong');
+    title.textContent = conversation.title;
+    const preview = document.createElement('small');
+    preview.textContent = conversation.preview || 'No messages yet';
+    copy.append(title, preview);
+
+    const meta = document.createElement('span');
+    meta.className = 'people-chat-row-meta';
+    const time = document.createElement('span');
+    time.textContent = formatPeopleChatTime(conversation.lastMessageTimestamp);
+    meta.appendChild(time);
+    if (conversation.unreadCount > 0) {
+      const badge = document.createElement('b');
+      badge.textContent = String(Math.min(conversation.unreadCount, 99));
+      meta.appendChild(badge);
+    }
+
+    row.append(avatar, copy, meta);
+    row.addEventListener('click', () => selectPeopleChatConversation(conversation.conversationId));
+    peopleChatListEl.appendChild(row);
+  });
+}
+
+function renderPeopleChatThread() {
+  if (!peopleChatThreadEl) return;
+  const active = peopleChatConversations.find(item => item.conversationId === activePeopleChatId) || null;
+  peopleChatThreadEl.replaceChildren();
+  if (peopleChatTitleEl) peopleChatTitleEl.textContent = active?.title || 'OpenX Chat';
+  if (peopleChatStatusEl) peopleChatStatusEl.textContent = active?.status || 'Local messages';
+  if (peopleChatAvatarEl) peopleChatAvatarEl.textContent = peopleChatInitials(active?.title || 'OpenX Chat');
+  if (!active) {
+    const empty = document.createElement('div');
+    empty.className = 'people-chat-thread-empty';
+    empty.textContent = 'Select a chat or start a new one.';
+    peopleChatThreadEl.appendChild(empty);
+    return;
+  }
+
+  if (active.history.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'people-chat-thread-empty';
+    empty.textContent = 'No messages in this chat yet.';
+    peopleChatThreadEl.appendChild(empty);
+    return;
+  }
+
+  active.history.forEach(message => {
+    const item = document.createElement('div');
+    item.className = `people-chat-message ${message.direction === 'outgoing' ? 'outgoing' : 'incoming'}`;
+    const bubble = document.createElement('span');
+    bubble.className = 'people-chat-bubble';
+    bubble.textContent = message.text;
+    const time = document.createElement('small');
+    time.textContent = formatPeopleChatTime(message.timestamp);
+    item.append(bubble, time);
+    peopleChatThreadEl.appendChild(item);
+  });
+  peopleChatThreadEl.scrollTop = peopleChatThreadEl.scrollHeight;
+}
+
+function renderPeopleChat() {
+  if (peopleChatThreadOpen && !activePeopleChatId && peopleChatConversations.length > 0) {
+    activePeopleChatId = peopleChatConversations[0].conversationId;
+  }
+  peopleChatShellEl?.classList.toggle('thread-open', peopleChatThreadOpen);
+  peopleChatShellEl?.classList.toggle('list-open', !peopleChatThreadOpen);
+  if (peopleChatAddUserEl) peopleChatAddUserEl.hidden = !peopleChatAddUserOpen || peopleChatThreadOpen;
+  renderPeopleChatList();
+  renderPeopleChatThread();
+}
+
+function returnPeopleChatToList() {
+  peopleChatThreadOpen = false;
+  activePeopleChatId = null;
+  peopleChatAddUserOpen = false;
+  renderPeopleChat();
+  requestAnimationFrame(() => peopleChatSearchEl?.focus());
+}
+
+function closePeopleChatApp() {
+  peopleChatThreadOpen = false;
+  activePeopleChatId = null;
+  peopleChatAddUserOpen = false;
+  renderPeopleChat();
+  setWorkspaceView('apps');
+}
+
+function openPeopleChatAddUser() {
+  peopleChatAddUserOpen = true;
+  peopleChatThreadOpen = false;
+  activePeopleChatId = null;
+  if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = '';
+  renderPeopleChat();
+  requestAnimationFrame(() => peopleChatUserNameEl?.focus());
+}
+
+function closePeopleChatAddUser() {
+  peopleChatAddUserOpen = false;
+  if (peopleChatUserNameEl) peopleChatUserNameEl.value = '';
+  if (peopleChatUserIdEl) peopleChatUserIdEl.value = '';
+  if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = '';
+  renderPeopleChat();
+  requestAnimationFrame(() => peopleChatSearchEl?.focus());
+}
+
+async function loadPeopleChatConversations(options = {}) {
+  if (!peopleChatView) return;
+  if (peopleChatLoading) return;
+  if (peopleChatLoaded && options.force !== true) {
+    renderPeopleChat();
+    return;
+  }
+  peopleChatLoading = true;
+  renderPeopleChatList();
+  try {
+    const query = String(peopleChatSearchEl?.value || '').trim();
+    if (window.openx?.listDesktopChatConversations) {
+      const result = await window.openx.listDesktopChatConversations({ query, limit: PEOPLE_CHAT_LIMIT });
+      peopleChatConversations = (Array.isArray(result?.conversations) ? result.conversations : [])
+        .map(normalizePeopleChatConversation)
+        .filter(conversation => conversation.conversationId);
+    } else {
+      peopleChatConversations = PEOPLE_CHAT_FALLBACK_CONVERSATIONS.map(normalizePeopleChatConversation);
+    }
+    if (peopleChatThreadOpen && (!activePeopleChatId || !peopleChatConversations.some(item => item.conversationId === activePeopleChatId))) {
+      activePeopleChatId = peopleChatConversations[0]?.conversationId || null;
+    }
+    peopleChatLoaded = true;
+  } catch (error) {
+    showToast('Chat could not load', error?.message || 'Local chat data is unavailable.', 'error');
+  } finally {
+    peopleChatLoading = false;
+    renderPeopleChat();
+  }
+}
+
+async function selectPeopleChatConversation(conversationId) {
+  activePeopleChatId = conversationId;
+  peopleChatThreadOpen = true;
+  renderPeopleChat();
+  if (!window.openx?.openDesktopChatConversation || !/^conv_[a-f0-9]{64}$/i.test(String(conversationId || ''))) return;
+  try {
+    const result = await window.openx.openDesktopChatConversation(conversationId);
+    if (result?.conversation) {
+      replacePeopleChatConversation(result.conversation);
+      renderPeopleChat();
+    }
+  } catch (error) {
+    showToast('Chat could not open', error?.message || 'Conversation data is unavailable.', 'error');
+  }
+}
+
+async function createPeopleChatConversation(event) {
+  event?.preventDefault?.();
+  const title = String(peopleChatUserNameEl?.value || '').trim();
+  const peerHandle = String(peopleChatUserIdEl?.value || '').trim();
+  if (!title || !peerHandle) {
+    if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = 'Name and ID are required.';
+    return;
+  }
+  if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = 'Adding...';
+  if (window.openx?.createDesktopChatConversation) {
+    try {
+      const result = await window.openx.createDesktopChatConversation({
+        title,
+        peerName: title,
+        peerHandle
+      });
+      if (result?.conversation) {
+        const conversation = replacePeopleChatConversation(result.conversation);
+        activePeopleChatId = conversation?.conversationId || activePeopleChatId;
+        peopleChatThreadOpen = true;
+        peopleChatAddUserOpen = false;
+        peopleChatLoaded = true;
+        if (peopleChatUserNameEl) peopleChatUserNameEl.value = '';
+        if (peopleChatUserIdEl) peopleChatUserIdEl.value = '';
+        if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = '';
+        renderPeopleChat();
+        requestAnimationFrame(() => peopleChatInputEl?.focus());
+        return;
+      }
+    } catch (error) {
+      showToast('Chat could not be created', error?.message || 'Local chat data is unavailable.', 'error');
+    }
+  }
+
+  const now = new Date().toISOString();
+  const conversation = replacePeopleChatConversation({
+    conversationId: `local-${Date.now()}`,
+    title,
+    status: peerHandle,
+    peerHandle,
+    lastMessageTimestamp: now,
+    history: []
+  });
+  activePeopleChatId = conversation?.conversationId || activePeopleChatId;
+  peopleChatThreadOpen = true;
+  peopleChatAddUserOpen = false;
+  if (peopleChatUserNameEl) peopleChatUserNameEl.value = '';
+  if (peopleChatUserIdEl) peopleChatUserIdEl.value = '';
+  if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = '';
+  renderPeopleChat();
+  requestAnimationFrame(() => peopleChatInputEl?.focus());
+}
+
+async function sendPeopleChatMessage(event) {
+  event?.preventDefault?.();
+  const text = String(peopleChatInputEl?.value || '').trim();
+  if (!text) return;
+  if (!activePeopleChatId) {
+    showToast('Choose a person first', 'Select a chat or add a user before sending a message.', 'warning');
+    return;
+  }
+  peopleChatInputEl.value = '';
+
+  if (window.openx?.sendDesktopChatMessage && /^conv_[a-f0-9]{64}$/i.test(String(activePeopleChatId))) {
+    try {
+      const result = await window.openx.sendDesktopChatMessage({ conversationId: activePeopleChatId, text });
+      if (result?.conversation) {
+        replacePeopleChatConversation(result.conversation);
+        renderPeopleChat();
+        return;
+      }
+    } catch (error) {
+      showToast('Message could not be saved', error?.message || 'Local chat data is unavailable.', 'error');
+    }
+  }
+
+  const conversation = peopleChatConversations.find(item => item.conversationId === activePeopleChatId);
+  if (!conversation) return;
+  const timestamp = new Date().toISOString();
+  conversation.history.push({
+    messageId: `local-message-${Date.now()}`,
+    direction: 'outgoing',
+    text,
+    timestamp
+  });
+  conversation.history = conversation.history.slice(-PEOPLE_CHAT_HISTORY_LIMIT);
+  conversation.preview = text.slice(0, 140);
+  conversation.lastMessageTimestamp = timestamp;
+  renderPeopleChat();
+}
+
 function setWorkspaceView(viewName) {
-  activeWorkspaceView = viewName === 'activity' || viewName === 'apps' ? viewName : 'chat';
+  activeWorkspaceView = ['activity', 'apps', 'people-chat'].includes(viewName) ? viewName : 'chat';
   const showingActivity = activeWorkspaceView === 'activity';
   const showingApps = activeWorkspaceView === 'apps';
+  const showingPeopleChat = activeWorkspaceView === 'people-chat';
   const showingChat = activeWorkspaceView === 'chat';
   conversationView.classList.toggle('active', showingChat);
   conversationView.hidden = !showingChat;
+  peopleChatView.classList.toggle('active', showingPeopleChat);
+  peopleChatView.hidden = !showingPeopleChat;
   activityView.classList.toggle('active', showingActivity);
   activityView.hidden = !showingActivity;
   appsView.classList.toggle('active', showingApps);
@@ -889,6 +1306,12 @@ function setWorkspaceView(viewName) {
   appsViewBtn.setAttribute('aria-pressed', String(showingApps));
   if (showingActivity) {
     renderActivity();
+  } else if (showingPeopleChat) {
+    peopleChatThreadOpen = false;
+    activePeopleChatId = null;
+    peopleChatAddUserOpen = false;
+    loadPeopleChatConversations();
+    requestAnimationFrame(() => peopleChatSearchEl?.focus());
   } else if (showingChat) {
     requestAnimationFrame(() => inputBox.focus());
   }
@@ -2908,6 +3331,11 @@ sendBtn.addEventListener('click', handleSend);
 chatViewBtn.addEventListener('click', () => setWorkspaceView('chat'));
 activityViewBtn.addEventListener('click', () => setWorkspaceView('activity'));
 appsViewBtn.addEventListener('click', () => setWorkspaceView('apps'));
+peopleChatAppBtn?.addEventListener('click', () => {
+  peopleChatAppBtn.classList.add('opening');
+  setWorkspaceView('people-chat');
+  window.setTimeout(() => peopleChatAppBtn.classList.remove('opening'), 180);
+});
 calendarAppBtn?.addEventListener('click', () => {
   runHeaderApp(calendarAppBtn, () => window.openx?.openPlanner?.('calendar'));
 });
@@ -2916,6 +3344,31 @@ galleryAppBtn?.addEventListener('click', () => {
 });
 settingsAppBtn?.addEventListener('click', () => {
   openSettingsPanel();
+});
+peopleChatNewBtn?.addEventListener('click', openPeopleChatAddUser);
+peopleChatCloseBtn?.addEventListener('click', closePeopleChatApp);
+peopleChatBackBtn?.addEventListener('click', returnPeopleChatToList);
+peopleChatAddUserEl?.addEventListener('submit', createPeopleChatConversation);
+peopleChatAddCancelBtn?.addEventListener('click', closePeopleChatAddUser);
+peopleChatComposerEl?.addEventListener('submit', sendPeopleChatMessage);
+peopleChatSearchEl?.addEventListener('input', () => {
+  if (peopleChatSearchTimer) clearTimeout(peopleChatSearchTimer);
+  peopleChatSearchTimer = window.setTimeout(() => {
+    peopleChatSearchTimer = null;
+    if (window.openx?.listDesktopChatConversations) {
+      peopleChatLoaded = false;
+      loadPeopleChatConversations({ force: true });
+    } else {
+      renderPeopleChatList();
+    }
+  }, 140);
+});
+peopleChatFilterButtons.forEach(button => {
+  button.addEventListener('click', () => {
+    peopleChatFilter = button.dataset.chatFilter || 'all';
+    peopleChatFilterButtons.forEach(item => item.classList.toggle('active', item === button));
+    renderPeopleChatList();
+  });
 });
 document.getElementById('clear-notifications-btn').addEventListener('click', () => {
   notificationHistory = [];

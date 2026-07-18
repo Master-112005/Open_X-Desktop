@@ -92,6 +92,34 @@ describe('Electron Security Boundary', function() {
     assert.throws(() => IPC_VALIDATORS['chatHistory:clear']({}), /does not accept/);
   });
 
+  it('should validate desktop chat conversation IPC payloads', function() {
+    const conversationId = `conv_${'a'.repeat(64)}`;
+    assert.deepEqual(
+      IPC_VALIDATORS['desktopChat:list']({ query: '  mummy ', limit: 120 }),
+      { query: 'mummy', limit: 50 }
+    );
+    assert.deepEqual(
+      IPC_VALIDATORS['desktopChat:open']({ conversationId }),
+      { conversationId }
+    );
+    assert.deepEqual(
+      IPC_VALIDATORS['desktopChat:create']({ title: ' Family ' }),
+      { title: 'Family', peerName: 'Family', peerHandle: '', peerType: 'openx' }
+    );
+    assert.deepEqual(
+      IPC_VALIDATORS['desktopChat:create']({ peerName: ' Mummy ', peerHandle: ' mummy@openx ', peerType: 'openx' }),
+      { title: 'Mummy', peerName: 'Mummy', peerHandle: 'mummy@openx', peerType: 'openx' }
+    );
+    assert.deepEqual(
+      IPC_VALIDATORS['desktopChat:send']({ conversationId, text: ' hello ' }),
+      { conversationId, text: 'hello' }
+    );
+    assert.throws(() => IPC_VALIDATORS['desktopChat:open']({ conversationId: 'bad' }), /conversationId is invalid/);
+    assert.throws(() => IPC_VALIDATORS['desktopChat:send']({ conversationId, text: '' }), /must not be empty/);
+    assert.throws(() => IPC_VALIDATORS['desktopChat:create']({ title: 'x'.repeat(81) }), /exceeds/);
+    assert.throws(() => IPC_VALIDATORS['desktopChat:create']({ peerName: 'Mummy', peerHandle: 'x'.repeat(121) }), /exceeds/);
+  });
+
   it('should validate disk-backed renderer UI state IPC payloads', function() {
     assert.deepEqual(
       IPC_VALIDATORS['uiState:save']({
@@ -241,6 +269,7 @@ describe('Electron Security Boundary', function() {
       'window:openChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
       'window:openGallery', 'window:closeGallery',
       'config:get', 'settings:get', 'chatHistory:get', 'chatHistory:save', 'chatHistory:clear',
+      'desktopChat:list', 'desktopChat:open', 'desktopChat:create', 'desktopChat:send',
       'uiState:get', 'uiState:save',
       'security:status', 'security:verifyAccess', 'security:setPassword',
       'cloud:status', 'cloud:connect', 'cloud:disconnect',

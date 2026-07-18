@@ -11,7 +11,7 @@ describe('Chat Renderer UI', function() {
 
   it('should provide dedicated chat, activity, apps, notification, and info surfaces', function() {
     const headerActions = html.match(/<div id="header-actions">([\s\S]*?)<\/div>/)?.[1] || '';
-    ['conversation-view', 'activity-view', 'apps-view', 'toast-region', 'schedule-list', 'notification-list', 'calendar-app-btn', 'gallery-app-btn', 'settings-app-btn', 'header-about-btn', 'about-btn']
+    ['conversation-view', 'people-chat-view', 'activity-view', 'apps-view', 'toast-region', 'schedule-list', 'notification-list', 'people-chat-app-btn', 'calendar-app-btn', 'gallery-app-btn', 'settings-app-btn', 'header-about-btn', 'about-btn']
       .forEach(id => assert.match(html, new RegExp(`id="${id}"`)));
     assert.doesNotMatch(html, /id="alarm-overlay"/);
     assert.doesNotMatch(script, /alarmOverlay|alarm-dismiss-btn|alarm-snooze-btn/);
@@ -47,6 +47,42 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /#send-btn span\s*\{[\s\S]*display:\s*none/);
     assert.match(css, /\.app-card/);
     assert.match(css, /\.settings-header-actions/);
+  });
+
+  it('should expose OpenX Chat as an Apps surface with a WhatsApp-style local chat layout', function() {
+    assert.match(html, /id="people-chat-app-btn"[\s\S]*<strong>Chat<\/strong>[\s\S]*Messages with people/);
+    assert.match(html, /id="people-chat-view"[\s\S]*id="people-chat-list"[\s\S]*id="people-chat-thread"[\s\S]*id="people-chat-composer"/);
+    assert.match(html, /class="people-chat-shell list-open"/);
+    assert.match(html, /id="people-chat-close-btn"/);
+    assert.match(html, /id="people-chat-back-btn"[\s\S]*&lt;/);
+    assert.match(html, /id="people-chat-add-user"[\s\S]*id="people-chat-user-name"[\s\S]*id="people-chat-user-id"/);
+    assert.doesNotMatch(html, /aria-label="Search in chat"|aria-label="More options"/);
+    assert.match(script, /const peopleChatAppBtn = document\.getElementById\('people-chat-app-btn'\)/);
+    assert.match(script, /const peopleChatCloseBtn = document\.getElementById\('people-chat-close-btn'\)/);
+    assert.match(script, /const peopleChatBackBtn = document\.getElementById\('people-chat-back-btn'\)/);
+    assert.match(script, /const peopleChatUserNameEl = document\.getElementById\('people-chat-user-name'\)/);
+    assert.match(script, /const peopleChatUserIdEl = document\.getElementById\('people-chat-user-id'\)/);
+    assert.match(script, /setWorkspaceView\('people-chat'\)/);
+    assert.match(script, /function returnPeopleChatToList\(/);
+    assert.match(script, /function closePeopleChatApp\(/);
+    assert.match(script, /function openPeopleChatAddUser\(/);
+    assert.match(script, /peerHandle/);
+    assert.match(script, /window\.openx\?\.listDesktopChatConversations/);
+    assert.match(script, /window\.openx\?\.openDesktopChatConversation/);
+    assert.match(script, /window\.openx\?\.createDesktopChatConversation/);
+    assert.match(script, /window\.openx\?\.sendDesktopChatMessage/);
+    assert.match(script, /function renderPeopleChatList\(/);
+    assert.match(script, /function renderPeopleChatThread\(/);
+    assert.match(script, /function sendPeopleChatMessage\(/);
+    assert.doesNotMatch(script, /runHeaderApp\(peopleChatAppBtn/);
+    assert.match(css, /\.people-chat-shell\s*\{/);
+    assert.match(css, /grid-template-columns:\s*1fr/);
+    assert.match(css, /\.people-chat-shell\.thread-open \.people-chat-sidebar/);
+    assert.match(css, /\.people-chat-thread-pane\s*\{[\s\S]*display:\s*none/);
+    assert.match(css, /\.people-chat-add-user\s*\{/);
+    assert.match(css, /\.people-chat-row\s*\{/);
+    assert.match(css, /\.people-chat-message\.outgoing/);
+    assert.match(css, /\.people-chat-composer\s*\{/);
   });
 
   it('should keep assistant messages inside their bubbles at narrow widths', function() {

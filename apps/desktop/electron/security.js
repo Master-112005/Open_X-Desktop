@@ -148,6 +148,54 @@ function validateChatHistorySave(payload) {
   };
 }
 
+function requireDesktopChatConversationId(value, name = 'conversationId') {
+  const id = requireString(value, name, { maxLength: 100 }).toLowerCase();
+  if (!/^conv_[a-f0-9]{64}$/.test(id)) throw new TypeError(`${name} is invalid`);
+  return id;
+}
+
+function validateDesktopChatList(payload = {}) {
+  requirePlainObject(payload, 'desktopChat');
+  const query = payload.query === undefined
+    ? ''
+    : requireString(payload.query, 'desktopChat.query', { maxLength: 120, allowEmpty: true });
+  const limit = Math.max(1, Math.min(50, Number(payload.limit || 30)));
+  if (!Number.isFinite(limit)) throw new TypeError('desktopChat.limit is invalid');
+  return { query, limit };
+}
+
+function validateDesktopChatOpen(payload) {
+  requirePlainObject(payload, 'desktopChat');
+  return {
+    conversationId: requireDesktopChatConversationId(payload.conversationId)
+  };
+}
+
+function validateDesktopChatCreate(payload = {}) {
+  requirePlainObject(payload, 'desktopChat');
+  const title = requireString(payload.peerName || payload.name || payload.title || 'New Chat', 'desktopChat.title', { maxLength: 80 });
+  const peerHandle = payload.peerHandle === undefined && payload.openxId === undefined && payload.identifier === undefined
+    ? ''
+    : requireString(payload.peerHandle || payload.openxId || payload.identifier, 'desktopChat.peerHandle', { maxLength: 120 });
+  const peerType = payload.peerType === undefined
+    ? 'openx'
+    : requireString(payload.peerType, 'desktopChat.peerType', { maxLength: 40 });
+  return {
+    title,
+    peerName: title,
+    peerHandle,
+    peerType
+  };
+}
+
+function validateDesktopChatSend(payload) {
+  requirePlainObject(payload, 'desktopChat');
+  return {
+    conversationId: requireDesktopChatConversationId(payload.conversationId),
+    text: requireString(payload.text, 'desktopChat.text', { maxLength: 1200 })
+  };
+}
+
 function validateUiState(payload) {
   requirePlainObject(payload, 'uiState');
   const schedules = Array.isArray(payload.schedules) ? payload.schedules : [];
@@ -458,6 +506,10 @@ const IPC_VALIDATORS = Object.freeze({
   'chatHistory:get': validateEmpty,
   'chatHistory:save': validateChatHistorySave,
   'chatHistory:clear': validateEmpty,
+  'desktopChat:list': validateDesktopChatList,
+  'desktopChat:open': validateDesktopChatOpen,
+  'desktopChat:create': validateDesktopChatCreate,
+  'desktopChat:send': validateDesktopChatSend,
   'uiState:get': validateEmpty,
   'uiState:save': validateUiState,
   'security:status': validateEmpty,
