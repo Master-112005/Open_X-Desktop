@@ -78,6 +78,9 @@ class ConversationManager {
   /** @param {string} id ConversationID. @returns {Promise<object>} Conversation. */
   getConversation(id) { return this.service.getConversation(id); }
 
+  /** @param {string} id ConversationID. @param {object} metadata Metadata patch. @returns {Promise<object>} Conversation. */
+  updateConversationMetadata(id, metadata = {}) { return this.service.updateConversationMetadata(id, metadata); }
+
   /** @param {string} id ConversationID. @returns {Promise<object>} Conversation. */
   pin(id) { return this.service.pin(id); }
 

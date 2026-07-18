@@ -1,5 +1,5 @@
 const os = require('os');
-const path = require('path');
+const { chatDataPath } = require('../ChatDataPaths');
 
 /**
  * Desktop trusted device configuration.
@@ -20,7 +20,7 @@ class DeviceConfiguration {
     this.operatingSystem = options.operatingSystem || `${os.type()} ${os.release()}`;
     this.deviceType = options.deviceType || 'Desktop';
     this.capabilities = Object.freeze(options.capabilities || ['persistentConnection', 'largeStorage', 'backgroundProcessing']);
-    this.statePath = options.statePath || process.env.OPENX_CHAT_DEVICE_STATE_PATH || path.join(os.homedir(), 'Documents', 'OpenX_Data', 'chat-device.json');
+    this.statePath = options.statePath || process.env.OPENX_CHAT_DEVICE_STATE_PATH || chatDataPath('chat-device.json', options);
     this.requestTimeoutMs = Number(options.requestTimeoutMs || 15000);
     this.validate();
     Object.freeze(this);

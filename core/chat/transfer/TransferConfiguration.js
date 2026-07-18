@@ -1,5 +1,4 @@
-const os = require('os');
-const path = require('path');
+const { chatDataPath } = require('../ChatDataPaths');
 
 /**
  * Desktop Phase 12 file-transfer configuration.
@@ -17,7 +16,7 @@ class TransferConfiguration {
     this.retryBaseDelayMs = Number(options.retryBaseDelayMs || 1000);
     this.retryMaxDelayMs = Number(options.retryMaxDelayMs || 60000);
     this.thumbnailMaxDimension = Number(options.thumbnailMaxDimension || 320);
-    this.storagePath = options.storagePath || path.join(os.homedir(), 'Documents', 'OpenX_Data', 'chat-file-transfers.json');
+    this.storagePath = options.storagePath || chatDataPath('chat-file-transfers.json', options);
     this.encryptionVersion = String(options.encryptionVersion || 'phase4-aes-256-gcm');
     this.supportedImageExtensions = Object.freeze(options.supportedImageExtensions || ['jpg', 'jpeg', 'png', 'webp', 'gif']);
     this.supportedDocumentExtensions = Object.freeze(options.supportedDocumentExtensions || ['pdf', 'doc', 'docx', 'txt', 'rtf', 'odt']);

@@ -795,6 +795,9 @@ const openxApi = {
   openChat: () =>
     ipcRenderer.invoke('window:openChat'),
 
+  openDesktopChatApp: () =>
+    ipcRenderer.invoke('window:openPeopleChat'),
+
   openSettings: () =>
     ipcRenderer.invoke('window:openSettings'),
 
@@ -834,8 +837,23 @@ const openxApi = {
   createDesktopChatConversation: (conversation = {}) =>
     ipcRenderer.invoke('desktopChat:create', conversation),
 
+  updateDesktopChatConversation: (conversation = {}) =>
+    ipcRenderer.invoke('desktopChat:update', conversation),
+
+  deleteDesktopChatConversation: (conversationId) =>
+    ipcRenderer.invoke('desktopChat:delete', { conversationId }),
+
   sendDesktopChatMessage: (message = {}) =>
     ipcRenderer.invoke('desktopChat:send', message),
+
+  getDesktopChatRegistration: () =>
+    ipcRenderer.invoke('desktopChat:registration:get'),
+
+  startDesktopChatRegistration: (registration = {}) =>
+    ipcRenderer.invoke('desktopChat:registration:start', registration),
+
+  verifyDesktopChatRegistration: (registration = {}) =>
+    ipcRenderer.invoke('desktopChat:registration:verify', registration),
 
   getUiState: () =>
     ipcRenderer.invoke('uiState:get'),
@@ -1003,6 +1021,33 @@ const openxApi = {
     const handler = () => callback();
     ipcRenderer.on('settings:open', handler);
     return () => ipcRenderer.removeListener('settings:open', handler);
+  },
+
+  onOpenDesktopChat: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Desktop chat open listener must be a function');
+    }
+    const handler = () => callback();
+    ipcRenderer.on('desktopChat:open', handler);
+    return () => ipcRenderer.removeListener('desktopChat:open', handler);
+  },
+
+  onDesktopChatChanged: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Desktop chat listener must be a function');
+    }
+    const handler = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('desktopChat:changed', handler);
+    return () => ipcRenderer.removeListener('desktopChat:changed', handler);
+  },
+
+  onDesktopChatRegistrationChanged: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Desktop chat registration listener must be a function');
+    }
+    const handler = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('desktopChat:registrationChanged', handler);
+    return () => ipcRenderer.removeListener('desktopChat:registrationChanged', handler);
   },
 
   onScheduleDue: (callback) => {

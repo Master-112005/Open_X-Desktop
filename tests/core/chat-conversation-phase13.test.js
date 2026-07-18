@@ -95,6 +95,30 @@ describe('OpenX Chat Desktop Conversations Phase 13', () => {
     }
   });
 
+  it('updates local conversation person metadata and keeps search indexes current', async () => {
+    const harness = await createManager();
+    try {
+      const conversation = await harness.manager.createConversation({
+        relationshipId: id('rel'),
+        metadata: { title: 'Old Name', peerHandle: 'old@openx' }
+      });
+      const updated = await harness.manager.updateConversationMetadata(conversation.conversationId, {
+        title: 'Daddy',
+        name: 'Daddy',
+        peerHandle: 'dad@openx',
+        status: 'dad@openx'
+      });
+      const search = await harness.manager.search({ query: 'dad@openx' });
+
+      assert.equal(updated.metadata.title, 'Daddy');
+      assert.equal(updated.metadata.peerHandle, 'dad@openx');
+      assert.equal(search.items.length, 1);
+      assert.equal(search.items[0].conversation.conversationId, conversation.conversationId);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   it('orders pinned and recent conversations, enforces pin limit, and paginates large lists', async () => {
     const harness = await createManager();
     try {

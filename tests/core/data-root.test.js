@@ -16,7 +16,16 @@ describe('Assistant Data Root', function() {
     assert.equal(path.basename(paths.root), 'OpenX_Data');
     assert.equal(paths.settingsPath, path.join(paths.root, 'settings.json'));
     assert.equal(paths.chatHistoryPath, path.join(paths.root, 'chat-history.json'));
+    assert.equal(paths.chatAccountPath, path.join(paths.root, 'chat-account.json'));
+    assert.equal(paths.chatDevicePath, path.join(paths.root, 'chat-device.json'));
     assert.equal(paths.chatConversationsPath, path.join(paths.root, 'chat-conversations.json'));
+    assert.equal(paths.chatMessagesPath, path.join(paths.root, 'chat-messages.json'));
+    assert.equal(paths.chatMailboxSequencesPath, path.join(paths.root, 'chat-mailbox-sequences.json'));
+    assert.equal(paths.chatSyncCursorsPath, path.join(paths.root, 'chat-sync-cursors.json'));
+    assert.equal(paths.chatMultiDevicePath, path.join(paths.root, 'chat-multi-device.json'));
+    assert.equal(paths.chatFileTransfersPath, path.join(paths.root, 'chat-file-transfers.json'));
+    assert.equal(paths.chatCryptoSecretsPath, path.join(paths.root, 'chat-crypto-secrets.json'));
+    assert.equal(paths.chatRequestNicknamesPath, path.join(paths.root, 'chat-request-nicknames.json'));
     assert.equal(paths.uiStatePath, path.join(paths.root, 'ui-state.json'));
     assert.equal(paths.learningPath, path.join(paths.root, 'learning.json'));
     assert.equal(paths.schedulesPath, path.join(paths.root, 'schedules.json'));
@@ -75,6 +84,23 @@ describe('Assistant Data Root', function() {
     assert.ok(fs.existsSync(paths.visualMemoryDir));
     assert.ok(fs.existsSync(paths.visualMemoryThumbnailDir));
     assert.equal(fs.existsSync(path.join(paths.root, 'phone')), false);
+  });
+
+  it('should resolve chat module defaults under OpenX_Data or OPENX_DATA_DIR', function() {
+    const chatPaths = require('../../core/chat/ChatDataPaths');
+    const original = process.env.OPENX_DATA_DIR;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-chat-data-root-'));
+
+    try {
+      delete process.env.OPENX_DATA_DIR;
+      assert.equal(chatPaths.chatDataPath('chat-device.json'), path.join(os.homedir(), 'OpenX_Data', 'chat-device.json'));
+      process.env.OPENX_DATA_DIR = tempDir;
+      assert.equal(chatPaths.chatDataPath('chat-device.json'), path.join(tempDir, 'chat-device.json'));
+    } finally {
+      if (original === undefined) delete process.env.OPENX_DATA_DIR;
+      else process.env.OPENX_DATA_DIR = original;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it('should purge deprecated contact-store files from managed data', function() {

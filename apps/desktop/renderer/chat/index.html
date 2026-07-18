@@ -103,6 +103,7 @@
               <button class="people-chat-filter active" type="button" data-chat-filter="all">All</button>
               <button class="people-chat-filter" type="button" data-chat-filter="unread">Unread</button>
               <button class="people-chat-filter" type="button" data-chat-filter="pinned">Pinned</button>
+              <button class="people-chat-filter people-chat-settings-filter" id="people-chat-settings-btn" type="button" aria-expanded="false" aria-controls="people-chat-registration">Settings</button>
             </div>
             <form class="people-chat-add-user" id="people-chat-add-user" hidden>
               <input id="people-chat-user-name" type="text" placeholder="Name" autocomplete="name" aria-label="Name" required>
@@ -126,9 +127,27 @@
                 </span>
               </div>
               <div class="people-chat-thread-actions" aria-label="Chat actions">
+                <button class="people-chat-action-btn" id="people-chat-edit-btn" type="button" title="Edit user" aria-label="Edit user">Edit</button>
+                <button class="people-chat-action-btn danger" id="people-chat-delete-btn" type="button" title="Delete chat" aria-label="Delete chat">Delete</button>
                 <button class="people-chat-icon-btn people-chat-back-btn" id="people-chat-back-btn" type="button" title="Back to chats" aria-label="Back to chats">&lt;</button>
               </div>
             </header>
+            <form class="people-chat-edit-user" id="people-chat-edit-user" hidden>
+              <input id="people-chat-edit-name" type="text" placeholder="Name" autocomplete="name" aria-label="Edit name" required>
+              <input id="people-chat-edit-id" type="text" placeholder="OpenX ID, phone, or email" autocomplete="off" aria-label="Edit OpenX ID, phone, or email" required>
+              <div class="people-chat-add-actions">
+                <button class="people-chat-add-cancel" id="people-chat-edit-cancel" type="button">Cancel</button>
+                <button class="people-chat-add-submit" type="submit">Save</button>
+              </div>
+              <span id="people-chat-edit-status" aria-live="polite"></span>
+            </form>
+            <div class="people-chat-delete-confirm" id="people-chat-delete-confirm" hidden>
+              <span>Delete this chat from this device?</span>
+              <div class="people-chat-add-actions">
+                <button class="people-chat-add-cancel" id="people-chat-delete-cancel" type="button">Cancel</button>
+                <button class="people-chat-add-submit danger" id="people-chat-delete-confirm-btn" type="button">Delete</button>
+              </div>
+            </div>
             <div class="people-chat-thread" id="people-chat-thread" role="log" aria-live="polite"></div>
             <form class="people-chat-composer" id="people-chat-composer">
               <button class="people-chat-icon-btn" type="button" title="Attach" aria-label="Attach">+</button>
@@ -137,6 +156,31 @@
                 <span>Send</span><b aria-hidden="true">&#8593;</b>
               </button>
             </form>
+          </section>
+        </div>
+
+        <div class="people-chat-registration-overlay" id="people-chat-registration-overlay" hidden>
+          <section class="people-chat-registration" id="people-chat-registration" role="dialog" aria-modal="true" aria-labelledby="people-chat-registration-title" aria-label="Chat account setup">
+            <div class="people-chat-registration-header">
+              <div class="people-chat-registration-summary">
+                <span>
+                  <strong id="people-chat-registration-title">Chat setup</strong>
+                  <small id="people-chat-registration-detail">Register to message real OpenX users.</small>
+                </span>
+              </div>
+              <button class="people-chat-registration-close" id="people-chat-registration-close" type="button" title="Close settings" aria-label="Close settings">&#10005;</button>
+            </div>
+            <form class="people-chat-registration-form" id="people-chat-registration-start" hidden>
+              <input id="people-chat-server-url" type="url" placeholder="Server URL" autocomplete="off" aria-label="Chat server URL">
+              <input id="people-chat-phone" type="tel" placeholder="Phone number" autocomplete="tel" aria-label="Phone number" required>
+              <button class="people-chat-registration-submit" type="submit">Send code</button>
+            </form>
+            <form class="people-chat-registration-form" id="people-chat-registration-verify" hidden>
+              <input id="people-chat-otp" type="text" inputmode="numeric" placeholder="Verification code" autocomplete="one-time-code" aria-label="Verification code" required>
+              <input id="people-chat-pin" type="password" inputmode="numeric" placeholder="Optional security PIN" autocomplete="new-password" aria-label="Optional security PIN">
+              <button class="people-chat-registration-submit" type="submit">Verify</button>
+            </form>
+            <span id="people-chat-registration-status" aria-live="polite"></span>
           </section>
         </div>
       </section>

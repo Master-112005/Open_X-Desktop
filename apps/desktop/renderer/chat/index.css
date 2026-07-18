@@ -3168,6 +3168,7 @@ body {
 
 #people-chat-view {
   overflow: hidden;
+  position: relative;
 }
 
 .people-chat-shell {
@@ -3223,6 +3224,7 @@ body {
 }
 
 .people-chat-icon-btn,
+.people-chat-action-btn,
 .people-chat-send {
   align-items: center;
   background: color-mix(in srgb, var(--surface-bg) 82%, rgba(255, 255, 255, 0.08));
@@ -3241,8 +3243,31 @@ body {
   width: 34px;
 }
 
+.people-chat-action-btn {
+  border-radius: 14px;
+  flex-basis: auto;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  min-width: 48px;
+  padding: 0 10px;
+  width: auto;
+}
+
+.people-chat-action-btn.danger {
+  color: color-mix(in srgb, #ff8d8d 78%, var(--text-color));
+}
+
+.people-chat-action-btn:disabled,
+.people-chat-icon-btn:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
 .people-chat-icon-btn:hover,
 .people-chat-icon-btn:focus-visible,
+.people-chat-action-btn:hover,
+.people-chat-action-btn:focus-visible,
 .people-chat-send:hover,
 .people-chat-send:focus-visible {
   background: color-mix(in srgb, var(--accent-color) 16%, rgba(255, 255, 255, 0.1));
@@ -3313,7 +3338,153 @@ body {
   color: color-mix(in srgb, var(--accent-color) 70%, white);
 }
 
-.people-chat-add-user {
+.people-chat-settings-filter {
+  margin-left: auto;
+}
+
+.people-chat-registration-overlay {
+  align-items: center;
+  background: rgba(5, 7, 13, 0.52);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: absolute;
+  z-index: 9;
+}
+
+.people-chat-registration-overlay[hidden] {
+  display: none;
+}
+
+.people-chat-registration {
+  background: color-mix(in srgb, var(--surface-bg) 74%, rgba(255, 255, 255, 0.08));
+  border: 1px solid color-mix(in srgb, var(--glass-line) 84%, transparent);
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.36);
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  max-width: 360px;
+  padding: 13px;
+  width: min(360px, 100%);
+}
+
+.people-chat-registration.registered {
+  background: color-mix(in srgb, var(--success-color) 12%, rgba(255, 255, 255, 0.065));
+  border-color: color-mix(in srgb, var(--success-color) 34%, rgba(255, 255, 255, 0.12));
+}
+
+.people-chat-registration.pending {
+  background: color-mix(in srgb, var(--warning-color) 12%, rgba(255, 255, 255, 0.065));
+  border-color: color-mix(in srgb, var(--warning-color) 32%, rgba(255, 255, 255, 0.12));
+}
+
+.people-chat-registration-header {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.people-chat-registration-summary {
+  min-width: 0;
+}
+
+.people-chat-registration-summary span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.people-chat-registration-summary strong,
+.people-chat-registration-summary small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.people-chat-registration-summary strong {
+  color: var(--text-color);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.people-chat-registration-summary small {
+  color: var(--muted-color);
+  font-size: 9.5px;
+  line-height: 1.25;
+}
+
+.people-chat-registration-close,
+.people-chat-registration-submit {
+  border-radius: 13px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 800;
+  min-height: 32px;
+}
+
+.people-chat-registration-close {
+  background: color-mix(in srgb, var(--accent-color) 18%, rgba(255, 255, 255, 0.08));
+  border: 1px solid color-mix(in srgb, var(--accent-color) 34%, rgba(255, 255, 255, 0.16));
+  color: var(--text-color);
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  width: 32px;
+}
+
+.people-chat-registration-submit:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.people-chat-registration-form {
+  display: grid;
+  gap: 7px;
+}
+
+.people-chat-registration-form[hidden] {
+  display: none;
+}
+
+.people-chat-registration-form input {
+  background: rgba(255, 255, 255, 0.075);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 13px;
+  color: var(--text-color);
+  font: inherit;
+  min-height: 34px;
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.people-chat-registration-submit {
+  background: color-mix(in srgb, var(--accent-color) 28%, rgba(255, 255, 255, 0.1));
+  border: 1px solid color-mix(in srgb, var(--accent-color) 42%, rgba(255, 255, 255, 0.16));
+  color: var(--text-color);
+}
+
+#people-chat-registration-status {
+  color: var(--muted-color);
+  font-size: 10px;
+  line-height: 1.3;
+  min-height: 13px;
+}
+
+#people-chat-registration-status[data-tone="success"] {
+  color: color-mix(in srgb, var(--success-color) 74%, white);
+}
+
+#people-chat-registration-status[data-tone="error"] {
+  color: color-mix(in srgb, var(--danger-color) 78%, white);
+}
+
+.people-chat-add-user,
+.people-chat-edit-user,
+.people-chat-delete-confirm {
   background: rgba(255, 255, 255, 0.065);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
@@ -3323,11 +3494,25 @@ body {
   padding: 10px;
 }
 
-.people-chat-add-user[hidden] {
+.people-chat-edit-user,
+.people-chat-delete-confirm {
+  margin: 10px 10px 0;
+}
+
+.people-chat-delete-confirm {
+  color: var(--text-color);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.people-chat-add-user[hidden],
+.people-chat-edit-user[hidden],
+.people-chat-delete-confirm[hidden] {
   display: none;
 }
 
-.people-chat-add-user input {
+.people-chat-add-user input,
+.people-chat-edit-user input {
   background: rgba(255, 255, 255, 0.075);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 13px;
@@ -3366,7 +3551,13 @@ body {
   color: var(--text-color);
 }
 
-#people-chat-add-status {
+.people-chat-add-submit.danger {
+  background: color-mix(in srgb, #d93b3b 30%, rgba(255, 255, 255, 0.1));
+  border-color: color-mix(in srgb, #ff7b7b 46%, rgba(255, 255, 255, 0.18));
+}
+
+#people-chat-add-status,
+#people-chat-edit-status {
   color: var(--muted-color);
   font-size: 10px;
   min-height: 14px;
@@ -4639,12 +4830,14 @@ html[data-glass-contrast] #send-btn {
 .secondary-btn,.danger-btn,.icon-btn,.contact-add-btn,.permission-option,.mode-tab,
 .mode-app-tab,.glass-tint-control,.people-chat-sidebar,.people-chat-thread-pane,
 .people-chat-bubble,.people-chat-composer input,.people-chat-search input,
-.people-chat-add-user,.people-chat-add-user input {
+.people-chat-registration,.people-chat-registration input,.people-chat-add-user,
+.people-chat-add-user input,.people-chat-edit-user,.people-chat-edit-user input,
+.people-chat-delete-confirm {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
 #workspace,#messages,.settings-content,#schedule-list,#notification-list,#input-area,.composer-field,
-.people-chat-list,.people-chat-thread { contain: layout paint style; }
+.people-chat-list,.people-chat-thread,.people-chat-registration { contain: layout paint style; }
 #messages { scroll-behavior: auto; }
 .composer-field,
 .composer-field:focus-within {

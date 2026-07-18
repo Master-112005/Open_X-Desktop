@@ -315,6 +315,9 @@ const VOICE_IDLE_RESOURCE_WARMUP_DELAY_MS = 45 * 1000;
 const VOICE_RESUME_RUNTIME_PREWARM_DELAY_MS = 1200;
 const VOICE_RESUME_RESOURCE_WARMUP_DELAY_MS = 2500;
 const LIVE_SCHEDULE_INITIAL_EXPAND_MS = 5000;
+const DEFAULT_CHAT_API_BASE_URL = 'http://localhost:8090';
+const DESKTOP_CHAT_SETUP_VERSION = 1;
+const DESKTOP_CHAT_REQUEST_TIMEOUT_MS = 15000;
 const IPC_CHANNELS = [
   'command:process',
   'command:confirm',
@@ -326,6 +329,7 @@ const IPC_CHANNELS = [
   'voiceOverlay:collapse',
   'voiceOverlay:expandLiveSchedule',
   'window:openChat',
+  'window:openPeopleChat',
   'window:openSettings',
   'window:openPlanner',
   'window:closePlanner',
@@ -339,7 +343,12 @@ const IPC_CHANNELS = [
   'desktopChat:list',
   'desktopChat:open',
   'desktopChat:create',
+  'desktopChat:update',
+  'desktopChat:delete',
   'desktopChat:send',
+  'desktopChat:registration:get',
+  'desktopChat:registration:start',
+  'desktopChat:registration:verify',
   'uiState:get',
   'uiState:save',
   'security:status',
@@ -984,6 +993,368 @@ function desktopChatConversationsPath() {
   return dataPaths.chatConversationsPath || path.join(dataPaths.root || BASE_CONFIG.app.dataDir || app.getPath('userData'), 'chat-conversations.json');
 }
 
+function desktopChatAccountPath() {
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG?.app?.dataPaths || {};
+  return dataPaths.chatAccountPath || path.join(dataPaths.root || BASE_CONFIG.app.dataDir || app.getPath('userData'), 'chat-account.json');
+}
+
+function desktopChatDevicePath() {
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG?.app?.dataPaths || {};
+  return dataPaths.chatDevicePath || path.join(dataPaths.root || BASE_CONFIG.app.dataDir || app.getPath('userData'), 'chat-device.json');
+}
+
+function normalizeDesktopChatApiBaseUrl(value) {
+  const fallback = process.env.OPENX_CHAT_API_URL || BASE_CONFIG?.chat?.apiBaseUrl || DEFAULT_CHAT_API_BASE_URL;
+  const candidate = String(value || fallback).trim() || DEFAULT_CHAT_API_BASE_URL;
+  const parsed = new URL(candidate);
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new TypeError('Chat server URL must use http:// or https://.');
+  }
+  parsed.pathname = parsed.pathname.replace(/\/+$/, '');
+  parsed.hash = '';
+  parsed.search = '';
+  return parsed.href.replace(/\/+$/, '');
+}
+
+function normalizeDesktopChatSetupText(value, maxLength = 160) {
+  return normalizeDesktopChatText(value, maxLength);
+}
+
+function redactChatPhoneNumber(value) {
+  const text = String(value || '').replace(/\s+/g, '');
+  const digits = text.replace(/\D/g, '');
+  if (digits.length >= 4) return `**** ${digits.slice(-4)}`;
+  if (text.length > 4) return `${text.slice(0, 2)}...${text.slice(-2)}`;
+  return text ? 'Pending phone' : '';
+}
+
+function readDesktopChatSetupState() {
+  const fallback = {
+    version: DESKTOP_CHAT_SETUP_VERSION,
+    apiBaseUrl: normalizeDesktopChatApiBaseUrl(),
+    registered: false,
+    account: null,
+    device: null,
+    pendingRegistration: null,
+    pinEnabled: false,
+    updatedAt: null
+  };
+  const state = readJsonFile(desktopChatAccountPath(), fallback, {
+    createIfMissing: true,
+    validate: value => isPlainObject(value),
+    maxBytes: 128 * 1024
+  });
+  return normalizeDesktopChatSetupState({ ...fallback, ...state });
+}
+
+function writeDesktopChatSetupState(state = {}) {
+  const normalized = normalizeDesktopChatSetupState(state);
+  writeJsonAtomic(desktopChatAccountPath(), normalized, { maxBytes: 128 * 1024 });
+  return normalized;
+}
+
+function normalizeDesktopChatDeviceState(value = {}) {
+  const state = isPlainObject(value) ? value : {};
+  const clientDeviceKey = /^[a-f0-9]{48}$/i.test(String(state.clientDeviceKey || ''))
+    ? String(state.clientDeviceKey).toLowerCase()
+    : crypto.randomBytes(24).toString('hex');
+  return {
+    version: DESKTOP_CHAT_SETUP_VERSION,
+    clientDeviceKey,
+    accountId: normalizeDesktopChatSetupText(state.accountId || '', 100) || null,
+    apiBaseUrl: normalizeDesktopChatSetupText(state.apiBaseUrl || '', 240) || null,
+    device: isPlainObject(state.device) ? state.device : null,
+    approval: isPlainObject(state.approval) ? state.approval : null,
+    updatedAt: normalizeDesktopChatSetupText(state.updatedAt || new Date().toISOString(), 80)
+  };
+}
+
+function readDesktopChatDeviceState() {
+  const state = readJsonFile(desktopChatDevicePath(), {}, {
+    createIfMissing: false,
+    validate: value => isPlainObject(value),
+    maxBytes: 128 * 1024
+  });
+  return normalizeDesktopChatDeviceState(state);
+}
+
+function writeDesktopChatDeviceState(state = {}) {
+  const normalized = normalizeDesktopChatDeviceState({
+    ...state,
+    updatedAt: new Date().toISOString()
+  });
+  writeJsonAtomic(desktopChatDevicePath(), normalized, { maxBytes: 128 * 1024 });
+  return normalized;
+}
+
+function normalizeDesktopChatSetupState(state = {}) {
+  let apiBaseUrl = DEFAULT_CHAT_API_BASE_URL;
+  try {
+    apiBaseUrl = normalizeDesktopChatApiBaseUrl(state.apiBaseUrl);
+  } catch (_) {
+    apiBaseUrl = normalizeDesktopChatApiBaseUrl();
+  }
+  const account = isPlainObject(state.account) ? state.account : null;
+  const device = isPlainObject(state.device) ? state.device : null;
+  const pending = isPlainObject(state.pendingRegistration) ? state.pendingRegistration : null;
+  const accountId = normalizeDesktopChatSetupText(account?.accountId || state.accountId || '', 100) || null;
+  return {
+    version: DESKTOP_CHAT_SETUP_VERSION,
+    apiBaseUrl,
+    registered: Boolean(state.registered && accountId),
+    account: accountId ? {
+      accountId,
+      accountStatus: normalizeDesktopChatSetupText(account?.accountStatus || state.accountStatus || 'Active', 40) || 'Active',
+      securityState: normalizeDesktopChatSetupText(account?.securityState || state.securityState || 'Verified', 40) || 'Verified',
+      verificationState: normalizeDesktopChatSetupText(account?.verificationState || state.verificationState || 'Verified', 40) || 'Verified',
+      region: normalizeDesktopChatSetupText(account?.region || state.region || '', 40) || null,
+      countryCode: normalizeDesktopChatSetupText(account?.countryCode || state.countryCode || '', 12) || null,
+      registrationDate: normalizeDesktopChatSetupText(account?.registrationDate || state.registrationDate || '', 80) || null,
+      lastUpdated: normalizeDesktopChatSetupText(account?.lastUpdated || state.lastUpdated || '', 80) || null
+    } : null,
+    device: device?.deviceId ? {
+      deviceId: normalizeDesktopChatSetupText(device.deviceId, 100),
+      deviceName: normalizeDesktopChatSetupText(device.deviceName || os.hostname(), 80) || os.hostname(),
+      platform: normalizeDesktopChatSetupText(device.platform || '', 40) || null,
+      deviceType: normalizeDesktopChatSetupText(device.deviceType || '', 40) || null,
+      deviceStatus: normalizeDesktopChatSetupText(device.deviceStatus || '', 40) || null,
+      approvalStatus: normalizeDesktopChatSetupText(device.approvalStatus || '', 40) || null,
+      publicIdentity: normalizeDesktopChatSetupText(device.publicIdentity || '', 160) || null
+    } : null,
+    pendingRegistration: pending?.phoneNumber ? {
+      phoneNumber: normalizeDesktopChatSetupText(pending.phoneNumber, 40),
+      phoneDisplay: normalizeDesktopChatSetupText(pending.phoneDisplay || redactChatPhoneNumber(pending.phoneNumber), 40),
+      registrationId: normalizeDesktopChatSetupText(pending.registrationId || '', 100) || null,
+      startedAt: normalizeDesktopChatSetupText(pending.startedAt || new Date().toISOString(), 80),
+      region: normalizeDesktopChatSetupText(pending.region || '', 40) || null
+    } : null,
+    phoneDisplay: normalizeDesktopChatSetupText(state.phoneDisplay || pending?.phoneDisplay || '', 40) || null,
+    pinEnabled: state.pinEnabled === true,
+    updatedAt: normalizeDesktopChatSetupText(state.updatedAt || new Date().toISOString(), 80)
+  };
+}
+
+function serializeDesktopChatSetupState(state = {}) {
+  const normalized = normalizeDesktopChatSetupState(state);
+  return {
+    success: true,
+    registered: normalized.registered,
+    pending: Boolean(normalized.pendingRegistration),
+    setupStatus: normalized.registered ? 'registered' : (normalized.pendingRegistration ? 'otp-sent' : 'not-registered'),
+    apiBaseUrl: normalized.apiBaseUrl,
+    accountId: normalized.account?.accountId || null,
+    account: normalized.account,
+    device: normalized.device,
+    phoneDisplay: normalized.phoneDisplay || normalized.pendingRegistration?.phoneDisplay || null,
+    pinEnabled: normalized.pinEnabled,
+    updatedAt: normalized.updatedAt
+  };
+}
+
+async function desktopChatServerRequest(apiBaseUrl, route, method = 'GET', body = null) {
+  if (typeof fetch !== 'function') throw new Error('Chat server connection is not available in this runtime.');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DESKTOP_CHAT_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${normalizeDesktopChatApiBaseUrl(apiBaseUrl)}${route}`, {
+      method,
+      headers: body ? { 'content-type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal
+    });
+    const text = await response.text();
+    const json = text ? JSON.parse(text) : {};
+    if (!response.ok || json.ok === false) {
+      const message = json.error?.message || json.errors?.[0]?.message || `Chat server returned ${response.status}.`;
+      const error = new Error(message);
+      error.statusCode = response.status;
+      error.code = json.error?.code || json.errors?.[0]?.code || 'chat.request_failed';
+      throw error;
+    }
+    return json.data || {};
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      const timeout = new Error('Chat server did not respond in time.');
+      timeout.code = 'chat.request_timeout';
+      throw timeout;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function buildDesktopChatDevicePayload(accountId, clientDeviceKey) {
+  const platform = process.platform === 'win32'
+    ? 'windows'
+    : (process.platform === 'darwin' ? 'macos' : (process.platform === 'linux' ? 'linux' : 'desktop'));
+  return {
+    accountId,
+    deviceName: `${os.hostname() || 'OpenX'} Desktop`,
+    platform,
+    platformVersion: os.release(),
+    applicationVersion: BASE_CONFIG?.app?.version || '0.1.0',
+    operatingSystem: `${os.type()} ${os.release()}`,
+    deviceType: 'Desktop',
+    capabilities: ['persistentConnection', 'largeStorage', 'backgroundProcessing'],
+    metadata: {
+      source: 'openx-desktop-chat',
+      runtime: 'electron'
+    },
+    clientDeviceKey
+  };
+}
+
+async function ensureDesktopChatDevice(accountId, apiBaseUrl) {
+  const deviceState = readDesktopChatDeviceState();
+  const existing = deviceState.device;
+  if (
+    existing?.deviceId &&
+    deviceState.accountId === accountId &&
+    normalizeDesktopChatApiBaseUrl(deviceState.apiBaseUrl) === normalizeDesktopChatApiBaseUrl(apiBaseUrl)
+  ) {
+    return existing;
+  }
+
+  const data = await desktopChatServerRequest(
+    apiBaseUrl,
+    '/device/register',
+    'POST',
+    buildDesktopChatDevicePayload(accountId, deviceState.clientDeviceKey)
+  );
+  const registeredDevice = data.device || null;
+  writeDesktopChatDeviceState({
+    ...deviceState,
+    accountId,
+    apiBaseUrl,
+    device: registeredDevice,
+    approval: data.approval || null
+  });
+  return registeredDevice;
+}
+
+async function getDesktopChatRegistrationStatus() {
+  return serializeDesktopChatSetupState(readDesktopChatSetupState());
+}
+
+function desktopChatRegistrationFailure(error, state = null) {
+  return {
+    success: false,
+    registered: Boolean(state?.registered),
+    pending: Boolean(state?.pendingRegistration),
+    error: {
+      code: normalizeDesktopChatSetupText(error?.code || 'chat.setup_failed', 80),
+      message: normalizeDesktopChatSetupText(error?.message || 'Chat setup failed.', 220)
+    },
+    state: state ? serializeDesktopChatSetupState(state) : null
+  };
+}
+
+async function startDesktopChatRegistration(input = {}) {
+  let apiBaseUrl = DEFAULT_CHAT_API_BASE_URL;
+  try {
+    const phoneNumber = normalizeDesktopChatSetupText(input.phoneNumber, 40);
+    const countryCode = normalizeDesktopChatSetupText(input.countryCode || '', 12) || undefined;
+    apiBaseUrl = normalizeDesktopChatApiBaseUrl(input.apiBaseUrl);
+    const check = await desktopChatServerRequest(apiBaseUrl, '/account/check', 'POST', { phoneNumber, countryCode });
+    if (check.registered) {
+      const state = writeDesktopChatSetupState({
+        ...readDesktopChatSetupState(),
+        apiBaseUrl,
+        registered: false,
+        pendingRegistration: null,
+        phoneDisplay: redactChatPhoneNumber(phoneNumber),
+        updatedAt: new Date().toISOString()
+      });
+      return {
+        ...serializeDesktopChatSetupState(state),
+        registeredRemotely: true,
+        canRegister: false,
+        message: 'An OpenX Chat account already exists for this phone number.'
+      };
+    }
+    const started = await desktopChatServerRequest(apiBaseUrl, '/register/start', 'POST', { phoneNumber, countryCode });
+    const state = writeDesktopChatSetupState({
+      ...readDesktopChatSetupState(),
+      apiBaseUrl,
+      registered: false,
+      pendingRegistration: {
+        phoneNumber,
+        phoneDisplay: redactChatPhoneNumber(phoneNumber),
+        registrationId: started.registrationId || started.verification?.otpRequestId || null,
+        startedAt: new Date().toISOString(),
+        region: started.phone?.region || check.region || null
+      },
+      phoneDisplay: redactChatPhoneNumber(phoneNumber),
+      updatedAt: new Date().toISOString()
+    });
+    notifyDesktopChatRegistrationChanged(state);
+    return {
+      ...serializeDesktopChatSetupState(state),
+      canRegister: true,
+      message: 'Verification code sent.'
+    };
+  } catch (error) {
+    return desktopChatRegistrationFailure(error, readDesktopChatSetupState());
+  }
+}
+
+async function verifyDesktopChatRegistration(input = {}) {
+  try {
+    const current = readDesktopChatSetupState();
+    const apiBaseUrl = normalizeDesktopChatApiBaseUrl(input.apiBaseUrl || current.apiBaseUrl);
+    const pendingPhone = current.pendingRegistration?.phoneNumber;
+    const phoneNumber = normalizeDesktopChatSetupText(input.phoneNumber || pendingPhone, 40);
+    const countryCode = normalizeDesktopChatSetupText(input.countryCode || '', 12) || undefined;
+    const otp = normalizeDesktopChatSetupText(input.otp, 12);
+    const account = await desktopChatServerRequest(apiBaseUrl, '/register/verify', 'POST', { phoneNumber, countryCode, otp });
+    const accountId = normalizeDesktopChatSetupText(account.accountId, 100);
+    if (!/^acc_[a-f0-9]{64}$/i.test(accountId)) throw new Error('Chat server returned an invalid account id.');
+    const device = await ensureDesktopChatDevice(accountId, apiBaseUrl);
+    let pinEnabled = false;
+    const pin = normalizeDesktopChatSetupText(input.pin || '', 24);
+    if (pin) {
+      await desktopChatServerRequest(apiBaseUrl, '/security/pin/create', 'POST', {
+        accountId,
+        deviceId: device?.deviceId || null,
+        pin
+      });
+      pinEnabled = true;
+    }
+    const state = writeDesktopChatSetupState({
+      apiBaseUrl,
+      registered: true,
+      account,
+      device,
+      pendingRegistration: null,
+      phoneDisplay: current.phoneDisplay || current.pendingRegistration?.phoneDisplay || null,
+      pinEnabled,
+      updatedAt: new Date().toISOString()
+    });
+    notifyDesktopChatRegistrationChanged(state);
+    return {
+      ...serializeDesktopChatSetupState(state),
+      message: 'OpenX Chat account and desktop device are ready.'
+    };
+  } catch (error) {
+    return desktopChatRegistrationFailure(error, readDesktopChatSetupState());
+  }
+}
+
+function notifyDesktopChatRegistrationChanged(state = null) {
+  if (!chatWindow || chatWindow.isDestroyed()) return;
+  const payload = serializeDesktopChatSetupState(state || readDesktopChatSetupState());
+  const send = () => {
+    if (!chatWindow || chatWindow.isDestroyed()) return;
+    chatWindow.webContents.send('desktopChat:registrationChanged', payload);
+  };
+  if (chatWindow.webContents.isLoading()) {
+    chatWindow.webContents.once('did-finish-load', () => setTimeout(send, 50));
+  } else {
+    send();
+  }
+}
+
 async function getDesktopChatConversationManager() {
   if (!desktopChatConversationManager) {
     desktopChatConversationManager = new ConversationManager({
@@ -1054,6 +1425,25 @@ function serializeDesktopChatConversation(conversation = {}, history = []) {
   };
 }
 
+function notifyDesktopChatChanged(payload = {}) {
+  if (!chatWindow || chatWindow.isDestroyed()) return;
+  const message = {
+    reason: normalizeDesktopChatText(payload.reason || 'updated', 40) || 'updated',
+    conversationId: normalizeDesktopChatText(payload.conversationId || payload.conversation?.conversationId || '', 100),
+    conversation: payload.conversation || null,
+    updatedAt: new Date().toISOString()
+  };
+  const send = () => {
+    if (!chatWindow || chatWindow.isDestroyed()) return;
+    chatWindow.webContents.send('desktopChat:changed', message);
+  };
+  if (chatWindow.webContents.isLoading()) {
+    chatWindow.webContents.once('did-finish-load', () => setTimeout(send, 50));
+  } else {
+    send();
+  }
+}
+
 async function listDesktopChatConversations(input = {}) {
   const manager = await getDesktopChatConversationManager();
   const query = normalizeDesktopChatText(input.query, 120);
@@ -1110,6 +1500,38 @@ async function createDesktopChatConversation(input = {}) {
   return {
     success: true,
     conversation: serializeDesktopChatConversation(conversation, history)
+  };
+}
+
+async function updateDesktopChatConversation(input = {}) {
+  const manager = await getDesktopChatConversationManager();
+  const title = normalizeDesktopChatText(input.peerName || input.name || input.title, 80);
+  const peerHandle = normalizeDesktopChatText(input.peerHandle || input.openxId || input.identifier, 120);
+  const peerType = normalizeDesktopChatText(input.peerType || 'openx', 40) || 'openx';
+  if (!title) throw new Error('Chat name is required.');
+  if (!peerHandle) throw new Error('OpenX ID, phone, or email is required.');
+  const conversation = await manager.updateConversationMetadata(input.conversationId, {
+    title,
+    name: title,
+    peerHandle,
+    peerType,
+    status: peerHandle,
+    updatedFrom: 'desktop-chat'
+  });
+  const history = await manager.storage.listHistory(conversation.conversationId);
+  return {
+    success: true,
+    conversation: serializeDesktopChatConversation(conversation, history)
+  };
+}
+
+async function deleteDesktopChatConversation(input = {}) {
+  const manager = await getDesktopChatConversationManager();
+  const conversation = await manager.deleteConversation(input.conversationId);
+  return {
+    success: true,
+    conversationId: conversation.conversationId,
+    deleted: true
   };
 }
 
@@ -1515,6 +1937,22 @@ function createSettingsWindow() {
     openSettings();
   } else {
     chatWindow.webContents.once('did-finish-load', openSettings);
+  }
+  return { success: true };
+}
+
+function createPeopleChatWindow() {
+  const chatWasOpen = Boolean(chatWindow && !chatWindow.isDestroyed());
+  createChatWindow();
+  const openPeopleChat = () => {
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.webContents.send('desktopChat:open');
+    }
+  };
+  if (chatWasOpen) {
+    openPeopleChat();
+  } else {
+    chatWindow.webContents.once('did-finish-load', openPeopleChat);
   }
   return { success: true };
 }
@@ -3501,6 +3939,10 @@ function setupIPC() {
     createChatWindow();
   });
 
+  registerIpcHandler('window:openPeopleChat', async () => {
+    return createPeopleChatWindow();
+  });
+
   registerIpcHandler('voice:start', async () => startVoiceListeningFromShortcut('chat-voice-button'));
 
   registerIpcHandler('window:openSettings', async () => {
@@ -3566,11 +4008,39 @@ function setupIPC() {
   });
 
   registerIpcHandler('desktopChat:create', async (_event, payload) => {
-    return createDesktopChatConversation(payload || {});
+    const result = await createDesktopChatConversation(payload || {});
+    notifyDesktopChatChanged({ reason: 'created', conversation: result.conversation });
+    return result;
+  });
+
+  registerIpcHandler('desktopChat:update', async (_event, payload) => {
+    const result = await updateDesktopChatConversation(payload || {});
+    notifyDesktopChatChanged({ reason: 'updated', conversation: result.conversation });
+    return result;
+  });
+
+  registerIpcHandler('desktopChat:delete', async (_event, payload) => {
+    const result = await deleteDesktopChatConversation(payload || {});
+    notifyDesktopChatChanged({ reason: 'deleted', conversationId: result.conversationId });
+    return result;
   });
 
   registerIpcHandler('desktopChat:send', async (_event, payload) => {
-    return sendDesktopChatMessage(payload || {});
+    const result = await sendDesktopChatMessage(payload || {});
+    notifyDesktopChatChanged({ reason: 'message', conversation: result.conversation });
+    return result;
+  });
+
+  registerIpcHandler('desktopChat:registration:get', async () => {
+    return getDesktopChatRegistrationStatus();
+  });
+
+  registerIpcHandler('desktopChat:registration:start', async (_event, payload) => {
+    return startDesktopChatRegistration(payload || {});
+  });
+
+  registerIpcHandler('desktopChat:registration:verify', async (_event, payload) => {
+    return verifyDesktopChatRegistration(payload || {});
   });
 
   registerIpcHandler('uiState:get', async () => {
@@ -4359,7 +4829,8 @@ async function initializeAssistant() {
     ...runtimeConfig,
     desktopActions: {
       ...(runtimeConfig.desktopActions || {}),
-      openGallery: (view = 'timeline') => createGalleryWindow(view, { lowerChat: true })
+      openGallery: (view = 'timeline') => createGalleryWindow(view, { lowerChat: true }),
+      openPeopleChat: () => createPeopleChatWindow()
     },
     visualMemoryApi: getLazyVisualMemoryApi()
   };
