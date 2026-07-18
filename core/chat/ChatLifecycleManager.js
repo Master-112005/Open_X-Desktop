@@ -1,4 +1,5 @@
 const CHAT_EVENTS = require('./ChatEvents');
+const ChatRuntimeStateMachine = require('./state/ChatRuntimeStateMachine');
 
 /**
  * Coordinates Desktop Chat lifecycle events.
@@ -19,10 +20,10 @@ class ChatLifecycleManager {
    */
   start() {
     if (this.started) return;
-    this.statusManager.setState('starting');
+    this.statusManager.setState(ChatRuntimeStateMachine.STATES.UNINITIALIZED, { lifecycle: 'starting' });
     this.eventBus.emit(CHAT_EVENTS.LIFECYCLE_STARTING);
     this.started = true;
-    this.statusManager.setState('offline');
+    this.statusManager.setState(ChatRuntimeStateMachine.STATES.UNINITIALIZED, { lifecycle: 'started' });
     this.eventBus.emit(CHAT_EVENTS.LIFECYCLE_STARTED);
   }
 
@@ -31,10 +32,10 @@ class ChatLifecycleManager {
    */
   stop() {
     if (!this.started) return;
-    this.statusManager.setState('stopping');
+    this.statusManager.setState(ChatRuntimeStateMachine.STATES.UNINITIALIZED, { lifecycle: 'stopping' });
     this.eventBus.emit(CHAT_EVENTS.LIFECYCLE_STOPPING);
     this.started = false;
-    this.statusManager.setState('offline');
+    this.statusManager.setState(ChatRuntimeStateMachine.STATES.UNINITIALIZED, { lifecycle: 'stopped' });
     this.eventBus.emit(CHAT_EVENTS.LIFECYCLE_STOPPED);
   }
 }

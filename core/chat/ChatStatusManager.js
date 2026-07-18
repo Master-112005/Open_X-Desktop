@@ -1,3 +1,5 @@
+const ChatRuntimeStateMachine = require('./state/ChatRuntimeStateMachine');
+
 /**
  * Tracks Desktop Chat connection and lifecycle status.
  */
@@ -6,9 +8,7 @@ class ChatStatusManager {
    * Creates a status manager.
    */
   constructor() {
-    this.state = 'offline';
-    this.lastChangedAt = new Date().toISOString();
-    this.lastError = null;
+    this.stateMachine = new ChatRuntimeStateMachine();
   }
 
   /**
@@ -17,9 +17,16 @@ class ChatStatusManager {
    * @param {object} details State details.
    */
   setState(state, details = {}) {
-    this.state = String(state || 'offline');
-    this.lastChangedAt = new Date().toISOString();
-    this.lastError = details.error || null;
+    return this.stateMachine.setState(state, details);
+  }
+
+  /**
+   * Updates status from authoritative setup facts.
+   * @param {object} context Setup lifecycle context.
+   * @returns {object} Status snapshot.
+   */
+  setContext(context = {}) {
+    return this.stateMachine.applyContext(context);
   }
 
   /**
@@ -27,11 +34,7 @@ class ChatStatusManager {
    * @returns {object} Status snapshot.
    */
   getStatus() {
-    return Object.freeze({
-      state: this.state,
-      lastChangedAt: this.lastChangedAt,
-      lastError: this.lastError
-    });
+    return this.stateMachine.getSnapshot();
   }
 }
 

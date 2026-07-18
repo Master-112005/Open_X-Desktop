@@ -1,3 +1,5 @@
+const { formatLogLine } = require('../LogFormatter');
+
 /**
  * Lightweight desktop transfer logger.
  */
@@ -24,7 +26,7 @@ class TransferLogger {
     delete safe.fileKey;
     delete safe.plaintext;
     delete safe.encryptedBlob;
-    console[level === 'error' ? 'error' : 'log'](`[OpenXTransfer:${level}] ${message}`, safe);
+    console[level === 'error' ? 'error' : 'log'](formatLogLine('CHAT_TRANSFER', level, message, safe));
   }
 }
 

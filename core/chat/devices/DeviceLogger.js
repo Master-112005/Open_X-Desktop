@@ -1,3 +1,5 @@
+const { formatLogLine } = require('../LogFormatter');
+
 /**
  * Dedicated Desktop Chat device logger.
  */
@@ -27,7 +29,7 @@ class DeviceLogger {
    */
   write(level, message, data = {}) {
     const writer = typeof this.sink[level] === 'function' ? this.sink[level] : this.sink.log;
-    writer.call(this.sink, `[CHAT_DEVICE] ${message}`, this.redact(data));
+    writer.call(this.sink, formatLogLine('CHAT_DEVICE', level, message, this.redact(data)));
   }
 
   /**

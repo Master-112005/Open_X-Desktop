@@ -85,6 +85,7 @@ class SecureStorageManager {
    * @returns {string[]} Secret names.
    */
   listKeys() {
+    if (this.backend?.listKeys) return this.backend.listKeys();
     return Object.keys(this.state.entries);
   }
 

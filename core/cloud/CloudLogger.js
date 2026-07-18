@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { formatLogLine } = require('../chat/LogFormatter');
 
 class CloudLogger {
   constructor(options = {}) {
@@ -29,8 +30,13 @@ class CloudLogger {
     };
 
     try {
-      if (typeof this.logger[level] === 'function') {
-        this.logger[level](`[CLOUD] ${message}`, entry.data);
+      const writer = typeof this.logger[level] === 'function' ? this.logger[level] : this.logger.log;
+      if (typeof writer === 'function') {
+        if (this._usesStructuredMetadataSink()) {
+          writer.call(this.logger, `[CLOUD] ${message}`, entry.data);
+        } else {
+          writer.call(this.logger, formatLogLine('CLOUD', level, message, entry.data));
+        }
       }
     } catch (_) {}
 
@@ -43,6 +49,10 @@ class CloudLogger {
     }
   }
 
+  _usesStructuredMetadataSink() {
+    return typeof this.logger?._log === 'function' || typeof this.logger?._formatData === 'function';
+  }
+
   redact(value, depth = 0) {
     if (value === null || value === undefined) return value;
     if (depth > 4) return '[MaxDepth]';
@@ -51,7 +61,7 @@ class CloudLogger {
 
     const output = {};
     for (const [key, child] of Object.entries(value)) {
-      if (/(token|secret|password|authorization|cookie|credential|api[_-]?key)/i.test(key)) {
+      if (/(token|secret|password|authorization|cookie|credential|api[_-]?key|otp|pin|private|key)/i.test(key)) {
         output[key] = '[REDACTED]';
       } else {
         output[key] = this.redact(child, depth + 1);

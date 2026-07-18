@@ -1,3 +1,5 @@
+const { formatLogLine } = require('../LogFormatter');
+
 /**
  * Desktop contact discovery logger with token redaction.
  */
@@ -27,7 +29,7 @@ class DiscoveryLogger {
    */
   write(level, message, data = {}) {
     const writer = typeof this.logger[level] === 'function' ? this.logger[level] : this.logger.log;
-    writer.call(this.logger, `[CHAT_DISCOVERY] ${message}`, this.redact(data));
+    writer.call(this.logger, formatLogLine('CHAT_DISCOVERY', level, message, this.redact(data)));
   }
 
   /**

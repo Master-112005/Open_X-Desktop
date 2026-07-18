@@ -104,11 +104,11 @@ describe('Electron Security Boundary', function() {
     );
     assert.deepEqual(
       IPC_VALIDATORS['desktopChat:create']({ title: ' Family ' }),
-      { title: 'Family', peerName: 'Family', peerHandle: '', peerType: 'openx' }
+      { title: 'Family', peerName: 'Family', peerHandle: '', peerType: 'openx', countryCode: undefined }
     );
     assert.deepEqual(
-      IPC_VALIDATORS['desktopChat:create']({ peerName: ' Mummy ', peerHandle: ' mummy@openx ', peerType: 'openx' }),
-      { title: 'Mummy', peerName: 'Mummy', peerHandle: 'mummy@openx', peerType: 'openx' }
+      IPC_VALIDATORS['desktopChat:create']({ peerName: ' Mummy ', peerHandle: ' +91 8688446213 ', peerType: 'phone', countryCode: ' in ' }),
+      { title: 'Mummy', peerName: 'Mummy', peerHandle: '+91 8688446213', peerType: 'phone', countryCode: 'IN' }
     );
     assert.deepEqual(
       IPC_VALIDATORS['desktopChat:send']({ conversationId, text: ' hello ' }),
@@ -123,16 +123,28 @@ describe('Electron Security Boundary', function() {
       { conversationId }
     );
     assert.deepEqual(
+      IPC_VALIDATORS['desktopChat:contacts:list'](),
+      undefined
+    );
+    assert.deepEqual(
+      IPC_VALIDATORS['desktopChat:contacts:accept']({ requestId: `creq_${'b'.repeat(64)}`, peerName: ' Friend ', peerHandle: ' +1 555 0101 ' }),
+      { requestId: `creq_${'b'.repeat(64)}`, peerName: 'Friend', peerHandle: '+1 555 0101' }
+    );
+    assert.deepEqual(
+      IPC_VALIDATORS['desktopChat:contacts:cancel']({ requestId: `creq_${'c'.repeat(64)}`, reason: ' no longer needed ' }),
+      { requestId: `creq_${'c'.repeat(64)}`, reason: 'no longer needed' }
+    );
+    assert.deepEqual(
       IPC_VALIDATORS['desktopChat:registration:get'](),
       undefined
     );
     assert.deepEqual(
       IPC_VALIDATORS['desktopChat:registration:start']({ phoneNumber: ' +1 555 0100 ', apiBaseUrl: ' http://localhost:8090/ ' }),
-      { phoneNumber: '+1 555 0100', apiBaseUrl: 'http://localhost:8090' }
+      { phoneNumber: '+1 555 0100', apiBaseUrl: 'http://localhost:8090', countryCode: undefined }
     );
     assert.deepEqual(
       IPC_VALIDATORS['desktopChat:registration:verify']({ otp: ' 123456 ', pin: ' 2468 ' }),
-      { otp: '123456', apiBaseUrl: undefined, pin: '2468' }
+      { otp: '123456', apiBaseUrl: undefined, countryCode: undefined, pin: '2468' }
     );
     assert.throws(() => IPC_VALIDATORS['desktopChat:open']({ conversationId: 'bad' }), /conversationId is invalid/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:send']({ conversationId, text: '' }), /must not be empty/);
@@ -141,6 +153,7 @@ describe('Electron Security Boundary', function() {
     assert.throws(() => IPC_VALIDATORS['desktopChat:delete']({ conversationId: 'bad' }), /conversationId is invalid/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:create']({ title: 'x'.repeat(81) }), /exceeds/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:create']({ peerName: 'Mummy', peerHandle: 'x'.repeat(121) }), /exceeds/);
+    assert.throws(() => IPC_VALIDATORS['desktopChat:contacts:accept']({ requestId: 'bad' }), /requestId is invalid/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ phoneNumber: '' }), /must not be empty/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:registration:verify']({ otp: '' }), /must not be empty/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ phoneNumber: '+1555', apiBaseUrl: 'file:///tmp/chat' }), /protocol is not supported/);
@@ -296,6 +309,7 @@ describe('Electron Security Boundary', function() {
       'window:openGallery', 'window:closeGallery',
       'config:get', 'settings:get', 'chatHistory:get', 'chatHistory:save', 'chatHistory:clear',
       'desktopChat:list', 'desktopChat:open', 'desktopChat:create', 'desktopChat:update', 'desktopChat:delete', 'desktopChat:send',
+      'desktopChat:contacts:list', 'desktopChat:contacts:accept', 'desktopChat:contacts:delete', 'desktopChat:contacts:cancel',
       'desktopChat:registration:get', 'desktopChat:registration:start', 'desktopChat:registration:verify',
       'uiState:get', 'uiState:save',
       'security:status', 'security:verifyAccess', 'security:setPassword',

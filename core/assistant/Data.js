@@ -513,10 +513,9 @@ const { buildDataPaths } = dataRootModule;
 
 const DEFAULT_MAX_LOG_SIZE = 10 * 1024 * 1024;
 const DEFAULT_MAX_LOG_FILES = 5;
-const SENSITIVE_KEY_PATTERN = /(?:password|passcode|token|secret|authorization|cookie|credential|api[_-]?key)/i;
+const SENSITIVE_KEY_PATTERN = /(?:password|passcode|pin|otp|verificationcode|developmentcode|token|secret|authorization|cookie|credential|private|key|api[_-]?key)/i;
 const PRIVATE_TEXT_KEYS = new Set(['audio', 'pcm', 'buffer', 'sample', 'samples', 'text', 'input', 'response']);
 const PRIVATE_TEXT_KEY_PATTERN = /(?:transcript|input(?:text)?|command(?:text)?|rawcommand|response|spokenresponse|pcm|buffer|samples?|utterance|speechtext)/i;
-const HUMAN_VOICE_LOG_PATTERN = /^(?:\[(?:Voice|Voice UI|Voice Integration|Audio|Audio Processing|STT|VisualMemory|Visual Memory|VISUAL-MEMORY|Gallery|People Scan|Face Scan|AI Vision|Windows Face)\]|Voice\b|TTS\b|Visual Memory\b|Gallery\b|People Scan\b|Face Scan\b|AI Vision\b|Windows Face\b)/i;
 const VOICE_PRIVATE_KEY_PATTERN = /(?:transcript|input|text|response|pcm|buffer|sample|samples)/i;
 
 function dateStamp(date = new Date()) {
@@ -552,11 +551,15 @@ class Logger {
   _log(level, message, data) {
     if (this.levels[level] > this.levels[this.level]) return;
     const redactedData = this._redact(data || null);
+    const summary = redactedData && typeof redactedData === 'object'
+      ? this._formatHumanData(redactedData)
+      : '';
     const suffix = this._formatData(redactedData, message);
     const entry = {
       timestamp: new Date().toISOString(),
       level,
       message,
+      summary: summary || null,
       data: redactedData
     };
     if (this.console) {
@@ -578,28 +581,11 @@ class Logger {
       return ` ${data}`;
     }
 
-    if (this._shouldHumanizeVoiceData(message, data)) {
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
       const summary = this._formatHumanData(data);
       if (summary) return ` | ${summary}`;
     }
-
-    try {
-      const compact = JSON.stringify(data);
-      if (!compact || compact === '{}') {
-        return '';
-      }
-      return ` ${compact.length > 400 ? `${compact.slice(0, 397)}...` : compact}`;
-    } catch (error) {
-      return ` ${String(data)}`;
-    }
-  }
-
-  _shouldHumanizeVoiceData(message, data) {
-    return typeof message === 'string' &&
-      HUMAN_VOICE_LOG_PATTERN.test(message) &&
-      data &&
-      typeof data === 'object' &&
-      !Array.isArray(data);
+    return ` | value=${this._formatHumanValue('value', data)}`;
   }
 
   _formatHumanData(data) {
@@ -661,8 +647,7 @@ class Logger {
       if (pairs.length >= 14) break;
       if (preferredKeys.includes(key) || ['session', 'recognitionCycle', 'counters'].includes(key)) continue;
       if (value && typeof value === 'object' && !Array.isArray(value)) {
-        const id = value.id || value.sessionId || value.deviceId || value.name || value.state || value.message;
-        push(this._humanKey(key), id || '[object]');
+        push(this._humanKey(key), this._formatHumanObject(value));
       } else {
         push(this._humanKey(key), value);
       }
@@ -694,8 +679,47 @@ class Logger {
       return /[\s|=]/.test(normalized) ? `"${normalized.slice(0, 120)}"` : normalized.slice(0, 120);
     }
     if (Array.isArray(value)) return `[${value.length} items]`;
-    if (value && typeof value === 'object') return value.message || value.name || value.id || '[object]';
+    if (value && typeof value === 'object') return this._formatHumanObject(value);
     return String(value);
+  }
+
+  _formatHumanObject(value) {
+    const direct = value.message || value.name || value.id || value.status || value.state;
+    if (direct) return this._formatHumanValue('summary', direct);
+
+    const preferred = [
+      'role',
+      'engine',
+      'model',
+      'runtime',
+      'provider',
+      'language',
+      'modelStatus',
+      'preload',
+      'files',
+      'version',
+      'platform',
+      'release',
+      'reason',
+      'code'
+    ];
+    const pairs = [];
+    const append = key => {
+      if (pairs.length >= 5 || !Object.prototype.hasOwnProperty.call(value, key)) return;
+      const child = value[key];
+      if (child === undefined || child === null || child === '') return;
+      if (child && typeof child === 'object') return;
+      pairs.push(`${this._humanKey(key)}:${this._formatHumanValue(key, child)}`);
+    };
+
+    for (const key of preferred) append(key);
+    for (const key of Object.keys(value)) {
+      if (pairs.length >= 5) break;
+      if (preferred.includes(key)) continue;
+      append(key);
+    }
+
+    return pairs.length ? `{${pairs.join(',')}}` : '[object]';
   }
 
   _humanKey(key) {

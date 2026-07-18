@@ -1,6 +1,6 @@
 # OpenX Repository Report
 
-Report date: 2026-07-17
+Report date: 2026-07-18
 
 Repository: `OpenX`
 
@@ -10,7 +10,7 @@ Version source: `package.json`
 
 Current version: `7.0.0`
 
-Branch / commit: `visual-memory-engine` / `1ee0f82`
+Branch / commit: `chatintegration` / `1acb3af`
 
 ## Scope Scanned
 
@@ -22,25 +22,36 @@ Branch / commit: `visual-memory-engine` / `1ee0f82`
 - Test suites under `tests`.
 - Package/build configuration in `package.json`, `package-lock.json`, `config.js`, and Electron builder settings.
 
-Approximate scan size from the 2026-07-17 refresh:
+Approximate scan size from the 2026-07-18 refresh:
 
-- `883` filtered files in the working tree after excluding generated, dependency, cache, and local-heavy folders.
-- `633` files under `core`.
+- `1055` filtered files in the working tree after excluding generated, dependency, cache, graph, and local-heavy folders.
+- `797` files under `core`.
 - `114` files under `apps`.
-- `94` files under `tests`.
+- `102` files under `tests`.
 - `11` files under `docs`.
 - `11` files under `plugins`.
 - `4` files under top-level `models`.
 - `5` files under `build`, `1` file under `scripts`, and `10` root-level config/docs/package files.
-- `826` JavaScript files, `17` Markdown files, `9` JSON files, `8` ONNX model/data files, `5` HTML files, `4` CSS files, plus PowerShell/config/build metadata files.
-- Visual Memory, Gallery, AI Vision, model assets, face memory, and face-search ranking now account for the largest active feature area.
+- `1000` JavaScript files, `17` Markdown files, `9` JSON files, `8` ONNX model/data files, `5` HTML files, `4` CSS files, plus PowerShell/config/build metadata files.
+- Visual Memory, Gallery, AI Vision, OpenX Chat desktop integration, encrypted chat client modules, model assets, face memory, and face-search ranking now account for the largest active feature areas.
 
 ## Current Working Tree
 
-The source working tree was clean at the start of this report update. This documentation refresh updates `report.md` to reflect the current `7.0.0` package version and the latest assistant stabilization work.
+The source working tree is actively modified. This documentation refresh updates `report.md` to reflect the current `7.0.0` package version, the latest assistant stabilization work, and the OpenX desktop chat integration with OpenX Chat Server.
 
 Recent stabilization areas covered by this report include:
 
+- `apps/desktop/electron/main.js`
+- `apps/desktop/electron/security.js`
+- `apps/desktop/preload.js`
+- `apps/desktop/renderer/chat/index.html`
+- `apps/desktop/renderer/chat/index.js`
+- `apps/desktop/renderer/chat/index.css`
+- `core/chat/state/ChatRuntimeStateMachine.js`
+- `core/chat/state/index.js`
+- `core/chat/ChatStatusManager.js`
+- `core/chat/ChatLifecycleManager.js`
+- `core/chat/crypto/SecureStorageManager.js`
 - `core/automation/media.js`
 - `core/assistant/automation/ActionRouter.js`
 - `core/assistant/entities/EntityExtractor.js`
@@ -53,6 +64,8 @@ Recent stabilization areas covered by this report include:
 - `core/assistant/capabilities/visual-memory/runtime/intelligence/utils/intelligence-utils.js`
 - `core/assistant/entities/PersonLexicon.js`
 - focused media, reminder, router, learning, response, visual-memory, and gallery tests under `tests/`
+- focused Desktop Chat runtime state tests under `tests/core/chat-runtime-state.test.js`
+- focused chat renderer and Electron IPC security tests under `tests/ui` and `tests/core`
 
 The report reflects the current workspace state and does not add a second directory tree.
 
@@ -273,6 +286,69 @@ play chaild in us song in youtube -> mediaQuery="chaild in us song", mediaPlatfo
 i have a meeting at 6pm tomorrow remind me -> reminder.set, reminderText="meeting", timeExpression="6pm tomorrow"
 ```
 
+### Latest OpenX Chat Desktop Integration Validation - 2026-07-18
+
+The latest chat pass connected the desktop Chat app to the standalone `OpenX_Chat_Server` account, OTP, discovery, contact request, relationship, and encrypted-message routing APIs.
+
+Passed desktop syntax validation:
+
+```powershell
+node -c apps\desktop\electron\main.js
+node -c apps\desktop\renderer\chat\index.js
+node -c apps\desktop\electron\security.js
+node -c core\chat\state\ChatRuntimeStateMachine.js
+node -c core\chat\ChatStatusManager.js
+node -c core\chat\ChatLifecycleManager.js
+node -c core\chat\crypto\SecureStorageManager.js
+```
+
+Passed full desktop lint:
+
+```powershell
+npm run lint -- --quiet
+```
+
+Passed focused desktop chat renderer and IPC security validation:
+
+```powershell
+npx mocha tests\core\chat-runtime-state.test.js tests\ui\chat-renderer.test.js tests\core\electron-security.test.js --timeout 60000 --reporter dot --exit
+```
+
+Result:
+
+```text
+40 passing
+```
+
+Related standalone Chat Server validation also passed:
+
+```powershell
+npm run check
+npm test
+```
+
+Result:
+
+```text
+syntax ok: 259 files
+80 passing
+```
+
+Graph refresh performed after desktop code edits:
+
+```powershell
+graphify update .
+```
+
+Result:
+
+```text
+1001 files extracted
+8029 nodes
+18027 edges
+302 communities
+```
+
 ## Major Current Capabilities Confirmed
 
 ### Assistant App Command Handling
@@ -307,6 +383,23 @@ Done, sir. I closed Chrome, but I could not close Instagram because Instagram st
 - Desktop contains phone-notification normalization and grouped presentation logic in Electron main.
 - Rapid phone notifications are grouped by source/app/package where possible.
 - Dynamic island notification display is wired for `phone.notification`.
+
+### OpenX Desktop Chat App
+
+- The desktop Apps view now exposes a `Chat` app surface for people-to-people OpenX Chat.
+- The Chat UI keeps the mobile-style conversation layout: list, search, All/Unread/Pinned filters, settings button, and a thread pane with back navigation.
+- Chat setup is hidden from the filter row and opens through the Chat settings button.
+- Chat setup supports server URL, country code, phone number, OTP verification, and optional registration PIN.
+- Existing registered phone numbers no longer fail as duplicate registration. Desktop now asks the Chat Server to start an existing-account OTP login flow.
+- New phone numbers still use the normal registration OTP flow.
+- After verification, the desktop registers or reuses a trusted desktop device through the Chat Server device API.
+- Adding a user now performs real exact-phone discovery instead of creating a fake local contact.
+- Contact requests are sent through the Chat Server and appear as pending outgoing requests until accepted.
+- Incoming and outgoing requests are visible in the Chat settings popup with refresh, accept, delete, and cancel controls.
+- Accepted relationships are synchronized back into local desktop conversations.
+- Messaging is blocked while a contact request is still pending.
+- Trusted relationship messages are sent to `OpenX_Chat_Server` through the encrypted message endpoint with opaque ciphertext transport.
+- Plain local preview/history remains in OpenX local chat storage for the current desktop UI. The server receives only opaque encrypted message payloads and metadata.
 
 ### Cloud Pairing, Devices, And File Transfer
 
@@ -744,6 +837,134 @@ The dynamic island is used for:
 - mobile/cloud events.
 
 Phone notification grouping is handled in `apps/desktop/electron/main.js`, with normalized notification payloads and grouped result entries.
+
+### Desktop OpenX Chat Integration
+
+The desktop Chat app is a user-to-user chat surface inside the existing OpenX desktop renderer. It is separate from the assistant command conversation and uses the standalone `OpenX_Chat_Server` for account registration, device registration, contact discovery, contact requests, trusted relationships, and encrypted message routing.
+
+Primary desktop chat files:
+
+| File | Responsibility |
+|---|---|
+| `apps/desktop/renderer/chat/index.html` | Chat app shell, conversation list, thread pane, add-user form, edit/delete controls, settings popup, registration form, request lists. |
+| `apps/desktop/renderer/chat/index.js` | Chat UI state, registration flow, add-user flow, request refresh/accept/delete/cancel, conversation rendering, send handling, toasts. |
+| `apps/desktop/renderer/chat/index.css` | WhatsApp-style mobile chat layout, list/thread responsive states, request cards, setup popup, modern assistant-themed styling. |
+| `apps/desktop/electron/main.js` | Main-process chat orchestration, local chat storage, Chat Server HTTP requests, OTP flow, device registration, contact requests, relationship sync, encrypted message send. |
+| `apps/desktop/electron/security.js` | IPC validators for chat list/open/create/update/delete/send, contact request actions, and registration payloads. |
+| `apps/desktop/preload.js` | Safe renderer API for chat registration, contacts, requests, local conversations, and send actions. |
+| `core/chat/*` | Production chat client modules for crypto, discovery, requests, conversations, messages, mailbox, synchronization, multi-device, connection, security, transfer, infrastructure, and quality layers. |
+
+Desktop Chat IPC surface:
+
+| IPC channel | Purpose |
+|---|---|
+| `desktopChat:list` | List local conversations with optional query and limit. |
+| `desktopChat:open` | Open one local conversation and recent history. |
+| `desktopChat:create` | Discover a real user and create/send a contact request. |
+| `desktopChat:update` | Edit local display metadata for a conversation. |
+| `desktopChat:delete` | Delete local conversation history/metadata. |
+| `desktopChat:send` | Send a local or trusted relationship message. |
+| `desktopChat:contacts:list` | Load incoming requests, outgoing requests, and trusted relationships from Chat Server. |
+| `desktopChat:contacts:accept` | Accept an incoming request and create/update a trusted local conversation. |
+| `desktopChat:contacts:delete` | Delete an incoming request. |
+| `desktopChat:contacts:cancel` | Cancel an outgoing request. |
+| `desktopChat:registration:get` | Read local registration/setup state. |
+| `desktopChat:registration:start` | Start new registration or existing-account OTP login. |
+| `desktopChat:registration:verify` | Verify OTP, create optional PIN, and register/reuse desktop device. |
+
+Desktop Chat data handling:
+
+```text
+OpenX data root
+  -> chat setup state
+  -> chat device state
+  -> local conversation records
+  -> local recent message previews/history
+```
+
+Important data rules:
+
+- desktop chat account setup state is stored locally under the OpenX data root;
+- desktop device state stores the server-issued `DeviceID` and local `clientDeviceKey` metadata;
+- local conversations are stored by the desktop conversation manager, not by the Chat Server;
+- server requests use bounded JSON and timeout-controlled fetch calls;
+- renderer access is through validated IPC only;
+- registration and request payloads are normalized before leaving the renderer;
+- server errors preserve machine-readable `code` and safe `details` for UI handling;
+- message plaintext is not sent to the server in the trusted relationship path.
+
+Current registration flow:
+
+```text
+Chat settings
+  -> user enters server URL, country code, phone
+  -> desktop calls /account/check
+  -> if phone is new:
+       /register/start
+       user enters OTP
+       /register/verify
+  -> if phone already exists:
+       /account/login/start
+       user enters OTP
+       /account/login/verify
+  -> desktop calls /device/register
+  -> optional /security/pin/create
+  -> desktop persists setup/device state locally
+  -> renderer receives desktopChat:registrationChanged
+```
+
+Current add-user flow:
+
+```text
+Chat add user
+  -> user enters display name, country code, and phone
+  -> desktop requires a registered local chat account
+  -> /discovery/lookup returns opaque contact token
+  -> /contact/request creates a pending request
+  -> local conversation is created with serverStatus=request-pending
+  -> outgoing request appears in Chat settings
+  -> composer is blocked until the request is accepted
+```
+
+Current contact acceptance flow:
+
+```text
+Chat settings
+  -> /contact/request/pending
+  -> user accepts request
+  -> /contact/request/accept
+  -> Chat Server creates TrustedRelationship
+  -> desktop creates or updates local conversation
+  -> serverStatus=trusted
+  -> messages can be sent
+```
+
+Current relationship refresh flow:
+
+```text
+Chat settings refresh
+  -> /contact/request/pending
+  -> /contact/request/outgoing
+  -> /contact/relationships
+  -> trusted relationships are reconciled into local conversations
+  -> pending requests remain visible with action controls
+```
+
+Current trusted message send flow:
+
+```text
+User sends message in trusted conversation
+  -> renderer invokes desktopChat:send
+  -> IPC validation bounds conversationId and text
+  -> main process verifies local trusted relationship metadata
+  -> main process builds opaque encrypted transport payload
+  -> /messages/send routes the encrypted payload through Chat Server
+  -> local desktop conversation history is updated for immediate UI feedback
+```
+
+Current limitation:
+
+- the desktop UI now sends through the server-backed trusted relationship path, but full cross-device decrypt/sync display still depends on wiring the existing `core/chat/messages`, `core/chat/mailbox`, `core/chat/synchronization`, and Phase 4 session-key material into the renderer-facing Chat app. The current implementation does not weaken this by deriving shared keys from server-known relationship IDs.
 
 ### OpenX Gallery And Visual Memory
 
@@ -1774,9 +1995,9 @@ For production debugging, the most useful fields are:
 - `error`
 - `executionContext.operationId`
 
-## 2026-07-17 Scan Refresh And Face Search Update
+## 2026-07-18 Scan Refresh, Face Search, And Chat Update
 
-This refresh scanned the current OpenX workspace, reviewed the Visual Memory and AI Vision paths, and updated the report to reflect the latest face-search behavior.
+This refresh scanned the current OpenX workspace, reviewed the Visual Memory, AI Vision, and OpenX Chat desktop paths, and updated the report to reflect the latest face-search and Chat Server integration behavior.
 
 ### Current Scan Summary
 
@@ -1799,22 +2020,22 @@ Current file distribution:
 
 | Area | Files |
 |---|---:|
-| `core` | `633` |
+| `core` | `797` |
 | `apps` | `114` |
-| `tests` | `94` |
+| `tests` | `101` |
 | `docs` | `11` |
 | `plugins` | `11` |
 | top-level `models` | `4` |
 | `build` | `5` |
 | `scripts` | `1` |
 | root config/docs/package files | `10` |
-| total filtered scan | `883` |
+| total filtered scan | `1054` |
 
 Current extension distribution:
 
 | Extension | Files |
 |---|---:|
-| `.js` | `826` |
+| `.js` | `997` |
 | `.md` | `17` |
 | `.json` | `9` |
 | `.onnx` | `8` |
@@ -1938,6 +2159,285 @@ The current OpenX implementation keeps those ideas inside the existing local-fir
 - Current model assets now include SCRFD, MobileFaceNet, MobileCLIP, and PaddleOCR paths under Visual Memory runtime models. These are documented in the refreshed directory tree below.
 - A future production upgrade should continue toward a real local ONNX face embedding adapter while preserving the same `FaceMemory` and `faceSearchContext` contracts.
 
+## 2026-07-18 OpenX Chat Integration Update
+
+This update connected the desktop Chat app to the standalone OpenX Chat Server instead of leaving add-user and messaging behavior as local-only UI scaffolding.
+
+### Problem Addressed
+
+Before this pass, the desktop Chat app could show a WhatsApp-style chat layout and local conversation cards, but the real user flow was incomplete:
+
+- adding a person could create a local record without discovering a real server account;
+- the UI did not expose incoming/outgoing contact request controls in the setup popup;
+- an already registered phone number could be treated as a duplicate registration instead of an OTP login/device setup flow;
+- sending a message from a server-backed contact did not route through `/messages/send`;
+- trusted server relationships were not reconciled back into local desktop conversations;
+- contact request IPC channels were not exposed through the preload bridge.
+
+### Desktop Changes Implemented
+
+| Area | Change |
+|---|---|
+| Registration | `startDesktopChatRegistration()` now checks `/account/check`; registered phones use `/account/login/start`; new phones use `/register/start`. |
+| Verification | `verifyDesktopChatRegistration()` uses `/account/login/verify` for existing accounts and falls back to that path if registration verify reports `account.duplicate`. |
+| Device setup | successful verification calls `/device/register` and stores the resulting desktop device state locally. |
+| Add user | `createDesktopChatConversation()` now requires registration, calls `/discovery/lookup`, then calls `/contact/request`. |
+| Duplicate requests | duplicate pending requests are converted into the existing local pending conversation instead of creating unrelated duplicates. |
+| Already trusted users | `request.already_trusted` server responses create/update a trusted local conversation using the returned relationship metadata. |
+| Request list | `listDesktopChatContacts()` loads pending incoming requests, outgoing requests, and trusted relationships. |
+| Request actions | `acceptDesktopChatContactRequest()`, `deleteDesktopChatContactRequest()`, and `cancelDesktopChatContactRequest()` call the matching server endpoints and refresh local state. |
+| Message send | trusted conversations send an opaque encrypted payload to `/messages/send`; pending requests are blocked from sending. |
+| Renderer | Chat settings popup shows request lists and action buttons. |
+| IPC security | new request channels are validated before reaching main-process handlers. |
+
+### Server Flow Used By Desktop
+
+```text
+Registration/setup:
+  /account/check
+  /register/start or /account/login/start
+  /register/verify or /account/login/verify
+  /device/register
+  /security/pin/create when optional PIN is provided
+
+Adding a person:
+  /discovery/lookup
+  /contact/request
+
+Refreshing contacts:
+  /contact/request/pending
+  /contact/request/outgoing
+  /contact/relationships
+
+Request actions:
+  /contact/request/accept
+  /contact/request/delete
+  /contact/request/cancel
+
+Trusted messaging:
+  /messages/send
+```
+
+### Desktop Chat Runtime State Machine
+
+The reconciliation pass replaced the important setup decision point with one authoritative state-machine contract:
+
+```text
+UNINITIALIZED
+  -> SERVER_CONNECTED
+  -> ACCOUNT_VERIFIED
+  -> DEVICE_REGISTERED
+  -> DEVICE_APPROVAL_REQUIRED
+  -> DEVICE_APPROVED
+  -> IDENTITY_READY
+  -> SESSION_READY
+  -> CHAT_READY
+```
+
+Operational rules:
+
+- `DEVICE_APPROVAL_REQUIRED` is a blocking state, not a soft warning.
+- `registered=true` only means the phone/account flow completed; it does not imply chat is usable.
+- `CHAT_READY` requires a verified account, registered device, server-approved device state, locally available private keys, registered public identity/device keys, and a local session-ready marker.
+- Renderer request lists, add-user flow, contact actions, and trusted message send are gated by `chatReady`.
+- Registration status refresh reconciles `/device/status/{DeviceID}` so a newly approved device can move to `CHAT_READY` without another OTP flow.
+- Private keys stay in the desktop main process and are stored through Electron `safeStorage`; the server receives only public key material.
+
+### Updated Files
+
+| File | Update |
+|---|---|
+| `apps/desktop/electron/main.js` | Chat Server request helper, OTP login support, registration/device state, discovery/contact request flow, relationship refresh, request actions, trusted message send, IPC handlers. |
+| `apps/desktop/electron/security.js` | Validates chat create payload country code and validates request action payloads. |
+| `apps/desktop/preload.js` | Exposes contact list, accept, delete, cancel, registration, and conversation APIs to the renderer. |
+| `apps/desktop/renderer/chat/index.html` | Adds country-code input for adding users and request list panels inside Chat settings. |
+| `apps/desktop/renderer/chat/index.js` | Adds request state normalization, request rendering, refresh/accept/delete/cancel handlers, server-backed add-user behavior, pending-send blocking, and setup refresh. |
+| `apps/desktop/renderer/chat/index.css` | Adds request card styling, setup popup refinements, identity input row, and responsive containment for chat UI performance. |
+| `core/chat/state/ChatRuntimeStateMachine.js` | Defines the authoritative Desktop Chat setup state machine from server connection through `CHAT_READY`. |
+| `core/chat/ChatStatusManager.js` | Publishes runtime state-machine snapshots instead of unmanaged string status flags. |
+| `core/chat/ChatLifecycleManager.js` | Uses runtime state names for lifecycle start and stop transitions. |
+| `core/chat/crypto/SecureStorageManager.js` | Delegates stored-key listing to the active OS secure-storage backend. |
+| `core/chat/index.js` | Exposes the Desktop Chat state module for shared use and tests. |
+| `tests/core/chat-runtime-state.test.js` | Covers runtime-state derivation, device approval gating, and `ChatStatusManager` snapshots. |
+| `tests/ui/chat-renderer.test.js` | Adds renderer contract coverage for the Chat app, setup popup, request controls, and styling hooks. |
+| `tests/core/electron-security.test.js` | Adds IPC validation coverage for registration, country code, contact request actions, and channel registration. |
+
+### Current Behavior Confirmed
+
+| User action | Current result |
+|---|---|
+| register a new phone | desktop starts `/register/start`, asks OTP, verifies through `/register/verify`, registers desktop device. |
+| use an already registered phone | desktop starts `/account/login/start`, asks OTP, verifies through `/account/login/verify`, registers/reuses desktop device, then waits for approval when the server marks it pending. |
+| approved desktop device | desktop generates or reuses local identity/device keys, stores private keys with Electron `safeStorage`, and registers only public keys with Chat Server. |
+| pending desktop device | Chat settings shows approval required and contact/message actions are blocked until another trusted device approves it. |
+| add a real user by phone | desktop performs exact discovery and sends a contact request only after the runtime state reaches `CHAT_READY`. |
+| open Chat settings | shows setup state plus incoming/outgoing contact requests when `CHAT_READY`; pending devices show approval guidance instead. |
+| accept request | server creates trusted relationship and desktop creates/updates a local conversation. |
+| cancel outgoing request | server cancels the request and desktop refreshes request lists. |
+| send before accepted | desktop blocks sending and tells the user the request is pending. |
+| send after accepted | desktop posts opaque encrypted payload to Chat Server and updates local UI history. |
+
+### Security And Privacy Notes
+
+- Desktop discovery uses the Chat Server's exact-phone lookup and opaque token model.
+- The renderer never calls network APIs directly for registration, requests, or messaging; it goes through validated IPC.
+- The server-backed send path does not send plaintext message text to the Chat Server.
+- Local UI history remains local desktop data so the current user sees immediate message previews.
+- Full cross-device readable sync requires the existing Phase 4 session-key and Phase 8 message pipeline to be connected to the Chat UI receive path.
+
+## 2026-07-18 OpenX Chat Architecture Reconciliation Report
+
+This reconciliation reviewed Desktop, IPC, local storage, Chat Server REST endpoints, device lifecycle, public-key registry, contact requests, relationships, messaging, synchronization boundaries, and recovery paths.
+
+### Issues Discovered And Root Causes
+
+| Issue | Root cause | Resolution |
+|---|---|---|
+| OTP verification could be treated as complete chat readiness. | Desktop used `registered` as the main UI/action gate even though Chat Server can return additional devices as `Pending`. | Added `ChatRuntimeStateMachine` and made server-backed actions require `chatReady`. |
+| A fresh desktop for an existing account could proceed before device approval. | The desktop did not reconcile `deviceStatus` and `approvalStatus` after `/device/register`. | Device status is refreshed through `/device/status/{DeviceID}` and pending devices show approval guidance. |
+| Public identity/device keys were implemented but not part of desktop setup readiness. | Server Phase 4 public-key registries existed, while desktop setup stopped at account/device registration. | Approved desktops now generate/reuse local identity and device keys, store private keys locally, and upload public keys only. |
+| Secure local key storage could silently rely on non-durable fallback key material. | Generic crypto storage used an in-memory key when no durable backend or explicit secret was configured. | Electron main now injects a `safeStorage` backend for desktop chat keys. |
+| Add-user could degrade into local-only chat behavior. | Renderer had local fallback behavior from the early UI scaffold. | Add-user submit now blocks until `chatReady` and directs the user to Chat settings. |
+| Request lists could load against an incomplete setup. | Renderer checked `registered`, not the full lifecycle state. | Request lists and refresh handlers now require `chatReady`. |
+
+### Unified Architecture
+
+```text
+Renderer Chat app
+  -> validated preload IPC
+  -> Electron main Chat orchestrator
+  -> OpenX_Data local state
+  -> Electron safeStorage private-key envelopes
+  -> OpenX Chat Server REST APIs
+  -> Chat Server JSON store / public registries / mailbox / sync metadata
+```
+
+Ownership after reconciliation:
+
+- Desktop renderer owns UI state, focus, forms, and display.
+- Desktop main owns orchestration, IPC validation boundary, local conversation storage, setup state, server calls, and client-side cryptographic key custody.
+- Chat Server owns account verification, device trust, public-key registry, contact discovery, request validation, relationship creation, routing, mailbox, sync, and server-side audit metadata.
+- The server still never owns private keys or plaintext chat content.
+
+### Workflow Diagrams
+
+New account:
+
+```text
+Phone form
+  -> /account/check registered=false
+  -> /register/start
+  -> OTP
+  -> /register/verify
+  -> /device/register
+  -> if Approved: local keys + public-key registration
+  -> CHAT_READY
+```
+
+Existing account on a new desktop:
+
+```text
+Phone form
+  -> /account/check registered=true
+  -> /account/login/start
+  -> OTP
+  -> /account/login/verify
+  -> /device/register
+  -> DEVICE_APPROVAL_REQUIRED when server marks device Pending
+  -> /device/status/{DeviceID} refresh after approval
+  -> local keys + public-key registration
+  -> CHAT_READY
+```
+
+Add user and request:
+
+```text
+CHAT_READY
+  -> /discovery/lookup
+  -> opaque contact token
+  -> /contact/request
+  -> pending local conversation
+  -> recipient /contact/request/accept
+  -> trusted relationship
+  -> local conversation linked to relationship
+```
+
+Trusted send:
+
+```text
+CHAT_READY
+  -> trusted local conversation
+  -> opaque encrypted payload
+  -> /messages/send
+  -> server relationship/device validation
+  -> live route or mailbox fallback
+  -> local UI history updated
+```
+
+### Lifecycle Definitions
+
+| Lifecycle | Start | Progress | Completion | Failure/recovery |
+|---|---|---|---|---|
+| Account | phone submitted | OTP pending | `ACCOUNT_VERIFIED` | restart OTP flow or login path when duplicate account exists |
+| Device | `/device/register` | pending/approved | `DEVICE_APPROVED` | settings shows approval required; status refresh recovers after approval |
+| Identity | approved device | local key generation/read | public keys registered | secure-storage or registry errors keep setup below `CHAT_READY` |
+| Chat setup | server URL | account/device/identity/session gates | `CHAT_READY` | blocking reason is surfaced in setup popup |
+| Relationship | contact token | request pending | trusted relationship | duplicate/already-trusted cases reconcile local conversation |
+| Message | local send | server route/mailbox | local UI update | pending requests and incomplete metadata are blocked before send |
+
+### API Changes Consumed By Desktop
+
+- Existing account login uses `POST /account/login/start` and `POST /account/login/verify`.
+- Device recovery/approval status uses `GET /device/status/{DeviceID}`.
+- Client public keys use `POST /crypto/identity/public-key`, `GET /crypto/identity/{AccountID}/public-key`, `POST /crypto/device/public-key`, and `GET /crypto/device/{DeviceID}/public-key`.
+- Trusted relationship refresh uses `GET /contact/relationships?accountId={AccountID}`.
+- Contact requests use `/discovery/lookup`, `/contact/request`, `/contact/request/pending`, `/contact/request/outgoing`, `/contact/request/accept`, `/contact/request/delete`, and `/contact/request/cancel`.
+- Trusted send uses `POST /messages/send`.
+
+### Database And Local Storage Changes
+
+- Desktop setup state in `OpenX_Data/chat-account.json` now includes derived runtime state inputs, last server contact, device approval status, and bounded crypto readiness metadata.
+- Desktop device registration state remains in `OpenX_Data/chat-device.json`.
+- Desktop private key envelopes are stored in `OpenX_Data/chat-crypto-secrets.json` using Electron `safeStorage`.
+- Desktop local conversations remain in `OpenX_Data/chat-conversations.json`.
+- No server database shape change was required in this pass; the desktop now consumes existing public-key, device, relationship, and mailbox models more correctly.
+
+### Security Improvements
+
+- Pending or unapproved devices cannot add contacts, accept/delete/cancel contact requests, or send trusted messages from the desktop UI.
+- Private identity and device keys never leave the desktop main process.
+- Public-key registration happens only after the server-approved device gate.
+- Renderer remains behind validated IPC and does not call REST endpoints directly.
+- Secure-storage failures become explicit setup blockers instead of silent “ready” states.
+
+### Performance Improvements
+
+- Registration status reconciliation is lazy and only runs when Chat settings or server-backed actions need readiness.
+- Public-key registration is idempotent: existing matching public keys are read before re-registering.
+- Request lists are not polled or loaded while setup is blocked.
+- The renderer does not create unnecessary local fallback conversations when real server chat cannot proceed.
+
+### Remaining Risks
+
+- True peer-to-peer/session-key decrypt-and-display for incoming mailbox envelopes is still not wired into the renderer-facing Chat app.
+- The current trusted-send path sends an opaque encrypted payload and updates local UI history, but complete cross-device readable sync requires the existing `core/chat/messages`, `core/chat/mailbox`, and `core/chat/synchronization` managers to be used by the UI receive path.
+- Production still needs a real OTP provider and HTTPS-only deployment profile outside localhost development.
+- The JSON store remains a development/runtime store and needs production persistence policy before public rollout.
+
+### Production Readiness Checklist
+
+| Gate | Status |
+|---|---|
+| Account registration and existing-account OTP login | Implemented and tested through focused desktop/server paths. |
+| Device registration and approval blocking | Implemented on server; desktop now honors pending approval. |
+| Client private-key custody | Implemented with Electron `safeStorage` backend for desktop chat setup. |
+| Public identity/device key registration | Implemented for approved desktops. |
+| Contact discovery and request flow | Implemented through opaque token and request APIs. |
+| Relationship refresh | Implemented with `/contact/relationships`. |
+| Server-side messaging validation | Implemented by Chat Server; desktop consumes `/messages/send`. |
+| Incoming decrypt/sync display | Remaining integration risk. |
+| Full end-to-end desktop + server fixture | Recommended before release. |
+
 ## Blockers And Risks
 
 1. Full assistant suite drift
@@ -1967,6 +2467,14 @@ The current OpenX implementation keeps those ideas inside the existing local-fir
 7. Dirty working tree
 
    Many assistant files are modified. Before release, run a clean full validation pass and review all changed files as one integration set.
+
+8. Desktop Chat receive/decrypt integration
+
+   Desktop Chat now performs real registration, contact requests, trusted relationship refresh, and server-backed encrypted send. The remaining production gap is wiring the existing `core/chat/messages`, `core/chat/mailbox`, `core/chat/synchronization`, and Phase 4 session-key material into the renderer-facing Chat app so remote encrypted envelopes can be decrypted and displayed across devices without weakening the security model.
+
+9. Chat Server production configuration
+
+   Local development uses `http://localhost:8090` and development OTP exposure when explicitly configured. A production deployment must use HTTPS, real OTP delivery, hardened secrets, persistent storage policy, and deployment-level rate limiting/observability.
 
 ## Recommended Next Actions
 
@@ -2000,10 +2508,26 @@ The current OpenX implementation keeps those ideas inside the existing local-fir
    - cloud file transfer test
    - notification grouping test
    - installer smoke test
+6. Add end-to-end OpenX Chat desktop tests with a running Chat Server fixture for:
+   - new phone registration;
+   - existing phone OTP login;
+   - desktop device registration;
+   - exact phone discovery;
+   - outgoing request creation;
+   - incoming request acceptance;
+   - trusted relationship refresh;
+   - pending-send blocking;
+   - trusted encrypted `/messages/send`.
+7. Connect the renderer-facing Chat app to the existing desktop chat encrypted receive/sync modules:
+   - `core/chat/messages/MessageManager.js`;
+   - `core/chat/mailbox/MailboxManager.js`;
+   - `core/chat/synchronization/SynchronizationManager.js`;
+   - Phase 4 identity/device/session key storage.
+8. For production Chat deployment, replace development OTP handling with a real delivery provider and lock deployment to HTTPS-only Chat Server URLs.
 
 ## Current Directory Tree
 
-This is the only directory tree in this report. It was generated from the current OpenX workspace on 2026-07-17 and excludes dependency, build-output, cache, local graph, and other generated folders so the documentation stays focused on source, tests, configuration, docs, and checked-in assets.
+This is the only directory tree in this report. It was refreshed from the current OpenX workspace on 2026-07-18 and excludes dependency, build-output, cache, local graph, and other generated folders so the documentation stays focused on source, tests, configuration, docs, and checked-in assets.
 
 Excluded generated/local-heavy paths:
 
@@ -2022,7 +2546,7 @@ Excluded generated/local-heavy paths:
 - `tmp/`
 - `temp/`
 
-Filtered tree scan: `883` files.
+Filtered tree scan: `1055` files.
 
 ```text
 OpenX/
@@ -2899,6 +3423,188 @@ OpenX/
 |   |   |-- system.js
 |   |   |-- volume.js
 |   |   `-- windows.js
+|   |-- chat/
+|   |   |-- connection/
+|   |   |   |-- ConnectionConfiguration.js
+|   |   |   |-- ConnectionEngine.js
+|   |   |   |-- ConnectionEvents.js
+|   |   |   |-- ConnectionLogger.js
+|   |   |   |-- HeartbeatManager.js
+|   |   |   |-- index.js
+|   |   |   |-- NetworkMonitor.js
+|   |   |   |-- PresenceManager.js
+|   |   |   |-- RecoveryManager.js
+|   |   |   `-- SessionManager.js
+|   |   |-- conversations/
+|   |   |   |-- ArchiveManager.js
+|   |   |   |-- ConversationConfiguration.js
+|   |   |   |-- ConversationEvents.js
+|   |   |   |-- ConversationLogger.js
+|   |   |   |-- ConversationManager.js
+|   |   |   |-- ConversationModel.js
+|   |   |   |-- ConversationService.js
+|   |   |   |-- ConversationStorage.js
+|   |   |   |-- ConversationValidation.js
+|   |   |   |-- index.js
+|   |   |   |-- IndexManager.js
+|   |   |   |-- MuteManager.js
+|   |   |   |-- PaginationManager.js
+|   |   |   |-- PinManager.js
+|   |   |   |-- SearchManager.js
+|   |   |   |-- SearchService.js
+|   |   |   `-- SortingManager.js
+|   |   |-- crypto/
+|   |   |   |-- AESManager.js
+|   |   |   |-- CryptoConfiguration.js
+|   |   |   |-- CryptoErrors.js
+|   |   |   |-- CryptoEvents.js
+|   |   |   |-- CryptoLogger.js
+|   |   |   |-- CryptoManager.js
+|   |   |   |-- CryptoValidation.js
+|   |   |   |-- HKDFManager.js
+|   |   |   |-- IdentityManager.js
+|   |   |   |-- index.js
+|   |   |   |-- KeyManager.js
+|   |   |   |-- KeyRotationManager.js
+|   |   |   |-- RandomManager.js
+|   |   |   |-- ReplayProtectionManager.js
+|   |   |   |-- SecureStorageManager.js
+|   |   |   `-- SessionManager.js
+|   |   |-- devices/
+|   |   |   |-- DeviceConfiguration.js
+|   |   |   |-- DeviceEvents.js
+|   |   |   |-- DeviceLifecycle.js
+|   |   |   |-- DeviceLogger.js
+|   |   |   |-- DeviceManager.js
+|   |   |   |-- DeviceRegistry.js
+|   |   |   |-- DeviceService.js
+|   |   |   |-- DeviceStatus.js
+|   |   |   `-- index.js
+|   |   |-- discovery/
+|   |   |   |-- ContactDiscoveryManager.js
+|   |   |   |-- DiscoveryConfiguration.js
+|   |   |   |-- DiscoveryEvents.js
+|   |   |   |-- DiscoveryLogger.js
+|   |   |   |-- DiscoveryService.js
+|   |   |   |-- DiscoveryValidation.js
+|   |   |   `-- index.js
+|   |   |-- infrastructure/
+|   |   |   |-- ConnectionOptimizer.js
+|   |   |   |-- index.js
+|   |   |   |-- InfrastructureEvents.js
+|   |   |   |-- MemoryOptimizer.js
+|   |   |   |-- MetricsManager.js
+|   |   |   |-- MonitoringManager.js
+|   |   |   |-- PerformanceManager.js
+|   |   |   |-- StorageOptimizer.js
+|   |   |   `-- SynchronizationOptimizer.js
+|   |   |-- mailbox/
+|   |   |   |-- AcknowledgementManager.js
+|   |   |   |-- index.js
+|   |   |   |-- MailboxClient.js
+|   |   |   |-- MailboxConfiguration.js
+|   |   |   |-- MailboxEvents.js
+|   |   |   |-- MailboxLogger.js
+|   |   |   |-- MailboxManager.js
+|   |   |   |-- MailboxSyncManager.js
+|   |   |   `-- SequenceManager.js
+|   |   |-- messages/
+|   |   |   |-- AcknowledgementManager.js
+|   |   |   |-- CompressionManager.js
+|   |   |   |-- index.js
+|   |   |   |-- MessageClient.js
+|   |   |   |-- MessageConfiguration.js
+|   |   |   |-- MessageConstants.js
+|   |   |   |-- MessageEvents.js
+|   |   |   |-- MessageLogger.js
+|   |   |   |-- MessageManager.js
+|   |   |   |-- MessageModel.js
+|   |   |   |-- MessagePipeline.js
+|   |   |   |-- MessageRouter.js
+|   |   |   |-- MessageStorage.js
+|   |   |   |-- MessageValidation.js
+|   |   |   |-- RetryManager.js
+|   |   |   `-- TypingManager.js
+|   |   |-- multidevice/
+|   |   |   |-- DeviceConsistencyManager.js
+|   |   |   |-- DeviceEvents.js
+|   |   |   |-- DeviceLogger.js
+|   |   |   |-- DeviceSynchronizationManager.js
+|   |   |   |-- index.js
+|   |   |   |-- MultiDeviceClient.js
+|   |   |   |-- MultiDeviceConfiguration.js
+|   |   |   |-- MultiDeviceManager.js
+|   |   |   `-- SynchronizationCopyManager.js
+|   |   |-- quality/
+|   |   |   |-- CrashRecoveryManager.js
+|   |   |   |-- index.js
+|   |   |   |-- PerformanceReporter.js
+|   |   |   |-- ProductionValidator.js
+|   |   |   |-- QualityManager.js
+|   |   |   `-- ReleaseLogger.js
+|   |   |-- requests/
+|   |   |   |-- BlockManager.js
+|   |   |   |-- ContactRequestManager.js
+|   |   |   |-- index.js
+|   |   |   |-- NicknameManager.js
+|   |   |   |-- RequestConfiguration.js
+|   |   |   |-- RequestEvents.js
+|   |   |   |-- RequestLogger.js
+|   |   |   |-- RequestService.js
+|   |   |   |-- RequestValidation.js
+|   |   |   `-- TrustManager.js
+|   |   |-- security/
+|   |   |   |-- index.js
+|   |   |   |-- RecoveryManager.js
+|   |   |   |-- RegistrationPinManager.js
+|   |   |   |-- SecurityClient.js
+|   |   |   |-- SecurityEvents.js
+|   |   |   |-- SecurityLogger.js
+|   |   |   |-- SecurityManager.js
+|   |   |   |-- SecurityPolicyManager.js
+|   |   |   |-- SessionManager.js
+|   |   |   `-- TrustManager.js
+|   |   |-- state/
+|   |   |   |-- ChatRuntimeStateMachine.js
+|   |   |   `-- index.js
+|   |   |-- synchronization/
+|   |   |   |-- ACKManager.js
+|   |   |   |-- ConflictManager.js
+|   |   |   |-- index.js
+|   |   |   |-- RecoveryManager.js
+|   |   |   |-- RetryManager.js
+|   |   |   |-- SequenceManager.js
+|   |   |   |-- SynchronizationClient.js
+|   |   |   |-- SynchronizationConfiguration.js
+|   |   |   |-- SynchronizationCursor.js
+|   |   |   |-- SynchronizationEngine.js
+|   |   |   |-- SynchronizationEvents.js
+|   |   |   |-- SynchronizationLogger.js
+|   |   |   `-- SynchronizationManager.js
+|   |   |-- transfer/
+|   |   |   |-- BlobClient.js
+|   |   |   |-- DownloadManager.js
+|   |   |   |-- index.js
+|   |   |   |-- IntegrityManager.js
+|   |   |   |-- ThumbnailManager.js
+|   |   |   |-- TransferConfiguration.js
+|   |   |   |-- TransferEvents.js
+|   |   |   |-- TransferLogger.js
+|   |   |   |-- TransferManager.js
+|   |   |   `-- UploadManager.js
+|   |   |-- ChatConfiguration.js
+|   |   |-- ChatConnectionManager.js
+|   |   |-- ChatDataPaths.js
+|   |   |-- ChatEventBus.js
+|   |   |-- ChatEvents.js
+|   |   |-- ChatHealthManager.js
+|   |   |-- ChatLifecycleManager.js
+|   |   |-- ChatLogger.js
+|   |   |-- ChatManager.js
+|   |   |-- ChatService.js
+|   |   |-- ChatStatusManager.js
+|   |   |-- ChatVersionManager.js
+|   |   `-- index.js
 |   |-- cloud/
 |   |   |-- CloudCommandManager.js
 |   |   |-- CloudCommandRouter.js

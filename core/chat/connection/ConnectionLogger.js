@@ -1,3 +1,5 @@
+const { formatLogLine } = require('../LogFormatter');
+
 /**
  * Desktop connection logger that avoids sensitive values.
  */
@@ -20,7 +22,7 @@ class ConnectionLogger {
       key,
       /token|plaintext|privateKey|sessionKey|messageText/i.test(key) ? '[redacted]' : value
     ]));
-    console[level === 'warn' ? 'warn' : 'log'](`[OpenXChatConnection] ${message}`, safe);
+    console[level === 'warn' ? 'warn' : 'log'](formatLogLine('CHAT_CONNECTION', level, message, safe));
   }
 }
 

@@ -1,3 +1,5 @@
+const { formatLogLine } = require('../LogFormatter');
+
 /**
  * Privacy-safe desktop conversation logger.
  */
@@ -16,7 +18,7 @@ class ConversationLogger {
    * @param {object} metadata Non-content metadata.
    */
   info(event, metadata = {}) {
-    this.logger.info?.(`[OpenXChatConversation] ${event}`, this.sanitize(metadata));
+    this.write('info', event, metadata);
   }
 
   /**
@@ -25,7 +27,18 @@ class ConversationLogger {
    * @param {object} metadata Non-content metadata.
    */
   warn(event, metadata = {}) {
-    this.logger.warn?.(`[OpenXChatConversation] ${event}`, this.sanitize(metadata));
+    this.write('warn', event, metadata);
+  }
+
+  /**
+   * Writes a sanitized log entry.
+   * @param {string} level Log level.
+   * @param {string} event Event name.
+   * @param {object} metadata Non-content metadata.
+   */
+  write(level, event, metadata = {}) {
+    const writer = typeof this.logger[level] === 'function' ? this.logger[level] : this.logger.log;
+    writer.call(this.logger, formatLogLine('CHAT_CONVERSATION', level, event, this.sanitize(metadata)));
   }
 
   /**

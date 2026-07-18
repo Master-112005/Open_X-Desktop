@@ -846,6 +846,18 @@ const openxApi = {
   sendDesktopChatMessage: (message = {}) =>
     ipcRenderer.invoke('desktopChat:send', message),
 
+  listDesktopChatContacts: () =>
+    ipcRenderer.invoke('desktopChat:contacts:list'),
+
+  acceptDesktopChatContactRequest: (request = {}) =>
+    ipcRenderer.invoke('desktopChat:contacts:accept', request),
+
+  deleteDesktopChatContactRequest: (request = {}) =>
+    ipcRenderer.invoke('desktopChat:contacts:delete', request),
+
+  cancelDesktopChatContactRequest: (request = {}) =>
+    ipcRenderer.invoke('desktopChat:contacts:cancel', request),
+
   getDesktopChatRegistration: () =>
     ipcRenderer.invoke('desktopChat:registration:get'),
 

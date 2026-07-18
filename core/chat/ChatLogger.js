@@ -1,3 +1,5 @@
+const { formatLogLine } = require('./LogFormatter');
+
 /**
  * Dedicated Desktop Chat logger, independent from relay/cloud logging.
  */
@@ -36,7 +38,7 @@ class ChatLogger {
   write(level, message, data = {}) {
     if (this.levels[level] > this.levels[this.level]) return;
     const writer = typeof this.logger[level] === 'function' ? this.logger[level] : this.logger.log;
-    writer.call(this.logger, `[CHAT] ${message}`, this.redact(data));
+    writer.call(this.logger, formatLogLine('CHAT', level, message, this.redact(data)));
   }
 
   /**

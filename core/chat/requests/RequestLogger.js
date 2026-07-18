@@ -1,3 +1,5 @@
+const { formatLogLine } = require('../LogFormatter');
+
 /**
  * Desktop contact request logger with token and id redaction.
  */
@@ -27,7 +29,7 @@ class RequestLogger {
    */
   write(level, message, data = {}) {
     const writer = typeof this.sink[level] === 'function' ? this.sink[level] : this.sink.log;
-    writer.call(this.sink, `[CHAT_REQUEST] ${message}`, this.redact(data));
+    writer.call(this.sink, formatLogLine('CHAT_REQUEST', level, message, this.redact(data)));
   }
 
   /**

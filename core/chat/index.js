@@ -13,6 +13,7 @@ module.exports = Object.freeze({
   ChatService: require('./ChatService'),
   ChatStatusManager: require('./ChatStatusManager'),
   ChatVersionManager: require('./ChatVersionManager'),
+  State: require('./state'),
   Devices: require('./devices'),
   Crypto: require('./crypto'),
   Discovery: require('./discovery'),
