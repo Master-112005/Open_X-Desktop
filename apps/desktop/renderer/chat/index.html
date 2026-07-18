@@ -88,6 +88,59 @@
         </div>
       </section>
 
+      <section class="workspace-view" id="people-chat-view" aria-label="OpenX Chat" hidden>
+        <div class="people-chat-shell list-open">
+          <aside class="people-chat-sidebar" aria-label="Chats">
+            <div class="people-chat-list-controls">
+              <label class="people-chat-search">
+                <span>Search chats</span>
+                <input id="people-chat-search" type="search" placeholder="Search chats" autocomplete="off">
+              </label>
+              <button class="people-chat-icon-btn" id="people-chat-new-btn" type="button" title="New chat" aria-label="New chat">+</button>
+              <button class="people-chat-icon-btn people-chat-close-btn" id="people-chat-close-btn" type="button" title="Close chat" aria-label="Close chat">&#10005;</button>
+            </div>
+            <div class="people-chat-filters" aria-label="Chat filters">
+              <button class="people-chat-filter active" type="button" data-chat-filter="all">All</button>
+              <button class="people-chat-filter" type="button" data-chat-filter="unread">Unread</button>
+              <button class="people-chat-filter" type="button" data-chat-filter="pinned">Pinned</button>
+            </div>
+            <form class="people-chat-add-user" id="people-chat-add-user" hidden>
+              <input id="people-chat-user-name" type="text" placeholder="Name" autocomplete="name" aria-label="Name" required>
+              <input id="people-chat-user-id" type="text" placeholder="OpenX ID, phone, or email" autocomplete="off" aria-label="OpenX ID, phone, or email" required>
+              <div class="people-chat-add-actions">
+                <button class="people-chat-add-cancel" id="people-chat-add-cancel" type="button">Cancel</button>
+                <button class="people-chat-add-submit" type="submit">Add</button>
+              </div>
+              <span id="people-chat-add-status" aria-live="polite"></span>
+            </form>
+            <div class="people-chat-list" id="people-chat-list" role="list"></div>
+          </aside>
+
+          <section class="people-chat-thread-pane" aria-label="Selected chat">
+            <header class="people-chat-thread-header">
+              <div class="people-chat-thread-person">
+                <span class="people-chat-avatar large" id="people-chat-thread-avatar" aria-hidden="true">OX</span>
+                <span>
+                  <strong id="people-chat-thread-title">OpenX Chat</strong>
+                  <small id="people-chat-thread-status">Local messages</small>
+                </span>
+              </div>
+              <div class="people-chat-thread-actions" aria-label="Chat actions">
+                <button class="people-chat-icon-btn people-chat-back-btn" id="people-chat-back-btn" type="button" title="Back to chats" aria-label="Back to chats">&lt;</button>
+              </div>
+            </header>
+            <div class="people-chat-thread" id="people-chat-thread" role="log" aria-live="polite"></div>
+            <form class="people-chat-composer" id="people-chat-composer">
+              <button class="people-chat-icon-btn" type="button" title="Attach" aria-label="Attach">+</button>
+              <input id="people-chat-input" type="text" placeholder="Message" autocomplete="off" aria-label="Message">
+              <button class="people-chat-send" id="people-chat-send-btn" type="submit" title="Send message" aria-label="Send message">
+                <span>Send</span><b aria-hidden="true">&#8593;</b>
+              </button>
+            </form>
+          </section>
+        </div>
+      </section>
+
       <section class="workspace-view" id="activity-view" aria-label="Activity and reminders" hidden>
         <div class="activity-scroll">
           <header class="activity-hero">
@@ -127,6 +180,18 @@
       <section class="workspace-view" id="apps-view" aria-label="Apps" hidden>
         <div class="apps-scroll">
           <div class="apps-grid" aria-label="OpenX apps">
+            <button class="app-card" id="people-chat-app-btn" type="button">
+              <span class="app-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M4 6.5A3.5 3.5 0 0 1 7.5 3h9A3.5 3.5 0 0 1 20 6.5v5A3.5 3.5 0 0 1 16.5 15H10l-4.5 4v-4A3.5 3.5 0 0 1 4 11.5v-5Z"/>
+                  <path d="M8 8h8M8 11h5"/>
+                </svg>
+              </span>
+              <span class="app-card-copy">
+                <strong>Chat</strong>
+                <small>Messages with people</small>
+              </span>
+            </button>
             <button class="app-card" id="calendar-app-btn" type="button">
               <span class="app-card-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" focusable="false">

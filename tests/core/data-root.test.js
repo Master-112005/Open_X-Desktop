@@ -16,6 +16,7 @@ describe('Assistant Data Root', function() {
     assert.equal(path.basename(paths.root), 'OpenX_Data');
     assert.equal(paths.settingsPath, path.join(paths.root, 'settings.json'));
     assert.equal(paths.chatHistoryPath, path.join(paths.root, 'chat-history.json'));
+    assert.equal(paths.chatConversationsPath, path.join(paths.root, 'chat-conversations.json'));
     assert.equal(paths.uiStatePath, path.join(paths.root, 'ui-state.json'));
     assert.equal(paths.learningPath, path.join(paths.root, 'learning.json'));
     assert.equal(paths.schedulesPath, path.join(paths.root, 'schedules.json'));

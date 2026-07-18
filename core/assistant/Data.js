@@ -120,6 +120,7 @@ function buildDataPaths(config = {}) {
     root,
     settingsPath: path.join(root, 'settings.json'),
     chatHistoryPath: path.join(root, 'chat-history.json'),
+    chatConversationsPath: path.join(root, 'chat-conversations.json'),
     uiStatePath: path.join(root, 'ui-state.json'),
     learningPath: path.join(root, 'learning.json'),
     schedulesPath: path.join(root, 'schedules.json'),
