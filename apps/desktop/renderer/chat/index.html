@@ -107,10 +107,7 @@
             </div>
             <form class="people-chat-add-user" id="people-chat-add-user" hidden>
               <input id="people-chat-user-name" type="text" placeholder="Name" autocomplete="name" aria-label="Name" required>
-              <div class="people-chat-add-identity-row">
-                <input id="people-chat-user-country-code" type="text" placeholder="IN" autocomplete="country" aria-label="Country code" maxlength="2">
-                <input id="people-chat-user-id" type="tel" placeholder="Phone number" autocomplete="tel" aria-label="Phone number" required>
-              </div>
+              <input id="people-chat-user-id" type="email" placeholder="Email address" autocomplete="email" aria-label="Email address" required>
               <div class="people-chat-add-actions">
                 <button class="people-chat-add-cancel" id="people-chat-add-cancel" type="button">Cancel</button>
                 <button class="people-chat-add-submit" type="submit">Request</button>
@@ -137,7 +134,7 @@
             </header>
             <form class="people-chat-edit-user" id="people-chat-edit-user" hidden>
               <input id="people-chat-edit-name" type="text" placeholder="Name" autocomplete="name" aria-label="Edit name" required>
-              <input id="people-chat-edit-id" type="text" placeholder="Phone or account" autocomplete="off" aria-label="Edit phone or account" required>
+              <input id="people-chat-edit-id" type="text" placeholder="Email or account" autocomplete="off" aria-label="Edit email or account" required>
               <div class="people-chat-add-actions">
                 <button class="people-chat-add-cancel" id="people-chat-edit-cancel" type="button">Cancel</button>
                 <button class="people-chat-add-submit" type="submit">Save</button>
@@ -175,22 +172,14 @@
             </div>
             <form class="people-chat-registration-form" id="people-chat-registration-start" hidden>
               <input id="people-chat-server-url" type="url" placeholder="Server URL" autocomplete="off" aria-label="Chat server URL">
-              <div class="people-chat-registration-phone-row">
-                <input id="people-chat-country-code" type="text" placeholder="IN" autocomplete="country" aria-label="Country code" maxlength="2">
-                <input id="people-chat-phone" type="tel" placeholder="Phone number" autocomplete="tel" aria-label="Phone number" required>
-              </div>
-              <button class="people-chat-registration-submit" type="submit">Send code</button>
+              <input id="people-chat-email" type="email" placeholder="Email address" autocomplete="email" aria-label="Email address" required>
+              <button class="people-chat-registration-submit" type="submit">Send email code</button>
             </form>
             <form class="people-chat-registration-form" id="people-chat-registration-verify" hidden>
               <input id="people-chat-otp" type="text" inputmode="numeric" placeholder="Verification code" autocomplete="one-time-code" aria-label="Verification code" required>
               <input id="people-chat-pin" type="password" inputmode="numeric" placeholder="Optional security PIN" autocomplete="new-password" aria-label="Optional security PIN">
               <button class="people-chat-registration-submit" type="submit">Verify</button>
             </form>
-            <div class="people-chat-development-code" id="people-chat-development-code" hidden aria-live="polite">
-              <span>Development code</span>
-              <strong id="people-chat-development-code-value"></strong>
-              <small>Use this code in the verification box, then click Verify.</small>
-            </div>
             <section class="people-chat-requests" id="people-chat-requests" hidden aria-label="Chat requests">
               <div class="people-chat-requests-head">
                 <span>

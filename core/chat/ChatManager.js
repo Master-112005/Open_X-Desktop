@@ -8,11 +8,13 @@ const ChatLogger = require('./ChatLogger');
 const ChatService = require('./ChatService');
 const ChatStatusManager = require('./ChatStatusManager');
 const ChatVersionManager = require('./ChatVersionManager');
+const { resolveChatDataPaths } = require('./ChatDataPaths');
 const { DeviceManager } = require('./devices');
 const { ContactDiscoveryManager } = require('./discovery');
 const { MailboxManager } = require('./mailbox');
 const { MessageManager } = require('./messages');
 const { SynchronizationManager } = require('./synchronization');
+const { HistorySynchronizationManager } = require('./history');
 const { MultiDeviceManager } = require('./multidevice');
 const { ConnectionEngine } = require('./connection');
 const { TransferManager } = require('./transfer');
@@ -57,6 +59,11 @@ class ChatManager {
     this.config = options.config instanceof ChatConfiguration
       ? options.config
       : new ChatConfiguration(options.config || {});
+    this.dataPaths = resolveChatDataPaths({
+      dataPaths: options.dataPaths || options.config?.dataPaths,
+      dataRoot: options.dataRoot || options.config?.dataRoot,
+      app: options.app || options.config?.app
+    });
     this.logger = options.logger || new ChatLogger({ level: options.logLevel || 'info' });
     this.eventBus = options.eventBus || new ChatEventBus({ logger: this.logger });
     this.statusManager = new ChatStatusManager();
@@ -80,7 +87,9 @@ class ChatManager {
       statusManager: this.statusManager
     });
     this.deviceManager = options.deviceManager || new DeviceManager({
-      config: options.deviceConfig || {},
+      config: this._withDataPaths(options.deviceConfig || {}, {
+        statePath: this.dataPaths.chatDevicePath
+      }),
       eventBus: this.eventBus,
       logger: options.deviceLogger
     });
@@ -92,7 +101,9 @@ class ChatManager {
     });
     const requestConfig = options.requestConfig instanceof RequestConfiguration
       ? options.requestConfig
-      : new RequestConfiguration(options.requestConfig || {});
+      : new RequestConfiguration(this._withDataPaths(options.requestConfig || {}, {
+        nicknameStatePath: this.dataPaths.chatRequestNicknamesPath
+      }));
     const requestLogger = options.requestLogger || new RequestLogger();
     const requestValidator = options.requestValidator || new RequestValidation({ config: requestConfig });
     const requestService = options.requestService || new RequestService({ config: requestConfig, fetchImpl: options.fetchImpl });
@@ -124,32 +135,49 @@ class ChatManager {
       validator: requestValidator
     });
     this.mailboxManager = options.mailboxManager || new MailboxManager({
-      config: options.mailboxConfig || {},
+      config: this._withDataPaths(options.mailboxConfig || {}, {
+        sequenceStatePath: this.dataPaths.chatMailboxSequencesPath
+      }),
       eventBus: this.eventBus,
       logger: options.mailboxLogger,
       fetchImpl: options.fetchImpl
     });
     this.messageManager = options.messageManager || new MessageManager({
-      config: options.messageConfig || {},
+      config: this._withDataPaths(options.messageConfig || {}, {
+        storagePath: this.dataPaths.chatMessagesPath
+      }),
       eventBus: this.eventBus,
       logger: options.messageLogger,
       fetchImpl: options.fetchImpl,
       connectionManager: this.connectionManager,
       mailboxManager: this.mailboxManager,
       crypto: options.cryptoManager,
-      cryptoConfig: options.cryptoConfig || {},
+      cryptoConfig: this._withDataPaths(options.cryptoConfig || {}, {
+        storagePath: this.dataPaths.chatCryptoSecretsPath
+      }),
       sessionResolver: options.sessionResolver
     });
     this.synchronizationManager = options.synchronizationManager || new SynchronizationManager({
-      config: options.synchronizationConfig || {},
+      config: this._withDataPaths(options.synchronizationConfig || {}, {
+        storagePath: this.dataPaths.chatSyncCursorsPath
+      }),
       eventBus: this.eventBus,
       logger: options.synchronizationLogger,
       fetchImpl: options.fetchImpl,
       messageManager: this.messageManager
     });
     this.messageManager.synchronizationManager = this.synchronizationManager;
+    this.historySynchronizationManager = options.historySynchronizationManager || new HistorySynchronizationManager({
+      ...this._withDataPaths(options.historySynchronizationConfig || {}, {
+        storagePath: this.dataPaths.chatHistorySyncPath
+      }),
+      eventBus: this.eventBus,
+      fetchImpl: options.fetchImpl
+    });
     this.multiDeviceManager = options.multiDeviceManager || new MultiDeviceManager({
-      config: options.multiDeviceConfig || {},
+      config: this._withDataPaths(options.multiDeviceConfig || {}, {
+        storagePath: this.dataPaths.chatMultiDevicePath
+      }),
       eventBus: this.eventBus,
       logger: options.multiDeviceLogger,
       fetchImpl: options.fetchImpl
@@ -164,15 +192,21 @@ class ChatManager {
     });
     this.eventBus.on('connection:identified', event => this.connectionEngine.acceptSession(event));
     this.transferManager = options.transferManager || new TransferManager({
-      config: options.transferConfig || {},
+      config: this._withDataPaths(options.transferConfig || {}, {
+        storagePath: this.dataPaths.chatFileTransfersPath
+      }),
       eventBus: this.eventBus,
       logger: options.transferLogger,
       fetchImpl: options.fetchImpl,
       crypto: options.cryptoManager,
-      cryptoConfig: options.cryptoConfig || {}
+      cryptoConfig: this._withDataPaths(options.cryptoConfig || {}, {
+        storagePath: this.dataPaths.chatCryptoSecretsPath
+      })
     });
     this.conversationManager = options.conversationManager || new ConversationManager({
-      config: options.conversationConfig || {},
+      config: this._withDataPaths(options.conversationConfig || {}, {
+        storagePath: this.dataPaths.chatConversationsPath
+      }),
       eventBus: this.eventBus,
       logger: options.conversationLogger
     });
@@ -263,6 +297,22 @@ class ChatManager {
       healthManager: this.healthManager,
       versionManager: this.versionManager
     });
+  }
+
+  /**
+   * Adds shared OpenX_Data paths to plain configuration objects.
+   * @param {object} config Configuration overrides.
+   * @param {object} defaults Storage path defaults.
+   * @returns {object} Configuration with shared data paths.
+   */
+  _withDataPaths(config = {}, defaults = {}) {
+    if (config && typeof config === 'object' && config.constructor && config.constructor !== Object) return config;
+    return {
+      dataPaths: this.dataPaths,
+      dataRoot: this.dataPaths.root,
+      ...defaults,
+      ...(config || {})
+    };
   }
 
   /**
@@ -369,6 +419,14 @@ class ChatManager {
    */
   getSynchronizationManager() {
     return this.synchronizationManager;
+  }
+
+  /**
+   * Returns the trusted-device history synchronization manager.
+   * @returns {HistorySynchronizationManager} History synchronization manager.
+   */
+  getHistorySynchronizationManager() {
+    return this.historySynchronizationManager;
   }
 
   /**

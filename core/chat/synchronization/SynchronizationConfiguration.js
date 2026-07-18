@@ -15,7 +15,7 @@ class SynchronizationConfiguration {
     this.maxRetries = Number(options.maxRetries || 5);
     this.retryBaseDelayMs = Number(options.retryBaseDelayMs || 1000);
     this.retryMaxDelayMs = Number(options.retryMaxDelayMs || 60000);
-    this.storagePath = options.storagePath || chatDataPath('chat-sync-cursors.json', options);
+    this.storagePath = options.storagePath || chatDataPath('chat-sync-cursors.json', { ...options, pathKey: 'chatSyncCursorsPath' });
     this.validate();
     Object.freeze(this);
   }

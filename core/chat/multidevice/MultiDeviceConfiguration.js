@@ -12,7 +12,7 @@ class MultiDeviceConfiguration {
     this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'http://localhost:8090').replace(/\/+$/, '');
     this.requestTimeoutMs = Number(options.requestTimeoutMs || 15000);
     this.maxRetries = Number(options.maxRetries || 5);
-    this.storagePath = options.storagePath || chatDataPath('chat-multi-device.json', options);
+    this.storagePath = options.storagePath || chatDataPath('chat-multi-device.json', { ...options, pathKey: 'chatMultiDevicePath' });
     this.validate();
     Object.freeze(this);
   }

@@ -13,7 +13,7 @@ class UploadManager {
     this.client = options.client;
     this.integrity = options.integrity;
     this.thumbnail = options.thumbnail;
-    this.crypto = options.crypto || new CryptoManager(options.cryptoConfig || {});
+    this.crypto = options.crypto || new CryptoManager({ config: options.cryptoConfig || {} });
     this.eventBus = options.eventBus;
     this.events = options.events;
   }

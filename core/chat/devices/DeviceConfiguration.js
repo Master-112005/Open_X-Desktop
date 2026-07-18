@@ -20,7 +20,7 @@ class DeviceConfiguration {
     this.operatingSystem = options.operatingSystem || `${os.type()} ${os.release()}`;
     this.deviceType = options.deviceType || 'Desktop';
     this.capabilities = Object.freeze(options.capabilities || ['persistentConnection', 'largeStorage', 'backgroundProcessing']);
-    this.statePath = options.statePath || process.env.OPENX_CHAT_DEVICE_STATE_PATH || chatDataPath('chat-device.json', options);
+    this.statePath = options.statePath || process.env.OPENX_CHAT_DEVICE_STATE_PATH || chatDataPath('chat-device.json', { ...options, pathKey: 'chatDevicePath' });
     this.requestTimeoutMs = Number(options.requestTimeoutMs || 15000);
     this.validate();
     Object.freeze(this);

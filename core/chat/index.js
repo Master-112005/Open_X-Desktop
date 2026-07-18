@@ -21,6 +21,7 @@ module.exports = Object.freeze({
   Mailbox: require('./mailbox'),
   Messages: require('./messages'),
   Synchronization: require('./synchronization'),
+  History: require('./history'),
   MultiDevice: require('./multidevice'),
   Connection: require('./connection'),
   Transfer: require('./transfer'),

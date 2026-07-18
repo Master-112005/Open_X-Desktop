@@ -22,6 +22,7 @@ describe('Assistant Data Root', function() {
     assert.equal(paths.chatMessagesPath, path.join(paths.root, 'chat-messages.json'));
     assert.equal(paths.chatMailboxSequencesPath, path.join(paths.root, 'chat-mailbox-sequences.json'));
     assert.equal(paths.chatSyncCursorsPath, path.join(paths.root, 'chat-sync-cursors.json'));
+    assert.equal(paths.chatHistorySyncPath, path.join(paths.root, 'chat-history-sync.json'));
     assert.equal(paths.chatMultiDevicePath, path.join(paths.root, 'chat-multi-device.json'));
     assert.equal(paths.chatFileTransfersPath, path.join(paths.root, 'chat-file-transfers.json'));
     assert.equal(paths.chatCryptoSecretsPath, path.join(paths.root, 'chat-crypto-secrets.json'));
@@ -90,15 +91,53 @@ describe('Assistant Data Root', function() {
     const chatPaths = require('../../core/chat/ChatDataPaths');
     const original = process.env.OPENX_DATA_DIR;
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-chat-data-root-'));
+    const dataPaths = dataRoot.buildDataPaths({ app: { dataDir: tempDir } });
 
     try {
       delete process.env.OPENX_DATA_DIR;
       assert.equal(chatPaths.chatDataPath('chat-device.json'), path.join(os.homedir(), 'OpenX_Data', 'chat-device.json'));
       process.env.OPENX_DATA_DIR = tempDir;
       assert.equal(chatPaths.chatDataPath('chat-device.json'), path.join(tempDir, 'chat-device.json'));
+      assert.equal(
+        chatPaths.chatDataPath('unused.json', { dataPaths, pathKey: 'chatDevicePath' }),
+        dataPaths.chatDevicePath
+      );
     } finally {
       if (original === undefined) delete process.env.OPENX_DATA_DIR;
       else process.env.OPENX_DATA_DIR = original;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should keep desktop Chat managers on the shared OpenX_Data paths', function() {
+    const { ChatManager } = require('../../core/chat');
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-chat-manager-data-'));
+    const paths = dataRoot.buildDataPaths({ app: { dataDir: tempDir } });
+
+    try {
+      const chat = new ChatManager({
+        dataPaths: paths,
+        fetchImpl: async () => {
+          throw new Error('Data path construction must not call the server.');
+        },
+        cryptoConfig: { storageBackend: {} }
+      });
+
+      assert.equal(chat.getDeviceManager().config.statePath, paths.chatDevicePath);
+      assert.equal(chat.getRequestManager().config.nicknameStatePath, paths.chatRequestNicknamesPath);
+      assert.equal(chat.getNicknameManager().config.nicknameStatePath, paths.chatRequestNicknamesPath);
+      assert.equal(chat.getMailboxManager().config.sequenceStatePath, paths.chatMailboxSequencesPath);
+      assert.equal(chat.getMessageManager().config.storagePath, paths.chatMessagesPath);
+      assert.equal(chat.getMessageManager().crypto.config.storagePath, paths.chatCryptoSecretsPath);
+      assert.equal(chat.getSynchronizationManager().config.storagePath, paths.chatSyncCursorsPath);
+      assert.equal(chat.getHistorySynchronizationManager().config.storagePath, paths.chatHistorySyncPath);
+      assert.equal(chat.getMultiDeviceManager().config.storagePath, paths.chatMultiDevicePath);
+      assert.equal(chat.getTransferManager().config.storagePath, paths.chatFileTransfersPath);
+      assert.equal(chat.getTransferManager().uploadManager.crypto.config.storagePath, paths.chatCryptoSecretsPath);
+      assert.equal(chat.getTransferManager().downloadManager.crypto.config.storagePath, paths.chatCryptoSecretsPath);
+      assert.equal(chat.getConversationManager().config.storagePath, paths.chatConversationsPath);
+      assert.equal(paths.cloudReceivedDir, path.join(dataRoot.resolveDocumentsDirectory(), 'OpenX'));
+    } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
@@ -118,6 +157,8 @@ describe('Assistant Data Root', function() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-data-new-'));
     const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-data-legacy-'));
     fs.writeFileSync(path.join(legacyDir, 'settings.json'), '{"assistant":{"displayName":"Old"}}', 'utf8');
+    fs.writeFileSync(path.join(legacyDir, 'chat-history.json'), '[{"text":"old chat","type":"user"}]', 'utf8');
+    fs.writeFileSync(path.join(legacyDir, 'ui-state.json'), '{"assistantMuted":true}', 'utf8');
     fs.writeFileSync(path.join(legacyDir, 'learning.json'), '{"version":1}', 'utf8');
     fs.writeFileSync(path.join(legacyDir, 'schedules.json'), '[]', 'utf8');
     fs.writeFileSync(path.join(legacyDir, 'planner.json'), '[]', 'utf8');
@@ -130,12 +171,18 @@ describe('Assistant Data Root', function() {
       }
     });
 
-    assert.equal(result.migrated.length, 4);
+    assert.equal(result.migrated.filter(entry => entry.reason !== 'legacy-root-quarantined').length, 6);
+    assert.equal(result.migrated.some(entry => entry.reason === 'legacy-root-quarantined'), true);
     assert.ok(fs.existsSync(path.join(dataDir, 'settings.json')));
+    assert.ok(fs.existsSync(path.join(dataDir, 'chat-history.json')));
+    assert.ok(fs.existsSync(path.join(dataDir, 'ui-state.json')));
     assert.ok(fs.existsSync(path.join(dataDir, 'learning.json')));
     assert.ok(fs.existsSync(path.join(dataDir, 'schedules.json')));
     assert.ok(fs.existsSync(path.join(dataDir, 'planner.json')));
+    assert.equal(fs.existsSync(legacyDir), false);
+    assert.ok(fs.existsSync(path.join(dataDir, 'runtime', 'legacy-data')));
 
+    fs.mkdirSync(legacyDir, { recursive: true });
     fs.writeFileSync(path.join(legacyDir, 'settings.json'), '{"assistant":{"displayName":"Changed"}}', 'utf8');
     const second = dataRoot.migrateLegacyData({
       app: {
@@ -145,8 +192,24 @@ describe('Assistant Data Root', function() {
       }
     });
 
-    assert.equal(second.migrated.length, 0);
+    assert.equal(second.migrated.some(entry => entry.reason === 'legacy-root-quarantined'), true);
+    assert.equal(fs.existsSync(legacyDir), false);
     assert.match(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8'), /Old/);
+  });
+
+  it('should move legacy data directories under OpenX_Data so deleting the data root deletes old chat state too', function() {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-managed-legacy-'));
+    const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-unmanaged-legacy-'));
+    fs.writeFileSync(path.join(legacyDir, 'chat-history.json'), '[{"text":"old","type":"user"}]', 'utf8');
+
+    const paths = dataRoot.buildDataPaths({ app: { dataDir } });
+    const target = dataRoot.legacyQuarantinePath(paths, 'legacy-chat-state');
+    const result = dataRoot.moveDirectoryIntoManagedData(legacyDir, target);
+
+    assert.equal(result.moved, true);
+    assert.equal(fs.existsSync(legacyDir), false);
+    assert.equal(fs.existsSync(path.join(result.targetPath, 'chat-history.json')), true);
+    assert.ok(path.resolve(result.targetPath).startsWith(`${path.resolve(dataDir)}${path.sep}`));
   });
 
   it('should merge accidental root JSON arrays into managed data and remove the source', function() {

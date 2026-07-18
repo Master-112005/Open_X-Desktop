@@ -13,7 +13,7 @@ class RequestConfiguration {
     this.requestTimeoutMs = Number(options.requestTimeoutMs || 15000);
     this.maxMessagePreviewLength = Number(options.maxMessagePreviewLength || 160);
     this.maxNicknameLength = Number(options.maxNicknameLength || 80);
-    this.nicknameStatePath = options.nicknameStatePath || process.env.OPENX_CHAT_NICKNAME_STATE_PATH || chatDataPath('chat-request-nicknames.json', options);
+    this.nicknameStatePath = options.nicknameStatePath || process.env.OPENX_CHAT_NICKNAME_STATE_PATH || chatDataPath('chat-request-nicknames.json', { ...options, pathKey: 'chatRequestNicknamesPath' });
     this.validate();
     Object.freeze(this);
   }

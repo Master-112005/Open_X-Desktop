@@ -3450,18 +3450,6 @@ body {
   display: none;
 }
 
-.people-chat-registration-phone-row {
-  display: grid;
-  gap: 7px;
-  grid-template-columns: 58px minmax(0, 1fr);
-}
-
-.people-chat-add-identity-row {
-  display: grid;
-  gap: 7px;
-  grid-template-columns: 58px minmax(0, 1fr);
-}
-
 .people-chat-registration-form input {
   background: rgba(255, 255, 255, 0.075);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -3473,54 +3461,10 @@ body {
   padding: 8px 10px;
 }
 
-#people-chat-country-code {
-  text-align: center;
-  text-transform: uppercase;
-}
-
-#people-chat-user-country-code {
-  text-align: center;
-  text-transform: uppercase;
-}
-
 .people-chat-registration-submit {
   background: color-mix(in srgb, var(--accent-color) 28%, rgba(255, 255, 255, 0.1));
   border: 1px solid color-mix(in srgb, var(--accent-color) 42%, rgba(255, 255, 255, 0.16));
   color: var(--text-color);
-}
-
-.people-chat-development-code {
-  background: color-mix(in srgb, var(--success-color) 14%, rgba(255, 255, 255, 0.065));
-  border: 1px solid color-mix(in srgb, var(--success-color) 34%, rgba(255, 255, 255, 0.13));
-  border-radius: 13px;
-  display: grid;
-  gap: 4px;
-  padding: 9px 10px;
-}
-
-.people-chat-development-code[hidden] {
-  display: none;
-}
-
-.people-chat-development-code span {
-  color: color-mix(in srgb, var(--success-color) 72%, white);
-  font-size: 9px;
-  font-weight: 850;
-  text-transform: uppercase;
-}
-
-.people-chat-development-code strong {
-  color: var(--text-color);
-  font-size: 18px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  line-height: 1.1;
-}
-
-.people-chat-development-code small {
-  color: var(--muted-color);
-  font-size: 9.5px;
-  line-height: 1.25;
 }
 
 #people-chat-registration-status {
