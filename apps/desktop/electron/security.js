@@ -180,12 +180,14 @@ function validateDesktopChatCreate(payload = {}) {
   const peerType = payload.peerType === undefined
     ? 'openx'
     : requireString(payload.peerType, 'desktopChat.peerType', { maxLength: 40 });
-  return {
+  const output = {
     title,
     peerName: title,
     peerHandle,
     peerType
   };
+  output.countryCode = normalizeOptionalChatCountryCode(payload.countryCode);
+  return output;
 }
 
 function validateDesktopChatUpdate(payload = {}) {
@@ -218,6 +220,29 @@ function validateDesktopChatSend(payload) {
   };
 }
 
+function requireDesktopChatRequestId(value, name = 'requestId') {
+  const id = requireString(value, name, { maxLength: 100 }).toLowerCase();
+  if (!/^creq_[a-f0-9]{64}$/.test(id)) throw new TypeError(`${name} is invalid`);
+  return id;
+}
+
+function validateDesktopChatRequestAction(payload = {}) {
+  requirePlainObject(payload, 'desktopChat.request');
+  const output = {
+    requestId: requireDesktopChatRequestId(payload.requestId)
+  };
+  if (payload.peerName !== undefined && payload.peerName !== null && payload.peerName !== '') {
+    output.peerName = requireString(payload.peerName, 'desktopChat.peerName', { maxLength: 80 });
+  }
+  if (payload.peerHandle !== undefined && payload.peerHandle !== null && payload.peerHandle !== '') {
+    output.peerHandle = requireString(payload.peerHandle, 'desktopChat.peerHandle', { maxLength: 120 });
+  }
+  if (payload.reason !== undefined && payload.reason !== null && payload.reason !== '') {
+    output.reason = requireString(payload.reason, 'desktopChat.reason', { maxLength: 160 });
+  }
+  return output;
+}
+
 function normalizeOptionalChatApiBaseUrl(value) {
   if (value === undefined || value === null || value === '') return undefined;
   const apiBaseUrl = requireString(value, 'desktopChat.apiBaseUrl', { maxLength: 240 });
@@ -231,15 +256,22 @@ function normalizeOptionalChatApiBaseUrl(value) {
   return parsed.href.replace(/\/+$/, '');
 }
 
+function normalizeOptionalChatCountryCode(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const countryCode = requireString(value, 'desktopChat.countryCode', { maxLength: 12 }).toUpperCase();
+  if (!/^[A-Z]{2}$/.test(countryCode)) {
+    throw new TypeError('desktopChat.countryCode must be an ISO-3166 alpha-2 code');
+  }
+  return countryCode;
+}
+
 function validateDesktopChatRegistrationStart(payload = {}) {
   requirePlainObject(payload, 'desktopChat.registration');
   const output = {
     phoneNumber: requireString(payload.phoneNumber, 'desktopChat.phoneNumber', { maxLength: 40 }),
     apiBaseUrl: normalizeOptionalChatApiBaseUrl(payload.apiBaseUrl)
   };
-  if (payload.countryCode !== undefined && payload.countryCode !== null && payload.countryCode !== '') {
-    output.countryCode = requireString(payload.countryCode, 'desktopChat.countryCode', { maxLength: 12 });
-  }
+  output.countryCode = normalizeOptionalChatCountryCode(payload.countryCode);
   return output;
 }
 
@@ -252,9 +284,7 @@ function validateDesktopChatRegistrationVerify(payload = {}) {
   if (payload.phoneNumber !== undefined && payload.phoneNumber !== null && payload.phoneNumber !== '') {
     output.phoneNumber = requireString(payload.phoneNumber, 'desktopChat.phoneNumber', { maxLength: 40 });
   }
-  if (payload.countryCode !== undefined && payload.countryCode !== null && payload.countryCode !== '') {
-    output.countryCode = requireString(payload.countryCode, 'desktopChat.countryCode', { maxLength: 12 });
-  }
+  output.countryCode = normalizeOptionalChatCountryCode(payload.countryCode);
   if (payload.pin !== undefined && payload.pin !== null && payload.pin !== '') {
     output.pin = requireString(payload.pin, 'desktopChat.pin', { maxLength: 24 });
   }
@@ -578,6 +608,10 @@ const IPC_VALIDATORS = Object.freeze({
   'desktopChat:update': validateDesktopChatUpdate,
   'desktopChat:delete': validateDesktopChatOpen,
   'desktopChat:send': validateDesktopChatSend,
+  'desktopChat:contacts:list': validateEmpty,
+  'desktopChat:contacts:accept': validateDesktopChatRequestAction,
+  'desktopChat:contacts:delete': validateDesktopChatRequestAction,
+  'desktopChat:contacts:cancel': validateDesktopChatRequestAction,
   'desktopChat:registration:get': validateEmpty,
   'desktopChat:registration:start': validateDesktopChatRegistrationStart,
   'desktopChat:registration:verify': validateDesktopChatRegistrationVerify,

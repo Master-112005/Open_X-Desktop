@@ -4,6 +4,8 @@ const os = require('os');
 const path = require('path');
 
 const { Logger } = require('../../core/assistant/Data');
+const { formatLogLine } = require('../../core/chat/LogFormatter');
+const CloudLogger = require('../../core/cloud/CloudLogger');
 
 describe('Structured Logger', function() {
   let directory;
@@ -32,6 +34,8 @@ describe('Structured Logger', function() {
     const errorEntry = JSON.parse(fs.readFileSync(path.join(directory, errorFile), 'utf8').trim());
 
     assert.equal(appEntry.message, 'Started');
+    assert.match(appEntry.summary, /user=local/);
+    assert.match(appEntry.summary, /password=\[REDACTED\]/);
     assert.equal(appEntry.data.password, '[REDACTED]');
     assert.equal(appEntry.data.inputText, '[19 chars]');
     assert.equal(appEntry.data.nested.apiKey, '[REDACTED]');
@@ -54,6 +58,106 @@ describe('Structured Logger', function() {
 
     assert.match(output, /\[REDACTED\]/);
     assert.doesNotMatch(output, /never-print-this/);
+  });
+
+  it('should print all structured console logs as compact human-readable summaries', function() {
+    const logger = new Logger({ directory, file: false });
+    const originalLog = console.log;
+    let output = '';
+    console.log = value => { output += value; };
+    try {
+      logger.info('HTTP request completed', {
+        method: 'POST',
+        path: '/account/login/start',
+        statusCode: 200,
+        durationMs: 14,
+        token: 'unsafe'
+      });
+    } finally {
+      console.log = originalLog;
+    }
+
+    assert.match(output, /method=POST/);
+    assert.match(output, /path=\/account\/login\/start/);
+    assert.match(output, /status-code=200/);
+    assert.match(output, /duration-ms=14/);
+    assert.match(output, /token=\[REDACTED\]/);
+    assert.doesNotMatch(output, /\{"method"/);
+    assert.doesNotMatch(output, /unsafe/);
+  });
+
+  it('should summarize nested model metadata instead of printing object placeholders', function() {
+    const logger = new Logger({ directory, file: false });
+    const originalLog = console.log;
+    let output = '';
+    console.log = value => { output += value; };
+    try {
+      logger.info('[Voice Models] Assistant model summary', {
+        reason: 'tts-ready',
+        stt: {
+          role: 'speech-to-text',
+          engine: 'parakeet',
+          model: 'nvidia-parakeet-tdt-v3',
+          runtime: 'sherpa-onnx',
+          files: 4
+        },
+        tts: {
+          role: 'text-to-speech',
+          engine: 'windows-sapi',
+          voiceCount: 2
+        }
+      });
+    } finally {
+      console.log = originalLog;
+    }
+
+    assert.match(output, /reason=tts-ready/);
+    assert.match(output, /stt=\{role:speech-to-text,engine:parakeet,model:nvidia-parakeet-tdt-v3,runtime:sherpa-onnx,files:4\}/);
+    assert.match(output, /tts=\{role:text-to-speech,engine:windows-sapi,voice-count:2\}/);
+    assert.doesNotMatch(output, /\[object\]/);
+    assert.doesNotMatch(output, /\{"role"/);
+  });
+
+  it('should format standalone chat and cloud logs as readable single-line records', function() {
+    const chatLine = formatLogLine('CHAT', 'info', 'Verification code requested', {
+      apiBaseUrl: 'http://127.0.0.1:8090',
+      statusCode: 200,
+      durationMs: 14,
+      otp: '123456'
+    });
+
+    assert.match(chatLine, /\[INFO\] \[CHAT\] Verification code requested/);
+    assert.match(chatLine, /api-base-url=http:\/\/127\.0\.0\.1:8090/);
+    assert.match(chatLine, /status-code=200/);
+    assert.match(chatLine, /duration-ms=14/);
+    assert.match(chatLine, /otp=\[REDACTED\]/);
+    assert.doesNotMatch(chatLine, /\{"apiBaseUrl"/);
+    assert.doesNotMatch(chatLine, /123456/);
+  });
+
+  it('should pass cloud metadata to the main logger without double timestamp formatting', function() {
+    const entries = [];
+    const structuredLogger = {
+      _log() {},
+      _formatData() {},
+      info(message, data) {
+        entries.push({ message, data });
+      }
+    };
+    const logger = new CloudLogger({ logger: structuredLogger });
+
+    logger.info('Connected', {
+      relayUrl: 'ws://localhost:8090',
+      authToken: 'unsafe'
+    });
+
+    assert.deepEqual(entries, [{
+      message: '[CLOUD] Connected',
+      data: {
+        relayUrl: 'ws://localhost:8090',
+        authToken: '[REDACTED]'
+      }
+    }]);
   });
 
   it('should rotate logs and enforce the retention limit', function() {

@@ -1,3 +1,5 @@
+const { formatLogLine } = require('../LogFormatter');
+
 /**
  * Privacy-safe desktop message logger.
  */
@@ -27,8 +29,9 @@ class MessageLogger {
    * @param {object} metadata Metadata.
    */
   write(level, message, metadata = {}) {
-    if (!this.sink?.[level]) return;
-    this.sink[level](`[OpenXChatMessage] ${message}`, this.redact(metadata));
+    const writer = typeof this.sink?.[level] === 'function' ? this.sink[level] : this.sink?.log;
+    if (typeof writer !== 'function') return;
+    writer.call(this.sink, formatLogLine('CHAT_MESSAGE', level, message, this.redact(metadata)));
   }
 
   /**

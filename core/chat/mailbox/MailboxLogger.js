@@ -1,3 +1,5 @@
+const { formatLogLine } = require('../LogFormatter');
+
 /**
  * Desktop mailbox logger with encrypted payload redaction.
  */
@@ -27,7 +29,7 @@ class MailboxLogger {
    */
   write(level, message, data = {}) {
     const writer = typeof this.sink[level] === 'function' ? this.sink[level] : this.sink.log;
-    writer.call(this.sink, `[CHAT_MAILBOX] ${message}`, this.redact(data));
+    writer.call(this.sink, formatLogLine('CHAT_MAILBOX', level, message, this.redact(data)));
   }
 
   /**

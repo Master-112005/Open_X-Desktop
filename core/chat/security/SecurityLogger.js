@@ -1,3 +1,5 @@
+const { formatLogLine } = require('../LogFormatter');
+
 /**
  * Privacy-safe Desktop Chat security logger.
  */
@@ -20,7 +22,7 @@ class SecurityLogger {
   write(level, message, metadata = {}) {
     if (process.env.OPENX_CHAT_SECURITY_DEBUG !== '1') return;
     const safe = Object.fromEntries(Object.entries(metadata).filter(([key]) => !/pin|otp|secret|private|token|key/i.test(key)));
-    console[level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'log'](`[OpenXChatSecurity] ${message}`, safe);
+    console[level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'log'](formatLogLine('CHAT_SECURITY', level, message, safe));
   }
 }
 
