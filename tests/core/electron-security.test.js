@@ -104,11 +104,11 @@ describe('Electron Security Boundary', function() {
     );
     assert.deepEqual(
       IPC_VALIDATORS['desktopChat:create']({ title: ' Family ' }),
-      { title: 'Family', peerName: 'Family', peerHandle: '', peerType: 'openx', countryCode: undefined }
+      { title: 'Family', peerName: 'Family', peerHandle: '', peerType: 'openx' }
     );
     assert.deepEqual(
-      IPC_VALIDATORS['desktopChat:create']({ peerName: ' Mummy ', peerHandle: ' +91 8688446213 ', peerType: 'phone', countryCode: ' in ' }),
-      { title: 'Mummy', peerName: 'Mummy', peerHandle: '+91 8688446213', peerType: 'phone', countryCode: 'IN' }
+      IPC_VALIDATORS['desktopChat:create']({ peerName: ' Mummy ', peerHandle: ' mummy@example.com ', peerType: 'email' }),
+      { title: 'Mummy', peerName: 'Mummy', peerHandle: 'mummy@example.com', peerType: 'email' }
     );
     assert.deepEqual(
       IPC_VALIDATORS['desktopChat:send']({ conversationId, text: ' hello ' }),
@@ -139,12 +139,12 @@ describe('Electron Security Boundary', function() {
       undefined
     );
     assert.deepEqual(
-      IPC_VALIDATORS['desktopChat:registration:start']({ phoneNumber: ' +1 555 0100 ', apiBaseUrl: ' http://localhost:8090/ ' }),
-      { phoneNumber: '+1 555 0100', apiBaseUrl: 'http://localhost:8090', countryCode: undefined }
+      IPC_VALIDATORS['desktopChat:registration:start']({ email: ' Mummy@Example.COM ', apiBaseUrl: ' http://localhost:8090/ ' }),
+      { email: 'mummy@example.com', apiBaseUrl: 'http://localhost:8090' }
     );
     assert.deepEqual(
       IPC_VALIDATORS['desktopChat:registration:verify']({ otp: ' 123456 ', pin: ' 2468 ' }),
-      { otp: '123456', apiBaseUrl: undefined, countryCode: undefined, pin: '2468' }
+      { otp: '123456', apiBaseUrl: undefined, pin: '2468' }
     );
     assert.throws(() => IPC_VALIDATORS['desktopChat:open']({ conversationId: 'bad' }), /conversationId is invalid/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:send']({ conversationId, text: '' }), /must not be empty/);
@@ -154,9 +154,10 @@ describe('Electron Security Boundary', function() {
     assert.throws(() => IPC_VALIDATORS['desktopChat:create']({ title: 'x'.repeat(81) }), /exceeds/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:create']({ peerName: 'Mummy', peerHandle: 'x'.repeat(121) }), /exceeds/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:contacts:accept']({ requestId: 'bad' }), /requestId is invalid/);
-    assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ phoneNumber: '' }), /must not be empty/);
+    assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ email: '' }), /must not be empty/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:registration:verify']({ otp: '' }), /must not be empty/);
-    assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ phoneNumber: '+1555', apiBaseUrl: 'file:///tmp/chat' }), /protocol is not supported/);
+    assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ email: 'mummy@example.com', apiBaseUrl: 'file:///tmp/chat' }), /protocol is not supported/);
+    assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ email: 'not-an-email' }), /valid email address/);
   });
 
   it('should validate disk-backed renderer UI state IPC payloads', function() {

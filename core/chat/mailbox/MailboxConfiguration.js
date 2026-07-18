@@ -12,7 +12,7 @@ class MailboxConfiguration {
     this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'http://localhost:8090').replace(/\/+$/, '');
     this.requestTimeoutMs = Number(options.requestTimeoutMs || 15000);
     this.maxEnvelopeSizeBytes = Number(options.maxEnvelopeSizeBytes || 262144);
-    this.sequenceStatePath = options.sequenceStatePath || process.env.OPENX_CHAT_MAILBOX_SEQUENCE_STATE_PATH || chatDataPath('chat-mailbox-sequences.json', options);
+    this.sequenceStatePath = options.sequenceStatePath || process.env.OPENX_CHAT_MAILBOX_SEQUENCE_STATE_PATH || chatDataPath('chat-mailbox-sequences.json', { ...options, pathKey: 'chatMailboxSequencesPath' });
     this.validate();
     Object.freeze(this);
   }

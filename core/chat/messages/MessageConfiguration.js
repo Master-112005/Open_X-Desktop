@@ -19,7 +19,7 @@ class MessageConfiguration {
     this.retryMaxDelayMs = Number(options.retryMaxDelayMs || 60000);
     this.typingTimeoutMs = Number(options.typingTimeoutMs || 8000);
     this.ackTimeoutMs = Number(options.ackTimeoutMs || 30000);
-    this.storagePath = options.storagePath || chatDataPath('chat-messages.json', options);
+    this.storagePath = options.storagePath || chatDataPath('chat-messages.json', { ...options, pathKey: 'chatMessagesPath' });
     this.requireSessionKey = options.requireSessionKey !== false;
     this.allowEphemeralSessionKey = options.allowEphemeralSessionKey === true && process.env.NODE_ENV !== 'production';
     this.supportedTypes = Object.freeze(options.supportedTypes || ['Text', 'Emoji']);

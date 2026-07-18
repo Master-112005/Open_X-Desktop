@@ -24,7 +24,7 @@ class MessageManager {
     this.config = options.config instanceof MessageConfiguration ? options.config : new MessageConfiguration(options.config || {});
     this.eventBus = options.eventBus;
     this.logger = options.logger || new MessageLogger();
-    this.crypto = options.crypto || new CryptoManager(options.cryptoConfig || {});
+    this.crypto = options.crypto || new CryptoManager({ config: options.cryptoConfig || {} });
     this.client = options.client || new MessageClient({ config: this.config, fetchImpl: options.fetchImpl });
     this.validation = options.validation || new MessageValidation({ config: this.config });
     this.compression = options.compression || new CompressionManager({ config: this.config });

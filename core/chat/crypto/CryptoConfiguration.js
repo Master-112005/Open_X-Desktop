@@ -19,7 +19,7 @@ class CryptoConfiguration {
     this.rotationIntervalMs = Number(options.rotationIntervalMs || 2592000000);
     this.identityKeyAlgorithm = options.identityKeyAlgorithm || 'ed25519';
     this.deviceKeyAlgorithm = options.deviceKeyAlgorithm || 'ed25519';
-    this.storagePath = options.storagePath || chatDataPath('chat-crypto-secrets.json', options);
+    this.storagePath = options.storagePath || chatDataPath('chat-crypto-secrets.json', { ...options, pathKey: 'chatCryptoSecretsPath' });
     this.storageSecret = options.storageSecret || process.env.OPENX_CHAT_CRYPTO_STORAGE_SECRET || null;
     this.storageBackend = options.storageBackend || null;
     this.validate();

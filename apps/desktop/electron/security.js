@@ -186,7 +186,6 @@ function validateDesktopChatCreate(payload = {}) {
     peerHandle,
     peerType
   };
-  output.countryCode = normalizeOptionalChatCountryCode(payload.countryCode);
   return output;
 }
 
@@ -256,23 +255,20 @@ function normalizeOptionalChatApiBaseUrl(value) {
   return parsed.href.replace(/\/+$/, '');
 }
 
-function normalizeOptionalChatCountryCode(value) {
-  if (value === undefined || value === null || value === '') return undefined;
-  const countryCode = requireString(value, 'desktopChat.countryCode', { maxLength: 12 }).toUpperCase();
-  if (!/^[A-Z]{2}$/.test(countryCode)) {
-    throw new TypeError('desktopChat.countryCode must be an ISO-3166 alpha-2 code');
+function requireDesktopChatEmail(value, name = 'desktopChat.email') {
+  const email = requireString(value, name, { maxLength: 254 }).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new TypeError(`${name} must be a valid email address`);
   }
-  return countryCode;
+  return email;
 }
 
 function validateDesktopChatRegistrationStart(payload = {}) {
   requirePlainObject(payload, 'desktopChat.registration');
-  const output = {
-    phoneNumber: requireString(payload.phoneNumber, 'desktopChat.phoneNumber', { maxLength: 40 }),
+  return {
+    email: requireDesktopChatEmail(payload.email),
     apiBaseUrl: normalizeOptionalChatApiBaseUrl(payload.apiBaseUrl)
   };
-  output.countryCode = normalizeOptionalChatCountryCode(payload.countryCode);
-  return output;
 }
 
 function validateDesktopChatRegistrationVerify(payload = {}) {
@@ -281,10 +277,9 @@ function validateDesktopChatRegistrationVerify(payload = {}) {
     otp: requireString(payload.otp, 'desktopChat.otp', { maxLength: 12 }),
     apiBaseUrl: normalizeOptionalChatApiBaseUrl(payload.apiBaseUrl)
   };
-  if (payload.phoneNumber !== undefined && payload.phoneNumber !== null && payload.phoneNumber !== '') {
-    output.phoneNumber = requireString(payload.phoneNumber, 'desktopChat.phoneNumber', { maxLength: 40 });
+  if (payload.email !== undefined && payload.email !== null && payload.email !== '') {
+    output.email = requireDesktopChatEmail(payload.email);
   }
-  output.countryCode = normalizeOptionalChatCountryCode(payload.countryCode);
   if (payload.pin !== undefined && payload.pin !== null && payload.pin !== '') {
     output.pin = requireString(payload.pin, 'desktopChat.pin', { maxLength: 24 });
   }

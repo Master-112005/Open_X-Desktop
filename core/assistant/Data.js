@@ -126,6 +126,7 @@ function buildDataPaths(config = {}) {
     chatMessagesPath: path.join(root, 'chat-messages.json'),
     chatMailboxSequencesPath: path.join(root, 'chat-mailbox-sequences.json'),
     chatSyncCursorsPath: path.join(root, 'chat-sync-cursors.json'),
+    chatHistorySyncPath: path.join(root, 'chat-history-sync.json'),
     chatMultiDevicePath: path.join(root, 'chat-multi-device.json'),
     chatFileTransfersPath: path.join(root, 'chat-file-transfers.json'),
     chatCryptoSecretsPath: path.join(root, 'chat-crypto-secrets.json'),
@@ -304,6 +305,50 @@ function purgeDeprecatedContactStorage(root) {
   return removed;
 }
 
+function legacyQuarantinePath(paths, label) {
+  const safeLabel = String(label || 'legacy-data')
+    .replace(/[^a-z0-9._-]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'legacy-data';
+  return path.join(paths.runtimeDir, 'legacy-data', `${safeLabel}-${timestampForFilename()}`);
+}
+
+function moveDirectoryIntoManagedData(sourcePath, targetPath) {
+  const resolvedSource = path.resolve(sourcePath);
+  const resolvedTarget = path.resolve(targetPath);
+  if (!fs.existsSync(resolvedSource) || resolvedSource === resolvedTarget) {
+    return { moved: false, reason: 'missing-or-same-path' };
+  }
+  if (resolvedTarget.startsWith(`${resolvedSource}${path.sep}`)) {
+    return {
+      moved: false,
+      sourcePath: resolvedSource,
+      targetPath: resolvedTarget,
+      reason: 'target-inside-source'
+    };
+  }
+
+  ensureDirectory(path.dirname(resolvedTarget));
+  try {
+    fs.renameSync(resolvedSource, resolvedTarget);
+    return { moved: true, sourcePath: resolvedSource, targetPath: resolvedTarget };
+  } catch (renameError) {
+    try {
+      fs.cpSync(resolvedSource, resolvedTarget, { recursive: true, errorOnExist: false, force: true });
+      fs.rmSync(resolvedSource, { recursive: true, force: true });
+      return { moved: true, sourcePath: resolvedSource, targetPath: resolvedTarget, fallback: 'copy-remove' };
+    } catch (copyError) {
+      return {
+        moved: false,
+        sourcePath: resolvedSource,
+        targetPath: resolvedTarget,
+        reason: 'move-failed',
+        error: copyError.message || renameError.message
+      };
+    }
+  }
+}
+
 function ensureDataRoot(config = {}) {
   const paths = buildDataPaths(config);
   [
@@ -405,9 +450,21 @@ function migrateLegacyData(config = {}) {
   purgeDeprecatedContactStorage(legacyRoot);
 
   copyFileIfMissing(path.join(legacyRoot, 'settings.json'), paths.settingsPath, migrated, skipped);
+  copyFileIfMissing(path.join(legacyRoot, 'chat-history.json'), paths.chatHistoryPath, migrated, skipped);
+  copyFileIfMissing(path.join(legacyRoot, 'ui-state.json'), paths.uiStatePath, migrated, skipped);
   copyFileIfMissing(path.join(legacyRoot, 'learning.json'), paths.learningPath, migrated, skipped);
   copyFileIfMissing(path.join(legacyRoot, 'schedules.json'), paths.schedulesPath, migrated, skipped);
   copyFileIfMissing(path.join(legacyRoot, 'planner.json'), paths.plannerPath, migrated, skipped);
+
+  const quarantine = moveDirectoryIntoManagedData(
+    legacyRoot,
+    legacyQuarantinePath(paths, path.basename(legacyRoot) || 'legacy-assistant-data')
+  );
+  if (quarantine.moved) {
+    migrated.push({ ...quarantine, reason: 'legacy-root-quarantined' });
+  } else if (quarantine.reason !== 'missing-or-same-path') {
+    skipped.push(quarantine);
+  }
 
   return { dataRoot: paths.root, legacyRoot, migrated, skipped };
 }
@@ -421,6 +478,8 @@ return {
   buildDataPaths,
   ensureDataRoot,
   purgeDeprecatedContactStorage,
+  legacyQuarantinePath,
+  moveDirectoryIntoManagedData,
   readJsonFile,
   writeFileAtomic,
   writeJsonAtomic,

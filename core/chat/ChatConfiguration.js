@@ -8,6 +8,8 @@ class ChatConfiguration {
    */
   constructor(options = {}) {
     this.serverUrl = String(options.serverUrl || process.env.OPENX_CHAT_SERVER_URL || 'ws://localhost:8090/ws').trim();
+    this.dataPaths = options.dataPaths || null;
+    this.dataRoot = options.dataRoot || null;
     this.protocolVersion = String(options.protocolVersion || '1');
     this.heartbeatIntervalMs = this.number(options.heartbeatIntervalMs, 30000);
     this.heartbeatTimeoutMs = this.number(options.heartbeatTimeoutMs, 10000);
@@ -22,6 +24,7 @@ class ChatConfiguration {
       messaging: true,
       notifications: false,
       synchronization: true,
+      historySynchronization: true,
       multiDevice: true,
       connectionEngine: true,
       backgroundRecovery: true,
@@ -83,6 +86,7 @@ class ChatConfiguration {
       reconnectMaxDelayMs: this.reconnectMaxDelayMs,
       maxReconnectAttempts: this.maxReconnectAttempts,
       maxPayloadBytes: this.maxPayloadBytes,
+      dataRoot: this.dataRoot,
       optimization: this.optimization,
       featureFlags: this.featureFlags
     };

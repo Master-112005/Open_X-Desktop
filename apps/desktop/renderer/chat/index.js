@@ -95,7 +95,6 @@ const peopleChatEditBtn = document.getElementById('people-chat-edit-btn');
 const peopleChatDeleteBtn = document.getElementById('people-chat-delete-btn');
 const peopleChatAddUserEl = document.getElementById('people-chat-add-user');
 const peopleChatUserNameEl = document.getElementById('people-chat-user-name');
-const peopleChatUserCountryCodeEl = document.getElementById('people-chat-user-country-code');
 const peopleChatUserIdEl = document.getElementById('people-chat-user-id');
 const peopleChatAddCancelBtn = document.getElementById('people-chat-add-cancel');
 const peopleChatAddStatusEl = document.getElementById('people-chat-add-status');
@@ -117,12 +116,9 @@ const peopleChatRegistrationCloseBtn = document.getElementById('people-chat-regi
 const peopleChatRegistrationStartEl = document.getElementById('people-chat-registration-start');
 const peopleChatRegistrationVerifyEl = document.getElementById('people-chat-registration-verify');
 const peopleChatServerUrlEl = document.getElementById('people-chat-server-url');
-const peopleChatCountryCodeEl = document.getElementById('people-chat-country-code');
-const peopleChatPhoneEl = document.getElementById('people-chat-phone');
+const peopleChatEmailEl = document.getElementById('people-chat-email');
 const peopleChatOtpEl = document.getElementById('people-chat-otp');
 const peopleChatPinEl = document.getElementById('people-chat-pin');
-const peopleChatDevelopmentCodeEl = document.getElementById('people-chat-development-code');
-const peopleChatDevelopmentCodeValueEl = document.getElementById('people-chat-development-code-value');
 const peopleChatRegistrationStatusEl = document.getElementById('people-chat-registration-status');
 const peopleChatRequestsEl = document.getElementById('people-chat-requests');
 const peopleChatRequestsSummaryEl = document.getElementById('people-chat-requests-summary');
@@ -1026,17 +1022,14 @@ function normalizePeopleChatRegistration(entry = {}) {
   const source = entry?.state && typeof entry.state === 'object' ? entry.state : entry;
   const accountId = String(source?.accountId || source?.account?.accountId || '').trim();
   const deviceName = String(source?.device?.deviceName || '').trim();
-  const phoneDisplay = String(source?.phoneDisplay || '').trim();
-  const countryCode = String(source?.countryCode || source?.pendingRegistration?.countryCode || '').trim().toUpperCase().slice(0, 2);
-  const defaultCountryCode = String(source?.defaultCountryCode || '').trim().toUpperCase().slice(0, 2);
+  const emailDisplay = String(source?.emailDisplay || source?.pendingRegistration?.emailDisplay || '').trim();
+  const emailDomain = String(source?.emailDomain || source?.account?.emailDomain || source?.pendingRegistration?.emailDomain || '').trim();
   const setupStatus = String(source?.setupStatus || '').trim() || (source?.registered ? 'registered' : (source?.pending ? 'otp-sent' : 'not-registered'));
   const runtimeState = String(source?.runtimeState || '').trim() || (setupStatus === 'chat-ready' ? 'CHAT_READY' : '');
   const registered = source?.registered === true || setupStatus === 'registered' || setupStatus === 'chat-ready';
   const chatReady = source?.chatReady === true || setupStatus === 'chat-ready' || runtimeState === 'CHAT_READY';
   const blockingReason = String(source?.blockingReason || '').trim();
   const message = String(source?.message || entry?.message || '').trim();
-  const messageDevelopmentCode = message.match(/development verification code:\s*(\d{4,10})/i)?.[1] || '';
-  const developmentCode = String(source?.developmentCode || entry?.developmentCode || messageDevelopmentCode || '').trim();
   return {
     success: source?.success !== false,
     registered,
@@ -1050,15 +1043,13 @@ function normalizePeopleChatRegistration(entry = {}) {
     identityReady: source?.identityReady === true || source?.crypto?.identityReady === true,
     sessionReady: source?.sessionReady === true || source?.crypto?.sessionReady === true,
     apiBaseUrl: String(source?.apiBaseUrl || 'http://127.0.0.1:8090').trim(),
-    countryCode,
-    defaultCountryCode,
+    emailDisplay,
+    emailDomain,
     accountId,
     account: source?.account && typeof source.account === 'object' ? source.account : null,
     device: source?.device && typeof source.device === 'object' ? source.device : null,
     deviceName,
-    phoneDisplay,
     pinEnabled: source?.pinEnabled === true,
-    developmentCode,
     message,
     cryptoErrorMessage: String(source?.crypto?.errorMessage || '').trim(),
     errorMessage: String(source?.error?.message || entry?.error?.message || '').trim()
@@ -1114,7 +1105,7 @@ function renderPeopleChatRegistration() {
   if (peopleChatRegistrationTitleEl) {
     peopleChatRegistrationTitleEl.textContent = state.chatReady
       ? 'Chat account ready'
-      : (state.registered ? 'Finish chat setup' : (state.pending ? 'Verify phone' : 'Chat settings'));
+      : (state.registered ? 'Finish chat setup' : (state.pending ? 'Verify email' : 'Chat settings'));
   }
   if (peopleChatRegistrationDetailEl) {
     if (state.chatReady) {
@@ -1129,28 +1120,20 @@ function renderPeopleChatRegistration() {
     } else if (state.registered) {
       peopleChatRegistrationDetailEl.textContent = 'Secure chat identity setup is not complete.';
     } else if (state.pending) {
-      peopleChatRegistrationDetailEl.textContent = state.phoneDisplay
-        ? `Code sent to ${state.phoneDisplay}`
-        : 'Enter the verification code from your phone.';
+      peopleChatRegistrationDetailEl.textContent = state.emailDisplay
+        ? `Code sent to ${state.emailDisplay}`
+        : 'Enter the verification code from your email.';
     } else {
       peopleChatRegistrationDetailEl.textContent = 'Connect this desktop to OpenX Chat.';
     }
   }
   if (peopleChatRegistrationStartEl) peopleChatRegistrationStartEl.hidden = !peopleChatRegistrationOpen || state.pending || state.registered;
   if (peopleChatRegistrationVerifyEl) peopleChatRegistrationVerifyEl.hidden = !peopleChatRegistrationOpen || !state.pending || state.registered;
-  const showDevelopmentCode = peopleChatRegistrationOpen && state.pending && !state.registered && /^\d{4,10}$/.test(state.developmentCode);
-  if (peopleChatDevelopmentCodeEl) peopleChatDevelopmentCodeEl.hidden = !showDevelopmentCode;
-  if (peopleChatDevelopmentCodeValueEl) peopleChatDevelopmentCodeValueEl.textContent = showDevelopmentCode ? state.developmentCode : '';
   if (peopleChatServerUrlEl && !peopleChatServerUrlEl.value) peopleChatServerUrlEl.value = state.apiBaseUrl || 'http://127.0.0.1:8090';
-  if (peopleChatCountryCodeEl && !peopleChatCountryCodeEl.value) {
-    peopleChatCountryCodeEl.value = state.countryCode || state.defaultCountryCode || '';
-  }
   if (peopleChatRegistrationLoading) {
     setPeopleChatRegistrationStatus('Working...', 'muted');
   } else if (state.errorMessage) {
     setPeopleChatRegistrationStatus(state.errorMessage, 'error');
-  } else if (state.developmentCode) {
-    setPeopleChatRegistrationStatus('Development code is shown below. Enter it in the verification box, then click Verify.', 'success');
   } else if (state.message) {
     setPeopleChatRegistrationStatus(state.message, 'success');
   } else if (state.chatReady) {
@@ -1242,7 +1225,7 @@ function focusPeopleChatRegistration() {
   requestAnimationFrame(() => {
     const state = normalizePeopleChatRegistration(peopleChatRegistrationState || {});
     if (state.pending) peopleChatOtpEl?.focus();
-    else if (!state.registered) peopleChatPhoneEl?.focus();
+    else if (!state.registered) peopleChatEmailEl?.focus();
     else peopleChatRegistrationCloseBtn?.focus();
   });
 }
@@ -1367,33 +1350,26 @@ function togglePeopleChatRegistration() {
 
 async function startPeopleChatRegistration(event) {
   event?.preventDefault?.();
-  const phoneNumber = String(peopleChatPhoneEl?.value || '').trim();
+  const email = String(peopleChatEmailEl?.value || '').trim();
   const apiBaseUrl = String(peopleChatServerUrlEl?.value || '').trim();
-  const countryCode = String(peopleChatCountryCodeEl?.value || '').trim().toUpperCase();
-  if (!phoneNumber) {
-    setPeopleChatRegistrationStatus('Phone number is required.', 'error');
-    peopleChatPhoneEl?.focus();
+  if (!email) {
+    setPeopleChatRegistrationStatus('Email address is required.', 'error');
+    peopleChatEmailEl?.focus();
     return;
   }
   peopleChatRegistrationLoading = true;
   renderPeopleChatRegistration();
   try {
-    const result = await window.openx?.startDesktopChatRegistration?.({ phoneNumber, apiBaseUrl, countryCode });
+    const result = await window.openx?.startDesktopChatRegistration?.({ email, apiBaseUrl });
     peopleChatRegistrationState = normalizePeopleChatRegistration(result);
     peopleChatRegistrationOpen = true;
     if (result?.success === false) {
       setPeopleChatRegistrationStatus(result?.error?.message || 'Registration could not start.', 'error');
     } else {
-      const developmentCode = String(result?.developmentCode || peopleChatRegistrationState.developmentCode || '').trim();
       setPeopleChatRegistrationStatus(
-        developmentCode
-          ? 'Development code is shown below and filled in. Click Verify to finish.'
-          : (result?.message || 'Verification code sent. Enter the code and click Verify.'),
+        result?.message || 'Verification email sent. Enter the email code and click Verify.',
         'success'
       );
-      if (/^\d{4,10}$/.test(developmentCode) && peopleChatOtpEl && !peopleChatOtpEl.value) {
-        peopleChatOtpEl.value = developmentCode;
-      }
     }
   } catch (error) {
     peopleChatRegistrationState = normalizePeopleChatRegistration({
@@ -1412,7 +1388,6 @@ async function verifyPeopleChatRegistration(event) {
   const otp = String(peopleChatOtpEl?.value || '').trim();
   const pin = String(peopleChatPinEl?.value || '').trim();
   const apiBaseUrl = String(peopleChatServerUrlEl?.value || '').trim();
-  const countryCode = String(peopleChatCountryCodeEl?.value || '').trim().toUpperCase();
   if (!otp) {
     setPeopleChatRegistrationStatus('Verification code is required.', 'error');
     peopleChatOtpEl?.focus();
@@ -1421,7 +1396,7 @@ async function verifyPeopleChatRegistration(event) {
   peopleChatRegistrationLoading = true;
   renderPeopleChatRegistration();
   try {
-    const result = await window.openx?.verifyDesktopChatRegistration?.({ otp, pin, apiBaseUrl, countryCode });
+    const result = await window.openx?.verifyDesktopChatRegistration?.({ otp, pin, apiBaseUrl });
     peopleChatRegistrationState = normalizePeopleChatRegistration(result);
     if (result?.success === false) {
       setPeopleChatRegistrationStatus(result?.error?.message || 'Verification failed.', 'error');
@@ -1654,9 +1629,6 @@ function openPeopleChatAddUser() {
   peopleChatEditingUser = false;
   peopleChatConfirmingDelete = false;
   if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = '';
-  if (peopleChatUserCountryCodeEl && !peopleChatUserCountryCodeEl.value) {
-    peopleChatUserCountryCodeEl.value = registration.countryCode || registration.defaultCountryCode || '';
-  }
   renderPeopleChat();
   requestAnimationFrame(() => peopleChatUserNameEl?.focus());
 }
@@ -1664,7 +1636,6 @@ function openPeopleChatAddUser() {
 function closePeopleChatAddUser() {
   peopleChatAddUserOpen = false;
   if (peopleChatUserNameEl) peopleChatUserNameEl.value = '';
-  if (peopleChatUserCountryCodeEl) peopleChatUserCountryCodeEl.value = '';
   if (peopleChatUserIdEl) peopleChatUserIdEl.value = '';
   if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = '';
   renderPeopleChat();
@@ -1837,9 +1808,8 @@ async function createPeopleChatConversation(event) {
   }
   const title = String(peopleChatUserNameEl?.value || '').trim();
   const peerHandle = String(peopleChatUserIdEl?.value || '').trim();
-  const countryCode = String(peopleChatUserCountryCodeEl?.value || '').trim().toUpperCase();
   if (!title || !peerHandle) {
-    if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = 'Name and phone number are required.';
+    if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = 'Name and email address are required.';
     return;
   }
   if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = 'Sending request...';
@@ -1848,8 +1818,7 @@ async function createPeopleChatConversation(event) {
       const result = await window.openx.createDesktopChatConversation({
         title,
         peerName: title,
-        peerHandle,
-        countryCode
+        peerHandle
       });
       if (result?.conversation) {
         const conversation = replacePeopleChatConversation(result.conversation);
@@ -1860,7 +1829,6 @@ async function createPeopleChatConversation(event) {
         peopleChatConfirmingDelete = false;
         peopleChatLoaded = true;
         if (peopleChatUserNameEl) peopleChatUserNameEl.value = '';
-        if (peopleChatUserCountryCodeEl) peopleChatUserCountryCodeEl.value = '';
         if (peopleChatUserIdEl) peopleChatUserIdEl.value = '';
         if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = '';
         renderPeopleChat();
@@ -4035,11 +4003,6 @@ peopleChatRegistrationOverlayEl?.addEventListener('click', (event) => {
 peopleChatRegistrationStartEl?.addEventListener('submit', startPeopleChatRegistration);
 peopleChatRegistrationVerifyEl?.addEventListener('submit', verifyPeopleChatRegistration);
 peopleChatRequestsRefreshBtn?.addEventListener('click', () => loadPeopleChatRequests({ force: true }));
-[peopleChatCountryCodeEl, peopleChatUserCountryCodeEl].forEach(input => {
-  input?.addEventListener('input', () => {
-    input.value = String(input.value || '').replace(/[^a-z]/gi, '').slice(0, 2).toUpperCase();
-  });
-});
 peopleChatSearchEl?.addEventListener('input', () => {
   if (peopleChatSearchTimer) clearTimeout(peopleChatSearchTimer);
   peopleChatSearchTimer = window.setTimeout(() => {

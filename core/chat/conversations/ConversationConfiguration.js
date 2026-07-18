@@ -9,7 +9,7 @@ class ConversationConfiguration {
    * @param {object} options Overrides.
    */
   constructor(options = {}) {
-    this.storagePath = options.storagePath || chatDataPath('chat-conversations.json', options);
+    this.storagePath = options.storagePath || chatDataPath('chat-conversations.json', { ...options, pathKey: 'chatConversationsPath' });
     this.maxConversations = this.number(options.maxConversations, 10000);
     this.defaultPageSize = this.number(options.defaultPageSize, 30);
     this.maxPageSize = this.number(options.maxPageSize, 100);

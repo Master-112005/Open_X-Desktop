@@ -1,6 +1,6 @@
 # OpenX Repository Report
 
-Report date: 2026-07-18
+Report date: 2026-07-19
 
 Repository: `OpenX`
 
@@ -22,22 +22,22 @@ Branch / commit: `chatintegration` / `1acb3af`
 - Test suites under `tests`.
 - Package/build configuration in `package.json`, `package-lock.json`, `config.js`, and Electron builder settings.
 
-Approximate scan size from the 2026-07-18 refresh:
+Approximate scan size from the 2026-07-19 refresh:
 
-- `1055` filtered files in the working tree after excluding generated, dependency, cache, graph, and local-heavy folders.
-- `797` files under `core`.
+- `1058` filtered files in the working tree after excluding generated, dependency, cache, graph, and local-heavy folders.
+- `884` files under `core`.
 - `114` files under `apps`.
-- `102` files under `tests`.
+- `103` files under `tests`.
 - `11` files under `docs`.
 - `11` files under `plugins`.
 - `4` files under top-level `models`.
 - `5` files under `build`, `1` file under `scripts`, and `10` root-level config/docs/package files.
-- `1000` JavaScript files, `17` Markdown files, `9` JSON files, `8` ONNX model/data files, `5` HTML files, `4` CSS files, plus PowerShell/config/build metadata files.
+- `1009` JavaScript files, `16` Markdown files, `9` JSON files, `8` ONNX model/data files, `5` HTML files, `4` CSS files, plus PowerShell/config/build metadata files.
 - Visual Memory, Gallery, AI Vision, OpenX Chat desktop integration, encrypted chat client modules, model assets, face memory, and face-search ranking now account for the largest active feature areas.
 
 ## Current Working Tree
 
-The source working tree is actively modified. This documentation refresh updates `report.md` to reflect the current `7.0.0` package version, the latest assistant stabilization work, and the OpenX desktop chat integration with OpenX Chat Server.
+The source working tree is actively modified. This documentation refresh updates `report.md` to reflect the current `7.0.0` package version, the latest assistant stabilization work, the OpenX desktop chat integration with OpenX Chat Server, the production email OTP contract, and the centralized OpenX chat data-root cleanup.
 
 Recent stabilization areas covered by this report include:
 
@@ -47,8 +47,25 @@ Recent stabilization areas covered by this report include:
 - `apps/desktop/renderer/chat/index.html`
 - `apps/desktop/renderer/chat/index.js`
 - `apps/desktop/renderer/chat/index.css`
+- `core/chat/ChatConfiguration.js`
+- `core/chat/ChatDataPaths.js`
+- `core/chat/ChatManager.js`
+- `core/chat/history/*`
+- `core/chat/conversations/ConversationConfiguration.js`
+- `core/chat/crypto/CryptoConfiguration.js`
+- `core/chat/devices/DeviceConfiguration.js`
+- `core/chat/mailbox/MailboxConfiguration.js`
+- `core/chat/messages/MessageConfiguration.js`
+- `core/chat/messages/MessageManager.js`
+- `core/chat/multidevice/MultiDeviceConfiguration.js`
+- `core/chat/requests/RequestConfiguration.js`
+- `core/chat/synchronization/SynchronizationConfiguration.js`
+- `core/chat/transfer/DownloadManager.js`
+- `core/chat/transfer/TransferConfiguration.js`
+- `core/chat/transfer/UploadManager.js`
 - `core/chat/state/ChatRuntimeStateMachine.js`
 - `core/chat/state/index.js`
+- `core/assistant/Data.js`
 - `core/chat/ChatStatusManager.js`
 - `core/chat/ChatLifecycleManager.js`
 - `core/chat/crypto/SecureStorageManager.js`
@@ -65,6 +82,8 @@ Recent stabilization areas covered by this report include:
 - `core/assistant/entities/PersonLexicon.js`
 - focused media, reminder, router, learning, response, visual-memory, and gallery tests under `tests/`
 - focused Desktop Chat runtime state tests under `tests/core/chat-runtime-state.test.js`
+- focused OpenX data-root tests under `tests/core/data-root.test.js`
+- focused trusted-device history synchronization tests under `tests/core/chat-history-sync.test.js`
 - focused chat renderer and Electron IPC security tests under `tests/ui` and `tests/core`
 
 The report reflects the current workspace state and does not add a second directory tree.
@@ -331,7 +350,7 @@ Result:
 
 ```text
 syntax ok: 259 files
-80 passing
+86 passing
 ```
 
 Graph refresh performed after desktop code edits:
@@ -343,10 +362,161 @@ graphify update .
 Result:
 
 ```text
-1001 files extracted
-8029 nodes
-18027 edges
-302 communities
+1002 files extracted
+8040 nodes
+18057 edges
+296 communities
+```
+
+### Latest Production Email OTP And Chat Data Root Validation - 2026-07-18
+
+The latest production hardening pass removed desktop development OTP exposure, moved Chat auth from phone/SMS to email/Gmail OTP, and moved OpenX Chat runtime data under the centralized OpenX data root while preserving received-file storage in `Documents\OpenX`.
+
+Passed Chat Server validation after the production email OTP change:
+
+```powershell
+npm run check
+npm test
+```
+
+Result:
+
+```text
+syntax ok: 259 files
+86 passing
+```
+
+Passed focused Chat Server OTP and logger validation:
+
+```powershell
+node --test tests\account-phase2.test.js tests\logger-format.test.js
+```
+
+Result:
+
+```text
+16 passing
+```
+
+Passed focused OpenX desktop/chat/data validation:
+
+```powershell
+node -c apps\desktop\electron\main.js
+node -c apps\desktop\renderer\chat\index.js
+node -c core\chat\ChatDataPaths.js
+node -c core\chat\ChatManager.js
+node -c core\chat\ChatConfiguration.js
+node -c core\chat\messages\MessageManager.js
+node -c core\chat\transfer\UploadManager.js
+node -c core\chat\transfer\DownloadManager.js
+node -c tests\ui\chat-renderer.test.js
+node -c tests\core\data-root.test.js
+```
+
+Passed focused OpenX lint:
+
+```powershell
+npx eslint apps\desktop\electron\main.js apps\desktop\renderer\chat\index.js core\chat\ChatDataPaths.js core\chat\ChatManager.js core\chat\ChatConfiguration.js core\chat\messages\MessageManager.js core\chat\transfer\UploadManager.js core\chat\transfer\DownloadManager.js tests\ui\chat-renderer.test.js tests\core\data-root.test.js
+```
+
+Passed focused OpenX chat/data/security validation:
+
+```powershell
+npx mocha tests\core\data-root.test.js tests\core\chat-transfer-phase12.test.js tests\core\chat-security-phase14.test.js tests\core\chat-runtime-state.test.js tests\core\chat-production-phase16.test.js tests\core\chat-multi-device.test.js tests\core\chat-infrastructure-phase15.test.js tests\core\chat-conversation-phase13.test.js tests\core\chat-connection-phase11.test.js tests\core\electron-security.test.js tests\ui\chat-renderer.test.js --timeout 120000 --reporter dot --exit
+```
+
+Result:
+
+```text
+65 passing
+```
+
+Final stale-development-OTP string scans were clean in both `OpenX` and `OpenX_Chat_Server`.
+
+Passed focused desktop email-OTP renderer and IPC validation after the desktop UI/API migration:
+
+```powershell
+node -c apps\desktop\electron\main.js
+node -c apps\desktop\electron\security.js
+node -c apps\desktop\renderer\chat\index.js
+npx eslint apps\desktop\electron\main.js apps\desktop\electron\security.js apps\desktop\renderer\chat\index.js tests\ui\chat-renderer.test.js tests\core\electron-security.test.js
+npx mocha tests\ui\chat-renderer.test.js tests\core\electron-security.test.js --timeout 120000
+```
+
+Result:
+
+```text
+38 passing
+```
+
+Graph refresh performed after desktop code edits:
+
+```powershell
+graphify update .
+```
+
+Result:
+
+```text
+8040 nodes
+18057 edges
+296 communities
+```
+
+### Latest Trusted-Device History Sync And Offline Chat Status Validation - 2026-07-19
+
+The latest desktop Chat pass added a client-side trusted-device history synchronization module and reduced noisy startup warnings when OpenX Chat Server is offline.
+
+Implemented desktop behavior:
+
+- Local history sync metadata is stored in `OpenX_Data\chat-history-sync.json`.
+- `ChatManager` now exposes `getHistorySynchronizationManager()`.
+- The new history sync manager requests coordination from `POST /history-sync/request`.
+- The local transfer engine accepts encrypted chunk metadata only and rejects plaintext message fields.
+- Passive Chat status refresh uses a quiet offline path, so starting OpenX while OpenX Chat Server is stopped logs an informational offline state instead of warning that identity setup failed.
+- User-triggered Chat actions still surface normal server-unreachable errors when the server is required.
+
+Passed focused syntax validation:
+
+```powershell
+node -c core\chat\history\HistorySynchronizationManager.js
+node -c core\chat\history\HistoryTransferEngine.js
+node -c core\chat\history\HistorySynchronizationStorage.js
+node -c core\chat\history\HistorySynchronizationClient.js
+node -c core\chat\ChatManager.js
+node -c apps\desktop\electron\main.js
+```
+
+Passed focused lint:
+
+```powershell
+npx eslint apps\desktop\electron\main.js core\assistant\Data.js core\chat\ChatManager.js core\chat\ChatConfiguration.js core\chat\index.js core\chat\history\HistorySynchronizationConfiguration.js core\chat\history\HistorySynchronizationClient.js core\chat\history\HistorySynchronizationStorage.js core\chat\history\HistoryTransferEngine.js core\chat\history\HistorySynchronizationManager.js core\chat\history\HistorySynchronizationEvents.js tests\core\chat-history-sync.test.js tests\core\data-root.test.js
+```
+
+Passed focused OpenX Chat validation:
+
+```powershell
+npx mocha tests\core\chat-history-sync.test.js tests\core\data-root.test.js tests\core\chat-conversation-phase13.test.js tests\core\chat-multi-device.test.js tests\core\chat-production-phase16.test.js --timeout 120000
+```
+
+Result:
+
+```text
+19 passing
+```
+
+Graph refresh performed after desktop history-sync edits:
+
+```powershell
+graphify update .
+```
+
+Result:
+
+```text
+8092 nodes
+18718 edges
+295 communities
 ```
 
 ## Major Current Capabilities Confirmed
@@ -389,11 +559,12 @@ Done, sir. I closed Chrome, but I could not close Instagram because Instagram st
 - The desktop Apps view now exposes a `Chat` app surface for people-to-people OpenX Chat.
 - The Chat UI keeps the mobile-style conversation layout: list, search, All/Unread/Pinned filters, settings button, and a thread pane with back navigation.
 - Chat setup is hidden from the filter row and opens through the Chat settings button.
-- Chat setup supports server URL, country code, phone number, OTP verification, and optional registration PIN.
-- Existing registered phone numbers no longer fail as duplicate registration. Desktop now asks the Chat Server to start an existing-account OTP login flow.
-- New phone numbers still use the normal registration OTP flow.
+- Chat setup supports server URL, email address, user-entered email OTP verification, and optional registration PIN.
+- Existing registered email addresses no longer fail as duplicate registration. Desktop now asks the Chat Server to start an existing-account OTP login flow.
+- New email addresses use the normal registration flow, with OTP generation, hashing, storage, Gmail delivery, expiration, and verification owned by the Chat Server.
+- The desktop never receives, displays, logs, or stores the generated OTP. It only submits the code the user enters from email.
 - After verification, the desktop registers or reuses a trusted desktop device through the Chat Server device API.
-- Adding a user now performs real exact-phone discovery instead of creating a fake local contact.
+- Adding a user now performs real exact-email discovery instead of creating a fake local contact.
 - Contact requests are sent through the Chat Server and appear as pending outgoing requests until accepted.
 - Incoming and outgoing requests are visible in the Chat settings popup with refresh, accept, delete, and cancel controls.
 - Accepted relationships are synchronized back into local desktop conversations.
@@ -886,7 +1057,8 @@ Important data rules:
 
 - desktop chat account setup state is stored locally under the OpenX data root;
 - desktop device state stores the server-issued `DeviceID` and local `clientDeviceKey` metadata;
-- local conversations are stored by the desktop conversation manager, not by the Chat Server;
+- local conversations, messages, mailbox sequence state, synchronization cursors, multi-device state, file-transfer metadata, request nicknames, and chat crypto envelopes are stored under `OpenX_Data`;
+- received files intentionally remain in `Documents\OpenX`;
 - server requests use bounded JSON and timeout-controlled fetch calls;
 - renderer access is through validated IPC only;
 - registration and request payloads are normalized before leaving the renderer;
@@ -897,15 +1069,17 @@ Current registration flow:
 
 ```text
 Chat settings
-  -> user enters server URL, country code, phone
+  -> user enters server URL and email address
   -> desktop calls /account/check
-  -> if phone is new:
+  -> if email is new:
        /register/start
-       user enters OTP
+       Chat Server sends email OTP through Gmail SMTP
+       user enters email OTP
        /register/verify
-  -> if phone already exists:
+  -> if email already exists:
        /account/login/start
-       user enters OTP
+       Chat Server sends email OTP through Gmail SMTP
+       user enters email OTP
        /account/login/verify
   -> desktop calls /device/register
   -> optional /security/pin/create
@@ -917,7 +1091,7 @@ Current add-user flow:
 
 ```text
 Chat add user
-  -> user enters display name, country code, and phone
+  -> user enters display name and email address
   -> desktop requires a registered local chat account
   -> /discovery/lookup returns opaque contact token
   -> /contact/request creates a pending request
@@ -2169,7 +2343,7 @@ Before this pass, the desktop Chat app could show a WhatsApp-style chat layout a
 
 - adding a person could create a local record without discovering a real server account;
 - the UI did not expose incoming/outgoing contact request controls in the setup popup;
-- an already registered phone number could be treated as a duplicate registration instead of an OTP login/device setup flow;
+- an already registered email address could be treated as a duplicate registration instead of an OTP login/device setup flow;
 - sending a message from a server-backed contact did not route through `/messages/send`;
 - trusted server relationships were not reconciled back into local desktop conversations;
 - contact request IPC channels were not exposed through the preload bridge.
@@ -2178,8 +2352,8 @@ Before this pass, the desktop Chat app could show a WhatsApp-style chat layout a
 
 | Area | Change |
 |---|---|
-| Registration | `startDesktopChatRegistration()` now checks `/account/check`; registered phones use `/account/login/start`; new phones use `/register/start`. |
-| Verification | `verifyDesktopChatRegistration()` uses `/account/login/verify` for existing accounts and falls back to that path if registration verify reports `account.duplicate`. |
+| Registration | `startDesktopChatRegistration()` now checks `/account/check`; registered emails use `/account/login/start`; new emails use `/register/start`; both paths request server-side email OTP delivery only. |
+| Verification | `verifyDesktopChatRegistration()` accepts the user-entered email OTP, uses `/account/login/verify` for existing accounts, and falls back to that path if registration verify reports `account.duplicate`. |
 | Device setup | successful verification calls `/device/register` and stores the resulting desktop device state locally. |
 | Add user | `createDesktopChatConversation()` now requires registration, calls `/discovery/lookup`, then calls `/contact/request`. |
 | Duplicate requests | duplicate pending requests are converted into the existing local pending conversation instead of creating unrelated duplicates. |
@@ -2189,6 +2363,21 @@ Before this pass, the desktop Chat app could show a WhatsApp-style chat layout a
 | Message send | trusted conversations send an opaque encrypted payload to `/messages/send`; pending requests are blocked from sending. |
 | Renderer | Chat settings popup shows request lists and action buttons. |
 | IPC security | new request channels are validated before reaching main-process handlers. |
+
+Production OTP behavior:
+
+- the desktop sends only server URL and email address when starting setup;
+- the Chat Server generates, hashes, stores, expires, sends, and verifies the OTP;
+- the Chat Server sends the OTP through the configured Gmail SMTP provider;
+- the desktop never receives, parses, auto-fills, displays, logs, or stores the generated OTP;
+- successful start responses are generic and contain no verification material:
+
+```json
+{
+  "success": true,
+  "message": "Verification email sent successfully."
+}
+```
 
 ### Server Flow Used By Desktop
 
@@ -2237,7 +2426,7 @@ UNINITIALIZED
 Operational rules:
 
 - `DEVICE_APPROVAL_REQUIRED` is a blocking state, not a soft warning.
-- `registered=true` only means the phone/account flow completed; it does not imply chat is usable.
+- `registered=true` only means the email/account flow completed; it does not imply chat is usable.
 - `CHAT_READY` requires a verified account, registered device, server-approved device state, locally available private keys, registered public identity/device keys, and a local session-ready marker.
 - Renderer request lists, add-user flow, contact actions, and trusted message send are gated by `chatReady`.
 - Registration status refresh reconciles `/device/status/{DeviceID}` so a newly approved device can move to `CHAT_READY` without another OTP flow.
@@ -2247,30 +2436,30 @@ Operational rules:
 
 | File | Update |
 |---|---|
-| `apps/desktop/electron/main.js` | Chat Server request helper, OTP login support, registration/device state, discovery/contact request flow, relationship refresh, request actions, trusted message send, IPC handlers. |
-| `apps/desktop/electron/security.js` | Validates chat create payload country code and validates request action payloads. |
+| `apps/desktop/electron/main.js` | Chat Server request helper, email OTP login support, registration/device state, exact-email discovery/contact request flow, relationship refresh, request actions, trusted message send, IPC handlers. |
+| `apps/desktop/electron/security.js` | Validates email registration payloads, chat create/update/send payloads, and request action payloads. |
 | `apps/desktop/preload.js` | Exposes contact list, accept, delete, cancel, registration, and conversation APIs to the renderer. |
-| `apps/desktop/renderer/chat/index.html` | Adds country-code input for adding users and request list panels inside Chat settings. |
-| `apps/desktop/renderer/chat/index.js` | Adds request state normalization, request rendering, refresh/accept/delete/cancel handlers, server-backed add-user behavior, pending-send blocking, and setup refresh. |
-| `apps/desktop/renderer/chat/index.css` | Adds request card styling, setup popup refinements, identity input row, and responsive containment for chat UI performance. |
+| `apps/desktop/renderer/chat/index.html` | Uses email fields for chat setup and add-user, and keeps request list panels inside Chat settings. |
+| `apps/desktop/renderer/chat/index.js` | Adds email setup normalization, request rendering, refresh/accept/delete/cancel handlers, server-backed add-user behavior, pending-send blocking, and setup refresh. |
+| `apps/desktop/renderer/chat/index.css` | Adds request card styling, setup popup refinements, email input styling, and responsive containment for chat UI performance. |
 | `core/chat/state/ChatRuntimeStateMachine.js` | Defines the authoritative Desktop Chat setup state machine from server connection through `CHAT_READY`. |
 | `core/chat/ChatStatusManager.js` | Publishes runtime state-machine snapshots instead of unmanaged string status flags. |
 | `core/chat/ChatLifecycleManager.js` | Uses runtime state names for lifecycle start and stop transitions. |
 | `core/chat/crypto/SecureStorageManager.js` | Delegates stored-key listing to the active OS secure-storage backend. |
 | `core/chat/index.js` | Exposes the Desktop Chat state module for shared use and tests. |
 | `tests/core/chat-runtime-state.test.js` | Covers runtime-state derivation, device approval gating, and `ChatStatusManager` snapshots. |
-| `tests/ui/chat-renderer.test.js` | Adds renderer contract coverage for the Chat app, setup popup, request controls, and styling hooks. |
-| `tests/core/electron-security.test.js` | Adds IPC validation coverage for registration, country code, contact request actions, and channel registration. |
+| `tests/ui/chat-renderer.test.js` | Adds renderer contract coverage for the Chat app, email setup popup, request controls, and styling hooks. |
+| `tests/core/electron-security.test.js` | Adds IPC validation coverage for email registration, contact request actions, and channel registration. |
 
 ### Current Behavior Confirmed
 
 | User action | Current result |
 |---|---|
-| register a new phone | desktop starts `/register/start`, asks OTP, verifies through `/register/verify`, registers desktop device. |
-| use an already registered phone | desktop starts `/account/login/start`, asks OTP, verifies through `/account/login/verify`, registers/reuses desktop device, then waits for approval when the server marks it pending. |
+| register a new email | desktop starts `/register/start`, server sends email OTP, user enters the email code, desktop verifies through `/register/verify`, then registers the desktop device. |
+| use an already registered email | desktop starts `/account/login/start`, server sends email OTP, user enters the email code, desktop verifies through `/account/login/verify`, registers/reuses the desktop device, then waits for approval when the server marks it pending. |
 | approved desktop device | desktop generates or reuses local identity/device keys, stores private keys with Electron `safeStorage`, and registers only public keys with Chat Server. |
 | pending desktop device | Chat settings shows approval required and contact/message actions are blocked until another trusted device approves it. |
-| add a real user by phone | desktop performs exact discovery and sends a contact request only after the runtime state reaches `CHAT_READY`. |
+| add a real user by email | desktop performs exact discovery and sends a contact request only after the runtime state reaches `CHAT_READY`. |
 | open Chat settings | shows setup state plus incoming/outgoing contact requests when `CHAT_READY`; pending devices show approval guidance instead. |
 | accept request | server creates trusted relationship and desktop creates/updates a local conversation. |
 | cancel outgoing request | server cancels the request and desktop refreshes request lists. |
@@ -2279,11 +2468,51 @@ Operational rules:
 
 ### Security And Privacy Notes
 
-- Desktop discovery uses the Chat Server's exact-phone lookup and opaque token model.
+- Desktop discovery uses the Chat Server's exact-email lookup and opaque token model.
 - The renderer never calls network APIs directly for registration, requests, or messaging; it goes through validated IPC.
+- The renderer and desktop main process never receive the generated OTP. They only submit the user-entered email OTP for verification.
 - The server-backed send path does not send plaintext message text to the Chat Server.
 - Local UI history remains local desktop data so the current user sees immediate message previews.
 - Full cross-device readable sync requires the existing Phase 4 session-key and Phase 8 message pipeline to be connected to the Chat UI receive path.
+
+## 2026-07-19 Trusted-Device History Synchronization Update
+
+This update adds the desktop-side foundation for moving local Chat history between trusted devices without letting OpenX Chat Server store readable history.
+
+### Desktop Components Added
+
+| File | Responsibility |
+|---|---|
+| `core/chat/history/HistorySynchronizationConfiguration.js` | Resolves API URL, request timeout, chunk size, and `OpenX_Data\chat-history-sync.json`. |
+| `core/chat/history/HistorySynchronizationClient.js` | Calls `/history-sync/*` server coordination APIs. |
+| `core/chat/history/HistorySynchronizationStorage.js` | Stores local sync request, transfer, availability, and audit metadata under `OpenX_Data`. |
+| `core/chat/history/HistoryTransferEngine.js` | Tracks encrypted chunk progress and rejects plaintext message fields. |
+| `core/chat/history/HistorySynchronizationManager.js` | Orchestrates availability, request, negotiation, completion, and cancellation from the desktop side. |
+| `core/chat/history/index.js` | Exposes the history sync module from `core/chat`. |
+
+### Local Data Rules
+
+- Local readable chat data remains in desktop-local Chat stores.
+- New sync coordination state is stored at `OpenX_Data\chat-history-sync.json`.
+- Received files remain outside `OpenX_Data` in `Documents\OpenX`, preserving the existing exception.
+- The transfer engine accepts encrypted chunk metadata only; it rejects `text`, `message`, and `plaintext` fields.
+- `ChatManager.getHistorySynchronizationManager()` exposes the new manager for future UI and assistant integration.
+
+### Server Offline Startup Behavior
+
+Passive Chat setup refreshes now use a quiet offline mode:
+
+```text
+OpenX starts
+  -> renderer asks for Chat registration status
+  -> desktop tries /device/status/{DeviceID}
+  -> if Chat Server is offline:
+       log informational "server offline; refresh skipped"
+       keep local setup state
+       do not mark identity setup as failed
+```
+
+User-triggered actions still fail explicitly when the Chat Server is required. This avoids confusing startup warnings such as `Desktop chat identity setup is not ready` when the real issue is simply that `OpenX_Chat_Server` is not running.
 
 ## 2026-07-18 OpenX Chat Architecture Reconciliation Report
 
@@ -2324,10 +2553,11 @@ Ownership after reconciliation:
 New account:
 
 ```text
-Phone form
+Email form
   -> /account/check registered=false
   -> /register/start
-  -> OTP
+  -> Chat Server sends email OTP through Gmail SMTP
+  -> user enters email OTP
   -> /register/verify
   -> /device/register
   -> if Approved: local keys + public-key registration
@@ -2337,10 +2567,11 @@ Phone form
 Existing account on a new desktop:
 
 ```text
-Phone form
+Email form
   -> /account/check registered=true
   -> /account/login/start
-  -> OTP
+  -> Chat Server sends email OTP through Gmail SMTP
+  -> user enters email OTP
   -> /account/login/verify
   -> /device/register
   -> DEVICE_APPROVAL_REQUIRED when server marks device Pending
@@ -2378,7 +2609,7 @@ CHAT_READY
 
 | Lifecycle | Start | Progress | Completion | Failure/recovery |
 |---|---|---|---|---|
-| Account | phone submitted | OTP pending | `ACCOUNT_VERIFIED` | restart OTP flow or login path when duplicate account exists |
+| Account | email submitted | email OTP pending | `ACCOUNT_VERIFIED` | restart OTP flow or login path when duplicate account exists |
 | Device | `/device/register` | pending/approved | `DEVICE_APPROVED` | settings shows approval required; status refresh recovers after approval |
 | Identity | approved device | local key generation/read | public keys registered | secure-storage or registry errors keep setup below `CHAT_READY` |
 | Chat setup | server URL | account/device/identity/session gates | `CHAT_READY` | blocking reason is surfaced in setup popup |
@@ -2400,11 +2631,19 @@ CHAT_READY
 - Desktop device registration state remains in `OpenX_Data/chat-device.json`.
 - Desktop private key envelopes are stored in `OpenX_Data/chat-crypto-secrets.json` using Electron `safeStorage`.
 - Desktop local conversations remain in `OpenX_Data/chat-conversations.json`.
+- Desktop chat messages are stored in `OpenX_Data/chat-messages.json`.
+- Desktop mailbox sequence state is stored in `OpenX_Data/chat-mailbox-sequences.json`.
+- Desktop synchronization cursors are stored in `OpenX_Data/chat-sync-cursors.json`.
+- Desktop multi-device state is stored in `OpenX_Data/chat-multi-device.json`.
+- Desktop file-transfer metadata is stored in `OpenX_Data/chat-file-transfers.json`.
+- Desktop request nicknames are stored in `OpenX_Data/chat-request-nicknames.json`.
+- Received cloud/mobile files intentionally remain outside `OpenX_Data` at `Documents\OpenX`.
 - No server database shape change was required in this pass; the desktop now consumes existing public-key, device, relationship, and mailbox models more correctly.
 
 ### Security Improvements
 
 - Pending or unapproved devices cannot add contacts, accept/delete/cancel contact requests, or send trusted messages from the desktop UI.
+- Generated OTP values are never returned to desktop, renderer, preload, IPC, logs, or local setup state.
 - Private identity and device keys never leave the desktop main process.
 - Public-key registration happens only after the server-approved device gate.
 - Renderer remains behind validated IPC and does not call REST endpoints directly.
@@ -2421,7 +2660,7 @@ CHAT_READY
 
 - True peer-to-peer/session-key decrypt-and-display for incoming mailbox envelopes is still not wired into the renderer-facing Chat app.
 - The current trusted-send path sends an opaque encrypted payload and updates local UI history, but complete cross-device readable sync requires the existing `core/chat/messages`, `core/chat/mailbox`, and `core/chat/synchronization` managers to be used by the UI receive path.
-- Production still needs a real OTP provider and HTTPS-only deployment profile outside localhost development.
+- Production Chat setup requires configured Gmail SMTP credentials and HTTPS-only server URLs outside localhost development.
 - The JSON store remains a development/runtime store and needs production persistence policy before public rollout.
 
 ### Production Readiness Checklist
@@ -2474,7 +2713,7 @@ CHAT_READY
 
 9. Chat Server production configuration
 
-   Local development uses `http://localhost:8090` and development OTP exposure when explicitly configured. A production deployment must use HTTPS, real OTP delivery, hardened secrets, persistent storage policy, and deployment-level rate limiting/observability.
+   Development OTP exposure has been removed. Local development can still use `http://localhost:8090`, but production deployments must use HTTPS, configured Gmail SMTP credentials, hardened secrets, persistent storage policy, and deployment-level rate limiting/observability.
 
 ## Recommended Next Actions
 
@@ -2509,10 +2748,10 @@ CHAT_READY
    - notification grouping test
    - installer smoke test
 6. Add end-to-end OpenX Chat desktop tests with a running Chat Server fixture for:
-   - new phone registration;
-   - existing phone OTP login;
+   - new email registration;
+   - existing email OTP login;
    - desktop device registration;
-   - exact phone discovery;
+   - exact email discovery;
    - outgoing request creation;
    - incoming request acceptance;
    - trusted relationship refresh;
@@ -2523,11 +2762,11 @@ CHAT_READY
    - `core/chat/mailbox/MailboxManager.js`;
    - `core/chat/synchronization/SynchronizationManager.js`;
    - Phase 4 identity/device/session key storage.
-8. For production Chat deployment, replace development OTP handling with a real delivery provider and lock deployment to HTTPS-only Chat Server URLs.
+8. For production Chat deployment, configure Gmail SMTP credentials, keep OTP responses generic, and lock deployed desktop/mobile clients to HTTPS-only Chat Server URLs outside localhost development.
 
 ## Current Directory Tree
 
-This is the only directory tree in this report. It was refreshed from the current OpenX workspace on 2026-07-18 and excludes dependency, build-output, cache, local graph, and other generated folders so the documentation stays focused on source, tests, configuration, docs, and checked-in assets.
+This is the only directory tree in this report. It was refreshed from the current OpenX workspace on 2026-07-19 and excludes dependency, build-output, cache, local graph, and other generated folders so the documentation stays focused on source, tests, configuration, docs, and checked-in assets.
 
 Excluded generated/local-heavy paths:
 
@@ -2546,7 +2785,7 @@ Excluded generated/local-heavy paths:
 - `tmp/`
 - `temp/`
 
-Filtered tree scan: `1055` files.
+Filtered tree scan: `1058` files.
 
 ```text
 OpenX/
@@ -3488,6 +3727,14 @@ OpenX/
 |   |   |   |-- DiscoveryService.js
 |   |   |   |-- DiscoveryValidation.js
 |   |   |   `-- index.js
+|   |   |-- history/
+|   |   |   |-- HistorySynchronizationClient.js
+|   |   |   |-- HistorySynchronizationConfiguration.js
+|   |   |   |-- HistorySynchronizationEvents.js
+|   |   |   |-- HistorySynchronizationManager.js
+|   |   |   |-- HistorySynchronizationStorage.js
+|   |   |   |-- HistoryTransferEngine.js
+|   |   |   `-- index.js
 |   |   |-- infrastructure/
 |   |   |   |-- ConnectionOptimizer.js
 |   |   |   |-- index.js
@@ -3747,6 +3994,7 @@ OpenX/
 |   |   |-- cloud-desktop-ui.test.js
 |   |   |-- cloud-file-transfer-manager.test.js
 |   |   |-- cloud-pairing-manager.test.js
+|   |   |-- chat-history-sync.test.js
 |   |   |-- command-corpus.test.js
 |   |   |-- communication-engine.test.js
 |   |   |-- context-providers.test.js
