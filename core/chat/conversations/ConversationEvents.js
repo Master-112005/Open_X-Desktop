@@ -3,6 +3,7 @@
  */
 module.exports = Object.freeze({
   CONVERSATION_CREATED: 'conversation:created',
+  CONVERSATION_UPDATED: 'conversation:updated',
   CONVERSATION_DELETED: 'conversation:deleted',
   CONVERSATION_RESTORED: 'conversation:restored',
   CONVERSATION_ARCHIVED: 'conversation:archived',

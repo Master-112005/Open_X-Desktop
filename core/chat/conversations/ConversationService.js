@@ -118,6 +118,26 @@ class ConversationService {
   /** @param {object} input Search input. @returns {Promise<object>} Search results. */
   search(input = {}) { return this.searchService.search(input); }
 
+  /**
+   * Updates local person metadata for an existing conversation.
+   * @param {string} conversationId ConversationID.
+   * @param {object} metadata Person metadata patch.
+   * @returns {Promise<object>} Updated conversation.
+   */
+  async updateConversationMetadata(conversationId, metadata = {}) {
+    const conversation = await this.getConversation(conversationId);
+    conversation.metadata = this.validation.metadata({
+      ...(conversation.metadata || {}),
+      ...metadata
+    });
+    conversation.updatedAt = new Date().toISOString();
+    await this.storage.upsertConversation(conversation);
+    await this.indexManager.indexConversation(conversation);
+    await this.storage.audit({ event: 'Updated', conversationId: conversation.conversationId });
+    this.eventBus?.emit?.(this.events.CONVERSATION_UPDATED, { conversationId: conversation.conversationId });
+    return conversation;
+  }
+
   /** @param {string} conversationId ConversationID. @returns {Promise<object>} Updated conversation. */
   async pin(conversationId) { return this.pinManager.pin(await this.getConversation(conversationId)); }
 

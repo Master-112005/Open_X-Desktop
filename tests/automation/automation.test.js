@@ -146,6 +146,26 @@ describe('Automation Engine', function() {
     assert.equal(result.verification.status, 'unknown');
   });
 
+  it('should open the OpenX Chat surface through desktop actions', async function() {
+    let opened = false;
+    const engine = new AutomationEngine({
+      desktopActions: {
+        openPeopleChat: () => {
+          opened = true;
+          return { success: true };
+        }
+      }
+    });
+
+    const result = await engine.execute('app.open', { appName: 'chat' });
+
+    assert.equal(opened, true);
+    assert.equal(result.success, true);
+    assert.equal(result.data.action, 'openPeopleChat');
+    assert.equal(result.data.app, 'OpenX Chat');
+    assert.equal(result.data.launchMethod, 'openx-desktop');
+  });
+
   it('should open recognized web apps in Chrome only after local app lookup fails', async function() {
     const engine = new AutomationEngine({});
     let opened = null;

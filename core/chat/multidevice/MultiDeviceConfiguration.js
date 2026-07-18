@@ -1,5 +1,4 @@
-const os = require('os');
-const path = require('path');
+const { chatDataPath } = require('../ChatDataPaths');
 
 /**
  * Desktop Phase 10 multi-device configuration.
@@ -13,7 +12,7 @@ class MultiDeviceConfiguration {
     this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'http://localhost:8090').replace(/\/+$/, '');
     this.requestTimeoutMs = Number(options.requestTimeoutMs || 15000);
     this.maxRetries = Number(options.maxRetries || 5);
-    this.storagePath = options.storagePath || path.join(os.homedir(), 'Documents', 'OpenX_Data', 'chat-multi-device.json');
+    this.storagePath = options.storagePath || chatDataPath('chat-multi-device.json', options);
     this.validate();
     Object.freeze(this);
   }

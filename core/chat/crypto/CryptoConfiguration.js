@@ -1,5 +1,4 @@
-const os = require('os');
-const path = require('path');
+const { chatDataPath } = require('../ChatDataPaths');
 
 /**
  * Desktop crypto configuration.
@@ -20,7 +19,7 @@ class CryptoConfiguration {
     this.rotationIntervalMs = Number(options.rotationIntervalMs || 2592000000);
     this.identityKeyAlgorithm = options.identityKeyAlgorithm || 'ed25519';
     this.deviceKeyAlgorithm = options.deviceKeyAlgorithm || 'ed25519';
-    this.storagePath = options.storagePath || path.join(os.homedir(), 'Documents', 'OpenX_Data', 'chat-crypto-secrets.json');
+    this.storagePath = options.storagePath || chatDataPath('chat-crypto-secrets.json', options);
     this.storageSecret = options.storageSecret || process.env.OPENX_CHAT_CRYPTO_STORAGE_SECRET || null;
     this.storageBackend = options.storageBackend || null;
     this.validate();

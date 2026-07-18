@@ -1,5 +1,4 @@
-const os = require('os');
-const path = require('path');
+const { chatDataPath } = require('../ChatDataPaths');
 
 /**
  * Desktop reliable synchronization configuration.
@@ -16,7 +15,7 @@ class SynchronizationConfiguration {
     this.maxRetries = Number(options.maxRetries || 5);
     this.retryBaseDelayMs = Number(options.retryBaseDelayMs || 1000);
     this.retryMaxDelayMs = Number(options.retryMaxDelayMs || 60000);
-    this.storagePath = options.storagePath || path.join(os.homedir(), 'Documents', 'OpenX_Data', 'chat-sync-cursors.json');
+    this.storagePath = options.storagePath || chatDataPath('chat-sync-cursors.json', options);
     this.validate();
     Object.freeze(this);
   }

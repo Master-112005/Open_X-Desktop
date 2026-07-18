@@ -1,5 +1,4 @@
-const os = require('os');
-const path = require('path');
+const { chatDataPath } = require('../ChatDataPaths');
 
 /**
  * Desktop contact request configuration.
@@ -14,7 +13,7 @@ class RequestConfiguration {
     this.requestTimeoutMs = Number(options.requestTimeoutMs || 15000);
     this.maxMessagePreviewLength = Number(options.maxMessagePreviewLength || 160);
     this.maxNicknameLength = Number(options.maxNicknameLength || 80);
-    this.nicknameStatePath = options.nicknameStatePath || process.env.OPENX_CHAT_NICKNAME_STATE_PATH || path.join(os.homedir(), 'Documents', 'OpenX_Data', 'chat-request-nicknames.json');
+    this.nicknameStatePath = options.nicknameStatePath || process.env.OPENX_CHAT_NICKNAME_STATE_PATH || chatDataPath('chat-request-nicknames.json', options);
     this.validate();
     Object.freeze(this);
   }

@@ -1,5 +1,4 @@
-const os = require('os');
-const path = require('path');
+const { chatDataPath } = require('../ChatDataPaths');
 
 /**
  * Desktop Phase 8 message configuration.
@@ -20,7 +19,7 @@ class MessageConfiguration {
     this.retryMaxDelayMs = Number(options.retryMaxDelayMs || 60000);
     this.typingTimeoutMs = Number(options.typingTimeoutMs || 8000);
     this.ackTimeoutMs = Number(options.ackTimeoutMs || 30000);
-    this.storagePath = options.storagePath || path.join(os.homedir(), 'Documents', 'OpenX_Data', 'chat-messages.json');
+    this.storagePath = options.storagePath || chatDataPath('chat-messages.json', options);
     this.requireSessionKey = options.requireSessionKey !== false;
     this.allowEphemeralSessionKey = options.allowEphemeralSessionKey === true && process.env.NODE_ENV !== 'production';
     this.supportedTypes = Object.freeze(options.supportedTypes || ['Text', 'Emoji']);

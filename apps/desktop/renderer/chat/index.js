@@ -91,12 +91,35 @@ const peopleChatComposerEl = document.getElementById('people-chat-composer');
 const peopleChatNewBtn = document.getElementById('people-chat-new-btn');
 const peopleChatCloseBtn = document.getElementById('people-chat-close-btn');
 const peopleChatBackBtn = document.getElementById('people-chat-back-btn');
+const peopleChatEditBtn = document.getElementById('people-chat-edit-btn');
+const peopleChatDeleteBtn = document.getElementById('people-chat-delete-btn');
 const peopleChatAddUserEl = document.getElementById('people-chat-add-user');
 const peopleChatUserNameEl = document.getElementById('people-chat-user-name');
 const peopleChatUserIdEl = document.getElementById('people-chat-user-id');
 const peopleChatAddCancelBtn = document.getElementById('people-chat-add-cancel');
 const peopleChatAddStatusEl = document.getElementById('people-chat-add-status');
-const peopleChatFilterButtons = document.querySelectorAll('.people-chat-filter');
+const peopleChatEditUserEl = document.getElementById('people-chat-edit-user');
+const peopleChatEditNameEl = document.getElementById('people-chat-edit-name');
+const peopleChatEditIdEl = document.getElementById('people-chat-edit-id');
+const peopleChatEditCancelBtn = document.getElementById('people-chat-edit-cancel');
+const peopleChatEditStatusEl = document.getElementById('people-chat-edit-status');
+const peopleChatDeleteConfirmEl = document.getElementById('people-chat-delete-confirm');
+const peopleChatDeleteCancelBtn = document.getElementById('people-chat-delete-cancel');
+const peopleChatDeleteConfirmBtn = document.getElementById('people-chat-delete-confirm-btn');
+const peopleChatFilterButtons = document.querySelectorAll('.people-chat-filter[data-chat-filter]');
+const peopleChatSettingsBtn = document.getElementById('people-chat-settings-btn');
+const peopleChatRegistrationOverlayEl = document.getElementById('people-chat-registration-overlay');
+const peopleChatRegistrationEl = document.getElementById('people-chat-registration');
+const peopleChatRegistrationTitleEl = document.getElementById('people-chat-registration-title');
+const peopleChatRegistrationDetailEl = document.getElementById('people-chat-registration-detail');
+const peopleChatRegistrationCloseBtn = document.getElementById('people-chat-registration-close');
+const peopleChatRegistrationStartEl = document.getElementById('people-chat-registration-start');
+const peopleChatRegistrationVerifyEl = document.getElementById('people-chat-registration-verify');
+const peopleChatServerUrlEl = document.getElementById('people-chat-server-url');
+const peopleChatPhoneEl = document.getElementById('people-chat-phone');
+const peopleChatOtpEl = document.getElementById('people-chat-otp');
+const peopleChatPinEl = document.getElementById('people-chat-pin');
+const peopleChatRegistrationStatusEl = document.getElementById('people-chat-registration-status');
 const activityBadge = document.getElementById('activity-badge');
 const scheduleListEl = document.getElementById('schedule-list');
 const scheduleCountEl = document.getElementById('schedule-count');
@@ -159,6 +182,11 @@ let peopleChatLoading = false;
 let peopleChatSearchTimer = null;
 let peopleChatThreadOpen = false;
 let peopleChatAddUserOpen = false;
+let peopleChatEditingUser = false;
+let peopleChatConfirmingDelete = false;
+let peopleChatRegistrationOpen = false;
+let peopleChatRegistrationLoading = false;
+let peopleChatRegistrationState = null;
 let scheduleItems = [];
 let notificationHistory = [];
 let conversationHistory = [];
@@ -977,6 +1005,201 @@ function normalizePeopleChatConversation(entry = {}) {
   };
 }
 
+function normalizePeopleChatRegistration(entry = {}) {
+  const source = entry?.state && typeof entry.state === 'object' ? entry.state : entry;
+  const accountId = String(source?.accountId || source?.account?.accountId || '').trim();
+  const deviceName = String(source?.device?.deviceName || '').trim();
+  const phoneDisplay = String(source?.phoneDisplay || '').trim();
+  const setupStatus = String(source?.setupStatus || '').trim() || (source?.registered ? 'registered' : (source?.pending ? 'otp-sent' : 'not-registered'));
+  return {
+    success: source?.success !== false,
+    registered: source?.registered === true || setupStatus === 'registered',
+    pending: source?.pending === true || setupStatus === 'otp-sent',
+    setupStatus,
+    apiBaseUrl: String(source?.apiBaseUrl || 'http://localhost:8090').trim(),
+    accountId,
+    account: source?.account && typeof source.account === 'object' ? source.account : null,
+    device: source?.device && typeof source.device === 'object' ? source.device : null,
+    deviceName,
+    phoneDisplay,
+    pinEnabled: source?.pinEnabled === true,
+    message: String(source?.message || entry?.message || '').trim(),
+    errorMessage: String(source?.error?.message || entry?.error?.message || '').trim()
+  };
+}
+
+function setPeopleChatRegistrationStatus(message, tone = 'muted') {
+  if (!peopleChatRegistrationStatusEl) return;
+  peopleChatRegistrationStatusEl.textContent = String(message || '');
+  peopleChatRegistrationStatusEl.dataset.tone = tone;
+}
+
+function renderPeopleChatRegistration() {
+  if (!peopleChatRegistrationEl) return;
+  const state = normalizePeopleChatRegistration(peopleChatRegistrationState || {});
+  if (peopleChatRegistrationOverlayEl) peopleChatRegistrationOverlayEl.hidden = !peopleChatRegistrationOpen;
+  peopleChatRegistrationEl.classList.toggle('registered', state.registered);
+  peopleChatRegistrationEl.classList.toggle('pending', state.pending);
+  peopleChatRegistrationEl.classList.toggle('open', peopleChatRegistrationOpen);
+  peopleChatRegistrationEl.classList.toggle('loading', peopleChatRegistrationLoading);
+  peopleChatSettingsBtn?.classList.toggle('active', peopleChatRegistrationOpen);
+  peopleChatSettingsBtn?.setAttribute('aria-expanded', String(peopleChatRegistrationOpen));
+  if (peopleChatSettingsBtn) peopleChatSettingsBtn.disabled = peopleChatRegistrationLoading;
+  if (peopleChatRegistrationTitleEl) {
+    peopleChatRegistrationTitleEl.textContent = state.registered
+      ? 'Chat account ready'
+      : (state.pending ? 'Verify phone' : 'Chat setup');
+  }
+  if (peopleChatRegistrationDetailEl) {
+    if (state.registered) {
+      const accountLabel = state.accountId ? `${state.accountId.slice(0, 10)}...${state.accountId.slice(-4)}` : 'registered account';
+      peopleChatRegistrationDetailEl.textContent = state.deviceName
+        ? `${accountLabel} on ${state.deviceName}`
+        : `${accountLabel} is ready`;
+    } else if (state.pending) {
+      peopleChatRegistrationDetailEl.textContent = state.phoneDisplay
+        ? `Code sent to ${state.phoneDisplay}`
+        : 'Enter the verification code from your phone.';
+    } else {
+      peopleChatRegistrationDetailEl.textContent = 'Register to message real OpenX users.';
+    }
+  }
+  if (peopleChatRegistrationStartEl) peopleChatRegistrationStartEl.hidden = !peopleChatRegistrationOpen || state.pending || state.registered;
+  if (peopleChatRegistrationVerifyEl) peopleChatRegistrationVerifyEl.hidden = !peopleChatRegistrationOpen || !state.pending || state.registered;
+  if (peopleChatServerUrlEl && !peopleChatServerUrlEl.value) peopleChatServerUrlEl.value = state.apiBaseUrl || 'http://localhost:8090';
+  if (peopleChatRegistrationLoading) {
+    setPeopleChatRegistrationStatus('Working...', 'muted');
+  } else if (state.errorMessage) {
+    setPeopleChatRegistrationStatus(state.errorMessage, 'error');
+  } else if (state.message) {
+    setPeopleChatRegistrationStatus(state.message, 'success');
+  } else if (state.registered) {
+    setPeopleChatRegistrationStatus(state.pinEnabled ? 'PIN enabled for this account.' : 'Device registered. PIN can be added during setup.', 'success');
+  } else {
+    setPeopleChatRegistrationStatus('', 'muted');
+  }
+}
+
+function focusPeopleChatRegistration() {
+  requestAnimationFrame(() => {
+    const state = normalizePeopleChatRegistration(peopleChatRegistrationState || {});
+    if (state.pending) peopleChatOtpEl?.focus();
+    else if (!state.registered) peopleChatPhoneEl?.focus();
+    else peopleChatRegistrationCloseBtn?.focus();
+  });
+}
+
+async function loadPeopleChatRegistration(options = {}) {
+  if (!window.openx?.getDesktopChatRegistration) {
+    peopleChatRegistrationState = normalizePeopleChatRegistration({});
+    renderPeopleChatRegistration();
+    return;
+  }
+  if (peopleChatRegistrationLoading && options.force !== true) return;
+  try {
+    const state = await window.openx.getDesktopChatRegistration();
+    peopleChatRegistrationState = normalizePeopleChatRegistration(state);
+  } catch (error) {
+    peopleChatRegistrationState = normalizePeopleChatRegistration({
+      success: false,
+      error: { message: error?.message || 'Chat setup state is unavailable.' }
+    });
+  } finally {
+    renderPeopleChatRegistration();
+  }
+}
+
+function openPeopleChatRegistration() {
+  peopleChatRegistrationOpen = true;
+  renderPeopleChatRegistration();
+  focusPeopleChatRegistration();
+}
+
+function closePeopleChatRegistration() {
+  peopleChatRegistrationOpen = false;
+  renderPeopleChatRegistration();
+  requestAnimationFrame(() => peopleChatSettingsBtn?.focus());
+}
+
+function togglePeopleChatRegistration() {
+  if (peopleChatRegistrationOpen) closePeopleChatRegistration();
+  else openPeopleChatRegistration();
+}
+
+async function startPeopleChatRegistration(event) {
+  event?.preventDefault?.();
+  const phoneNumber = String(peopleChatPhoneEl?.value || '').trim();
+  const apiBaseUrl = String(peopleChatServerUrlEl?.value || '').trim();
+  if (!phoneNumber) {
+    setPeopleChatRegistrationStatus('Phone number is required.', 'error');
+    peopleChatPhoneEl?.focus();
+    return;
+  }
+  peopleChatRegistrationLoading = true;
+  renderPeopleChatRegistration();
+  try {
+    const result = await window.openx?.startDesktopChatRegistration?.({ phoneNumber, apiBaseUrl });
+    peopleChatRegistrationState = normalizePeopleChatRegistration(result);
+    peopleChatRegistrationOpen = true;
+    if (result?.success === false) {
+      setPeopleChatRegistrationStatus(result?.error?.message || 'Registration could not start.', 'error');
+    } else if (result?.registeredRemotely) {
+      setPeopleChatRegistrationStatus(result.message || 'An account already exists for this phone number.', 'error');
+    } else {
+      setPeopleChatRegistrationStatus(result?.message || 'Verification code sent.', 'success');
+    }
+  } catch (error) {
+    peopleChatRegistrationState = normalizePeopleChatRegistration({
+      success: false,
+      error: { message: error?.message || 'Registration could not start.' }
+    });
+  } finally {
+    peopleChatRegistrationLoading = false;
+    renderPeopleChatRegistration();
+    requestAnimationFrame(() => peopleChatOtpEl?.focus());
+  }
+}
+
+async function verifyPeopleChatRegistration(event) {
+  event?.preventDefault?.();
+  const otp = String(peopleChatOtpEl?.value || '').trim();
+  const pin = String(peopleChatPinEl?.value || '').trim();
+  const apiBaseUrl = String(peopleChatServerUrlEl?.value || '').trim();
+  if (!otp) {
+    setPeopleChatRegistrationStatus('Verification code is required.', 'error');
+    peopleChatOtpEl?.focus();
+    return;
+  }
+  peopleChatRegistrationLoading = true;
+  renderPeopleChatRegistration();
+  try {
+    const result = await window.openx?.verifyDesktopChatRegistration?.({ otp, pin, apiBaseUrl });
+    peopleChatRegistrationState = normalizePeopleChatRegistration(result);
+    if (result?.success === false) {
+      setPeopleChatRegistrationStatus(result?.error?.message || 'Verification failed.', 'error');
+    } else {
+      peopleChatRegistrationOpen = false;
+      if (peopleChatOtpEl) peopleChatOtpEl.value = '';
+      if (peopleChatPinEl) peopleChatPinEl.value = '';
+      setPeopleChatRegistrationStatus(result?.message || 'Chat account ready.', 'success');
+      showToast('Chat account ready', 'This desktop is registered for OpenX Chat.', 'success');
+    }
+  } catch (error) {
+    peopleChatRegistrationState = normalizePeopleChatRegistration({
+      success: false,
+      error: { message: error?.message || 'Verification failed.' }
+    });
+  } finally {
+    peopleChatRegistrationLoading = false;
+    renderPeopleChatRegistration();
+  }
+}
+
+function handlePeopleChatRegistrationChanged(payload = {}) {
+  peopleChatRegistrationState = normalizePeopleChatRegistration(payload);
+  renderPeopleChatRegistration();
+}
+
 function replacePeopleChatConversation(conversation) {
   const normalized = normalizePeopleChatConversation(conversation);
   if (!normalized.conversationId) return null;
@@ -993,6 +1216,21 @@ function replacePeopleChatConversation(conversation) {
   return normalized;
 }
 
+function getActivePeopleChatConversation() {
+  return peopleChatConversations.find(item => item.conversationId === activePeopleChatId) || null;
+}
+
+function removePeopleChatConversation(conversationId) {
+  const id = String(conversationId || '').trim();
+  peopleChatConversations = peopleChatConversations.filter(item => item.conversationId !== id);
+  if (activePeopleChatId === id) {
+    activePeopleChatId = null;
+    peopleChatThreadOpen = false;
+    peopleChatEditingUser = false;
+    peopleChatConfirmingDelete = false;
+  }
+}
+
 function visiblePeopleChatConversations() {
   const query = String(peopleChatSearchEl?.value || '').trim().toLowerCase();
   return peopleChatConversations.filter(conversation => {
@@ -1002,6 +1240,7 @@ function visiblePeopleChatConversations() {
     return [
       conversation.title,
       conversation.status,
+      conversation.peerHandle,
       conversation.preview
     ].join(' ').toLowerCase().includes(query);
   });
@@ -1066,11 +1305,13 @@ function renderPeopleChatList() {
 
 function renderPeopleChatThread() {
   if (!peopleChatThreadEl) return;
-  const active = peopleChatConversations.find(item => item.conversationId === activePeopleChatId) || null;
+  const active = getActivePeopleChatConversation();
   peopleChatThreadEl.replaceChildren();
   if (peopleChatTitleEl) peopleChatTitleEl.textContent = active?.title || 'OpenX Chat';
   if (peopleChatStatusEl) peopleChatStatusEl.textContent = active?.status || 'Local messages';
   if (peopleChatAvatarEl) peopleChatAvatarEl.textContent = peopleChatInitials(active?.title || 'OpenX Chat');
+  if (peopleChatEditBtn) peopleChatEditBtn.disabled = !active;
+  if (peopleChatDeleteBtn) peopleChatDeleteBtn.disabled = !active;
   if (!active) {
     const empty = document.createElement('div');
     empty.className = 'people-chat-thread-empty';
@@ -1105,9 +1346,17 @@ function renderPeopleChat() {
   if (peopleChatThreadOpen && !activePeopleChatId && peopleChatConversations.length > 0) {
     activePeopleChatId = peopleChatConversations[0].conversationId;
   }
+  const active = getActivePeopleChatConversation();
+  if (!active) {
+    peopleChatEditingUser = false;
+    peopleChatConfirmingDelete = false;
+  }
   peopleChatShellEl?.classList.toggle('thread-open', peopleChatThreadOpen);
   peopleChatShellEl?.classList.toggle('list-open', !peopleChatThreadOpen);
   if (peopleChatAddUserEl) peopleChatAddUserEl.hidden = !peopleChatAddUserOpen || peopleChatThreadOpen;
+  if (peopleChatEditUserEl) peopleChatEditUserEl.hidden = !peopleChatEditingUser || !peopleChatThreadOpen || !active;
+  if (peopleChatDeleteConfirmEl) peopleChatDeleteConfirmEl.hidden = !peopleChatConfirmingDelete || !peopleChatThreadOpen || !active;
+  renderPeopleChatRegistration();
   renderPeopleChatList();
   renderPeopleChatThread();
 }
@@ -1116,6 +1365,8 @@ function returnPeopleChatToList() {
   peopleChatThreadOpen = false;
   activePeopleChatId = null;
   peopleChatAddUserOpen = false;
+  peopleChatEditingUser = false;
+  peopleChatConfirmingDelete = false;
   renderPeopleChat();
   requestAnimationFrame(() => peopleChatSearchEl?.focus());
 }
@@ -1124,6 +1375,8 @@ function closePeopleChatApp() {
   peopleChatThreadOpen = false;
   activePeopleChatId = null;
   peopleChatAddUserOpen = false;
+  peopleChatEditingUser = false;
+  peopleChatConfirmingDelete = false;
   renderPeopleChat();
   setWorkspaceView('apps');
 }
@@ -1132,6 +1385,8 @@ function openPeopleChatAddUser() {
   peopleChatAddUserOpen = true;
   peopleChatThreadOpen = false;
   activePeopleChatId = null;
+  peopleChatEditingUser = false;
+  peopleChatConfirmingDelete = false;
   if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = '';
   renderPeopleChat();
   requestAnimationFrame(() => peopleChatUserNameEl?.focus());
@@ -1144,6 +1399,104 @@ function closePeopleChatAddUser() {
   if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = '';
   renderPeopleChat();
   requestAnimationFrame(() => peopleChatSearchEl?.focus());
+}
+
+function openPeopleChatEditUser() {
+  const active = getActivePeopleChatConversation();
+  if (!active) return;
+  peopleChatEditingUser = true;
+  peopleChatConfirmingDelete = false;
+  if (peopleChatEditNameEl) peopleChatEditNameEl.value = active.title || '';
+  if (peopleChatEditIdEl) peopleChatEditIdEl.value = active.peerHandle || active.status || '';
+  if (peopleChatEditStatusEl) peopleChatEditStatusEl.textContent = '';
+  renderPeopleChat();
+  requestAnimationFrame(() => peopleChatEditNameEl?.focus());
+}
+
+function closePeopleChatEditUser() {
+  peopleChatEditingUser = false;
+  if (peopleChatEditStatusEl) peopleChatEditStatusEl.textContent = '';
+  renderPeopleChat();
+  requestAnimationFrame(() => peopleChatInputEl?.focus());
+}
+
+async function savePeopleChatUser(event) {
+  event?.preventDefault?.();
+  const active = getActivePeopleChatConversation();
+  if (!active) return;
+  const title = String(peopleChatEditNameEl?.value || '').trim();
+  const peerHandle = String(peopleChatEditIdEl?.value || '').trim();
+  if (!title || !peerHandle) {
+    if (peopleChatEditStatusEl) peopleChatEditStatusEl.textContent = 'Name and ID are required.';
+    return;
+  }
+  if (peopleChatEditStatusEl) peopleChatEditStatusEl.textContent = 'Saving...';
+  if (window.openx?.updateDesktopChatConversation && /^conv_[a-f0-9]{64}$/i.test(String(active.conversationId))) {
+    try {
+      const result = await window.openx.updateDesktopChatConversation({
+        conversationId: active.conversationId,
+        title,
+        peerName: title,
+        peerHandle,
+        peerType: active.peerType || 'openx'
+      });
+      if (result?.conversation) {
+        replacePeopleChatConversation(result.conversation);
+        peopleChatEditingUser = false;
+        if (peopleChatEditStatusEl) peopleChatEditStatusEl.textContent = '';
+        renderPeopleChat();
+        requestAnimationFrame(() => peopleChatInputEl?.focus());
+        return;
+      }
+    } catch (error) {
+      showToast('Chat could not be updated', error?.message || 'Local chat data is unavailable.', 'error');
+    }
+  }
+
+  active.title = title;
+  active.peerHandle = peerHandle;
+  active.status = peerHandle;
+  active.lastMessageTimestamp = active.lastMessageTimestamp || new Date().toISOString();
+  peopleChatEditingUser = false;
+  if (peopleChatEditStatusEl) peopleChatEditStatusEl.textContent = '';
+  renderPeopleChat();
+  requestAnimationFrame(() => peopleChatInputEl?.focus());
+}
+
+function openPeopleChatDeleteConfirm() {
+  const active = getActivePeopleChatConversation();
+  if (!active) return;
+  peopleChatConfirmingDelete = true;
+  peopleChatEditingUser = false;
+  renderPeopleChat();
+  requestAnimationFrame(() => peopleChatDeleteConfirmBtn?.focus());
+}
+
+function closePeopleChatDeleteConfirm() {
+  peopleChatConfirmingDelete = false;
+  renderPeopleChat();
+  requestAnimationFrame(() => peopleChatInputEl?.focus());
+}
+
+async function deletePeopleChatConversation() {
+  const active = getActivePeopleChatConversation();
+  if (!active) return;
+  if (window.openx?.deleteDesktopChatConversation && /^conv_[a-f0-9]{64}$/i.test(String(active.conversationId))) {
+    try {
+      const result = await window.openx.deleteDesktopChatConversation(active.conversationId);
+      removePeopleChatConversation(result?.conversationId || active.conversationId);
+      peopleChatLoaded = false;
+      renderPeopleChat();
+      loadPeopleChatConversations({ force: true });
+      return;
+    } catch (error) {
+      showToast('Chat could not be deleted', error?.message || 'Local chat data is unavailable.', 'error');
+      return;
+    }
+  }
+
+  removePeopleChatConversation(active.conversationId);
+  renderPeopleChat();
 }
 
 async function loadPeopleChatConversations(options = {}) {
@@ -1167,6 +1520,8 @@ async function loadPeopleChatConversations(options = {}) {
     }
     if (peopleChatThreadOpen && (!activePeopleChatId || !peopleChatConversations.some(item => item.conversationId === activePeopleChatId))) {
       activePeopleChatId = peopleChatConversations[0]?.conversationId || null;
+      peopleChatEditingUser = false;
+      peopleChatConfirmingDelete = false;
     }
     peopleChatLoaded = true;
   } catch (error) {
@@ -1180,6 +1535,9 @@ async function loadPeopleChatConversations(options = {}) {
 async function selectPeopleChatConversation(conversationId) {
   activePeopleChatId = conversationId;
   peopleChatThreadOpen = true;
+  peopleChatAddUserOpen = false;
+  peopleChatEditingUser = false;
+  peopleChatConfirmingDelete = false;
   renderPeopleChat();
   if (!window.openx?.openDesktopChatConversation || !/^conv_[a-f0-9]{64}$/i.test(String(conversationId || ''))) return;
   try {
@@ -1214,6 +1572,8 @@ async function createPeopleChatConversation(event) {
         activePeopleChatId = conversation?.conversationId || activePeopleChatId;
         peopleChatThreadOpen = true;
         peopleChatAddUserOpen = false;
+        peopleChatEditingUser = false;
+        peopleChatConfirmingDelete = false;
         peopleChatLoaded = true;
         if (peopleChatUserNameEl) peopleChatUserNameEl.value = '';
         if (peopleChatUserIdEl) peopleChatUserIdEl.value = '';
@@ -1239,6 +1599,8 @@ async function createPeopleChatConversation(event) {
   activePeopleChatId = conversation?.conversationId || activePeopleChatId;
   peopleChatThreadOpen = true;
   peopleChatAddUserOpen = false;
+  peopleChatEditingUser = false;
+  peopleChatConfirmingDelete = false;
   if (peopleChatUserNameEl) peopleChatUserNameEl.value = '';
   if (peopleChatUserIdEl) peopleChatUserIdEl.value = '';
   if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = '';
@@ -1284,6 +1646,36 @@ async function sendPeopleChatMessage(event) {
   renderPeopleChat();
 }
 
+function handleDesktopChatChanged(payload = {}) {
+  const reason = String(payload.reason || '').toLowerCase();
+  if (reason === 'deleted') {
+    removePeopleChatConversation(payload.conversationId);
+    renderPeopleChat();
+    if (activeWorkspaceView === 'people-chat') {
+      peopleChatLoaded = false;
+      loadPeopleChatConversations({ force: true });
+    }
+    return;
+  }
+
+  if (payload.conversation) {
+    replacePeopleChatConversation(payload.conversation);
+    peopleChatLoaded = true;
+    if (activeWorkspaceView === 'people-chat') renderPeopleChat();
+    return;
+  }
+
+  peopleChatLoaded = false;
+  if (activeWorkspaceView === 'people-chat') loadPeopleChatConversations({ force: true });
+}
+
+function openPeopleChatFromDesktopEvent() {
+  setWorkspaceView('people-chat');
+  loadPeopleChatRegistration({ force: true });
+  peopleChatLoaded = false;
+  loadPeopleChatConversations({ force: true });
+}
+
 function setWorkspaceView(viewName) {
   activeWorkspaceView = ['activity', 'apps', 'people-chat'].includes(viewName) ? viewName : 'chat';
   const showingActivity = activeWorkspaceView === 'activity';
@@ -1310,6 +1702,9 @@ function setWorkspaceView(viewName) {
     peopleChatThreadOpen = false;
     activePeopleChatId = null;
     peopleChatAddUserOpen = false;
+    peopleChatEditingUser = false;
+    peopleChatConfirmingDelete = false;
+    loadPeopleChatRegistration();
     loadPeopleChatConversations();
     requestAnimationFrame(() => peopleChatSearchEl?.focus());
   } else if (showingChat) {
@@ -3348,9 +3743,22 @@ settingsAppBtn?.addEventListener('click', () => {
 peopleChatNewBtn?.addEventListener('click', openPeopleChatAddUser);
 peopleChatCloseBtn?.addEventListener('click', closePeopleChatApp);
 peopleChatBackBtn?.addEventListener('click', returnPeopleChatToList);
+peopleChatEditBtn?.addEventListener('click', openPeopleChatEditUser);
+peopleChatDeleteBtn?.addEventListener('click', openPeopleChatDeleteConfirm);
 peopleChatAddUserEl?.addEventListener('submit', createPeopleChatConversation);
 peopleChatAddCancelBtn?.addEventListener('click', closePeopleChatAddUser);
+peopleChatEditUserEl?.addEventListener('submit', savePeopleChatUser);
+peopleChatEditCancelBtn?.addEventListener('click', closePeopleChatEditUser);
+peopleChatDeleteCancelBtn?.addEventListener('click', closePeopleChatDeleteConfirm);
+peopleChatDeleteConfirmBtn?.addEventListener('click', deletePeopleChatConversation);
 peopleChatComposerEl?.addEventListener('submit', sendPeopleChatMessage);
+peopleChatSettingsBtn?.addEventListener('click', togglePeopleChatRegistration);
+peopleChatRegistrationCloseBtn?.addEventListener('click', closePeopleChatRegistration);
+peopleChatRegistrationOverlayEl?.addEventListener('click', (event) => {
+  if (event.target === peopleChatRegistrationOverlayEl) closePeopleChatRegistration();
+});
+peopleChatRegistrationStartEl?.addEventListener('submit', startPeopleChatRegistration);
+peopleChatRegistrationVerifyEl?.addEventListener('submit', verifyPeopleChatRegistration);
 peopleChatSearchEl?.addEventListener('input', () => {
   if (peopleChatSearchTimer) clearTimeout(peopleChatSearchTimer);
   peopleChatSearchTimer = window.setTimeout(() => {
@@ -3475,6 +3883,10 @@ document.addEventListener('keydown', (event) => {
   }
   if (event.key === 'Escape' && phoneDeviceRemoveDialog && !phoneDeviceRemoveDialog.hidden) {
     closePhoneDeviceRemoveDialog();
+    return;
+  }
+  if (event.key === 'Escape' && peopleChatRegistrationOpen) {
+    closePeopleChatRegistration();
   }
 });
 
@@ -3507,6 +3919,9 @@ if (window.openx) {
     replaceScheduleItemsFromRuntime(payload?.snapshot?.entries || payload?.entries || []);
   });
   window.openx.onOpenSettings?.(openSettingsPanel);
+  window.openx.onOpenDesktopChat?.(openPeopleChatFromDesktopEvent);
+  window.openx.onDesktopChatChanged?.(handleDesktopChatChanged);
+  window.openx.onDesktopChatRegistrationChanged?.(handlePeopleChatRegistrationChanged);
 }
 
 async function initialize() {

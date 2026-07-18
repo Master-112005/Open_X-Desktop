@@ -75,6 +75,9 @@ class AutomationEngine {
       'brightness.set': (entities) => this.brightness.setBrightness(Number.isFinite(Number(entities.value)) ? entities.value : 50),
       'brightness.get': () => this.brightness.getState(),
       'app.open': async (entities) => {
+        if (this._isOpenXChatTarget(entities.appName)) {
+          return this._openPeopleChat();
+        }
         const appResult = await this.apps.open(entities.appName, entities);
         if (appResult?.success) {
           return appResult;
@@ -1280,6 +1283,29 @@ class AutomationEngine {
         action: 'openGallery',
         app: 'OpenX Gallery',
         view: result.view || entities.view || 'timeline'
+      },
+      error: result.success === false ? result.error : undefined
+    };
+  }
+
+  _isOpenXChatTarget(value) {
+    const normalized = Normalizer.normalizeText(value);
+    return normalized === 'chat' || normalized === 'openx chat' || normalized === 'open x chat';
+  }
+
+  _openPeopleChat() {
+    const opener = this.config?.desktopActions?.openPeopleChat;
+    if (typeof opener !== 'function') {
+      return { success: false, error: 'OpenX Chat is not available in this runtime' };
+    }
+    const result = opener() || {};
+    return {
+      success: result.success !== false,
+      data: {
+        action: 'openPeopleChat',
+        app: 'OpenX Chat',
+        appId: 'openx-chat',
+        launchMethod: 'openx-desktop'
       },
       error: result.success === false ? result.error : undefined
     };

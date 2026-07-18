@@ -1,5 +1,4 @@
-const os = require('os');
-const path = require('path');
+const { chatDataPath } = require('../ChatDataPaths');
 
 /**
  * Desktop Phase 13 local conversation configuration.
@@ -10,7 +9,7 @@ class ConversationConfiguration {
    * @param {object} options Overrides.
    */
   constructor(options = {}) {
-    this.storagePath = options.storagePath || path.join(os.homedir(), 'Documents', 'OpenX_Data', 'chat-conversations.json');
+    this.storagePath = options.storagePath || chatDataPath('chat-conversations.json', options);
     this.maxConversations = this.number(options.maxConversations, 10000);
     this.defaultPageSize = this.number(options.defaultPageSize, 30);
     this.maxPageSize = this.number(options.maxPageSize, 100);
