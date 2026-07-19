@@ -2366,6 +2366,9 @@ Before this pass, the desktop Chat app could show a WhatsApp-style chat layout a
 
 Production OTP behavior:
 
+- the default production Chat Server URL is `https://openx-chat-server.onrender.com`;
+- live Chat connections use `wss://openx-chat-server.onrender.com/ws` by default;
+- local development can still override the server with `OPENX_CHAT_API_URL` or a manually entered Chat settings URL;
 - the desktop sends only server URL and email address when starting setup;
 - the Chat Server generates, hashes, stores, expires, sends, and verifies the OTP;
 - the Chat Server sends the OTP through the configured Gmail SMTP provider;
@@ -2713,7 +2716,7 @@ CHAT_READY
 
 9. Chat Server production configuration
 
-   Development OTP exposure has been removed. Local development can still use `http://localhost:8090`, but production deployments must use HTTPS, configured Gmail SMTP credentials, hardened secrets, persistent storage policy, and deployment-level rate limiting/observability.
+   Development OTP exposure has been removed. Desktop and mobile Chat clients now default to `https://openx-chat-server.onrender.com` for REST calls and `wss://openx-chat-server.onrender.com/ws` for live connections. Local development can still use `http://localhost:8090` through explicit overrides, but production deployments require configured Gmail SMTP credentials, hardened secrets, persistent storage policy, and deployment-level rate limiting/observability.
 
 ## Recommended Next Actions
 

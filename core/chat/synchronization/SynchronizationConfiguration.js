@@ -9,7 +9,7 @@ class SynchronizationConfiguration {
    * @param {object} options Overrides.
    */
   constructor(options = {}) {
-    this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'http://localhost:8090').replace(/\/+$/, '');
+    this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'https://openx-chat-server.onrender.com').replace(/\/+$/, '');
     this.requestTimeoutMs = Number(options.requestTimeoutMs || 15000);
     this.maxFetchLimit = Number(options.maxFetchLimit || 100);
     this.maxRetries = Number(options.maxRetries || 5);

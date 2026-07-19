@@ -10,7 +10,7 @@ class DeviceConfiguration {
    * @param {object} options Overrides.
    */
   constructor(options = {}) {
-    this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'http://localhost:8090').replace(/\/+$/, '');
+    this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'https://openx-chat-server.onrender.com').replace(/\/+$/, '');
     this.accountId = options.accountId || process.env.OPENX_CHAT_ACCOUNT_ID || null;
     this.autoRegister = options.autoRegister !== false;
     this.deviceName = options.deviceName || `${os.hostname()} Desktop`;

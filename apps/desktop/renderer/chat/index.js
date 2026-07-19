@@ -10,6 +10,7 @@ const voiceStartBtn = document.getElementById('voice-start-btn');
 const assistantMuteBtn = document.getElementById('assistant-mute-btn');
 const settingsOverlay = document.getElementById('settings-overlay');
 const settingsCloseBtn = document.getElementById('settings-close-btn');
+const settingsNavEl = document.getElementById('settings-nav');
 const settingsNavButtons = document.querySelectorAll('.settings-nav-chip');
 const settingsSections = document.querySelectorAll('[data-settings-section]');
 const settingsFooterSection = document.getElementById('settings-footer-section');
@@ -68,6 +69,7 @@ const securityUnlockMessage = document.getElementById('security-unlock-message')
 const securityUnlockPasswordEl = document.getElementById('security-unlock-password');
 const securityUnlockCancel = document.getElementById('security-unlock-cancel');
 const securityUnlockConfirm = document.getElementById('security-unlock-confirm');
+const viewSwitcherEl = document.getElementById('view-switcher');
 const chatViewBtn = document.getElementById('chat-view-btn');
 const activityViewBtn = document.getElementById('activity-view-btn');
 const appsViewBtn = document.getElementById('apps-view-btn');
@@ -1042,7 +1044,7 @@ function normalizePeopleChatRegistration(entry = {}) {
     deviceApprovalRequired: source?.deviceApprovalRequired === true || blockingReason === 'device_approval_required',
     identityReady: source?.identityReady === true || source?.crypto?.identityReady === true,
     sessionReady: source?.sessionReady === true || source?.crypto?.sessionReady === true,
-    apiBaseUrl: String(source?.apiBaseUrl || 'http://127.0.0.1:8090').trim(),
+    apiBaseUrl: String(source?.apiBaseUrl || 'https://openx-chat-server.onrender.com').trim(),
     emailDisplay,
     emailDomain,
     accountId,
@@ -1129,7 +1131,7 @@ function renderPeopleChatRegistration() {
   }
   if (peopleChatRegistrationStartEl) peopleChatRegistrationStartEl.hidden = !peopleChatRegistrationOpen || state.pending || state.registered;
   if (peopleChatRegistrationVerifyEl) peopleChatRegistrationVerifyEl.hidden = !peopleChatRegistrationOpen || !state.pending || state.registered;
-  if (peopleChatServerUrlEl && !peopleChatServerUrlEl.value) peopleChatServerUrlEl.value = state.apiBaseUrl || 'http://127.0.0.1:8090';
+  if (peopleChatServerUrlEl && !peopleChatServerUrlEl.value) peopleChatServerUrlEl.value = state.apiBaseUrl || 'https://openx-chat-server.onrender.com';
   if (peopleChatRegistrationLoading) {
     setPeopleChatRegistrationStatus('Working...', 'muted');
   } else if (state.errorMessage) {
@@ -1925,6 +1927,9 @@ function setWorkspaceView(viewName) {
   const showingApps = activeWorkspaceView === 'apps';
   const showingPeopleChat = activeWorkspaceView === 'people-chat';
   const showingChat = activeWorkspaceView === 'chat';
+  const activeSwitcherView = showingActivity ? 'activity' : showingApps ? 'apps' : 'chat';
+  if (viewSwitcherEl) viewSwitcherEl.dataset.activeView = activeSwitcherView;
+  document.body?.classList.toggle('people-chat-fullscreen', showingPeopleChat);
   conversationView.classList.toggle('active', showingChat);
   conversationView.hidden = !showingChat;
   peopleChatView.classList.toggle('active', showingPeopleChat);
@@ -2778,6 +2783,7 @@ function updatePermissionScale() {
 function setActiveSystemBlock(blockName) {
   const allowedBlocks = new Set(['identity', 'theme', 'security', 'storage']);
   activeSystemBlock = allowedBlocks.has(blockName) ? blockName : 'identity';
+  if (systemOptionsEl) systemOptionsEl.dataset.activeBlock = activeSystemBlock;
 
   systemOptionButtons.forEach(button => {
     const isActive = button.dataset.systemBlockTarget === activeSystemBlock;
@@ -2814,6 +2820,7 @@ function setActivePhonePanel(panelName) {
 
 function setActiveSettingsSection(sectionName) {
   activeSettingsSection = sectionName || null;
+  if (settingsNavEl) settingsNavEl.dataset.activeSection = activeSettingsSection || 'system';
 
   settingsNavButtons.forEach(button => {
     const isActive = button.dataset.sectionTarget === activeSettingsSection;

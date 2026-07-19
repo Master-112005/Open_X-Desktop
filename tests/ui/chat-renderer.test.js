@@ -16,8 +16,16 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(html, /id="alarm-overlay"/);
     assert.doesNotMatch(script, /alarmOverlay|alarm-dismiss-btn|alarm-snooze-btn/);
     assert.match(html, /id="header-about-btn"[\s\S]*id="header-title"/);
+    assert.match(headerActions, /class="view-switcher" id="view-switcher"[\s\S]*data-active-view="chat"/);
     assert.match(headerActions, /id="chat-view-btn"[\s\S]*id="activity-view-btn"[\s\S]*id="apps-view-btn"[\s\S]*id="close-btn"/);
     assert.doesNotMatch(headerActions, /assistant-mute-btn|voice-start-btn/);
+    assert.match(script, /const viewSwitcherEl = document\.getElementById\('view-switcher'\)/);
+    assert.match(script, /viewSwitcherEl\.dataset\.activeView = activeSwitcherView/);
+    assert.match(css, /\.view-switcher::before/);
+    assert.match(css, /\.view-switcher\s*\{[\s\S]*border-radius:\s*999px;/);
+    assert.match(css, /\.view-switcher::before\s*\{[\s\S]*box-sizing:\s*border-box;[\s\S]*left:\s*3px;[\s\S]*width:\s*calc\(\(100% - 6px\) \/ 3\)/);
+    assert.match(css, /\.view-switcher\[data-active-view="activity"\]::before\s*\{[\s\S]*left:\s*calc\(33\.333333% \+ 1px\)/);
+    assert.match(css, /\.view-switcher\[data-active-view="apps"\]::before\s*\{[\s\S]*left:\s*calc\(66\.666667% - 1px\)/);
     assert.match(html, /class="composer-field"[\s\S]*id="voice-start-btn"[\s\S]*voice-start-symbol[\s\S]*&#10022;[\s\S]*id="input-box"[\s\S]*id="send-btn"/);
     assert.match(html, /class="composer-field"[\s\S]*id="send-btn"[\s\S]*<\/div>[\s\S]*class="composer-mute-btn voice-btn" id="assistant-mute-btn"/);
     assert.doesNotMatch(html, /voice-start-icon|&#127908;/);
@@ -54,11 +62,11 @@ describe('Chat Renderer UI', function() {
     assert.match(html, /id="people-chat-app-btn"[\s\S]*<strong>Chat<\/strong>[\s\S]*Messages with people/);
     assert.match(html, /id="people-chat-view"[\s\S]*id="people-chat-list"[\s\S]*id="people-chat-thread"[\s\S]*id="people-chat-composer"/);
     assert.match(html, /class="people-chat-shell list-open"/);
-    assert.match(html, /id="people-chat-close-btn"/);
+    assert.match(html, /class="people-chat-app-header"[\s\S]*OpenX Chat[\s\S]*id="people-chat-close-btn"/);
     assert.match(html, /id="people-chat-back-btn"[\s\S]*&lt;/);
     assert.doesNotMatch(chatSidebarBeforeFilters, /Chat setup|id="people-chat-registration"/);
     assert.doesNotMatch(html, />Chat setup</);
-    assert.match(html, /class="people-chat-filters"[\s\S]*All[\s\S]*Unread[\s\S]*Pinned[\s\S]*id="people-chat-settings-btn"[\s\S]*Settings/);
+    assert.match(html, /class="people-chat-filters"[\s\S]*All[\s\S]*Unread[\s\S]*Pinned[\s\S]*id="people-chat-new-btn"[\s\S]*id="people-chat-settings-btn"[\s\S]*Settings/);
     assert.match(html, /id="people-chat-registration-overlay"[\s\S]*id="people-chat-registration"[\s\S]*id="people-chat-registration-start"[\s\S]*id="people-chat-registration-verify"/);
     assert.match(html, /id="people-chat-server-url"[\s\S]*id="people-chat-email"[\s\S]*id="people-chat-otp"[\s\S]*id="people-chat-pin"/);
     assert.doesNotMatch(html, /people-chat-development-code/);
@@ -83,6 +91,7 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /Verification email sent\. Enter the email code and click Verify\./);
     assert.doesNotMatch(script, /countryCode/);
     assert.match(script, /setWorkspaceView\('people-chat'\)/);
+    assert.match(script, /classList\.toggle\('people-chat-fullscreen', showingPeopleChat\)/);
     assert.match(script, /function returnPeopleChatToList\(/);
     assert.match(script, /function closePeopleChatApp\(/);
     assert.match(script, /function renderPeopleChatRegistration\(/);
@@ -124,6 +133,9 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(script, /runHeaderApp\(peopleChatAppBtn/);
     assert.match(css, /\.people-chat-shell\s*\{/);
     assert.match(css, /grid-template-columns:\s*1fr/);
+    assert.match(css, /\.people-chat-app-header\s*\{/);
+    assert.match(css, /\.people-chat-list-controls\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+    assert.match(css, /\.people-chat-add-filter\s*\{/);
     assert.match(css, /\.people-chat-shell\.thread-open \.people-chat-sidebar/);
     assert.match(css, /\.people-chat-thread-pane\s*\{[\s\S]*display:\s*none/);
     assert.match(css, /\.people-chat-add-user/);
@@ -132,6 +144,8 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /\.people-chat-registration/);
     assert.match(css, /\.people-chat-registration-form/);
     assert.doesNotMatch(css, /\.people-chat-development-code/);
+    assert.match(css, /body\.people-chat-fullscreen #header\s*\{[\s\S]*display:\s*none !important;/);
+    assert.match(css, /body\.people-chat-fullscreen #workspace\s*\{[\s\S]*height:\s*100vh;/);
     assert.match(css, /\.people-chat-requests/);
     assert.match(css, /\.people-chat-request/);
     assert.match(css, /\.people-chat-mini-btn/);
@@ -300,7 +314,8 @@ describe('Chat Renderer UI', function() {
 
   it('should group identity, theme, and security under System while keeping Phone separate', function() {
     assert.match(html, /data-section-target="system"/);
-    assert.match(html, /id="system-options"/);
+    assert.match(html, /class="settings-nav settings-segmented" id="settings-nav"[\s\S]*data-active-section="system"/);
+    assert.match(html, /class="system-options settings-segmented" id="system-options"[\s\S]*data-active-block="identity"/);
     assert.match(html, /data-system-block-target="identity"/);
     assert.match(html, /data-system-block-target="theme"/);
     assert.match(html, /data-system-block-target="security"/);
@@ -326,8 +341,19 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(html, /id="assistant-title"|Assistant Title/);
     assert.doesNotMatch(html, /id="assistant-activation-shortcut"|Chat Shortcut|Alt\+Space to show/);
     assert.match(script, /setActiveSettingsSection\(activeSettingsSection \|\| 'system'\)/);
+    assert.match(script, /settingsNavEl\.dataset\.activeSection = activeSettingsSection \|\| 'system'/);
     assert.match(script, /function setActiveSystemBlock/);
+    assert.match(script, /systemOptionsEl\.dataset\.activeBlock = activeSystemBlock/);
     assert.match(script, /activeSettingsSection !== 'system' \|\| section\.dataset\.systemBlock === activeSystemBlock/);
+    assert.match(css, /\.settings-segmented::before/);
+    assert.match(css, /\.settings-segmented\s*\{[\s\S]*border-radius:\s*999px;/);
+    assert.match(css, /\.settings-segmented::before\s*\{[\s\S]*box-sizing:\s*border-box;[\s\S]*left:\s*3px;[\s\S]*width:\s*calc\(\(100% - 6px\) \/ 4\)/);
+    assert.match(css, /\.settings-nav\[data-active-section="profile"\]::before[\s\S]*left:\s*calc\(25% \+ 1\.5px\)/);
+    assert.match(css, /\.settings-nav\[data-active-section="phone"\]::before[\s\S]*left:\s*50%/);
+    assert.match(css, /\.settings-nav\[data-active-section="modes"\]::before[\s\S]*left:\s*calc\(75% - 1\.5px\)/);
+    assert.match(css, /\.system-options\[data-active-block="theme"\]::before/);
+    assert.match(css, /\.system-options\[data-active-block="security"\]::before/);
+    assert.match(css, /\.system-options\[data-active-block="storage"\]::before/);
     assert.doesNotMatch(script, /getActivationShortcut|assistantActivationShortcut/);
   });
 

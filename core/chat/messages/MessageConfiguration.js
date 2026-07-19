@@ -9,7 +9,7 @@ class MessageConfiguration {
    * @param {object} options Configuration overrides.
    */
   constructor(options = {}) {
-    this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'http://localhost:8090').replace(/\/+$/, '');
+    this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'https://openx-chat-server.onrender.com').replace(/\/+$/, '');
     this.protocolVersion = String(options.protocolVersion || '1');
     this.maxMessageSizeBytes = Number(options.maxMessageSizeBytes || 65536);
     this.compressionThresholdBytes = Number(options.compressionThresholdBytes || 1024);

@@ -9,7 +9,7 @@ class HistorySynchronizationConfiguration {
    * @param {object} options Overrides.
    */
   constructor(options = {}) {
-    this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_BASE_URL || 'http://localhost:8090').replace(/\/+$/, '');
+    this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_BASE_URL || 'https://openx-chat-server.onrender.com').replace(/\/+$/, '');
     this.storagePath = options.storagePath || chatDataPath('chat-history-sync.json', options);
     this.requestTimeoutMs = this.number(options.requestTimeoutMs, 15000);
     this.chunkSizeBytes = this.number(options.chunkSizeBytes, 262144);
