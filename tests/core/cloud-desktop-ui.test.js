@@ -34,4 +34,34 @@ describe('Cloud desktop UI routing', () => {
     assert.match(voiceOverlay, /transferId: String\(action\?\.transferId/);
     assert.match(voiceOverlay, /intent\.startsWith\('cloud\.fileTransfer'\)/);
   });
+
+  it('keeps OpenX Chat mailbox sync adaptive and bounded', () => {
+    const main = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'apps', 'desktop', 'electron', 'main.js'),
+      'utf8'
+    );
+
+    assert.match(main, /DESKTOP_CHAT_SYNC_REQUEST_TIMEOUT_MS\s*=\s*8000/);
+    assert.match(main, /DESKTOP_CHAT_SYNC_IDLE_MAX_MS\s*=\s*60000/);
+    assert.match(main, /DESKTOP_CHAT_SYNC_FAILURE_MAX_MS\s*=\s*120000/);
+    assert.match(main, /function getDesktopChatNextSyncDelay\(envelopeCount = 0, hasMore = false\)/);
+    assert.match(main, /function getDesktopChatFailureSyncDelay\(\)/);
+    assert.match(main, /writeDesktopChatSyncCursor\(deviceId, suggestedAck\)/);
+    assert.match(main, /timeoutMs: DESKTOP_CHAT_SYNC_REQUEST_TIMEOUT_MS/);
+  });
+
+  it('defers and bounds startup temp cleanup work', () => {
+    const main = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'apps', 'desktop', 'electron', 'main.js'),
+      'utf8'
+    );
+
+    assert.match(main, /TEMP_CLEANUP_STARTUP_DELAY_MS\s*=\s*12 \* 1000/);
+    assert.match(main, /TEMP_CLEANUP_MAX_SCAN_ENTRIES\s*=\s*1000/);
+    assert.match(main, /TEMP_CLEANUP_MAX_DELETE_ENTRIES\s*=\s*128/);
+    assert.match(main, /fs\.promises\.opendir\(tempRoot\)/);
+    assert.match(main, /function scheduleOpenXTempCleanup\(reason = 'startup'/);
+    assert.match(main, /scheduleOpenXTempCleanup\('desktop-runtime-ready'\)/);
+    assert.doesNotMatch(main, /void cleanupOpenXTempArtifacts\(\)/);
+  });
 });

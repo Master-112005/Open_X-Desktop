@@ -1,6 +1,6 @@
 {
   "name": "openx",
-  "version": "7.0.0",
+  "version": "8.0.0",
   "private": true,
   "productName": "OpenX",
   "description": "Deterministic, local-first Windows desktop assistant",

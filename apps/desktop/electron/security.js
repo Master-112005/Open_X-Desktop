@@ -256,9 +256,10 @@ function normalizeOptionalChatApiBaseUrl(value) {
 }
 
 function requireDesktopChatUsername(value, name = 'desktopChat.username') {
-  const username = requireString(value, name, { maxLength: 32 });
+  const rawUsername = requireString(value, name, { maxLength: 33 });
+  const username = rawUsername.startsWith('@') ? rawUsername.slice(1).trim() : rawUsername;
   if (!/^[A-Za-z0-9._-]{3,32}$/.test(username)) {
-    throw new TypeError(`${name} must be 3-32 letters, numbers, dots, hyphens, or underscores`);
+    throw new TypeError(`${name} must be 3-32 letters, numbers, dots, hyphens, or underscores, with an optional leading @`);
   }
   return username;
 }
@@ -282,6 +283,14 @@ function validateDesktopChatRegistrationStart(payload = {}) {
     output.pin = requireString(payload.pin, 'desktopChat.pin', { maxLength: 24 });
   }
   return output;
+}
+
+function validateDesktopChatPasswordUpdate(payload = {}) {
+  requirePlainObject(payload, 'desktopChat.profile');
+  return {
+    currentPassword: requireDesktopChatPassword(payload.currentPassword, 'desktopChat.currentPassword'),
+    newPassword: requireDesktopChatPassword(payload.newPassword, 'desktopChat.newPassword')
+  };
 }
 
 function validateUiState(payload) {
@@ -607,6 +616,7 @@ const IPC_VALIDATORS = Object.freeze({
   'desktopChat:contacts:cancel': validateDesktopChatRequestAction,
   'desktopChat:registration:get': validateEmpty,
   'desktopChat:registration:start': validateDesktopChatRegistrationStart,
+  'desktopChat:profile:password': validateDesktopChatPasswordUpdate,
   'uiState:get': validateEmpty,
   'uiState:save': validateUiState,
   'security:status': validateEmpty,

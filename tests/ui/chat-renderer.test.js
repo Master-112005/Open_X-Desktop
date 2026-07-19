@@ -66,9 +66,11 @@ describe('Chat Renderer UI', function() {
     assert.match(html, /id="people-chat-back-btn"[\s\S]*&lt;/);
     assert.doesNotMatch(chatSidebarBeforeFilters, /Chat setup|id="people-chat-registration"/);
     assert.doesNotMatch(html, />Chat setup</);
-    assert.match(html, /class="people-chat-filters"[\s\S]*All[\s\S]*Unread[\s\S]*Pinned[\s\S]*id="people-chat-new-btn"[\s\S]*id="people-chat-settings-btn"[\s\S]*Settings/);
+    assert.match(html, /class="people-chat-filters"[\s\S]*All[\s\S]*Unread[\s\S]*Pinned[\s\S]*id="people-chat-new-btn"[\s\S]*id="people-chat-profile-btn"[\s\S]*Profile[\s\S]*id="people-chat-settings-btn"[\s\S]*Settings/);
     assert.match(html, /id="people-chat-registration-overlay"[\s\S]*id="people-chat-registration"[\s\S]*id="people-chat-registration-start"/);
     assert.match(html, /id="people-chat-server-url"[\s\S]*id="people-chat-username"[\s\S]*id="people-chat-password"[\s\S]*id="people-chat-pin"/);
+    assert.match(html, /id="people-chat-profile"[\s\S]*id="people-chat-profile-username"[\s\S]*id="people-chat-profile-device"/);
+    assert.match(html, /id="people-chat-password-reset"[\s\S]*id="people-chat-current-password"[\s\S]*id="people-chat-new-password"[\s\S]*id="people-chat-confirm-password"/);
     [
       'people-chat-registration-' + 'verify',
       'people-chat-' + 'em' + 'ail',
@@ -90,10 +92,12 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /const peopleChatUserIdEl = document\.getElementById\('people-chat-user-id'\)/);
     assert.match(script, /const peopleChatEditNameEl = document\.getElementById\('people-chat-edit-name'\)/);
     assert.match(script, /const peopleChatEditIdEl = document\.getElementById\('people-chat-edit-id'\)/);
+    assert.match(script, /const peopleChatProfileBtn = document\.getElementById\('people-chat-profile-btn'\)/);
     assert.match(script, /const peopleChatSettingsBtn = document\.getElementById\('people-chat-settings-btn'\)/);
     assert.match(script, /const peopleChatRegistrationOverlayEl = document\.getElementById\('people-chat-registration-overlay'\)/);
     assert.match(script, /const peopleChatUsernameEl = document\.getElementById\('people-chat-username'\)/);
     assert.match(script, /const peopleChatPasswordEl = document\.getElementById\('people-chat-password'\)/);
+    assert.match(script, /const peopleChatPasswordResetEl = document\.getElementById\('people-chat-password-reset'\)/);
     assert.doesNotMatch(script, /peopleChatEmailEl|Verification email sent|peopleChatOtpEl/);
     assert.doesNotMatch(script, /countryCode/);
     assert.match(script, /setWorkspaceView\('people-chat'\)/);
@@ -101,7 +105,9 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /function returnPeopleChatToList\(/);
     assert.match(script, /function closePeopleChatApp\(/);
     assert.match(script, /function renderPeopleChatRegistration\(/);
+    assert.match(script, /function validatePeopleChatPassword\(/);
     assert.match(script, /function startPeopleChatRegistration\(/);
+    assert.match(script, /function resetPeopleChatPassword\(/);
     assert.doesNotMatch(script, /function verifyPeopleChatRegistration\(/);
     assert.match(script, /function handlePeopleChatRegistrationChanged\(/);
     assert.match(script, /function loadPeopleChatRequests\(/);
@@ -129,6 +135,7 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /window\.openx\?\.cancelDesktopChatContactRequest/);
     assert.match(script, /window\.openx\?\.getDesktopChatRegistration/);
     assert.match(script, /window\.openx\?\.startDesktopChatRegistration/);
+    assert.match(script, /window\.openx\?\.updateDesktopChatPassword/);
     assert.equal(script.includes(['verify', 'DesktopChat', 'Registration'].join('')), false);
     assert.match(script, /window\.openx\.onOpenDesktopChat\?\./);
     assert.match(script, /window\.openx\.onDesktopChatChanged\?\./);
@@ -145,10 +152,12 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /\.people-chat-shell\.thread-open \.people-chat-sidebar/);
     assert.match(css, /\.people-chat-thread-pane\s*\{[\s\S]*display:\s*none/);
     assert.match(css, /\.people-chat-add-user/);
+    assert.match(css, /\.people-chat-profile-filter/);
     assert.match(css, /\.people-chat-settings-filter/);
     assert.match(css, /\.people-chat-registration-overlay/);
     assert.match(css, /\.people-chat-registration/);
     assert.match(css, /\.people-chat-registration-form/);
+    assert.match(css, /\.people-chat-profile\s*\{/);
     assert.doesNotMatch(css, /\.people-chat-development-code/);
     assert.match(css, /body\.people-chat-fullscreen #header\s*\{[\s\S]*display:\s*none !important;/);
     assert.match(css, /body\.people-chat-fullscreen #workspace\s*\{[\s\S]*height:\s*100vh;/);
@@ -440,5 +449,15 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /requestAnimationFrame\(/);
     assert.match(glassCss, /GPU and long-session performance/);
     assert.match(glassCss, /content-visibility:\s*auto/);
+  });
+
+  it('should coalesce people-chat search and incoming render work', function() {
+    assert.match(script, /PEOPLE_CHAT_SEARCH_DEBOUNCE_MS\s*=\s*220/);
+    assert.match(script, /let peopleChatPendingLoad = false/);
+    assert.match(script, /function currentPeopleChatSearchQuery\(\)/);
+    assert.match(script, /peopleChatPendingLoad = true/);
+    assert.match(script, /function schedulePeopleChatRender\(\)/);
+    assert.match(script, /peopleChatRenderFrame = requestAnimationFrame/);
+    assert.match(script, /cancelAnimationFrame\(peopleChatRenderFrame\)/);
   });
 });

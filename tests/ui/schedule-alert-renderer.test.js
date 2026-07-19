@@ -109,10 +109,16 @@ describe('Dynamic Island Schedule Alerts', function() {
     assert.match(voiceWindow, /payload\.intent === 'schedule\.due' \|\| payload\.intent === 'schedule\.live'/);
     assert.match(voiceWindow, /payload\.hoverHoldAutoHide !== true/);
     assert.match(voiceOverlay, /persistentBrowserSearch = intent === 'browser\.search'/);
-    assert.match(voiceOverlay, /hoverHoldAutoHide = intent === 'phone\.notification'/);
+    assert.match(voiceOverlay, /hoverHoldAutoHide = intent === 'phone\.notification' \|\| intent === 'desktopChat\.message'/);
     assert.match(voiceOverlay, /autoHideMs: hoverHoldAutoHide \? 15000 : persistentBrowserSearch \? 0/);
     assert.match(voiceOverlay, /persistUntilAction: persistentBrowserSearch \? true/);
     assert.match(main, /intent: 'phone\.notification'/);
+    assert.match(main, /function presentDesktopChatMessageInDynamicIsland\(message = \{\}\)/);
+    assert.match(main, /intent: 'desktopChat\.message'/);
+    assert.match(main, /function startDesktopChatReceiveRuntime\(options = \{\}\)/);
+    assert.match(main, /connection:identify/);
+    assert.match(main, /message:receive/);
+    assert.match(main, /\/sync\?deviceId=/);
     assert.match(main, /autoHideMs: 15000/);
     assert.match(main, /browser:openExternal/);
     assert.match(voiceWindow, /-webkit-line-clamp: 2/);
