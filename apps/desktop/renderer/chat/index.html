@@ -108,6 +108,7 @@
               <button class="people-chat-filter" type="button" data-chat-filter="unread">Unread</button>
               <button class="people-chat-filter" type="button" data-chat-filter="pinned">Pinned</button>
               <button class="people-chat-icon-btn people-chat-add-filter" id="people-chat-new-btn" type="button" title="New chat" aria-label="New chat">+</button>
+              <button class="people-chat-filter people-chat-profile-filter" id="people-chat-profile-btn" type="button" aria-expanded="false" aria-controls="people-chat-registration">Profile</button>
               <button class="people-chat-filter people-chat-settings-filter" id="people-chat-settings-btn" type="button" aria-expanded="false" aria-controls="people-chat-registration">Settings</button>
             </div>
             <form class="people-chat-add-user" id="people-chat-add-user" hidden>
@@ -177,11 +178,29 @@
             </div>
             <form class="people-chat-registration-form" id="people-chat-registration-start" hidden>
               <input id="people-chat-server-url" type="url" placeholder="Server URL" autocomplete="off" aria-label="Chat server URL">
-              <input id="people-chat-username" type="text" placeholder="Username" autocomplete="username" aria-label="Username" minlength="3" maxlength="32" pattern="[A-Za-z0-9._-]{3,32}" title="Use 3-32 letters, numbers, dots, hyphens, or underscores." required>
+              <input id="people-chat-username" type="text" placeholder="Username" autocomplete="username" aria-label="Username" minlength="3" maxlength="33" pattern="@?[A-Za-z0-9._-]{3,32}" title="Use 3-32 letters, numbers, dots, hyphens, or underscores. A leading @ is optional." required>
               <input id="people-chat-password" type="password" placeholder="Password" autocomplete="current-password" aria-label="Password" minlength="10" maxlength="128" title="Use at least 10 characters." required>
               <input id="people-chat-pin" type="password" inputmode="numeric" placeholder="Optional security PIN" autocomplete="new-password" aria-label="Optional security PIN">
               <button class="people-chat-registration-submit" type="submit">Continue</button>
             </form>
+            <section class="people-chat-profile" id="people-chat-profile" hidden aria-label="Chat profile">
+              <div class="people-chat-profile-card">
+                <span>
+                  <small>Username</small>
+                  <strong id="people-chat-profile-username">Not connected</strong>
+                </span>
+                <span>
+                  <small>Device</small>
+                  <strong id="people-chat-profile-device">Desktop</strong>
+                </span>
+              </div>
+              <form class="people-chat-registration-form" id="people-chat-password-reset">
+                <input id="people-chat-current-password" type="password" placeholder="Current password" autocomplete="current-password" aria-label="Current password" minlength="10" maxlength="128" required>
+                <input id="people-chat-new-password" type="password" placeholder="New password" autocomplete="new-password" aria-label="New password" minlength="10" maxlength="128" required>
+                <input id="people-chat-confirm-password" type="password" placeholder="Confirm password" autocomplete="new-password" aria-label="Confirm password" minlength="10" maxlength="128" required>
+                <button class="people-chat-registration-submit" type="submit">Reset password</button>
+              </form>
+            </section>
             <section class="people-chat-requests" id="people-chat-requests" hidden aria-label="Chat requests">
               <div class="people-chat-requests-head">
                 <span>

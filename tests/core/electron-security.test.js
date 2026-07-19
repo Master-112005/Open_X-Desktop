@@ -147,6 +147,13 @@ describe('Electron Security Boundary', function() {
       }),
       { username: 'Mummy.User', password: 'StrongPass1!', apiBaseUrl: 'http://localhost:8090', pin: '2468' }
     );
+    assert.deepEqual(
+      IPC_VALIDATORS['desktopChat:profile:password']({
+        currentPassword: 'StrongPass1!',
+        newPassword: 'NewStrong1!'
+      }),
+      { currentPassword: 'StrongPass1!', newPassword: 'NewStrong1!' }
+    );
     assert.throws(() => IPC_VALIDATORS['desktopChat:open']({ conversationId: 'bad' }), /conversationId is invalid/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:send']({ conversationId, text: '' }), /must not be empty/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:update']({ conversationId, title: '', peerHandle: 'dad@openx' }), /must not be empty/);
@@ -159,6 +166,7 @@ describe('Electron Security Boundary', function() {
     assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ username: 'mummy', password: '' }), /10-128/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ username: 'mummy', password: 'StrongPass1!', apiBaseUrl: 'file:///tmp/chat' }), /protocol is not supported/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ username: 'bad user', password: 'StrongPass1!' }), /3-32/);
+    assert.throws(() => IPC_VALIDATORS['desktopChat:profile:password']({ currentPassword: 'short', newPassword: 'NewStrong1!' }), /10-128/);
   });
 
   it('should validate disk-backed renderer UI state IPC payloads', function() {
@@ -312,7 +320,7 @@ describe('Electron Security Boundary', function() {
       'config:get', 'settings:get', 'chatHistory:get', 'chatHistory:save', 'chatHistory:clear',
       'desktopChat:list', 'desktopChat:open', 'desktopChat:create', 'desktopChat:update', 'desktopChat:delete', 'desktopChat:send',
       'desktopChat:contacts:list', 'desktopChat:contacts:accept', 'desktopChat:contacts:delete', 'desktopChat:contacts:cancel',
-      'desktopChat:registration:get', 'desktopChat:registration:start',
+      'desktopChat:registration:get', 'desktopChat:registration:start', 'desktopChat:profile:password',
       'uiState:get', 'uiState:save',
       'security:status', 'security:verifyAccess', 'security:setPassword',
       'cloud:status', 'cloud:connect', 'cloud:disconnect',

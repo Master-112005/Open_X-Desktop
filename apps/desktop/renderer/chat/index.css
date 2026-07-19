@@ -3398,8 +3398,9 @@ body.people-chat-fullscreen .people-chat-thread-pane {
   width: 29px;
 }
 
+.people-chat-profile-filter,
 .people-chat-settings-filter {
-  margin-left: auto;
+  margin-left: 0;
 }
 
 .people-chat-registration-overlay {
@@ -3506,7 +3507,8 @@ body.people-chat-fullscreen .people-chat-thread-pane {
   gap: 7px;
 }
 
-.people-chat-registration-form[hidden] {
+.people-chat-registration-form[hidden],
+.people-chat-profile[hidden] {
   display: none;
 }
 
@@ -3525,6 +3527,41 @@ body.people-chat-fullscreen .people-chat-thread-pane {
   background: color-mix(in srgb, var(--accent-color) 28%, rgba(255, 255, 255, 0.1));
   border: 1px solid color-mix(in srgb, var(--accent-color) 42%, rgba(255, 255, 255, 0.16));
   color: var(--text-color);
+}
+
+.people-chat-profile {
+  display: grid;
+  gap: 8px;
+}
+
+.people-chat-profile-card {
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 14px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.people-chat-profile-card span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.people-chat-profile-card small {
+  color: var(--muted-color);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.people-chat-profile-card strong {
+  color: var(--text-color);
+  font-size: 11px;
+  font-weight: 850;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 #people-chat-registration-status {

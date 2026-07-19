@@ -298,7 +298,7 @@ class VoiceOverlay extends EventEmitter {
   _buildAssistantResultPayload(result = {}) {
     const intent = String(result?.intent || '');
     const persistentBrowserSearch = intent === 'browser.search';
-    const hoverHoldAutoHide = intent === 'phone.notification';
+    const hoverHoldAutoHide = intent === 'phone.notification' || intent === 'desktopChat.message';
     return Object.freeze({
       heading: this._buildAssistantResultHeading(result, intent),
       response: this._formatAssistantResponseText(result),
@@ -339,6 +339,9 @@ class VoiceOverlay extends EventEmitter {
     }
     if (intent === 'phone.notification') {
       return String(result?.data?.notification?.appName || 'Phone notification').slice(0, 40);
+    }
+    if (intent === 'desktopChat.message') {
+      return String(result?.data?.chatMessage?.senderName || 'OpenX Chat').slice(0, 40);
     }
     if (intent.startsWith('cloud.fileTransfer')) return 'File transfer';
     if (intent === 'phone.cloudCommand') return 'From mobile';
