@@ -864,9 +864,6 @@ const openxApi = {
   startDesktopChatRegistration: (registration = {}) =>
     ipcRenderer.invoke('desktopChat:registration:start', registration),
 
-  verifyDesktopChatRegistration: (registration = {}) =>
-    ipcRenderer.invoke('desktopChat:registration:verify', registration),
-
   getUiState: () =>
     ipcRenderer.invoke('uiState:get'),
 

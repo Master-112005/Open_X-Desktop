@@ -116,10 +116,9 @@ const peopleChatRegistrationTitleEl = document.getElementById('people-chat-regis
 const peopleChatRegistrationDetailEl = document.getElementById('people-chat-registration-detail');
 const peopleChatRegistrationCloseBtn = document.getElementById('people-chat-registration-close');
 const peopleChatRegistrationStartEl = document.getElementById('people-chat-registration-start');
-const peopleChatRegistrationVerifyEl = document.getElementById('people-chat-registration-verify');
 const peopleChatServerUrlEl = document.getElementById('people-chat-server-url');
-const peopleChatEmailEl = document.getElementById('people-chat-email');
-const peopleChatOtpEl = document.getElementById('people-chat-otp');
+const peopleChatUsernameEl = document.getElementById('people-chat-username');
+const peopleChatPasswordEl = document.getElementById('people-chat-password');
 const peopleChatPinEl = document.getElementById('people-chat-pin');
 const peopleChatRegistrationStatusEl = document.getElementById('people-chat-registration-status');
 const peopleChatRequestsEl = document.getElementById('people-chat-requests');
@@ -1024,9 +1023,8 @@ function normalizePeopleChatRegistration(entry = {}) {
   const source = entry?.state && typeof entry.state === 'object' ? entry.state : entry;
   const accountId = String(source?.accountId || source?.account?.accountId || '').trim();
   const deviceName = String(source?.device?.deviceName || '').trim();
-  const emailDisplay = String(source?.emailDisplay || source?.pendingRegistration?.emailDisplay || '').trim();
-  const emailDomain = String(source?.emailDomain || source?.account?.emailDomain || source?.pendingRegistration?.emailDomain || '').trim();
-  const setupStatus = String(source?.setupStatus || '').trim() || (source?.registered ? 'registered' : (source?.pending ? 'otp-sent' : 'not-registered'));
+  const username = String(source?.username || source?.account?.username || '').trim();
+  const setupStatus = String(source?.setupStatus || '').trim() || (source?.registered ? 'registered' : 'not-registered');
   const runtimeState = String(source?.runtimeState || '').trim() || (setupStatus === 'chat-ready' ? 'CHAT_READY' : '');
   const registered = source?.registered === true || setupStatus === 'registered' || setupStatus === 'chat-ready';
   const chatReady = source?.chatReady === true || setupStatus === 'chat-ready' || runtimeState === 'CHAT_READY';
@@ -1036,7 +1034,7 @@ function normalizePeopleChatRegistration(entry = {}) {
     success: source?.success !== false,
     registered,
     chatReady,
-    pending: source?.pending === true || setupStatus === 'otp-sent',
+    pending: false,
     setupStatus,
     runtimeState,
     blockingReason,
@@ -1045,8 +1043,7 @@ function normalizePeopleChatRegistration(entry = {}) {
     identityReady: source?.identityReady === true || source?.crypto?.identityReady === true,
     sessionReady: source?.sessionReady === true || source?.crypto?.sessionReady === true,
     apiBaseUrl: String(source?.apiBaseUrl || 'https://openx-chat-server.onrender.com').trim(),
-    emailDisplay,
-    emailDomain,
+    username,
     accountId,
     account: source?.account && typeof source.account === 'object' ? source.account : null,
     device: source?.device && typeof source.device === 'object' ? source.device : null,
@@ -1107,7 +1104,7 @@ function renderPeopleChatRegistration() {
   if (peopleChatRegistrationTitleEl) {
     peopleChatRegistrationTitleEl.textContent = state.chatReady
       ? 'Chat account ready'
-      : (state.registered ? 'Finish chat setup' : (state.pending ? 'Verify email' : 'Chat settings'));
+      : (state.registered ? 'Finish chat setup' : 'Chat settings');
   }
   if (peopleChatRegistrationDetailEl) {
     if (state.chatReady) {
@@ -1121,16 +1118,11 @@ function renderPeopleChatRegistration() {
         : 'This desktop is waiting for approval.';
     } else if (state.registered) {
       peopleChatRegistrationDetailEl.textContent = 'Secure chat identity setup is not complete.';
-    } else if (state.pending) {
-      peopleChatRegistrationDetailEl.textContent = state.emailDisplay
-        ? `Code sent to ${state.emailDisplay}`
-        : 'Enter the verification code from your email.';
     } else {
-      peopleChatRegistrationDetailEl.textContent = 'Connect this desktop to OpenX Chat.';
+      peopleChatRegistrationDetailEl.textContent = 'Connect this desktop with your OpenX username and password.';
     }
   }
-  if (peopleChatRegistrationStartEl) peopleChatRegistrationStartEl.hidden = !peopleChatRegistrationOpen || state.pending || state.registered;
-  if (peopleChatRegistrationVerifyEl) peopleChatRegistrationVerifyEl.hidden = !peopleChatRegistrationOpen || !state.pending || state.registered;
+  if (peopleChatRegistrationStartEl) peopleChatRegistrationStartEl.hidden = !peopleChatRegistrationOpen || state.registered;
   if (peopleChatServerUrlEl && !peopleChatServerUrlEl.value) peopleChatServerUrlEl.value = state.apiBaseUrl || 'https://openx-chat-server.onrender.com';
   if (peopleChatRegistrationLoading) {
     setPeopleChatRegistrationStatus('Working...', 'muted');
@@ -1226,8 +1218,7 @@ function renderPeopleChatRequests() {
 function focusPeopleChatRegistration() {
   requestAnimationFrame(() => {
     const state = normalizePeopleChatRegistration(peopleChatRegistrationState || {});
-    if (state.pending) peopleChatOtpEl?.focus();
-    else if (!state.registered) peopleChatEmailEl?.focus();
+    if (!state.registered) peopleChatUsernameEl?.focus();
     else peopleChatRegistrationCloseBtn?.focus();
   });
 }
@@ -1352,24 +1343,59 @@ function togglePeopleChatRegistration() {
 
 async function startPeopleChatRegistration(event) {
   event?.preventDefault?.();
-  const email = String(peopleChatEmailEl?.value || '').trim();
+  const username = String(peopleChatUsernameEl?.value || '').trim();
+  const password = String(peopleChatPasswordEl?.value || '');
+  const pin = String(peopleChatPinEl?.value || '').trim();
   const apiBaseUrl = String(peopleChatServerUrlEl?.value || '').trim();
-  if (!email) {
-    setPeopleChatRegistrationStatus('Email address is required.', 'error');
-    peopleChatEmailEl?.focus();
+  if (!username) {
+    setPeopleChatRegistrationStatus('Username is required.', 'error');
+    peopleChatUsernameEl?.focus();
+    return;
+  }
+  if (username.includes('@')) {
+    setPeopleChatRegistrationStatus('Use your OpenX username here, not an email address.', 'error');
+    peopleChatUsernameEl?.focus();
+    return;
+  }
+  if (!/^[A-Za-z0-9._-]{3,32}$/.test(username)) {
+    setPeopleChatRegistrationStatus('Username must be 3-32 letters, numbers, dots, hyphens, or underscores.', 'error');
+    peopleChatUsernameEl?.focus();
+    return;
+  }
+  if (!password) {
+    setPeopleChatRegistrationStatus('Password is required.', 'error');
+    peopleChatPasswordEl?.focus();
+    return;
+  }
+  if (password.length < 10 || password.length > 128) {
+    setPeopleChatRegistrationStatus('Password must be 10 to 128 characters.', 'error');
+    peopleChatPasswordEl?.focus();
     return;
   }
   peopleChatRegistrationLoading = true;
   renderPeopleChatRegistration();
   try {
-    const result = await window.openx?.startDesktopChatRegistration?.({ email, apiBaseUrl });
+    const result = await window.openx?.startDesktopChatRegistration?.({ username, password, pin, apiBaseUrl });
     peopleChatRegistrationState = normalizePeopleChatRegistration(result);
     peopleChatRegistrationOpen = true;
     if (result?.success === false) {
       setPeopleChatRegistrationStatus(result?.error?.message || 'Registration could not start.', 'error');
+    } else if (peopleChatRegistrationState.chatReady) {
+      peopleChatRegistrationOpen = false;
+      if (peopleChatUsernameEl) peopleChatUsernameEl.value = '';
+      if (peopleChatPasswordEl) peopleChatPasswordEl.value = '';
+      if (peopleChatPinEl) peopleChatPinEl.value = '';
+      setPeopleChatRegistrationStatus(result?.message || 'Chat account ready.', 'success');
+      showToast('Chat account ready', 'This desktop is registered for OpenX Chat.', 'success');
+      await loadPeopleChatRequests({ force: true });
+    } else if (peopleChatRegistrationState.registered) {
+      setPeopleChatRegistrationStatus(
+        result?.message || 'This desktop is registered, but it still needs approval before messaging.',
+        peopleChatRegistrationState.deviceApprovalRequired ? 'warning' : 'success'
+      );
     } else {
       setPeopleChatRegistrationStatus(
-        result?.message || 'Verification email sent. Enter the email code and click Verify.',
+        result?.message || 'Chat account setup completed.',
         'success'
       );
     }
@@ -1381,49 +1407,11 @@ async function startPeopleChatRegistration(event) {
   } finally {
     peopleChatRegistrationLoading = false;
     renderPeopleChatRegistration();
-    requestAnimationFrame(() => peopleChatOtpEl?.focus());
-  }
-}
-
-async function verifyPeopleChatRegistration(event) {
-  event?.preventDefault?.();
-  const otp = String(peopleChatOtpEl?.value || '').trim();
-  const pin = String(peopleChatPinEl?.value || '').trim();
-  const apiBaseUrl = String(peopleChatServerUrlEl?.value || '').trim();
-  if (!otp) {
-    setPeopleChatRegistrationStatus('Verification code is required.', 'error');
-    peopleChatOtpEl?.focus();
-    return;
-  }
-  peopleChatRegistrationLoading = true;
-  renderPeopleChatRegistration();
-  try {
-    const result = await window.openx?.verifyDesktopChatRegistration?.({ otp, pin, apiBaseUrl });
-    peopleChatRegistrationState = normalizePeopleChatRegistration(result);
-    if (result?.success === false) {
-      setPeopleChatRegistrationStatus(result?.error?.message || 'Verification failed.', 'error');
-    } else if (peopleChatRegistrationState.chatReady) {
-      peopleChatRegistrationOpen = false;
-      if (peopleChatOtpEl) peopleChatOtpEl.value = '';
-      if (peopleChatPinEl) peopleChatPinEl.value = '';
-      setPeopleChatRegistrationStatus(result?.message || 'Chat account ready.', 'success');
-      showToast('Chat account ready', 'This desktop is registered for OpenX Chat.', 'success');
-      loadPeopleChatRequests({ force: true });
-    } else {
-      if (peopleChatOtpEl) peopleChatOtpEl.value = '';
-      if (peopleChatPinEl) peopleChatPinEl.value = '';
-      peopleChatRegistrationOpen = true;
-      setPeopleChatRegistrationStatus(result?.message || 'This desktop still needs approval before messaging.', 'warning');
-      showToast('Chat setup needs approval', result?.message || 'Approve this desktop from a trusted device.', 'warning');
-    }
-  } catch (error) {
-    peopleChatRegistrationState = normalizePeopleChatRegistration({
-      success: false,
-      error: { message: error?.message || 'Verification failed.' }
+    requestAnimationFrame(() => {
+      const state = normalizePeopleChatRegistration(peopleChatRegistrationState || {});
+      if (!state.registered) peopleChatUsernameEl?.focus();
+      else peopleChatRegistrationCloseBtn?.focus();
     });
-  } finally {
-    peopleChatRegistrationLoading = false;
-    renderPeopleChatRegistration();
   }
 }
 
@@ -1811,7 +1799,7 @@ async function createPeopleChatConversation(event) {
   const title = String(peopleChatUserNameEl?.value || '').trim();
   const peerHandle = String(peopleChatUserIdEl?.value || '').trim();
   if (!title || !peerHandle) {
-    if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = 'Name and email address are required.';
+    if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = 'Name and username are required.';
     return;
   }
   if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = 'Sending request...';
@@ -4008,7 +3996,6 @@ peopleChatRegistrationOverlayEl?.addEventListener('click', (event) => {
   if (event.target === peopleChatRegistrationOverlayEl) closePeopleChatRegistration();
 });
 peopleChatRegistrationStartEl?.addEventListener('submit', startPeopleChatRegistration);
-peopleChatRegistrationVerifyEl?.addEventListener('submit', verifyPeopleChatRegistration);
 peopleChatRequestsRefreshBtn?.addEventListener('click', () => loadPeopleChatRequests({ force: true }));
 peopleChatSearchEl?.addEventListener('input', () => {
   if (peopleChatSearchTimer) clearTimeout(peopleChatSearchTimer);

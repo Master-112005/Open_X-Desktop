@@ -68,7 +68,7 @@ describe('Structured Logger', function() {
     try {
       logger.info('HTTP request completed', {
         method: 'POST',
-        path: '/account/login/start',
+        path: '/account/login',
         statusCode: 200,
         durationMs: 14,
         token: 'unsafe'
@@ -78,7 +78,7 @@ describe('Structured Logger', function() {
     }
 
     assert.match(output, /method=POST/);
-    assert.match(output, /path=\/account\/login\/start/);
+    assert.match(output, /path=\/account\/login/);
     assert.match(output, /status-code=200/);
     assert.match(output, /duration-ms=14/);
     assert.match(output, /token=\[REDACTED\]/);

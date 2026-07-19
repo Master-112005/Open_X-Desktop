@@ -383,7 +383,6 @@ const IPC_CHANNELS = [
   'desktopChat:contacts:cancel',
   'desktopChat:registration:get',
   'desktopChat:registration:start',
-  'desktopChat:registration:verify',
   'uiState:get',
   'uiState:save',
   'security:status',
@@ -1159,32 +1158,28 @@ function isDesktopChatServerUnavailableError(error) {
   return String(error?.code || '') === 'chat.server_unreachable';
 }
 
-function normalizeDesktopChatEmailInput(value) {
-  const email = normalizeDesktopChatSetupText(value || '', 254).toLowerCase();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : '';
+function normalizeDesktopChatUsernameInput(value) {
+  const username = normalizeDesktopChatSetupText(value || '', 32);
+  return /^[A-Za-z0-9._-]{3,32}$/.test(username) ? username : '';
 }
 
-function getDesktopChatEmailDomain(value) {
-  const email = normalizeDesktopChatEmailInput(value);
-  return email.includes('@') ? email.split('@').pop() : null;
+function normalizeDesktopChatPasswordInput(value) {
+  return typeof value === 'string' && value.length >= 10 && value.length <= 128 ? value : '';
 }
 
-function buildDesktopChatRegistrationRequest(email) {
-  return { email };
+function buildDesktopChatRegistrationRequest(username, password) {
+  return { username, password };
 }
 
 function normalizeDesktopChatSetupText(value, maxLength = 160) {
   return normalizeDesktopChatText(value, maxLength);
 }
 
-function redactChatEmail(value) {
-  const email = normalizeDesktopChatEmailInput(value);
-  if (!email) return value ? 'Pending email' : '';
-  const [localPart, domain] = email.split('@');
-  const safeLocal = localPart.length <= 2
-    ? `${localPart.slice(0, 1)}*`
-    : `${localPart.slice(0, 1)}***${localPart.slice(-1)}`;
-  return `${safeLocal}@${domain}`;
+function redactChatUsername(value) {
+  const username = normalizeDesktopChatUsernameInput(value);
+  if (!username) return value ? 'Pending username' : '';
+  if (username.length <= 2) return `${username.slice(0, 1)}*`;
+  return `${username.slice(0, 1)}***${username.slice(-1)}`;
 }
 
 function readDesktopChatSafeStorageState() {
@@ -1366,7 +1361,7 @@ function readDesktopChatSetupState() {
     account: null,
     device: null,
     crypto: null,
-    pendingRegistration: null,
+    username: null,
     pinEnabled: false,
     lastServerConnectedAt: null,
     updatedAt: null
@@ -1429,7 +1424,6 @@ function normalizeDesktopChatSetupState(state = {}) {
   if (
     Number(state.version || 0) < DESKTOP_CHAT_SETUP_VERSION
     && !state.registered
-    && !state.pendingRegistration
     && isLegacyDesktopChatApiBaseUrl(apiBaseUrl)
     && !process.env.OPENX_CHAT_API_URL
   ) {
@@ -1437,8 +1431,8 @@ function normalizeDesktopChatSetupState(state = {}) {
   }
   const account = isPlainObject(state.account) ? state.account : null;
   const device = isPlainObject(state.device) ? state.device : null;
-  const pending = isPlainObject(state.pendingRegistration) ? state.pendingRegistration : null;
   const accountId = normalizeDesktopChatSetupText(account?.accountId || state.accountId || '', 100) || null;
+  const username = normalizeDesktopChatUsernameInput(account?.username || state.username || '');
   return {
     version: DESKTOP_CHAT_SETUP_VERSION,
     apiBaseUrl,
@@ -1448,7 +1442,7 @@ function normalizeDesktopChatSetupState(state = {}) {
       accountStatus: normalizeDesktopChatSetupText(account?.accountStatus || state.accountStatus || 'Active', 40) || 'Active',
       securityState: normalizeDesktopChatSetupText(account?.securityState || state.securityState || 'Verified', 40) || 'Verified',
       verificationState: normalizeDesktopChatSetupText(account?.verificationState || state.verificationState || 'Verified', 40) || 'Verified',
-      emailDomain: normalizeDesktopChatSetupText(account?.emailDomain || state.emailDomain || '', 120) || null,
+      username,
       registrationDate: normalizeDesktopChatSetupText(account?.registrationDate || state.registrationDate || '', 80) || null,
       lastUpdated: normalizeDesktopChatSetupText(account?.lastUpdated || state.lastUpdated || '', 80) || null
     } : null,
@@ -1462,16 +1456,7 @@ function normalizeDesktopChatSetupState(state = {}) {
       publicIdentity: normalizeDesktopChatSetupText(device.publicIdentity || '', 160) || null
     } : null,
     crypto: normalizeDesktopChatCryptoState(state.crypto),
-    pendingRegistration: pending?.email ? {
-      mode: normalizeDesktopChatSetupText(pending.mode || 'register', 24) === 'login' ? 'login' : 'register',
-      email: normalizeDesktopChatEmailInput(pending.email),
-      emailDisplay: normalizeDesktopChatSetupText(pending.emailDisplay || redactChatEmail(pending.email), 120),
-      emailDomain: normalizeDesktopChatSetupText(pending.emailDomain || getDesktopChatEmailDomain(pending.email) || '', 120) || null,
-      registrationId: normalizeDesktopChatSetupText(pending.registrationId || '', 100) || null,
-      startedAt: normalizeDesktopChatSetupText(pending.startedAt || new Date().toISOString(), 80)
-    } : null,
-    emailDisplay: normalizeDesktopChatSetupText(state.emailDisplay || pending?.emailDisplay || '', 120) || null,
-    emailDomain: normalizeDesktopChatSetupText(state.emailDomain || pending?.emailDomain || '', 120) || null,
+    username: username || null,
     pinEnabled: state.pinEnabled === true,
     lastServerConnectedAt: normalizeDesktopChatSetupText(state.lastServerConnectedAt || '', 80) || null,
     updatedAt: normalizeDesktopChatSetupText(state.updatedAt || new Date().toISOString(), 80)
@@ -1485,7 +1470,7 @@ function serializeDesktopChatSetupState(state = {}) {
   return {
     success: true,
     registered: normalized.registered,
-    pending: Boolean(normalized.pendingRegistration),
+    pending: false,
     chatReady: runtime.chatReady,
     runtimeState: runtime.runtimeState,
     blockingReason: runtime.blockingReason,
@@ -1495,11 +1480,10 @@ function serializeDesktopChatSetupState(state = {}) {
     sessionReady: runtime.sessionReady,
     setupStatus: runtime.chatReady
       ? 'chat-ready'
-      : (normalized.registered ? 'registered' : (normalized.pendingRegistration ? 'otp-sent' : 'not-registered')),
-    setupMode: normalized.pendingRegistration?.mode || null,
+      : (normalized.registered ? 'registered' : 'not-registered'),
+    setupMode: null,
     apiBaseUrl: normalized.apiBaseUrl,
-    emailDisplay: normalized.emailDisplay || normalized.pendingRegistration?.emailDisplay || null,
-    emailDomain: normalized.account?.emailDomain || normalized.pendingRegistration?.emailDomain || normalized.emailDomain || null,
+    username: normalized.username || normalized.account?.username || null,
     accountId: normalized.account?.accountId || null,
     account: normalized.account,
     device: normalized.device,
@@ -1923,13 +1907,11 @@ async function getDesktopChatRegistrationStatus() {
 
 function desktopChatRegistrationFailure(error, state = null) {
   const code = normalizeDesktopChatSetupText(error?.code || 'chat.registration_failed', 80);
-  const message = code === 'otp.delivery_failed'
-    ? 'The Chat Server could not send the verification email. Check the server email provider settings, then try again.'
-    : normalizeDesktopChatSetupText(error?.message || 'Chat registration failed.', 220);
+  const message = normalizeDesktopChatSetupText(error?.message || 'Chat registration failed.', 220);
   return {
     success: false,
     registered: Boolean(state?.registered),
-    pending: Boolean(state?.pendingRegistration),
+    pending: false,
     error: {
       code,
       message
@@ -1938,179 +1920,115 @@ function desktopChatRegistrationFailure(error, state = null) {
   };
 }
 
+function desktopChatReadyMessage(runtime = {}) {
+  return runtime.chatReady
+    ? 'OpenX Chat account and desktop device are ready.'
+    : 'This desktop is registered, but it needs approval from an already trusted OpenX Chat device before messaging.';
+}
+
+async function completeDesktopChatRegistrationWithAccount(input = {}) {
+  const account = isPlainObject(input.account) ? input.account : {};
+  const apiBaseUrl = normalizeDesktopChatApiBaseUrl(input.apiBaseUrl);
+  const username = normalizeDesktopChatUsernameInput(input.username || account.username || '');
+  const previousState = input.previousState || readDesktopChatSetupState();
+  const accountId = normalizeDesktopChatSetupText(account.accountId, 100);
+  if (!/^acc_[a-f0-9]{64}$/i.test(accountId)) throw new Error('Chat server returned an invalid account id.');
+  const device = await ensureDesktopChatDevice(accountId, apiBaseUrl);
+  let pinEnabled = previousState.pinEnabled === true;
+  const pin = normalizeDesktopChatSetupText(input.pin || '', 24);
+  if (pin) {
+    await desktopChatServerRequest(apiBaseUrl, '/security/pin/create', 'POST', {
+      accountId,
+      deviceId: device?.deviceId || null,
+      pin
+    });
+    pinEnabled = true;
+  }
+  let cryptoState = normalizeDesktopChatCryptoState();
+  if (isDesktopChatDeviceApproved(device)) {
+    try {
+      cryptoState = await ensureDesktopChatPublicKeys(accountId, device.deviceId, apiBaseUrl);
+    } catch (error) {
+      mainLogger.warn('[CHAT] Desktop chat key registration failed after account verification', { code: error.code, error: error.message });
+      cryptoState = {
+        identityReady: false,
+        deviceKeyReady: false,
+        sessionReady: false,
+        errorCode: normalizeDesktopChatSetupText(error.code || 'chat.identity_not_ready', 80),
+        errorMessage: normalizeDesktopChatSetupText(error.message || 'Chat identity setup is not ready.', 220),
+        updatedAt: new Date().toISOString()
+      };
+    }
+  }
+  const state = writeDesktopChatSetupState({
+    apiBaseUrl,
+    registered: true,
+    account,
+    device,
+    crypto: cryptoState,
+    username: username || previousState.username || null,
+    pinEnabled,
+    lastServerConnectedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  notifyDesktopChatRegistrationChanged(state);
+  return {
+    state,
+    runtime: deriveDesktopChatRuntime(state),
+    accountId,
+    device
+  };
+}
+
 async function startDesktopChatRegistration(input = {}) {
   let apiBaseUrl = DEFAULT_CHAT_API_BASE_URL;
   try {
-    const email = normalizeDesktopChatEmailInput(input.email);
-    if (!email) throw new Error('Email address is required to set up OpenX Chat.');
-    const registrationRequest = buildDesktopChatRegistrationRequest(email);
-    const emailDisplay = redactChatEmail(email);
-    const emailDomain = getDesktopChatEmailDomain(email);
+    const username = normalizeDesktopChatUsernameInput(input.username);
+    const password = normalizeDesktopChatPasswordInput(input.password);
+    if (!username) throw new Error('Username is required to set up OpenX Chat.');
+    if (!password) throw new Error('Password must be 10 to 128 characters.');
+    const registrationRequest = buildDesktopChatRegistrationRequest(username, password);
     apiBaseUrl = normalizeDesktopChatApiBaseUrl(input.apiBaseUrl);
-    mainLogger.info('[CHAT] Desktop requested an email verification code for chat setup', {
+    mainLogger.info('[CHAT] Desktop requested chat account setup', {
       apiBaseUrl,
-      emailDisplay,
-      emailDomain
+      username: redactChatUsername(username)
     });
-    const check = await desktopChatServerRequest(apiBaseUrl, '/account/check', 'POST', registrationRequest);
-    if (check.registered) {
-      const started = await desktopChatServerRequest(apiBaseUrl, '/account/login/start', 'POST', registrationRequest);
-      const state = writeDesktopChatSetupState({
-        ...readDesktopChatSetupState(),
-        apiBaseUrl,
-        registered: false,
-        pendingRegistration: {
-          mode: 'login',
-          email,
-          emailDisplay,
-          emailDomain,
-          registrationId: null,
-          startedAt: new Date().toISOString()
-        },
-        emailDisplay,
-        emailDomain,
-        lastServerConnectedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
-      notifyDesktopChatRegistrationChanged(state);
-      mainLogger.info('[CHAT] Chat login verification email request accepted by server', {
-        apiBaseUrl,
-        delivery: 'email'
-      });
-      return {
-        ...serializeDesktopChatSetupState(state),
-        registeredRemotely: true,
-        canRegister: true,
-        message: started.message || 'Verification email sent successfully.'
-      };
-    }
-    const started = await desktopChatServerRequest(apiBaseUrl, '/register/start', 'POST', registrationRequest);
-    const state = writeDesktopChatSetupState({
-      ...readDesktopChatSetupState(),
+
+    const availability = await desktopChatServerRequest(
       apiBaseUrl,
-      registered: false,
-      pendingRegistration: {
-        email,
-        emailDisplay,
-        emailDomain,
-        registrationId: null,
-        startedAt: new Date().toISOString()
-      },
-      emailDisplay,
-      emailDomain,
-      lastServerConnectedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      `/account/username/${encodeURIComponent(username)}`,
+      'GET'
+    );
+    const registeredRemotely = availability?.taken === true || availability?.available === false;
+    const account = registeredRemotely
+      ? await desktopChatServerRequest(apiBaseUrl, '/account/login', 'POST', registrationRequest)
+      : await desktopChatServerRequest(apiBaseUrl, '/account/register', 'POST', registrationRequest);
+    const completed = await completeDesktopChatRegistrationWithAccount({
+      account,
+      username,
+      apiBaseUrl,
+      pin: input.pin,
+      previousState: readDesktopChatSetupState()
     });
-    notifyDesktopChatRegistrationChanged(state);
-    mainLogger.info('[CHAT] Chat registration verification email request accepted by server', {
+    mainLogger.info('[CHAT] Desktop chat account setup completed', {
       apiBaseUrl,
-      delivery: 'email'
+      username: redactChatUsername(username),
+      accountId: completed.accountId,
+      deviceId: completed.device?.deviceId || null,
+      chatReady: completed.runtime.chatReady
     });
     return {
-      ...serializeDesktopChatSetupState(state),
+      ...serializeDesktopChatSetupState(completed.state),
+      registeredRemotely,
       canRegister: true,
-      message: started.message || 'Verification email sent successfully.'
+      message: account.message || desktopChatReadyMessage(completed.runtime)
     };
   } catch (error) {
-    mainLogger.warn('[CHAT] Chat verification email request failed', {
+    mainLogger.warn('[CHAT] Chat account setup request failed', {
       apiBaseUrl,
       code: error.code || 'chat.registration_failed',
       error: error.message,
       details: error.details || null
-    });
-    return desktopChatRegistrationFailure(error, readDesktopChatSetupState());
-  }
-}
-
-async function verifyDesktopChatRegistration(input = {}) {
-  try {
-    const current = readDesktopChatSetupState();
-    const apiBaseUrl = normalizeDesktopChatApiBaseUrl(input.apiBaseUrl || current.apiBaseUrl);
-    const pendingEmail = current.pendingRegistration?.email;
-    const email = normalizeDesktopChatEmailInput(input.email || pendingEmail);
-    if (!email) throw new Error('Email address is required to verify OpenX Chat.');
-    const otp = normalizeDesktopChatSetupText(input.otp, 12);
-    const verifyRequest = buildDesktopChatRegistrationRequest(email);
-    const verificationRoute = current.pendingRegistration?.mode === 'login'
-      ? '/account/login/verify'
-      : '/register/verify';
-    mainLogger.info('[CHAT] Desktop chat verification submitted', {
-      apiBaseUrl,
-      mode: current.pendingRegistration?.mode === 'login' ? 'login' : 'register',
-      emailDisplay: redactChatEmail(email),
-      emailDomain: getDesktopChatEmailDomain(email)
-    });
-    let account = null;
-    try {
-      account = await desktopChatServerRequest(apiBaseUrl, verificationRoute, 'POST', { ...verifyRequest, otp });
-    } catch (error) {
-      if (verificationRoute === '/register/verify' && error.code === 'account.duplicate') {
-        account = await desktopChatServerRequest(apiBaseUrl, '/account/login/verify', 'POST', { ...verifyRequest, otp });
-      } else {
-        throw error;
-      }
-    }
-    const accountId = normalizeDesktopChatSetupText(account.accountId, 100);
-    if (!/^acc_[a-f0-9]{64}$/i.test(accountId)) throw new Error('Chat server returned an invalid account id.');
-    const device = await ensureDesktopChatDevice(accountId, apiBaseUrl);
-    let pinEnabled = false;
-    const pin = normalizeDesktopChatSetupText(input.pin || '', 24);
-    if (pin) {
-      await desktopChatServerRequest(apiBaseUrl, '/security/pin/create', 'POST', {
-        accountId,
-        deviceId: device?.deviceId || null,
-        pin
-      });
-      pinEnabled = true;
-    }
-    let cryptoState = normalizeDesktopChatCryptoState();
-    if (isDesktopChatDeviceApproved(device)) {
-      try {
-        cryptoState = await ensureDesktopChatPublicKeys(accountId, device.deviceId, apiBaseUrl);
-      } catch (error) {
-        mainLogger.warn('[CHAT] Desktop chat key registration failed after OTP verification', { code: error.code, error: error.message });
-        cryptoState = {
-          identityReady: false,
-          deviceKeyReady: false,
-          sessionReady: false,
-          errorCode: normalizeDesktopChatSetupText(error.code || 'chat.identity_not_ready', 80),
-          errorMessage: normalizeDesktopChatSetupText(error.message || 'Chat identity setup is not ready.', 220),
-          updatedAt: new Date().toISOString()
-        };
-      }
-    }
-    const state = writeDesktopChatSetupState({
-      apiBaseUrl,
-      registered: true,
-      account,
-      device,
-      crypto: cryptoState,
-      pendingRegistration: null,
-      emailDisplay: current.emailDisplay || current.pendingRegistration?.emailDisplay || redactChatEmail(email),
-      emailDomain: current.emailDomain || current.pendingRegistration?.emailDomain || getDesktopChatEmailDomain(email),
-      pinEnabled,
-      lastServerConnectedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
-    notifyDesktopChatRegistrationChanged(state);
-    const runtime = deriveDesktopChatRuntime(state);
-    mainLogger.info('[CHAT] Desktop chat verification completed', {
-      accountId,
-      deviceId: device?.deviceId || null,
-      approvalStatus: device?.approvalStatus || null,
-      deviceStatus: device?.deviceStatus || null,
-      chatReady: runtime.chatReady
-    });
-    return {
-      ...serializeDesktopChatSetupState(state),
-      message: runtime.chatReady
-        ? 'OpenX Chat account and desktop device are ready.'
-        : 'This desktop is registered, but it needs approval from an already trusted OpenX Chat device before messaging.'
-    };
-  } catch (error) {
-    mainLogger.warn('[CHAT] Desktop chat verification failed', {
-      code: error.code || 'chat.verification_failed',
-      error: error.message
     });
     return desktopChatRegistrationFailure(error, readDesktopChatSetupState());
   }
@@ -2271,17 +2189,16 @@ async function openDesktopChatConversation(input = {}) {
 async function createDesktopChatConversation(input = {}) {
   const manager = await getDesktopChatConversationManager();
   const title = normalizeDesktopChatText(input.peerName || input.name || input.title || 'New Chat', 80) || 'New Chat';
-  const peerHandle = normalizeDesktopChatEmailInput(input.peerHandle || input.email || input.openxId || input.identifier);
-  if (!peerHandle) throw new Error('Email address is required to add a real OpenX Chat user.');
+  const peerHandle = normalizeDesktopChatUsernameInput(input.peerHandle || input.username || input.openxId || input.identifier);
+  if (!peerHandle) throw new Error('Username is required to add a real OpenX Chat user.');
   await reconcileDesktopChatSetupState();
   const registered = getRegisteredDesktopChatContext();
-  const discoveryPayload = buildDesktopChatRegistrationRequest(peerHandle);
   const lookup = await desktopChatServerRequest(
     registered.apiBaseUrl,
     '/discovery/lookup',
     'POST',
     {
-      ...discoveryPayload,
+      username: peerHandle,
       metadata: {
         source: 'openx-desktop-chat',
         intent: 'add-contact'
@@ -2325,7 +2242,7 @@ async function createDesktopChatConversation(input = {}) {
         metadata: { peerName: title, peerHandle }
       };
     } else if (error.code === 'request.unknown_account') {
-      const notFound = new Error('No OpenX Chat account was found for that email address.');
+      const notFound = new Error('No OpenX Chat account was found for that username.');
       notFound.code = 'chat.contact_not_found';
       throw notFound;
     } else {
@@ -2338,7 +2255,7 @@ async function createDesktopChatConversation(input = {}) {
       title,
       peerName: title,
       peerHandle,
-      peerType: 'email'
+      peerType: 'username'
     });
     const history = await manager.storage.listHistory(conversation.conversationId);
     return {
@@ -2356,7 +2273,7 @@ async function createDesktopChatConversation(input = {}) {
       title,
       name: title,
       peerHandle,
-      peerType: 'email',
+      peerType: 'username',
       status: 'Request sent',
       serverStatus: 'request-pending',
       requestStatus: normalizeDesktopChatSetupText(request.status || 'Pending', 40) || 'Pending',
@@ -2382,7 +2299,7 @@ async function updateDesktopChatConversation(input = {}) {
   const peerHandle = normalizeDesktopChatText(input.peerHandle || input.openxId || input.identifier, 120);
   const peerType = normalizeDesktopChatText(input.peerType || 'openx', 40) || 'openx';
   if (!title) throw new Error('Chat name is required.');
-  if (!peerHandle) throw new Error('OpenX ID or email is required.');
+  if (!peerHandle) throw new Error('OpenX username or account id is required.');
   const conversation = await manager.updateConversationMetadata(input.conversationId, {
     title,
     name: title,
@@ -2445,7 +2362,7 @@ async function listDesktopChatContacts() {
       title: requestMatch?.title || 'OpenX user',
       peerName: requestMatch?.title || 'OpenX user',
       peerHandle: requestMatch?.peerHandle || relationship.peerAccountId,
-      peerType: requestMatch?.peerHandle ? 'email' : 'account',
+      peerType: requestMatch?.peerHandle ? 'username' : 'account',
       contactRequestId: relationship.sourceRequestId || requestMatch?.requestId || '',
       addedFrom: 'desktop-chat-sync'
     });
@@ -2485,7 +2402,7 @@ async function acceptDesktopChatContactRequest(input = {}) {
     title: normalizeDesktopChatText(input.peerName || request?.title || 'OpenX user', 80) || 'OpenX user',
     peerName: normalizeDesktopChatText(input.peerName || request?.title || 'OpenX user', 80) || 'OpenX user',
     peerHandle: normalizeDesktopChatText(input.peerHandle || request?.peerHandle || relationship?.peerAccountId, 120),
-    peerType: request?.peerHandle ? 'email' : 'account',
+    peerType: request?.peerHandle ? 'username' : 'account',
     contactRequestId: requestId,
     addedFrom: 'desktop-chat-accept'
   });
@@ -5115,10 +5032,6 @@ function setupIPC() {
 
   registerIpcHandler('desktopChat:registration:start', async (_event, payload) => {
     return startDesktopChatRegistration(payload || {});
-  });
-
-  registerIpcHandler('desktopChat:registration:verify', async (_event, payload) => {
-    return verifyDesktopChatRegistration(payload || {});
   });
 
   registerIpcHandler('uiState:get', async () => {
