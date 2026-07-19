@@ -47,7 +47,7 @@ class SecurityClient {
    */
   async request(route, method, body = null) {
     if (typeof this.fetchImpl !== 'function') throw new Error('Fetch is not available for security client.');
-    const base = String(this.config.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'http://localhost:8090').replace(/\/+$/, '');
+    const base = String(this.config.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'https://openx-chat-server.onrender.com').replace(/\/+$/, '');
     const response = await this.fetchImpl(`${base}${route}`, {
       method,
       headers: body ? { 'content-type': 'application/json' } : undefined,

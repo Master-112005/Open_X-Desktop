@@ -333,8 +333,12 @@ const VOICE_IDLE_RESOURCE_WARMUP_DELAY_MS = 45 * 1000;
 const VOICE_RESUME_RUNTIME_PREWARM_DELAY_MS = 1200;
 const VOICE_RESUME_RESOURCE_WARMUP_DELAY_MS = 2500;
 const LIVE_SCHEDULE_INITIAL_EXPAND_MS = 5000;
-const DEFAULT_CHAT_API_BASE_URL = 'http://127.0.0.1:8090';
-const DESKTOP_CHAT_SETUP_VERSION = 1;
+const DEFAULT_CHAT_API_BASE_URL = 'https://openx-chat-server.onrender.com';
+const LEGACY_CHAT_API_BASE_URLS = new Set([
+  'http://localhost:8090',
+  'http://127.0.0.1:8090'
+]);
+const DESKTOP_CHAT_SETUP_VERSION = 2;
 const DESKTOP_CHAT_REQUEST_TIMEOUT_MS = 15000;
 const DESKTOP_CHAT_LOOPBACK_RETRY_LOG_WINDOW_MS = 30000;
 const desktopChatLoopbackRetryLogState = {
@@ -1052,6 +1056,14 @@ function normalizeDesktopChatApiBaseUrl(value) {
   return parsed.href.replace(/\/+$/, '');
 }
 
+function isLegacyDesktopChatApiBaseUrl(value) {
+  try {
+    return LEGACY_CHAT_API_BASE_URLS.has(normalizeDesktopChatApiBaseUrl(value).toLowerCase());
+  } catch (_) {
+    return false;
+  }
+}
+
 function normalizeDesktopChatRoute(route) {
   const value = String(route || '/').trim();
   return value.startsWith('/') ? value : `/${value}`;
@@ -1134,7 +1146,7 @@ function createDesktopChatServerUnavailableError(apiBaseUrl, route, error) {
     }
   })();
   const cause = desktopChatTransportErrorCode(error);
-  const failure = new Error(`OpenX Chat Server is not reachable at ${normalizedUrl}. Start OpenX_Chat_Server with npm start, then try again. For local development, use http://127.0.0.1:8090.`);
+  const failure = new Error(`OpenX Chat Server is not reachable at ${normalizedUrl}. Check the deployed server or set OPENX_CHAT_API_URL for a local server such as http://127.0.0.1:8090.`);
   failure.code = 'chat.server_unreachable';
   failure.details = {
     route: sanitizeDesktopChatRouteForLog(route),
@@ -1412,6 +1424,15 @@ function normalizeDesktopChatSetupState(state = {}) {
   try {
     apiBaseUrl = normalizeDesktopChatApiBaseUrl(state.apiBaseUrl);
   } catch (_) {
+    apiBaseUrl = normalizeDesktopChatApiBaseUrl();
+  }
+  if (
+    Number(state.version || 0) < DESKTOP_CHAT_SETUP_VERSION
+    && !state.registered
+    && !state.pendingRegistration
+    && isLegacyDesktopChatApiBaseUrl(apiBaseUrl)
+    && !process.env.OPENX_CHAT_API_URL
+  ) {
     apiBaseUrl = normalizeDesktopChatApiBaseUrl();
   }
   const account = isPlainObject(state.account) ? state.account : null;
@@ -1901,13 +1922,17 @@ async function getDesktopChatRegistrationStatus() {
 }
 
 function desktopChatRegistrationFailure(error, state = null) {
+  const code = normalizeDesktopChatSetupText(error?.code || 'chat.registration_failed', 80);
+  const message = code === 'otp.delivery_failed'
+    ? 'The Chat Server could not send the verification email. Check the server email provider settings, then try again.'
+    : normalizeDesktopChatSetupText(error?.message || 'Chat registration failed.', 220);
   return {
     success: false,
     registered: Boolean(state?.registered),
     pending: Boolean(state?.pendingRegistration),
     error: {
-      code: normalizeDesktopChatSetupText(error?.code || 'chat.registration_failed', 80),
-      message: normalizeDesktopChatSetupText(error?.message || 'Chat registration failed.', 220)
+      code,
+      message
     },
     state: state ? serializeDesktopChatSetupState(state) : null
   };
@@ -1990,7 +2015,8 @@ async function startDesktopChatRegistration(input = {}) {
     mainLogger.warn('[CHAT] Chat verification email request failed', {
       apiBaseUrl,
       code: error.code || 'chat.registration_failed',
-      error: error.message
+      error: error.message,
+      details: error.details || null
     });
     return desktopChatRegistrationFailure(error, readDesktopChatSetupState());
   }

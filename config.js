@@ -70,7 +70,7 @@ const CONFIG = {
   chat: {
     activationShortcut: 'Control+Space',
     activationFallbackShortcuts: [],
-    apiBaseUrl: 'http://127.0.0.1:8090',
+    apiBaseUrl: 'https://openx-chat-server.onrender.com',
     defaultCountryCode: '',
     maxHistory: 250,
     maxDisplayMessages: 250,

@@ -9,7 +9,7 @@ class MultiDeviceConfiguration {
    * @param {object} options Overrides.
    */
   constructor(options = {}) {
-    this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'http://localhost:8090').replace(/\/+$/, '');
+    this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'https://openx-chat-server.onrender.com').replace(/\/+$/, '');
     this.requestTimeoutMs = Number(options.requestTimeoutMs || 15000);
     this.maxRetries = Number(options.maxRetries || 5);
     this.storagePath = options.storagePath || chatDataPath('chat-multi-device.json', { ...options, pathKey: 'chatMultiDevicePath' });

@@ -21,11 +21,13 @@
         </div>
       </div>
       <div id="header-actions">
-        <button class="header-btn view-tab active" id="chat-view-btn" type="button" aria-pressed="true">Chat</button>
-        <button class="header-btn view-tab" id="activity-view-btn" type="button" aria-pressed="false">
-          Activity <span id="activity-badge" hidden>0</span>
-        </button>
-        <button class="header-btn view-tab" id="apps-view-btn" type="button" aria-pressed="false">Apps</button>
+        <nav class="view-switcher" id="view-switcher" aria-label="Workspace views" data-active-view="chat">
+          <button class="header-btn view-tab active" id="chat-view-btn" type="button" aria-pressed="true">Chat</button>
+          <button class="header-btn view-tab" id="activity-view-btn" type="button" aria-pressed="false">
+            Activity <span id="activity-badge" hidden>0</span>
+          </button>
+          <button class="header-btn view-tab" id="apps-view-btn" type="button" aria-pressed="false">Apps</button>
+        </nav>
         <button class="window-btn close" id="close-btn" title="Close" aria-label="Close">&#10005;</button>
       </div>
     </div>
@@ -90,19 +92,22 @@
 
       <section class="workspace-view" id="people-chat-view" aria-label="OpenX Chat" hidden>
         <div class="people-chat-shell list-open">
+          <header class="people-chat-app-header">
+            <strong>OpenX Chat</strong>
+            <button class="people-chat-icon-btn people-chat-close-btn" id="people-chat-close-btn" type="button" title="Close chat" aria-label="Close chat">&#10005;</button>
+          </header>
           <aside class="people-chat-sidebar" aria-label="Chats">
             <div class="people-chat-list-controls">
               <label class="people-chat-search">
                 <span>Search chats</span>
                 <input id="people-chat-search" type="search" placeholder="Search chats" autocomplete="off">
               </label>
-              <button class="people-chat-icon-btn" id="people-chat-new-btn" type="button" title="New chat" aria-label="New chat">+</button>
-              <button class="people-chat-icon-btn people-chat-close-btn" id="people-chat-close-btn" type="button" title="Close chat" aria-label="Close chat">&#10005;</button>
             </div>
             <div class="people-chat-filters" aria-label="Chat filters">
               <button class="people-chat-filter active" type="button" data-chat-filter="all">All</button>
               <button class="people-chat-filter" type="button" data-chat-filter="unread">Unread</button>
               <button class="people-chat-filter" type="button" data-chat-filter="pinned">Pinned</button>
+              <button class="people-chat-icon-btn people-chat-add-filter" id="people-chat-new-btn" type="button" title="New chat" aria-label="New chat">+</button>
               <button class="people-chat-filter people-chat-settings-filter" id="people-chat-settings-btn" type="button" aria-expanded="false" aria-controls="people-chat-registration">Settings</button>
             </div>
             <form class="people-chat-add-user" id="people-chat-add-user" hidden>
@@ -329,7 +334,7 @@
             </div>
           </section>
 
-          <div class="settings-nav">
+          <div class="settings-nav settings-segmented" id="settings-nav" aria-label="Settings sections" data-active-section="system">
             <button class="settings-nav-chip" data-section-target="system" type="button">
               <span class="nav-label">System</span>
               <span class="nav-hint">Identity, voice, and theme.</span>
@@ -350,7 +355,7 @@
           </div>
 
           <div class="settings-content">
-          <div class="system-options" id="system-options" role="tablist" aria-label="System settings" hidden>
+          <div class="system-options settings-segmented" id="system-options" role="tablist" aria-label="System settings" data-active-block="identity" hidden>
             <button class="system-option active" data-system-block-target="identity" type="button" role="tab" aria-selected="true">
               <span class="nav-label">Identity</span>
               <span class="nav-hint">Name, honorific, and voice.</span>

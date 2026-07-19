@@ -9,7 +9,7 @@ class TransferConfiguration {
    * @param {object} options Overrides.
    */
   constructor(options = {}) {
-    this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'http://localhost:8090').replace(/\/+$/, '');
+    this.apiBaseUrl = String(options.apiBaseUrl || process.env.OPENX_CHAT_API_URL || 'https://openx-chat-server.onrender.com').replace(/\/+$/, '');
     this.maxImageSizeBytes = Number(options.maxImageSizeBytes || 10 * 1024 * 1024);
     this.maxDocumentSizeBytes = Number(options.maxDocumentSizeBytes || 15 * 1024 * 1024);
     this.maxRetries = Number(options.maxRetries || 5);

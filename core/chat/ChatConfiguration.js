@@ -7,7 +7,7 @@ class ChatConfiguration {
    * @param {object} options Configuration overrides.
    */
   constructor(options = {}) {
-    this.serverUrl = String(options.serverUrl || process.env.OPENX_CHAT_SERVER_URL || 'ws://localhost:8090/ws').trim();
+    this.serverUrl = String(options.serverUrl || process.env.OPENX_CHAT_SERVER_URL || 'wss://openx-chat-server.onrender.com/ws').trim();
     this.dataPaths = options.dataPaths || null;
     this.dataRoot = options.dataRoot || null;
     this.protocolVersion = String(options.protocolVersion || '1');
