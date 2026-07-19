@@ -255,31 +255,29 @@ function normalizeOptionalChatApiBaseUrl(value) {
   return parsed.href.replace(/\/+$/, '');
 }
 
-function requireDesktopChatEmail(value, name = 'desktopChat.email') {
-  const email = requireString(value, name, { maxLength: 254 }).toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new TypeError(`${name} must be a valid email address`);
+function requireDesktopChatUsername(value, name = 'desktopChat.username') {
+  const username = requireString(value, name, { maxLength: 32 });
+  if (!/^[A-Za-z0-9._-]{3,32}$/.test(username)) {
+    throw new TypeError(`${name} must be 3-32 letters, numbers, dots, hyphens, or underscores`);
   }
-  return email;
+  return username;
+}
+
+function requireDesktopChatPassword(value, name = 'desktopChat.password') {
+  if (typeof value !== 'string') throw new TypeError(`${name} must be a string`);
+  if (value.length < 10 || value.length > 128) {
+    throw new RangeError(`${name} must be 10-128 characters`);
+  }
+  return value;
 }
 
 function validateDesktopChatRegistrationStart(payload = {}) {
   requirePlainObject(payload, 'desktopChat.registration');
-  return {
-    email: requireDesktopChatEmail(payload.email),
-    apiBaseUrl: normalizeOptionalChatApiBaseUrl(payload.apiBaseUrl)
-  };
-}
-
-function validateDesktopChatRegistrationVerify(payload = {}) {
-  requirePlainObject(payload, 'desktopChat.registration');
   const output = {
-    otp: requireString(payload.otp, 'desktopChat.otp', { maxLength: 12 }),
+    username: requireDesktopChatUsername(payload.username),
+    password: requireDesktopChatPassword(payload.password),
     apiBaseUrl: normalizeOptionalChatApiBaseUrl(payload.apiBaseUrl)
   };
-  if (payload.email !== undefined && payload.email !== null && payload.email !== '') {
-    output.email = requireDesktopChatEmail(payload.email);
-  }
   if (payload.pin !== undefined && payload.pin !== null && payload.pin !== '') {
     output.pin = requireString(payload.pin, 'desktopChat.pin', { maxLength: 24 });
   }
@@ -609,7 +607,6 @@ const IPC_VALIDATORS = Object.freeze({
   'desktopChat:contacts:cancel': validateDesktopChatRequestAction,
   'desktopChat:registration:get': validateEmpty,
   'desktopChat:registration:start': validateDesktopChatRegistrationStart,
-  'desktopChat:registration:verify': validateDesktopChatRegistrationVerify,
   'uiState:get': validateEmpty,
   'uiState:save': validateUiState,
   'security:status': validateEmpty,

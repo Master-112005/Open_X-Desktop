@@ -107,8 +107,8 @@ describe('Electron Security Boundary', function() {
       { title: 'Family', peerName: 'Family', peerHandle: '', peerType: 'openx' }
     );
     assert.deepEqual(
-      IPC_VALIDATORS['desktopChat:create']({ peerName: ' Mummy ', peerHandle: ' mummy@example.com ', peerType: 'email' }),
-      { title: 'Mummy', peerName: 'Mummy', peerHandle: 'mummy@example.com', peerType: 'email' }
+      IPC_VALIDATORS['desktopChat:create']({ peerName: ' Mummy ', peerHandle: ' mummy_user ', peerType: 'username' }),
+      { title: 'Mummy', peerName: 'Mummy', peerHandle: 'mummy_user', peerType: 'username' }
     );
     assert.deepEqual(
       IPC_VALIDATORS['desktopChat:send']({ conversationId, text: ' hello ' }),
@@ -139,12 +139,13 @@ describe('Electron Security Boundary', function() {
       undefined
     );
     assert.deepEqual(
-      IPC_VALIDATORS['desktopChat:registration:start']({ email: ' Mummy@Example.COM ', apiBaseUrl: ' http://localhost:8090/ ' }),
-      { email: 'mummy@example.com', apiBaseUrl: 'http://localhost:8090' }
-    );
-    assert.deepEqual(
-      IPC_VALIDATORS['desktopChat:registration:verify']({ otp: ' 123456 ', pin: ' 2468 ' }),
-      { otp: '123456', apiBaseUrl: undefined, pin: '2468' }
+      IPC_VALIDATORS['desktopChat:registration:start']({
+        username: ' Mummy.User ',
+        password: 'StrongPass1!',
+        apiBaseUrl: ' http://localhost:8090/ ',
+        pin: ' 2468 '
+      }),
+      { username: 'Mummy.User', password: 'StrongPass1!', apiBaseUrl: 'http://localhost:8090', pin: '2468' }
     );
     assert.throws(() => IPC_VALIDATORS['desktopChat:open']({ conversationId: 'bad' }), /conversationId is invalid/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:send']({ conversationId, text: '' }), /must not be empty/);
@@ -154,10 +155,10 @@ describe('Electron Security Boundary', function() {
     assert.throws(() => IPC_VALIDATORS['desktopChat:create']({ title: 'x'.repeat(81) }), /exceeds/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:create']({ peerName: 'Mummy', peerHandle: 'x'.repeat(121) }), /exceeds/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:contacts:accept']({ requestId: 'bad' }), /requestId is invalid/);
-    assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ email: '' }), /must not be empty/);
-    assert.throws(() => IPC_VALIDATORS['desktopChat:registration:verify']({ otp: '' }), /must not be empty/);
-    assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ email: 'mummy@example.com', apiBaseUrl: 'file:///tmp/chat' }), /protocol is not supported/);
-    assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ email: 'not-an-email' }), /valid email address/);
+    assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ username: '', password: 'StrongPass1!' }), /must not be empty/);
+    assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ username: 'mummy', password: '' }), /10-128/);
+    assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ username: 'mummy', password: 'StrongPass1!', apiBaseUrl: 'file:///tmp/chat' }), /protocol is not supported/);
+    assert.throws(() => IPC_VALIDATORS['desktopChat:registration:start']({ username: 'bad user', password: 'StrongPass1!' }), /3-32/);
   });
 
   it('should validate disk-backed renderer UI state IPC payloads', function() {
@@ -311,7 +312,7 @@ describe('Electron Security Boundary', function() {
       'config:get', 'settings:get', 'chatHistory:get', 'chatHistory:save', 'chatHistory:clear',
       'desktopChat:list', 'desktopChat:open', 'desktopChat:create', 'desktopChat:update', 'desktopChat:delete', 'desktopChat:send',
       'desktopChat:contacts:list', 'desktopChat:contacts:accept', 'desktopChat:contacts:delete', 'desktopChat:contacts:cancel',
-      'desktopChat:registration:get', 'desktopChat:registration:start', 'desktopChat:registration:verify',
+      'desktopChat:registration:get', 'desktopChat:registration:start',
       'uiState:get', 'uiState:save',
       'security:status', 'security:verifyAccess', 'security:setPassword',
       'cloud:status', 'cloud:connect', 'cloud:disconnect',
