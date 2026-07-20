@@ -18,7 +18,7 @@ class CommunicationsController {
     this.logger = new Logger(config?.logging || { level: 'info' });
   }
 
-  async composeMessage(contactName, messageText, platform) {
+  async composeMessage(contactName, messageText, platform, options = {}) {
     if (!contactName) {
       return { success: false, error: 'No contact name provided' };
     }
@@ -28,6 +28,31 @@ class CommunicationsController {
     }
 
     const messagePlatform = this._resolveMessagingPlatform(platform);
+    if (!messagePlatform || this._isOpenXChatPlatform(messagePlatform)) {
+      const sender = this.config?.desktopActions?.sendOpenXChatMessage;
+      if (typeof sender === 'function') {
+        const result = await sender({
+          contactName,
+          messageText,
+          platform: 'openx-chat',
+          contactId: options.contactId || null,
+          signal: options.signal || null,
+          operationContext: options.operationContext || null
+        });
+        if (result?.success === false) return result;
+        return {
+          success: true,
+          data: {
+            ...(result?.data || {}),
+            contactName: result?.data?.contactName || String(contactName).trim(),
+            messageText: result?.data?.messageText || String(messageText).trim(),
+            platform: 'openx-chat',
+            delivery: result?.data?.delivery || 'sent'
+          }
+        };
+      }
+    }
+
     return {
       success: false,
       error: messagePlatform
@@ -116,6 +141,11 @@ class CommunicationsController {
     }
 
     return '';
+  }
+
+  _isOpenXChatPlatform(platform) {
+    const value = String(platform || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    return ['openx', 'openx chat', 'open x chat', 'chat'].includes(value);
   }
 
   _buildMailtoUrl(email, subject, body) {

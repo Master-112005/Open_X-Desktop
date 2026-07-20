@@ -427,6 +427,7 @@ const IPC_CHANNELS = [
   'desktopChat:update',
   'desktopChat:delete',
   'desktopChat:send',
+  'desktopChat:quickReply',
   'desktopChat:contacts:list',
   'desktopChat:contacts:accept',
   'desktopChat:contacts:delete',
@@ -2809,6 +2810,136 @@ async function cancelDesktopChatContactRequest(input = {}) {
   };
 }
 
+function normalizeDesktopChatLookupKey(value) {
+  return normalizeDesktopChatText(value || '', 120)
+    .toLowerCase()
+    .replace(/^@+/, '')
+    .replace(/[^a-z0-9._ -]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function desktopChatConversationLookupLabels(conversation = {}) {
+  const metadata = isPlainObject(conversation.metadata) ? conversation.metadata : {};
+  return [
+    metadata.title,
+    metadata.name,
+    conversation.title,
+    metadata.peerName,
+    metadata.peerHandle,
+    metadata.openxId,
+    metadata.username,
+    metadata.peerAccountId,
+    metadata.recipientAccountId
+  ]
+    .map(value => normalizeDesktopChatLookupKey(value))
+    .filter(Boolean);
+}
+
+function scoreDesktopChatConversationMatch(query, labels = []) {
+  const target = normalizeDesktopChatLookupKey(query);
+  if (!target) return 0;
+  let score = 0;
+  for (const label of labels) {
+    if (label === target) score = Math.max(score, 100);
+    else if (label.replace(/^@+/, '') === target) score = Math.max(score, 98);
+    else if (label.startsWith(`${target} `) || label.startsWith(`${target}.`) || label.startsWith(`${target}_`)) score = Math.max(score, 86);
+    else if (label.includes(target) && target.length >= 4) score = Math.max(score, 72);
+  }
+  return score;
+}
+
+async function findDesktopChatTrustedConversationByContact(contactName) {
+  const query = normalizeDesktopChatLookupKey(contactName);
+  if (!query) return null;
+  const manager = await getDesktopChatConversationManager();
+  const conversations = await manager.storage.listConversations();
+  const matches = conversations
+    .filter(conversation => {
+      const metadata = isPlainObject(conversation.metadata) ? conversation.metadata : {};
+      return !conversation.deleted &&
+        normalizeDesktopChatSetupText(metadata.serverStatus || '', 40) === 'trusted' &&
+        isDesktopChatRelationshipId(conversation.relationshipId);
+    })
+    .map(conversation => {
+      const labels = desktopChatConversationLookupLabels(conversation);
+      return {
+        conversation,
+        labels,
+        score: scoreDesktopChatConversationMatch(query, labels)
+      };
+    })
+    .filter(match => match.score >= 72)
+    .sort((left, right) => right.score - left.score);
+
+  if (matches.length === 0) return null;
+  const bestScore = matches[0].score;
+  const best = matches.filter(match => match.score === bestScore);
+  if (best.length > 1) {
+    const error = new Error(`I found more than one OpenX Chat contact matching ${contactName}. Open Chat and choose the person directly.`);
+    error.code = 'chat.contact_ambiguous';
+    error.details = {
+      matches: best.slice(0, 5).map(match => serializeDesktopChatConversation(match.conversation, []))
+    };
+    throw error;
+  }
+  return matches[0].conversation;
+}
+
+async function sendDesktopChatMessageToContact(input = {}) {
+  const requestedContactName = normalizeDesktopChatText(input.contactName || input.recipient || '', 80);
+  const text = normalizeDesktopChatText(input.messageText || input.text || '', 1200);
+  if (!requestedContactName) {
+    const error = new Error('Tell me who to message in OpenX Chat.');
+    error.code = 'chat.contact_required';
+    throw error;
+  }
+  if (!text) {
+    const error = new Error('Tell me what message to send.');
+    error.code = 'chat.message_required';
+    throw error;
+  }
+
+  await reconcileDesktopChatSetupState();
+  getRegisteredDesktopChatContext();
+  try {
+    await listDesktopChatContacts();
+  } catch (error) {
+    if (!isDesktopChatServerUnavailableError(error)) {
+      mainLogger.warn('[CHAT] Contact refresh before assistant message failed', {
+        code: error.code || 'chat.contact_refresh_failed',
+        error: error.message
+      });
+    }
+  }
+
+  const conversation = await findDesktopChatTrustedConversationByContact(requestedContactName);
+  if (!conversation) {
+    const error = new Error(`I could not find a trusted OpenX Chat contact named ${requestedContactName}. Open Chat and add or accept that person first.`);
+    error.code = 'chat.contact_not_found';
+    throw error;
+  }
+
+  const result = await sendDesktopChatMessage({
+    conversationId: conversation.conversationId,
+    text
+  });
+  notifyDesktopChatChanged({ reason: 'assistant-message', conversation: result.conversation });
+  const displayName = result.conversation?.title || normalizeDesktopChatText(conversation.metadata?.title || requestedContactName, 80) || requestedContactName;
+  return {
+    success: true,
+    data: {
+      contactName: displayName,
+      requestedContactName,
+      messageText: text,
+      platform: 'openx-chat',
+      delivery: 'sent',
+      conversationId: result.conversation?.conversationId || conversation.conversationId,
+      relationshipId: result.conversation?.relationshipId || conversation.relationshipId
+    }
+  };
+}
+
 async function sendDesktopChatMessage(input = {}) {
   const manager = await getDesktopChatConversationManager();
   const text = normalizeDesktopChatText(input.text, 1200);
@@ -2885,6 +3016,32 @@ async function sendDesktopChatMessage(input = {}) {
   };
 }
 
+async function quickReplyDesktopChatMessage(input = {}) {
+  const conversationId = normalizeDesktopChatSetupText(input.conversationId || '', 100).toLowerCase();
+  const text = normalizeDesktopChatText(input.text || 'OK', 120);
+  if (!/^conv_[a-f0-9]{64}$/i.test(conversationId)) {
+    const error = new Error('Chat conversation is no longer available.');
+    error.code = 'chat.conversation_invalid';
+    throw error;
+  }
+  if (!text) {
+    const error = new Error('Quick reply text is required.');
+    error.code = 'chat.quick_reply_empty';
+    throw error;
+  }
+  const result = await sendDesktopChatMessage({ conversationId, text });
+  notifyDesktopChatChanged({ reason: 'quick-reply', conversation: result.conversation });
+  return {
+    success: true,
+    data: {
+      conversationId,
+      text,
+      delivery: 'sent',
+      conversation: result.conversation
+    }
+  };
+}
+
 function desktopChatAccountFallbackLabel(accountId) {
   const id = normalizeDesktopChatSetupText(accountId || '', 100).toLowerCase();
   return isDesktopChatAccountId(id) ? `${id.slice(0, 10)}...${id.slice(-4)}` : 'OpenX user';
@@ -2956,28 +3113,100 @@ function desktopChatHistoryHasMessage(history = [], messageId = '') {
   });
 }
 
+function analyzeDesktopChatIncomingPrompt(preview = '', senderName = '') {
+  const text = normalizeDesktopChatText(preview, DESKTOP_CHAT_NOTIFICATION_PREVIEW_MAX);
+  const lower = text.toLowerCase();
+  const sender = normalizeDesktopChatText(senderName || 'OpenX Chat', 80) || 'OpenX Chat';
+  const asksToCall = /\b(?:call|phone|ring)\s+(?:me|back)\b|\b(?:call|phone|ring)\s+me\s+(?:now|immediately|urgent|asap)\b/.test(lower);
+  const urgent = /\b(?:urgent|asap|immediately|emergency|right\s+now|quickly|fast)\b/.test(lower);
+  const asksForReply = /\b(?:reply|respond|text|message)\s+(?:me|back)\b|\b(?:can|could|please)\s+you\b/.test(lower);
+  if (!asksToCall && !urgent && !asksForReply) return null;
+
+  const request = asksToCall
+    ? `${sender} is asking you to call. Can I tell ${sender} OK?`
+    : `${sender} sent: ${text}. Can I tell ${sender} OK?`;
+  return {
+    prompt: request,
+    replyText: 'OK',
+    kind: asksToCall ? 'call-request' : urgent ? 'urgent-message' : 'reply-request'
+  };
+}
+
+function speakDesktopChatPrompt(prompt, metadata = {}) {
+  const text = normalizeDesktopChatText(prompt, 260);
+  if (!text || !textToSpeech || typeof textToSpeech.speak !== 'function') return false;
+  try {
+    if (readUiState().assistantMuted === true) return false;
+    textToSpeech.speak(text);
+    mainLogger.info('[CHAT] Assistant spoke an incoming chat prompt', {
+      senderName: metadata.senderName || null,
+      promptKind: metadata.kind || null
+    });
+    return true;
+  } catch (error) {
+    mainLogger.warn('[CHAT] Incoming chat TTS prompt failed', {
+      code: error.code || 'chat.tts_failed',
+      error: error.message
+    });
+    return false;
+  }
+}
+
 function presentDesktopChatMessageInDynamicIsland(message = {}) {
   if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
   const senderName = normalizeDesktopChatText(message.senderName || 'OpenX Chat', 80) || 'OpenX Chat';
   const preview = normalizeDesktopChatText(message.preview || 'New message', DESKTOP_CHAT_NOTIFICATION_PREVIEW_MAX) || 'New message';
+  const conversationId = normalizeDesktopChatSetupText(message.conversationId || '', 100);
+  const messageId = normalizeDesktopChatSetupText(message.messageId || '', 100);
+  const assistantPrompt = analyzeDesktopChatIncomingPrompt(preview, senderName);
+  const actions = assistantPrompt && /^conv_[a-f0-9]{64}$/i.test(conversationId)
+    ? [
+        {
+          id: 'reply-ok',
+          label: 'Tell OK',
+          kind: 'desktop-chat-reply',
+          conversationId,
+          text: assistantPrompt.replyText,
+          primary: true
+        },
+        {
+          id: 'open-chat',
+          label: 'Open Chat',
+          kind: 'open-chat',
+          conversationId
+        },
+        {
+          id: 'dismiss',
+          label: 'Dismiss',
+          kind: 'dismiss'
+        }
+      ]
+    : [{
+        id: 'ok',
+        label: 'OK',
+        kind: 'dismiss',
+        primary: true
+      }];
+  if (assistantPrompt) {
+    speakDesktopChatPrompt(assistantPrompt.prompt, {
+      senderName,
+      kind: assistantPrompt.kind
+    });
+  }
   try {
     voiceOverlay.displayAssistantResult({
       success: true,
       intent: 'desktopChat.message',
-      response: preview,
+      response: assistantPrompt?.prompt || preview,
       data: {
         chatMessage: {
           senderName,
           preview,
-          conversationId: normalizeDesktopChatSetupText(message.conversationId || '', 100),
-          messageId: normalizeDesktopChatSetupText(message.messageId || '', 100)
+          conversationId,
+          messageId,
+          promptKind: assistantPrompt?.kind || null
         },
-        actions: [{
-          id: 'ok',
-          label: 'OK',
-          kind: 'dismiss',
-          primary: true
-        }],
+        actions,
         resultEntries: [{
           index: 1,
           name: senderName,
@@ -6051,6 +6280,10 @@ function setupIPC() {
     return result;
   });
 
+  registerIpcHandler('desktopChat:quickReply', async (_event, payload) => {
+    return quickReplyDesktopChatMessage(payload || {});
+  });
+
   registerIpcHandler('desktopChat:contacts:list', async () => {
     return listDesktopChatContacts();
   });
@@ -6875,7 +7108,8 @@ async function initializeAssistant() {
     desktopActions: {
       ...(runtimeConfig.desktopActions || {}),
       openGallery: (view = 'timeline') => createGalleryWindow(view, { lowerChat: true }),
-      openPeopleChat: () => createPeopleChatWindow()
+      openPeopleChat: () => createPeopleChatWindow(),
+      sendOpenXChatMessage: payload => sendDesktopChatMessageToContact(payload || {})
     },
     visualMemoryApi: getLazyVisualMemoryApi()
   };
@@ -7010,6 +7244,7 @@ function isTrustedVoiceOverlayIpcSender(event, channel) {
   if (![
     'schedule:alertAction',
     'cloud:fileTransferAction',
+    'desktopChat:quickReply',
     'voiceOverlay:collapse',
     'voiceOverlay:expandLiveSchedule'
   ].includes(channel)) return false;

@@ -683,6 +683,20 @@ class EntityExtractor {
         })
       },
       {
+        regex: /^(?:tell|ask)\s+(?!(?:me|about|this|that|what|who|when|where|why|how|whether|if)\b)("[^"]+"|'[^']+'|[A-Za-z][A-Za-z0-9 ._'-]{1,60}?)\s+(.{2,})$/i,
+        map: match => ({
+          contactName: match[1],
+          messageText: match[2]
+        })
+      },
+      {
+        regex: /^(?:message|text|msg|massage)\s+("[^"]+"|'[^']+'|[A-Za-z][A-Za-z0-9._'-]{1,40})\s+(.{2,})$/i,
+        map: match => ({
+          contactName: match[1],
+          messageText: match[2]
+        })
+      },
+      {
         regex: /^(?:send(?:\s+a)?\s+(?:message|text))\s+to\s+(.+?)(?:\s+(?:on|in|via|using)\s+(.+?))?\s+(?:saying|that)\s+(.+)$/i,
         map: match => ({
           contactName: match[1],
