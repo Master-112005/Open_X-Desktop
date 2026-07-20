@@ -219,6 +219,14 @@ function validateDesktopChatSend(payload) {
   };
 }
 
+function validateDesktopChatQuickReply(payload) {
+  requirePlainObject(payload, 'desktopChat.quickReply');
+  return {
+    conversationId: requireDesktopChatConversationId(payload.conversationId),
+    text: requireString(payload.text || 'OK', 'desktopChat.text', { maxLength: 120 })
+  };
+}
+
 function requireDesktopChatRequestId(value, name = 'requestId') {
   const id = requireString(value, name, { maxLength: 100 }).toLowerCase();
   if (!/^creq_[a-f0-9]{64}$/.test(id)) throw new TypeError(`${name} is invalid`);
@@ -610,6 +618,7 @@ const IPC_VALIDATORS = Object.freeze({
   'desktopChat:update': validateDesktopChatUpdate,
   'desktopChat:delete': validateDesktopChatOpen,
   'desktopChat:send': validateDesktopChatSend,
+  'desktopChat:quickReply': validateDesktopChatQuickReply,
   'desktopChat:contacts:list': validateEmpty,
   'desktopChat:contacts:accept': validateDesktopChatRequestAction,
   'desktopChat:contacts:delete': validateDesktopChatRequestAction,

@@ -115,6 +115,10 @@ describe('Electron Security Boundary', function() {
       { conversationId, text: 'hello' }
     );
     assert.deepEqual(
+      IPC_VALIDATORS['desktopChat:quickReply']({ conversationId, text: ' OK ' }),
+      { conversationId, text: 'OK' }
+    );
+    assert.deepEqual(
       IPC_VALIDATORS['desktopChat:update']({ conversationId, title: ' Daddy ', peerHandle: ' dad@openx ' }),
       { conversationId, title: 'Daddy', peerName: 'Daddy', peerHandle: 'dad@openx', peerType: 'openx' }
     );
@@ -156,6 +160,8 @@ describe('Electron Security Boundary', function() {
     );
     assert.throws(() => IPC_VALIDATORS['desktopChat:open']({ conversationId: 'bad' }), /conversationId is invalid/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:send']({ conversationId, text: '' }), /must not be empty/);
+    assert.throws(() => IPC_VALIDATORS['desktopChat:quickReply']({ conversationId: 'bad', text: 'OK' }), /conversationId is invalid/);
+    assert.throws(() => IPC_VALIDATORS['desktopChat:quickReply']({ conversationId, text: 'x'.repeat(121) }), /exceeds/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:update']({ conversationId, title: '', peerHandle: 'dad@openx' }), /must not be empty/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:update']({ conversationId, title: 'Dad', peerHandle: '' }), /must not be empty/);
     assert.throws(() => IPC_VALIDATORS['desktopChat:delete']({ conversationId: 'bad' }), /conversationId is invalid/);
@@ -319,6 +325,7 @@ describe('Electron Security Boundary', function() {
       'window:openGallery', 'window:closeGallery',
       'config:get', 'settings:get', 'chatHistory:get', 'chatHistory:save', 'chatHistory:clear',
       'desktopChat:list', 'desktopChat:open', 'desktopChat:create', 'desktopChat:update', 'desktopChat:delete', 'desktopChat:send',
+      'desktopChat:quickReply',
       'desktopChat:contacts:list', 'desktopChat:contacts:accept', 'desktopChat:contacts:delete', 'desktopChat:contacts:cancel',
       'desktopChat:registration:get', 'desktopChat:registration:start', 'desktopChat:profile:password',
       'uiState:get', 'uiState:save',

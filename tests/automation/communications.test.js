@@ -29,6 +29,39 @@ describe('Communications Controller', function() {
     assert.equal(result.error, 'Messaging is not supported by this assistant');
   });
 
+  it('should send generic message composition through OpenX Chat when available', async function() {
+    const sent = [];
+    const controller = new CommunicationsController({
+      desktopActions: {
+        sendOpenXChatMessage(payload) {
+          sent.push(payload);
+          return {
+            success: true,
+            data: {
+              contactName: 'Rishi',
+              messageText: payload.messageText,
+              platform: 'openx-chat',
+              delivery: 'sent',
+              conversationId: `conv_${'a'.repeat(64)}`
+            }
+          };
+        }
+      }
+    });
+
+    const result = await controller.composeMessage('rishi', 'hi');
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.contactName, 'Rishi');
+    assert.equal(result.data.messageText, 'hi');
+    assert.equal(result.data.platform, 'openx-chat');
+    assert.equal(result.data.delivery, 'sent');
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].contactName, 'rishi');
+    assert.equal(sent[0].messageText, 'hi');
+    assert.equal(sent[0].platform, 'openx-chat');
+  });
+
   it('should reject unsupported chat-provider calls', async function() {
     const controller = createController();
 

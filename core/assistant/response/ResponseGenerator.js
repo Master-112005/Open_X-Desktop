@@ -994,6 +994,11 @@ const RESPONSE_BUILDERS = {
     },
     'message.send': context => {
       const contactName = valueFromContext(context, 'contactName');
+      const platform = String(valueFromContext(context, 'platform', '') || '').toLowerCase();
+      const delivery = String(valueFromContext(context, 'delivery', '') || '').toLowerCase();
+      if (platform === 'openx-chat' && delivery === 'sent') {
+        return `Sent your message to ${contactName} in OpenX Chat.`;
+      }
       return `I've prepared the message for ${contactName} and it is ready for your review.`;
     },
     'email.compose': context => {

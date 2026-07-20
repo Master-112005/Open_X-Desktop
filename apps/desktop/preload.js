@@ -451,6 +451,26 @@ function buildVoiceActionFeedback(action = {}, result = {}) {
       displayMode: 'medium'
     };
   }
+  if (kind === 'desktop-chat-reply') {
+    return {
+      heading: 'Sent',
+      response: 'Reply sent in OpenX Chat.',
+      icon: 'OK',
+      statusText: 'Reply sent',
+      intent: 'desktopChat.quickReply',
+      displayMode: 'medium'
+    };
+  }
+  if (kind === 'open-chat') {
+    return {
+      heading: 'OpenX Chat',
+      response: 'Chat is open.',
+      icon: 'CH',
+      statusText: 'Chat opened',
+      intent: 'desktopChat.open',
+      displayMode: 'medium'
+    };
+  }
   return {
     heading: 'Done',
     response: 'Closed.',
@@ -489,15 +509,31 @@ function appendVoiceActions(fragment, payload = {}) {
         ? 'Snoozing...'
         : (kind === 'stop' || kind === 'end')
           ? 'Stopping...'
-          : kind === 'contact-select'
-            ? 'Opening...'
-            : kind === 'accept'
-              ? 'Accepting...'
-              : kind === 'reject'
-                ? 'Rejecting...'
-                : 'Closing...';
+            : kind === 'contact-select'
+              ? 'Opening...'
+              : kind === 'accept'
+                ? 'Accepting...'
+                : kind === 'reject'
+                  ? 'Rejecting...'
+                  : kind === 'desktop-chat-reply'
+                    ? 'Sending...'
+                    : kind === 'open-chat'
+                      ? 'Opening...'
+                      : 'Closing...';
       stopVoiceAlertSound();
       if (['ok', 'dismiss', 'close'].includes(kind)) {
+        const feedback = buildVoiceActionFeedback(action);
+        collapseVoiceIslandAfter(80, {
+          statusText: feedback.statusText,
+          icon: feedback.icon,
+          hideAfterMs: 5000
+        });
+        return;
+      }
+      if (kind === 'open-chat') {
+        try {
+          await ipcRenderer.invoke('window:openPeopleChat');
+        } catch (_) {}
         const feedback = buildVoiceActionFeedback(action);
         collapseVoiceIslandAfter(80, {
           statusText: feedback.statusText,
@@ -531,6 +567,27 @@ function appendVoiceActions(fragment, payload = {}) {
             statusText: feedback.statusText,
             icon: feedback.icon,
             hideAfterMs: kind === 'accept' ? 2500 : 5000
+          });
+        } catch (_) {
+          button.textContent = originalLabel;
+          setVoiceActionRowResolving(row, button, false);
+        }
+        return;
+      }
+      if (kind === 'desktop-chat-reply' && action.conversationId) {
+        try {
+          const result = await ipcRenderer.invoke('desktopChat:quickReply', {
+            conversationId: action.conversationId,
+            text: action.text || 'OK'
+          });
+          if (!result?.success) {
+            throw new Error(result?.error || 'Action failed');
+          }
+          const feedback = buildVoiceActionFeedback(action, result);
+          collapseVoiceIslandAfter(80, {
+            statusText: feedback.statusText,
+            icon: feedback.icon,
+            hideAfterMs: 5000
           });
         } catch (_) {
           button.textContent = originalLabel;

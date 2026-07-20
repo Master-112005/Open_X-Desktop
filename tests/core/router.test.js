@@ -1893,7 +1893,10 @@ describe('Action Router', function() {
       ['telegram charan hi', 'charan', 'hi', 'telegram'],
       ['say hi to charan on telegram', 'charan', 'hi', 'telegram'],
       ['send hello to mohit', 'mohit', 'hello', null],
-      ['say hi to daddy on signal', 'daddy', 'hi', 'signal']
+      ['say hi to daddy on signal', 'daddy', 'hi', 'signal'],
+      ['tell rishi hi', 'rishi', 'hi', null],
+      ['message rishi hi', 'rishi', 'hi', null],
+      ['ask charan call me', 'charan', 'call me', null]
     ];
 
     for (const [command, contactName, messageText, platform] of cases) {

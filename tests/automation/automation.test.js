@@ -166,6 +166,42 @@ describe('Automation Engine', function() {
     assert.equal(result.data.launchMethod, 'openx-desktop');
   });
 
+  it('should send assistant message commands through OpenX Chat desktop actions', async function() {
+    const sent = [];
+    const engine = new AutomationEngine({
+      desktopActions: {
+        sendOpenXChatMessage(payload) {
+          sent.push(payload);
+          return {
+            success: true,
+            data: {
+              contactName: 'Rishi',
+              messageText: payload.messageText,
+              platform: 'openx-chat',
+              delivery: 'sent',
+              conversationId: `conv_${'b'.repeat(64)}`
+            }
+          };
+        }
+      }
+    });
+
+    const result = await engine.execute('message.compose', {
+      contactName: 'rishi',
+      messageText: 'hi'
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.contactName, 'Rishi');
+    assert.equal(result.data.messageText, 'hi');
+    assert.equal(result.data.platform, 'openx-chat');
+    assert.equal(result.data.delivery, 'sent');
+    assert.equal(result.verification.status, 'passed');
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].contactName, 'rishi');
+    assert.equal(sent[0].messageText, 'hi');
+  });
+
   it('should open recognized web apps in Chrome only after local app lookup fails', async function() {
     const engine = new AutomationEngine({});
     let opened = null;
