@@ -3980,6 +3980,20 @@ body.people-chat-fullscreen .people-chat-thread-pane {
   padding: 0 4px;
 }
 
+.people-chat-message small[data-status="delivered"],
+.people-chat-message small[data-status="read"] {
+  color: color-mix(in srgb, var(--accent-color) 72%, white 8%);
+}
+
+.people-chat-message small[data-status="queued"],
+.people-chat-message small[data-status="sending"] {
+  color: color-mix(in srgb, var(--warning-color) 76%, white 6%);
+}
+
+.people-chat-message small[data-status="failed"] {
+  color: color-mix(in srgb, var(--danger-color) 82%, white 8%);
+}
+
 .people-chat-thread-empty,
 .people-chat-empty {
   color: var(--muted-color);

@@ -134,7 +134,25 @@ class ConversationStorage {
     const index = this.state.ConversationHistory.findIndex(item => item.messageId && item.messageId === record.messageId);
     if (index >= 0) this.state.ConversationHistory[index] = entry;
     else this.state.ConversationHistory.push(entry);
+    this.pruneHistory(record.conversationId);
     await this.persist();
+  }
+
+  /**
+   * Prunes a conversation to the configured local history cap.
+   * @param {string} conversationId ConversationID.
+   */
+  pruneHistory(conversationId) {
+    const limit = Math.max(1, Math.floor(Number(this.config.maxHistoryPerConversation) || 300));
+    const history = this.state.ConversationHistory.filter(item => item.conversationId === conversationId);
+    if (history.length <= limit) return;
+    const keepIds = new Set(history.slice(-limit).map(item => item.messageId).filter(Boolean));
+    this.state.ConversationHistory = this.state.ConversationHistory.filter(item => (
+      item.conversationId !== conversationId || keepIds.has(item.messageId)
+    ));
+    this.state.SearchIndex = this.state.SearchIndex.filter(item => (
+      item.conversationId !== conversationId || item.type !== 'Message' || keepIds.has(item.messageId)
+    ));
   }
 
   /**

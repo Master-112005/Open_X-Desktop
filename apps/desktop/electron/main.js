@@ -37,6 +37,7 @@ const {
 const { VisualMemoryEngine } = require('../../../core/assistant/capabilities/visual-memory');
 const { ConversationManager } = require('../../../core/chat/conversations');
 const { CryptoManager } = require('../../../core/chat/crypto');
+const { MessageManager } = require('../../../core/chat/messages');
 const { ChatRuntimeStateMachine } = require('../../../core/chat/state');
 const { CloudCommandManager, CloudConnectionManager, CloudFileTransferManager, CloudLogger, CloudPairingManager } = require('../../../core/cloud');
 const CrashRecoveryPolicy = require('./crash-recovery');
@@ -346,6 +347,9 @@ let chatLoweredForPlanner = false;
 let securityLockService = null;
 let desktopChatConversationManager = null;
 let desktopChatConversationReady = null;
+let desktopChatMessageManager = null;
+let desktopChatMessageReady = null;
+let desktopChatMessageApiBaseUrl = '';
 let desktopChatCryptoManager = null;
 let desktopChatCryptoReady = null;
 let desktopChatSocket = null;
@@ -355,6 +359,12 @@ let desktopChatSyncTimer = null;
 let desktopChatSyncInFlight = false;
 let desktopChatSyncFailureCount = 0;
 let desktopChatSyncIdleCount = 0;
+let desktopChatUiState = {
+  visible: false,
+  activeConversationId: '',
+  threadOpen: false,
+  updatedAt: 0
+};
 let cloudConnectionManager = null;
 let cloudPairingManager = null;
 let cloudCommandManager = null;
@@ -390,6 +400,7 @@ const DESKTOP_CHAT_RECONNECT_MIN_MS = 1500;
 const DESKTOP_CHAT_RECONNECT_MAX_MS = 30000;
 const DESKTOP_CHAT_NOTIFICATION_PREVIEW_MAX = 360;
 const DESKTOP_CHAT_SEEN_INCOMING_LIMIT = 300;
+const DESKTOP_CHAT_LOCAL_HISTORY_LIMIT = 300;
 const desktopChatLoopbackRetryLogState = {
   lastAt: 0,
   suppressed: 0
@@ -435,6 +446,7 @@ const IPC_CHANNELS = [
   'desktopChat:registration:get',
   'desktopChat:registration:start',
   'desktopChat:profile:password',
+  'desktopChat:uiState',
   'uiState:get',
   'uiState:save',
   'security:status',
@@ -1013,7 +1025,7 @@ function buildSettingsSnapshot() {
   };
 }
 
-const CHAT_HISTORY_LIMIT = 100;
+const CHAT_HISTORY_LIMIT = 300;
 const UI_STATE_SCHEDULE_LIMIT = 80;
 const UI_STATE_NOTIFICATION_LIMIT = 30;
 
@@ -1092,6 +1104,11 @@ function desktopChatDevicePath() {
 function desktopChatCryptoSecretsPath() {
   const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG?.app?.dataPaths || {};
   return dataPaths.chatCryptoSecretsPath || path.join(dataPaths.root || BASE_CONFIG.app.dataDir || app.getPath('userData'), 'chat-crypto-secrets.json');
+}
+
+function desktopChatMessagesPath() {
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG?.app?.dataPaths || {};
+  return dataPaths.chatMessagesPath || path.join(dataPaths.root || BASE_CONFIG.app.dataDir || app.getPath('userData'), 'chat-messages.json');
 }
 
 function desktopChatSyncStatePath() {
@@ -1845,6 +1862,28 @@ function decodeDesktopChatIncomingPreview(envelope = {}, context = {}) {
   return normalizeDesktopChatText(packet.preview || packet.messagePreview || packet.text || '', DESKTOP_CHAT_NOTIFICATION_PREVIEW_MAX);
 }
 
+async function decodeDesktopChatIncomingMessageText(envelope = {}, context = {}) {
+  const registered = context.registered || getRegisteredDesktopChatContext({ requireReady: false });
+  try {
+    const messageManager = await getDesktopChatMessageManager(registered.apiBaseUrl);
+    const received = await messageManager.receiveEnvelope({
+      envelope,
+      relationshipId: context.relationshipId,
+      senderAccountId: context.senderAccountId,
+      recipientAccountId: context.recipientAccountId,
+      localAccountId: context.localAccountId,
+      conversation: context.conversation
+    });
+    return normalizeDesktopChatText(received?.plaintext || '', 1200);
+  } catch (error) {
+    mainLogger.debug?.('[CHAT] Shared chat envelope decode fell back to legacy preview decoder', {
+      code: error.code || 'chat.decode_failed',
+      messageId: normalizeDesktopChatSetupText(envelope.messageId || envelope.metadata?.messageId || '', 100)
+    });
+    return decodeDesktopChatIncomingPreview(envelope, context);
+  }
+}
+
 function normalizeDesktopChatCryptoState(value = {}) {
   const source = isPlainObject(value) ? value : {};
   const identityKeyVersion = Number(source.identityKeyVersion);
@@ -2093,46 +2132,20 @@ async function ensureDesktopChatTrustedConversation(manager, relationship, accou
   const pending = patch.contactRequestId
     ? await findDesktopChatConversationByMetadata(manager, item => item.contactRequestId === patch.contactRequestId)
     : null;
-  if (pending) return updateDesktopChatConversationRelationship(manager, pending, normalized.relationshipId, patch);
+  const pendingByPeer = pending || await findDesktopChatConversationByMetadata(manager, item => {
+    const itemStatus = normalizeDesktopChatSetupText(item.serverStatus || '', 40);
+    if (itemStatus !== 'request-pending') return false;
+    const itemRecipient = normalizeDesktopChatSetupText(item.recipientAccountId || item.peerAccountId || '', 100).toLowerCase();
+    const itemHandle = normalizeDesktopChatUsernameInput(item.peerHandle || item.username || '');
+    const patchHandle = normalizeDesktopChatUsernameInput(patch.peerHandle || '');
+    if (isDesktopChatAccountId(itemRecipient) && itemRecipient === normalized.peerAccountId) return true;
+    return Boolean(itemHandle && patchHandle && itemHandle === patchHandle);
+  });
+  if (pendingByPeer) return updateDesktopChatConversationRelationship(manager, pendingByPeer, normalized.relationshipId, patch);
   return manager.createConversation({
     relationshipId: normalized.relationshipId,
     metadata: patch
   });
-}
-
-function buildDesktopChatEncryptedTransport(text, context = {}) {
-  const relationshipId = normalizeDesktopChatSetupText(context.relationshipId || '', 100).toLowerCase();
-  const messageId = normalizeDesktopChatSetupText(context.messageId || '', 100).toLowerCase();
-  const key = buildDesktopChatRelationshipSessionKey({
-    relationshipId,
-    senderAccountId: context.senderAccountId,
-    recipientAccountId: context.recipientAccountId
-  });
-  if (!key) {
-    const error = new Error('Chat relationship key context is incomplete.');
-    error.code = 'chat.session_key_unavailable';
-    throw error;
-  }
-  const iv = crypto.randomBytes(12);
-  const aadText = buildDesktopChatMessageAad(messageId, relationshipId, '1');
-  if (!aadText) {
-    const error = new Error('Chat message authentication data is invalid.');
-    error.code = 'chat.aad_invalid';
-    throw error;
-  }
-  const aad = Buffer.from(aadText, 'utf8');
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  cipher.setAAD(aad);
-  const ciphertext = Buffer.concat([cipher.update(String(text || ''), 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return Buffer.from(JSON.stringify({
-    algorithm: 'AES-GCM',
-    iv: iv.toString('base64url'),
-    ciphertext: ciphertext.toString('base64url'),
-    tag: tag.toString('base64url'),
-    aad: aad.toString('base64url'),
-    futureStreaming: false
-  }), 'utf8').toString('base64url');
 }
 
 function buildDesktopChatDevicePayload(accountId, clientDeviceKey) {
@@ -2405,13 +2418,34 @@ async function getDesktopChatConversationManager() {
       config: {
         storagePath: desktopChatConversationsPath(),
         defaultPageSize: 30,
-        maxPageSize: 100
+        maxPageSize: 100,
+        maxHistoryPerConversation: DESKTOP_CHAT_LOCAL_HISTORY_LIMIT
       }
     });
     desktopChatConversationReady = desktopChatConversationManager.initialize();
   }
   await desktopChatConversationReady;
   return desktopChatConversationManager;
+}
+
+async function getDesktopChatMessageManager(apiBaseUrl) {
+  const normalizedApiBaseUrl = normalizeDesktopChatApiBaseUrl(apiBaseUrl);
+  if (!desktopChatMessageManager || desktopChatMessageApiBaseUrl !== normalizedApiBaseUrl) {
+    const cryptoManager = await getDesktopChatCryptoManager();
+    desktopChatMessageApiBaseUrl = normalizedApiBaseUrl;
+    desktopChatMessageManager = new MessageManager({
+      config: {
+        apiBaseUrl: normalizedApiBaseUrl,
+        storagePath: desktopChatMessagesPath(),
+        maxStoredMessages: DESKTOP_CHAT_LOCAL_HISTORY_LIMIT
+      },
+      crypto: cryptoManager,
+      sessionResolver: buildDesktopChatRelationshipSessionKey
+    });
+    desktopChatMessageReady = desktopChatMessageManager.initialize();
+  }
+  await desktopChatMessageReady;
+  return desktopChatMessageManager;
 }
 
 function normalizeDesktopChatText(value, maxLength = 1200) {
@@ -2422,20 +2456,68 @@ function normalizeDesktopChatText(value, maxLength = 1200) {
     .slice(0, maxLength);
 }
 
+function normalizeDesktopChatMessageStatus(value, fallback = '') {
+  const status = normalizeDesktopChatText(value || fallback, 40).toLowerCase();
+  if (['sending', 'sent', 'delivered', 'read', 'queued', 'failed'].includes(status)) return status;
+  if (status === 'local-queue' || status === 'queuedcount') return 'queued';
+  return '';
+}
+
+function summarizeDesktopChatDelivery(delivery = {}) {
+  const result = isPlainObject(delivery.result) ? delivery.result : {};
+  const deliveredCount = Math.max(0, Number(delivery.deliveredCount || result.deliveredCount || 0));
+  const transport = normalizeDesktopChatMessageStatus(delivery.transport || '', '');
+  if (deliveredCount > 0) return 'delivered';
+  if (delivery.transport === 'local-queue') return 'queued';
+  if (transport === 'sent') return 'sent';
+  if (delivery.transport === 'http' || delivery.transport === 'websocket') return 'sent';
+  return 'sent';
+}
+
 function serializeDesktopChatHistory(history = []) {
   return (Array.isArray(history) ? history : [])
     .map((entry, index) => {
       const text = normalizeDesktopChatText(entry.searchText || entry.text || entry.preview, 1200);
       if (!text) return null;
+      const direction = entry.direction === 'outgoing' ? 'outgoing' : 'incoming';
+      const status = normalizeDesktopChatMessageStatus(
+        entry.status || entry.deliveryStatus,
+        direction === 'outgoing' ? 'sent' : 'delivered'
+      );
       return {
         messageId: normalizeDesktopChatText(entry.messageId || `message-${index}`, 100),
         text,
-        direction: entry.direction === 'outgoing' ? 'outgoing' : 'incoming',
+        direction,
+        status,
         timestamp: entry.timestamp || entry.createdAt || new Date().toISOString()
       };
     })
     .filter(Boolean)
-    .slice(-60);
+    .slice(-DESKTOP_CHAT_LOCAL_HISTORY_LIMIT);
+}
+
+function recordDesktopChatUiState(input = {}) {
+  const visible = input.visible === true;
+  const activeConversationId = normalizeDesktopChatSetupText(input.activeConversationId || input.conversationId || '', 100).toLowerCase();
+  desktopChatUiState = {
+    visible,
+    activeConversationId: /^conv_[a-f0-9]{64}$/i.test(activeConversationId) ? activeConversationId : '',
+    threadOpen: input.threadOpen === true,
+    updatedAt: Date.now()
+  };
+  return {
+    success: true,
+    state: { ...desktopChatUiState }
+  };
+}
+
+function isDesktopChatAppVisible() {
+  return Boolean(
+    desktopChatUiState.visible === true &&
+    chatWindow &&
+    !chatWindow.isDestroyed() &&
+    chatWindow.isVisible()
+  );
 }
 
 function serializeDesktopChatConversation(conversation = {}, history = []) {
@@ -2944,16 +3026,51 @@ async function sendDesktopChatMessage(input = {}) {
   const manager = await getDesktopChatConversationManager();
   const text = normalizeDesktopChatText(input.text, 1200);
   if (!text) throw new Error('Message text is required.');
-  const existing = await manager.getConversation(input.conversationId);
-  const metadata = existing.metadata || {};
-  const serverStatus = normalizeDesktopChatSetupText(metadata.serverStatus || '', 40);
+  let existing = await manager.getConversation(input.conversationId);
+  let metadata = existing.metadata || {};
+  let serverStatus = normalizeDesktopChatSetupText(metadata.serverStatus || '', 40);
   const messageId = `msg_${crypto.randomBytes(32).toString('hex')}`;
+  let delivery = null;
+  let messageStatus = 'sent';
   if (serverStatus === 'request-pending') {
-    const error = new Error('This person has not accepted your OpenX Chat request yet.');
-    error.code = 'chat.request_pending';
-    throw error;
+    try {
+      await listDesktopChatContacts();
+      existing = await manager.getConversation(input.conversationId);
+      metadata = existing.metadata || {};
+      serverStatus = normalizeDesktopChatSetupText(metadata.serverStatus || '', 40);
+    } catch (error) {
+      if (!isDesktopChatServerUnavailableError(error)) {
+        mainLogger.warn('[CHAT] Contact trust refresh before sending failed', {
+          code: error.code || 'chat.contact_refresh_failed',
+          error: error.message
+        });
+      }
+    }
+    if (serverStatus === 'request-pending') {
+      const error = new Error('This person has not accepted your OpenX Chat request yet.');
+      error.code = 'chat.request_pending';
+      throw error;
+    }
   }
   if (serverStatus === 'trusted') {
+    try {
+      await listDesktopChatContacts();
+      existing = await manager.getConversation(input.conversationId);
+      metadata = existing.metadata || {};
+      serverStatus = normalizeDesktopChatSetupText(metadata.serverStatus || '', 40);
+    } catch (error) {
+      if (!isDesktopChatServerUnavailableError(error)) {
+        mainLogger.warn('[CHAT] Contact trust refresh before sending failed', {
+          code: error.code || 'chat.contact_refresh_failed',
+          error: error.message
+        });
+      }
+    }
+    if (serverStatus !== 'trusted') {
+      const error = new Error('This OpenX Chat contact is not trusted yet. Refresh Chat settings and try again.');
+      error.code = 'chat.relationship_not_trusted';
+      throw error;
+    }
     await reconcileDesktopChatSetupState();
     const registered = getRegisteredDesktopChatContext();
     const recipientAccountId = normalizeDesktopChatSetupText(metadata.recipientAccountId || metadata.peerAccountId || '', 100).toLowerCase();
@@ -2962,42 +3079,23 @@ async function sendDesktopChatMessage(input = {}) {
       error.code = 'chat.relationship_incomplete';
       throw error;
     }
-    const ciphertext = buildDesktopChatEncryptedTransport(text, {
-      relationshipId: existing.relationshipId,
+    const messageManager = await getDesktopChatMessageManager(registered.apiBaseUrl);
+    const sent = await messageManager.sendText({
       messageId,
+      relationshipId: existing.relationshipId,
       senderAccountId: registered.accountId,
-      recipientAccountId
-    });
-    await desktopChatServerRequest(
-      registered.apiBaseUrl,
-      '/messages/send',
-      'POST',
-      {
-        messageId,
-        relationshipId: existing.relationshipId,
-        senderAccountId: registered.accountId,
-        senderDeviceId: registered.device.deviceId,
-        recipientAccountId,
-        messageType: 'Text',
-        ciphertext,
-        checksum: crypto.createHash('sha256').update(ciphertext, 'utf8').digest('hex'),
-        timestamp: new Date().toISOString(),
-        version: '1',
-        encryptionVersion: 'phase4-aes-256-gcm',
-        compression: {
-          algorithm: 'none',
-          compressed: false,
-          originalSize: Buffer.byteLength(ciphertext, 'utf8'),
-          compressedSize: Buffer.byteLength(ciphertext, 'utf8'),
-          version: '1'
-        },
-        metadata: {
-          source: 'openx-desktop-chat',
-          priority: 'Normal',
-          previewStoredLocally: true
-        }
+      senderDeviceId: registered.device.deviceId,
+      recipientAccountId,
+      recipientDeviceId: null,
+      plaintext: text,
+      metadata: {
+        source: 'openx-desktop-chat',
+        priority: 'Normal',
+        previewStoredLocally: true
       }
-    );
+    });
+    delivery = sent.delivery || null;
+    messageStatus = summarizeDesktopChatDelivery(delivery);
   }
   const conversation = await manager.addMessage({
     conversationId: input.conversationId,
@@ -3007,11 +3105,14 @@ async function sendDesktopChatMessage(input = {}) {
     preview: text,
     direction: 'outgoing',
     unread: false,
+    status: messageStatus,
+    delivery,
     timestamp: new Date().toISOString()
   });
   const history = await manager.storage.listHistory(conversation.conversationId);
   return {
     success: true,
+    delivery,
     conversation: serializeDesktopChatConversation(conversation, history)
   };
 }
@@ -3154,6 +3255,12 @@ function speakDesktopChatPrompt(prompt, metadata = {}) {
 
 function presentDesktopChatMessageInDynamicIsland(message = {}) {
   if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
+  if (isDesktopChatAppVisible()) {
+    mainLogger.info('[CHAT] Chat message notification suppressed because Chat is open', {
+      conversationId: normalizeDesktopChatSetupText(message.conversationId || '', 100) || null
+    });
+    return false;
+  }
   const senderName = normalizeDesktopChatText(message.senderName || 'OpenX Chat', 80) || 'OpenX Chat';
   const preview = normalizeDesktopChatText(message.preview || 'New message', DESKTOP_CHAT_NOTIFICATION_PREVIEW_MAX) || 'New message';
   const conversationId = normalizeDesktopChatSetupText(message.conversationId || '', 100);
@@ -3326,7 +3433,8 @@ async function processDesktopChatIncomingEnvelope(envelope = {}, options = {}) {
   let conversation = await ensureDesktopChatConversationForEnvelope(manager, envelope, registered, peerName);
   const historyBefore = await manager.storage.listHistory(conversation.conversationId);
   const duplicate = desktopChatHistoryHasMessage(historyBefore, messageId);
-  const preview = decodeDesktopChatIncomingPreview(envelope, {
+  const preview = await decodeDesktopChatIncomingMessageText(envelope, {
+    registered,
     conversation: existing || conversation,
     localAccountId,
     relationshipId: envelope.relationshipId || envelope.metadata?.relationshipId || '',
@@ -6312,6 +6420,10 @@ function setupIPC() {
 
   registerIpcHandler('desktopChat:profile:password', async (_event, payload) => {
     return updateDesktopChatProfilePassword(payload || {});
+  });
+
+  registerIpcHandler('desktopChat:uiState', async (_event, payload) => {
+    return recordDesktopChatUiState(payload || {});
   });
 
   registerIpcHandler('uiState:get', async () => {

@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const fs = require('fs/promises');
 const os = require('os');
 const path = require('path');
-const { Conversations, ChatManager } = require('../../core/chat');
+const { Conversations, Messages, ChatManager } = require('../../core/chat');
 
 function id(prefix) {
   return `${prefix}_${crypto.randomBytes(32).toString('hex')}`;
@@ -43,12 +43,15 @@ describe('OpenX Chat Desktop Conversations Phase 13', () => {
         relationshipId: conversation.relationshipId,
         messageId: id('msg'),
         text: 'Dinner plan tomorrow',
+        status: 'delivered',
         timestamp: '2026-07-18T10:00:00.000Z'
       });
       const search = await harness.manager.search({ query: 'dinn' });
+      const history = await harness.manager.storage.listHistory(conversation.conversationId);
 
       assert.equal(updated.unreadCount, 1);
       assert.match(updated.lastMessageId, /^msg_/);
+      assert.equal(history[0].status, 'delivered');
       assert.equal(search.items.length, 1);
       assert.equal(search.items[0].conversation.conversationId, conversation.conversationId);
       assert.equal(JSON.stringify(harness.manager.storage.state.ConversationAudit).includes('Dinner plan'), false);
@@ -116,6 +119,203 @@ describe('OpenX Chat Desktop Conversations Phase 13', () => {
       assert.equal(search.items[0].conversation.conversationId, conversation.conversationId);
     } finally {
       await harness.cleanup();
+    }
+  });
+
+  it('caps local conversation history per chat and removes stale message search records', async () => {
+    const harness = await createManager({ config: { maxHistoryPerConversation: 3 } });
+    try {
+      const conversation = await harness.manager.createConversation({
+        relationshipId: id('rel'),
+        metadata: { title: 'Rishi' }
+      });
+      for (let index = 0; index < 5; index += 1) {
+        await harness.manager.addMessage({
+          conversationId: conversation.conversationId,
+          relationshipId: conversation.relationshipId,
+          messageId: id('msg'),
+          text: `retention-keyword-${index}`,
+          timestamp: new Date(Date.UTC(2026, 6, 20, 10, index)).toISOString()
+        });
+      }
+
+      const history = await harness.manager.storage.listHistory(conversation.conversationId);
+      const oldSearch = await harness.manager.search({ query: 'retention-keyword-0', includeMessages: true });
+      const keptSearch = await harness.manager.search({ query: 'retention-keyword-4', includeMessages: true });
+
+      assert.equal(history.length, 3);
+      assert.equal(history[0].searchText, 'retention-keyword-2');
+      assert.equal(oldSearch.items.length, 0);
+      assert.equal(keptSearch.items.length, 1);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it('caps local encrypted message storage and related state rows', async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'openx-chat-message-retention-'));
+    try {
+      const config = new Messages.MessageConfiguration({
+        storagePath: path.join(directory, 'messages.json'),
+        maxStoredMessages: 3
+      });
+      const storage = new Messages.MessageStorage({ config });
+      await storage.initialize();
+
+      for (let index = 0; index < 5; index += 1) {
+        await storage.upsertMessage({
+          messageId: `msg_${String(index).padStart(64, 'a')}`.slice(0, 68),
+          ciphertext: `cipher-${index}`,
+          status: 'sent',
+          timestamp: new Date(Date.UTC(2026, 6, 20, 11, index)).toISOString()
+        });
+      }
+
+      assert.equal(storage.state.messages.length, 3);
+      assert.deepEqual(storage.state.messages.map(message => message.ciphertext), ['cipher-2', 'cipher-3', 'cipher-4']);
+      assert.equal(storage.state.messageStatus.length, 3);
+      assert.equal(storage.state.messageStatus.every(status => storage.state.messages.some(message => message.messageId === status.messageId)), true);
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('normalizes desktop message client transport failures', async () => {
+    const config = new Messages.MessageConfiguration({
+      apiBaseUrl: 'http://127.0.0.1:8090',
+      requestTimeoutMs: 1000
+    });
+    let sawAbortSignal = false;
+    const client = new Messages.MessageClient({
+      config,
+      fetchImpl: async (_url, request) => {
+        sawAbortSignal = Boolean(request.signal);
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return 'not-json';
+          }
+        };
+      }
+    });
+
+    await assert.rejects(
+      () => client.send({ messageId: id('msg') }),
+      error => error.code === 'message.response_invalid'
+    );
+    assert.equal(sawAbortSignal, true);
+
+    const offlineClient = new Messages.MessageClient({
+      config,
+      fetchImpl: async () => {
+        throw new Error('fetch failed');
+      }
+    });
+    await assert.rejects(
+      () => offlineClient.send({ messageId: id('msg') }),
+      error => error.code === 'message.server_unreachable'
+    );
+  });
+
+  it('uses shared Phase 8 envelopes for desktop chat sends without pinning one recipient device', async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'openx-chat-shared-message-'));
+    try {
+      const relationshipId = id('rel');
+      const senderAccountId = id('acc');
+      const senderDeviceId = id('dev');
+      const recipientAccountId = id('acc');
+      const recipientDeviceId = id('dev');
+      const sessionKey = crypto.createHash('sha256').update('shared-phase-8-session').digest();
+      let routedMessage = null;
+      const manager = new Messages.MessageManager({
+        config: {
+          apiBaseUrl: 'https://openx-chat-server.test',
+          storagePath: path.join(directory, 'messages.json')
+        },
+        sessionResolver: () => sessionKey,
+        client: {
+          async send(message) {
+            routedMessage = message;
+            return { deliveredCount: 1, queuedCount: 0 };
+          }
+        }
+      });
+
+      const sent = await manager.sendText({
+        relationshipId,
+        senderAccountId,
+        senderDeviceId,
+        recipientAccountId,
+        recipientDeviceId: null,
+        plaintext: 'hi from desktop'
+      });
+
+      assert.equal(sent.delivery.queued, false);
+      assert.equal(routedMessage.recipientDeviceId, null);
+      const received = await manager.receiveEnvelope({
+        envelope: {
+          envelopeId: id('env'),
+          messageId: routedMessage.messageId,
+          senderDeviceId,
+          recipientDeviceId,
+          ciphertext: routedMessage.ciphertext,
+          checksum: routedMessage.checksum,
+          protocolVersion: routedMessage.version,
+          createdAt: routedMessage.timestamp,
+          mailboxSequence: 1,
+          metadata: {
+            relationshipId,
+            senderAccountId,
+            recipientAccountId,
+            messageType: 'Text',
+            timestamp: routedMessage.timestamp,
+            compressionAlgorithm: routedMessage.compression.algorithm,
+            compressionEnabled: routedMessage.compression.compressed,
+            compressionVersion: routedMessage.compression.version,
+            encryptionVersion: routedMessage.encryptionVersion
+          }
+        }
+      });
+
+      assert.equal(received.plaintext, 'hi from desktop');
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('stores server-accepted recipient mailbox handoff as sent, not local queued', async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'openx-chat-server-accepted-'));
+    try {
+      const sessionKey = crypto.createHash('sha256').update('server-accepted-session').digest();
+      const manager = new Messages.MessageManager({
+        config: {
+          apiBaseUrl: 'https://openx-chat-server.test',
+          storagePath: path.join(directory, 'messages.json')
+        },
+        sessionResolver: () => sessionKey,
+        client: {
+          async send() {
+            return { deliveredCount: 0, queuedCount: 1 };
+          }
+        }
+      });
+
+      const sent = await manager.sendText({
+        relationshipId: id('rel'),
+        senderAccountId: id('acc'),
+        senderDeviceId: id('dev'),
+        recipientAccountId: id('acc'),
+        recipientDeviceId: null,
+        plaintext: 'server accepted this'
+      });
+      const status = manager.storage.state.messageStatus.find(item => item.messageId === sent.message.messageId);
+
+      assert.equal(sent.delivery.queued, false);
+      assert.equal(sent.delivery.serverQueued, true);
+      assert.equal(status.status, Messages.MessageConstants.MESSAGE_STATUS.SENT);
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
     }
   });
 

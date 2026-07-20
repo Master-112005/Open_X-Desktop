@@ -15,6 +15,7 @@ class ConversationConfiguration {
     this.maxPageSize = this.number(options.maxPageSize, 100);
     this.maxPinnedChats = this.number(options.maxPinnedChats, 5);
     this.maxArchiveLimit = this.number(options.maxArchiveLimit, 10000);
+    this.maxHistoryPerConversation = this.number(options.maxHistoryPerConversation, 300);
     this.searchDepth = this.number(options.searchDepth, 1000);
     this.maxSearchResults = this.number(options.maxSearchResults, 100);
     this.indexOptimizationThreshold = this.number(options.indexOptimizationThreshold, 5000);
@@ -43,6 +44,7 @@ class ConversationConfiguration {
     if (this.defaultPageSize < 1) throw new Error('Conversation page size must be positive.');
     if (this.maxPageSize < this.defaultPageSize) throw new Error('Maximum page size must be >= default page size.');
     if (this.maxPinnedChats < 0) throw new Error('Pinned chat limit must be >= 0.');
+    if (this.maxHistoryPerConversation < 1) throw new Error('Conversation history limit must be positive.');
     if (this.searchDepth < 1) throw new Error('Search depth must be positive.');
   }
 }

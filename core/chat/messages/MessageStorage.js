@@ -24,6 +24,7 @@ class MessageStorage {
     await fs.mkdir(path.dirname(this.config.storagePath), { recursive: true });
     try {
       this.state = this.normalize(JSON.parse(await fs.readFile(this.config.storagePath, 'utf8')));
+      this.pruneMessages();
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
       this.state = this.empty();
@@ -74,6 +75,21 @@ class MessageStorage {
     else this.state.messages.push(message);
     await this.setStatus(message.messageId, message.status, false);
     await this.persist();
+  }
+
+  /**
+   * Prunes local message-related tables to the configured retention cap.
+   */
+  pruneMessages() {
+    const limit = Math.max(1, Math.floor(Number(this.config.maxStoredMessages) || 300));
+    const retainedMessages = this.state.messages.length > limit
+      ? this.state.messages.slice(-limit)
+      : this.state.messages;
+    const keepIds = new Set(retainedMessages.map(message => message.messageId).filter(Boolean));
+    this.state.messages = retainedMessages;
+    for (const key of ['messageStatus', 'readState', 'retryQueue', 'compressionMetadata', 'futureAttachmentPlaceholder', 'futureReactionPlaceholder']) {
+      this.state[key] = this.state[key].filter(item => keepIds.has(item.messageId));
+    }
   }
 
   /**
@@ -135,6 +151,7 @@ class MessageStorage {
    * Persists state atomically.
    */
   async persist() {
+    this.pruneMessages();
     this.writeQueue = this.writeQueue.then(async () => {
       const tempPath = `${this.config.storagePath}.tmp`;
       await fs.writeFile(tempPath, `${JSON.stringify(this.state, null, 2)}\n`, 'utf8');

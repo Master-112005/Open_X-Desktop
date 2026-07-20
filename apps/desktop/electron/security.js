@@ -227,6 +227,20 @@ function validateDesktopChatQuickReply(payload) {
   };
 }
 
+function validateDesktopChatUiState(payload = {}) {
+  requirePlainObject(payload, 'desktopChat.uiState');
+  const output = {
+    visible: payload.visible === true,
+    threadOpen: payload.threadOpen === true
+  };
+  if (payload.activeConversationId || payload.conversationId) {
+    output.activeConversationId = requireDesktopChatConversationId(payload.activeConversationId || payload.conversationId);
+  } else {
+    output.activeConversationId = '';
+  }
+  return output;
+}
+
 function requireDesktopChatRequestId(value, name = 'requestId') {
   const id = requireString(value, name, { maxLength: 100 }).toLowerCase();
   if (!/^creq_[a-f0-9]{64}$/.test(id)) throw new TypeError(`${name} is invalid`);
@@ -626,6 +640,7 @@ const IPC_VALIDATORS = Object.freeze({
   'desktopChat:registration:get': validateEmpty,
   'desktopChat:registration:start': validateDesktopChatRegistrationStart,
   'desktopChat:profile:password': validateDesktopChatPasswordUpdate,
+  'desktopChat:uiState': validateDesktopChatUiState,
   'uiState:get': validateEmpty,
   'uiState:save': validateUiState,
   'security:status': validateEmpty,

@@ -54,8 +54,10 @@ class ChatConnectionManager {
         this.handleConnectionFailure(error);
         settle(error);
       }, this.config.connectionTimeoutMs);
+      this.connectionTimeout.unref?.();
       this.socket.on('open', () => {
         clearTimeout(this.connectionTimeout);
+        this.connectionTimeout = null;
         this.lastConnectedAt = new Date().toISOString();
         this.reconnectAttempts = 0;
         this.setState('connected');
@@ -79,6 +81,7 @@ class ChatConnectionManager {
   disconnect() {
     this.manualDisconnect = true;
     this.clearReconnectTimer();
+    this.clearConnectionTimeout();
     this.stopHeartbeat();
     if (this.socket) this.socket.close(1000, 'desktop-chat-disconnect');
     this.socket = null;
@@ -137,6 +140,7 @@ class ChatConnectionManager {
    * Handles socket close.
    */
   handleClose() {
+    this.clearConnectionTimeout();
     this.stopHeartbeat();
     this.lastDisconnectedAt = new Date().toISOString();
     this.setState('disconnected');
@@ -148,7 +152,7 @@ class ChatConnectionManager {
    * @param {Error} error Socket error.
    */
   handleConnectionFailure(error) {
-    clearTimeout(this.connectionTimeout);
+    this.clearConnectionTimeout();
     this.logger.warn('Desktop Chat connection error', { error: error.message });
     this.eventBus.emit(CHAT_EVENTS.CONNECTION_ERROR, { error: error.message });
     this.setState('offline', { error: error.message });
@@ -200,6 +204,14 @@ class ChatConnectionManager {
   clearReconnectTimer() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+  }
+
+  /**
+   * Clears a pending socket connection timeout.
+   */
+  clearConnectionTimeout() {
+    if (this.connectionTimeout) clearTimeout(this.connectionTimeout);
+    this.connectionTimeout = null;
   }
 
   /**

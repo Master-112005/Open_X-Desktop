@@ -924,6 +924,9 @@ const openxApi = {
   updateDesktopChatPassword: (passwords = {}) =>
     ipcRenderer.invoke('desktopChat:profile:password', passwords),
 
+  setDesktopChatUiState: (state = {}) =>
+    ipcRenderer.invoke('desktopChat:uiState', state),
+
   getUiState: () =>
     ipcRenderer.invoke('uiState:get'),
 
