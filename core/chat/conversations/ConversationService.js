@@ -84,6 +84,8 @@ class ConversationService {
       timestamp: now,
       messageType: input.messageType || 'Text',
       direction: input.direction || 'incoming',
+      status: input.status || input.deliveryStatus || null,
+      delivery: input.delivery && typeof input.delivery === 'object' ? input.delivery : null,
       senderAccountId: input.senderAccountId || null,
       senderDeviceId: input.senderDeviceId || null,
       recipientAccountId: input.recipientAccountId || null,

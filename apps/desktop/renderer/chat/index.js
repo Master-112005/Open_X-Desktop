@@ -147,11 +147,11 @@ const NOTIFICATION_STORAGE_KEY = 'openx-ui-notifications-v1';
 const CHAT_HISTORY_STORAGE_KEY = 'openx-ui-chat-history-v2';
 const UI_STATE_STORAGE_KEY = 'openx-ui-state-v1';
 const MAX_NOTIFICATION_HISTORY = 30;
-const CHAT_HISTORY_LIMIT = 100;
+const CHAT_HISTORY_LIMIT = 300;
 const MAX_RENDERED_MESSAGES = CHAT_HISTORY_LIMIT;
 const MAX_CHAT_VISUAL_RESULTS = 10;
 const PEOPLE_CHAT_LIMIT = 30;
-const PEOPLE_CHAT_HISTORY_LIMIT = 60;
+const PEOPLE_CHAT_HISTORY_LIMIT = 300;
 const PEOPLE_CHAT_SEARCH_DEBOUNCE_MS = 220;
 const ASSISTANT_MUTED_STORAGE_KEY = 'openx-assistant-voice-muted-v1';
 const STORAGE_SAVE_DEBOUNCE_MS = 180;
@@ -991,10 +991,12 @@ function normalizePeopleChatHistory(history = []) {
     .map((entry, index) => {
       const text = String(entry?.text || entry?.searchText || entry?.preview || '').trim().slice(0, 1200);
       if (!text) return null;
+      const status = String(entry?.status || entry?.deliveryStatus || '').trim().toLowerCase();
       return {
         messageId: String(entry?.messageId || `local-message-${index}`),
         text,
         direction: entry?.direction === 'outgoing' ? 'outgoing' : 'incoming',
+        status: ['sending', 'sent', 'delivered', 'read', 'queued', 'failed'].includes(status) ? status : '',
         timestamp: entry?.timestamp || entry?.createdAt || new Date().toISOString()
       };
     })
@@ -1029,6 +1031,15 @@ function normalizePeopleChatConversation(entry = {}) {
     lastMessageTimestamp,
     history
   };
+}
+
+function publishPeopleChatUiState() {
+  if (!window.openx?.setDesktopChatUiState) return;
+  window.openx.setDesktopChatUiState({
+    visible: activeWorkspaceView === 'people-chat',
+    activeConversationId: activePeopleChatId || '',
+    threadOpen: peopleChatThreadOpen === true
+  }).catch(() => {});
 }
 
 function normalizePeopleChatRegistration(entry = {}) {
@@ -1625,6 +1636,17 @@ function renderPeopleChatList() {
   });
 }
 
+function formatPeopleChatMessageStatus(message = {}) {
+  if (message.direction !== 'outgoing') return '';
+  const status = String(message.status || '').toLowerCase();
+  if (status === 'sending') return 'Sending';
+  if (status === 'queued') return 'Queued';
+  if (status === 'delivered') return 'Delivered';
+  if (status === 'read') return 'Read';
+  if (status === 'failed') return 'Failed';
+  return 'Sent';
+}
+
 function renderPeopleChatThread() {
   if (!peopleChatThreadEl) return;
   const active = getActivePeopleChatConversation();
@@ -1657,7 +1679,11 @@ function renderPeopleChatThread() {
     bubble.className = 'people-chat-bubble';
     bubble.textContent = message.text;
     const time = document.createElement('small');
-    time.textContent = formatPeopleChatTime(message.timestamp);
+    const status = formatPeopleChatMessageStatus(message);
+    if (status) time.dataset.status = String(message.status || 'sent').toLowerCase();
+    time.textContent = status
+      ? `${formatPeopleChatTime(message.timestamp)} · ${status}`
+      : formatPeopleChatTime(message.timestamp);
     item.append(bubble, time);
     peopleChatThreadEl.appendChild(item);
   });
@@ -1697,6 +1723,7 @@ function returnPeopleChatToList() {
   peopleChatAddUserOpen = false;
   peopleChatEditingUser = false;
   peopleChatConfirmingDelete = false;
+  publishPeopleChatUiState();
   renderPeopleChat();
   requestAnimationFrame(() => peopleChatSearchEl?.focus());
 }
@@ -1727,6 +1754,7 @@ function openPeopleChatAddUser() {
   activePeopleChatId = null;
   peopleChatEditingUser = false;
   peopleChatConfirmingDelete = false;
+  publishPeopleChatUiState();
   if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = '';
   renderPeopleChat();
   requestAnimationFrame(() => peopleChatUserNameEl?.focus());
@@ -1892,6 +1920,7 @@ async function selectPeopleChatConversation(conversationId) {
   peopleChatAddUserOpen = false;
   peopleChatEditingUser = false;
   peopleChatConfirmingDelete = false;
+  publishPeopleChatUiState();
   renderPeopleChat();
   if (!window.openx?.openDesktopChatConversation || !/^conv_[a-f0-9]{64}$/i.test(String(conversationId || ''))) return;
   try {
@@ -1941,6 +1970,7 @@ async function createPeopleChatConversation(event) {
         peopleChatEditingUser = false;
         peopleChatConfirmingDelete = false;
         peopleChatLoaded = true;
+        publishPeopleChatUiState();
         if (peopleChatUserNameEl) peopleChatUserNameEl.value = '';
         if (peopleChatUserIdEl) peopleChatUserIdEl.value = '';
         if (peopleChatAddStatusEl) peopleChatAddStatusEl.textContent = '';
@@ -1970,6 +2000,22 @@ async function sendPeopleChatMessage(event) {
     return;
   }
   peopleChatInputEl.value = '';
+  const conversation = peopleChatConversations.find(item => item.conversationId === activePeopleChatId);
+  const optimisticId = `local-message-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const timestamp = new Date().toISOString();
+  if (conversation) {
+    conversation.history.push({
+      messageId: optimisticId,
+      direction: 'outgoing',
+      text,
+      status: 'sending',
+      timestamp
+    });
+    conversation.history = conversation.history.slice(-PEOPLE_CHAT_HISTORY_LIMIT);
+    conversation.preview = text.slice(0, 140);
+    conversation.lastMessageTimestamp = timestamp;
+    renderPeopleChat();
+  }
 
   if (window.openx?.sendDesktopChatMessage && /^conv_[a-f0-9]{64}$/i.test(String(activePeopleChatId))) {
     try {
@@ -1980,6 +2026,12 @@ async function sendPeopleChatMessage(event) {
         return;
       }
     } catch (error) {
+      if (conversation) {
+        conversation.history = conversation.history.map(message => (
+          message.messageId === optimisticId ? { ...message, status: 'failed' } : message
+        ));
+        renderPeopleChat();
+      }
       if (peopleChatInputEl && !peopleChatInputEl.value) peopleChatInputEl.value = text;
       showToast('Message could not be sent', error?.message || 'OpenX Chat server is unavailable.', 'error');
       requestAnimationFrame(() => peopleChatInputEl?.focus());
@@ -1987,15 +2039,10 @@ async function sendPeopleChatMessage(event) {
     }
   }
 
-  const conversation = peopleChatConversations.find(item => item.conversationId === activePeopleChatId);
   if (!conversation) return;
-  const timestamp = new Date().toISOString();
-  conversation.history.push({
-    messageId: `local-message-${Date.now()}`,
-    direction: 'outgoing',
-    text,
-    timestamp
-  });
+  conversation.history = conversation.history.map(message => (
+    message.messageId === optimisticId ? { ...message, status: 'sent' } : message
+  ));
   conversation.history = conversation.history.slice(-PEOPLE_CHAT_HISTORY_LIMIT);
   conversation.preview = text.slice(0, 140);
   conversation.lastMessageTimestamp = timestamp;
@@ -2069,6 +2116,7 @@ function setWorkspaceView(viewName) {
   } else if (showingChat) {
     requestAnimationFrame(() => inputBox.focus());
   }
+  publishPeopleChatUiState();
 }
 
 function formatDueDate(value) {

@@ -122,6 +122,10 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /function savePeopleChatUser\(/);
     assert.match(script, /function deletePeopleChatConversation\(/);
     assert.match(script, /function handleDesktopChatChanged\(/);
+    assert.match(script, /const CHAT_HISTORY_LIMIT = 300/);
+    assert.match(script, /const PEOPLE_CHAT_HISTORY_LIMIT = 300/);
+    assert.match(script, /function publishPeopleChatUiState\(/);
+    assert.match(script, /window\.openx\.setDesktopChatUiState/);
     assert.match(script, /peerHandle/);
     assert.match(script, /window\.openx\?\.listDesktopChatConversations/);
     assert.match(script, /window\.openx\?\.openDesktopChatConversation/);
@@ -136,6 +140,7 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /window\.openx\?\.getDesktopChatRegistration/);
     assert.match(script, /window\.openx\?\.startDesktopChatRegistration/);
     assert.match(script, /window\.openx\?\.updateDesktopChatPassword/);
+    assert.match(script, /window\.openx\?\.setDesktopChatUiState/);
     assert.equal(script.includes(['verify', 'DesktopChat', 'Registration'].join('')), false);
     assert.match(script, /window\.openx\.onOpenDesktopChat\?\./);
     assert.match(script, /window\.openx\.onDesktopChatChanged\?\./);
@@ -442,7 +447,7 @@ describe('Chat Renderer UI', function() {
   });
 
   it('should bound long-session rendering and coalesce glass tint updates', function() {
-    assert.match(script, /CHAT_HISTORY_LIMIT\s*=\s*100/);
+    assert.match(script, /CHAT_HISTORY_LIMIT\s*=\s*300/);
     assert.match(script, /MAX_RENDERED_MESSAGES\s*=\s*CHAT_HISTORY_LIMIT/);
     assert.match(script, /renderedMessages\[index\]\.remove\(\)/);
     assert.match(script, /function scheduleGlassTintUpdate\(/);
