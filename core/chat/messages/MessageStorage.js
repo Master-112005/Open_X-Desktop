@@ -148,6 +148,16 @@ class MessageStorage {
   }
 
   /**
+   * Removes retry state for a message.
+   * @param {string} messageId MessageID.
+   */
+  async removeRetry(messageId) {
+    await this.initialize();
+    this.state.retryQueue = this.state.retryQueue.filter(item => item.messageId !== messageId);
+    await this.persist();
+  }
+
+  /**
    * Persists state atomically.
    */
   async persist() {
