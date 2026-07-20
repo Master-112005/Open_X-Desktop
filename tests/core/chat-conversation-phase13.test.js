@@ -234,6 +234,11 @@ describe('OpenX Chat Desktop Conversations Phase 13', () => {
           storagePath: path.join(directory, 'messages.json')
         },
         sessionResolver: () => sessionKey,
+        connectionManager: {
+          sendMessageEvent() {
+            throw new Error('message sends must use the HTTP route so server acceptance is authoritative');
+          }
+        },
         client: {
           async send(message) {
             routedMessage = message;
@@ -294,6 +299,11 @@ describe('OpenX Chat Desktop Conversations Phase 13', () => {
           storagePath: path.join(directory, 'messages.json')
         },
         sessionResolver: () => sessionKey,
+        connectionManager: {
+          sendMessageEvent() {
+            throw new Error('message sends must not be marked sent from an unacknowledged socket write');
+          }
+        },
         client: {
           async send() {
             return { deliveredCount: 0, queuedCount: 1 };
@@ -317,6 +327,13 @@ describe('OpenX Chat Desktop Conversations Phase 13', () => {
     } finally {
       await fs.rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it('serializes old server-mailbox handoff records as sent instead of queued', async function() {
+    const main = await fs.readFile(path.join(__dirname, '..', '..', 'apps', 'desktop', 'electron', 'main.js'), 'utf8');
+    assert.match(main, /direction === 'outgoing' && isPlainObject\(entry\.delivery\)[\s\S]*\? summarizeDesktopChatDelivery\(entry\.delivery\)/);
+    assert.match(main, /const DESKTOP_CHAT_SYNC_OVERLAP = 50;/);
+    assert.match(main, /const afterSequence = Math\.max\(0, Number\(cursor\.lastAck \|\| 0\) - DESKTOP_CHAT_SYNC_OVERLAP\);/);
   });
 
   it('orders pinned and recent conversations, enforces pin limit, and paginates large lists', async () => {

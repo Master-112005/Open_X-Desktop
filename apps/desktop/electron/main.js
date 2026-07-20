@@ -396,6 +396,7 @@ const DESKTOP_CHAT_SYNC_INTERVAL_MS = 15000;
 const DESKTOP_CHAT_SYNC_ACTIVE_INTERVAL_MS = 5000;
 const DESKTOP_CHAT_SYNC_IDLE_MAX_MS = 60000;
 const DESKTOP_CHAT_SYNC_FAILURE_MAX_MS = 120000;
+const DESKTOP_CHAT_SYNC_OVERLAP = 50;
 const DESKTOP_CHAT_RECONNECT_MIN_MS = 1500;
 const DESKTOP_CHAT_RECONNECT_MAX_MS = 30000;
 const DESKTOP_CHAT_NOTIFICATION_PREVIEW_MAX = 360;
@@ -2480,10 +2481,12 @@ function serializeDesktopChatHistory(history = []) {
       const text = normalizeDesktopChatText(entry.searchText || entry.text || entry.preview, 1200);
       if (!text) return null;
       const direction = entry.direction === 'outgoing' ? 'outgoing' : 'incoming';
-      const status = normalizeDesktopChatMessageStatus(
-        entry.status || entry.deliveryStatus,
-        direction === 'outgoing' ? 'sent' : 'delivered'
-      );
+      const status = direction === 'outgoing' && isPlainObject(entry.delivery)
+        ? summarizeDesktopChatDelivery(entry.delivery)
+        : normalizeDesktopChatMessageStatus(
+          entry.status || entry.deliveryStatus,
+          direction === 'outgoing' ? 'sent' : 'delivered'
+        );
       return {
         messageId: normalizeDesktopChatText(entry.messageId || `message-${index}`, 100),
         text,
@@ -3544,9 +3547,10 @@ async function syncDesktopChatMailbox(options = {}) {
     if (!registered.runtime?.chatReady) return { success: true, skipped: true, reason: 'chat-not-ready' };
     const deviceId = normalizeDesktopChatSetupText(registered.device?.deviceId || '', 100).toLowerCase();
     const cursor = getDesktopChatSyncCursor(deviceId);
+    const afterSequence = Math.max(0, Number(cursor.lastAck || 0) - DESKTOP_CHAT_SYNC_OVERLAP);
     const payload = await desktopChatServerRequest(
       registered.apiBaseUrl,
-      `/sync?deviceId=${encodeURIComponent(deviceId)}&afterSequence=${encodeURIComponent(String(cursor.lastAck))}&limit=50`,
+      `/sync?deviceId=${encodeURIComponent(deviceId)}&afterSequence=${encodeURIComponent(String(afterSequence))}&limit=50`,
       'GET',
       null,
       { quietOffline: true, timeoutMs: DESKTOP_CHAT_SYNC_REQUEST_TIMEOUT_MS }
