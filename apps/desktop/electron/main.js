@@ -360,6 +360,7 @@ let cloudPairingManager = null;
 let cloudCommandManager = null;
 let cloudFileTransferManager = null;
 let cloudProfileSyncRegistered = false;
+let cloudModesSyncRegistered = false;
 const cloudFileTransferUiProgress = new Map();
 const rendererCrashHistory = new Map();
 const recoveryTimeouts = new Set();
@@ -1683,10 +1684,6 @@ function buildDesktopChatLocalRelationshipId(seed) {
   return `rel_${crypto.createHash('sha256').update(`openx-chat-peer:${String(seed || '')}`).digest('hex')}`;
 }
 
-function encodeDesktopChatPreview(value) {
-  return Buffer.from(normalizeDesktopChatText(value, DESKTOP_CHAT_NOTIFICATION_PREVIEW_MAX), 'utf8').toString('base64url');
-}
-
 function decodeDesktopChatBase64Url(value, maxBytes = 4096) {
   const raw = String(value || '').trim();
   if (!raw || raw.length > maxBytes * 2) return '';
@@ -1694,6 +1691,17 @@ function decodeDesktopChatBase64Url(value, maxBytes = 4096) {
     return Buffer.from(raw, 'base64url').toString('utf8');
   } catch (_) {
     return '';
+  }
+}
+
+function decodeDesktopChatBase64UrlBuffer(value, maxBytes = 64 * 1024) {
+  const raw = String(value || '').trim();
+  if (!raw || raw.length > maxBytes * 2) return null;
+  try {
+    const decoded = Buffer.from(raw, 'base64url');
+    return decoded.length <= maxBytes ? decoded : null;
+  } catch (_) {
+    return null;
   }
 }
 
@@ -1710,7 +1718,113 @@ function parseDesktopChatTransportPacket(value) {
   }
 }
 
-function decodeDesktopChatIncomingPreview(envelope = {}) {
+function normalizeDesktopChatAccountForKey(value) {
+  const normalized = normalizeDesktopChatSetupText(value || '', 100).toLowerCase();
+  return isDesktopChatAccountId(normalized) ? normalized : '';
+}
+
+function collectDesktopChatRelationshipAccountIds(context = {}) {
+  const envelope = isPlainObject(context.envelope) ? context.envelope : {};
+  const metadata = isPlainObject(context.metadata)
+    ? context.metadata
+    : (isPlainObject(envelope.metadata) ? envelope.metadata : {});
+  const conversationMetadata = isPlainObject(context.conversation?.metadata)
+    ? context.conversation.metadata
+    : {};
+  const candidates = [
+    context.senderAccountId,
+    context.recipientAccountId,
+    envelope.senderAccountId,
+    envelope.recipientAccountId,
+    metadata.senderAccountId,
+    metadata.recipientAccountId
+  ].map(normalizeDesktopChatAccountForKey).filter(Boolean);
+  const unique = [...new Set(candidates)];
+
+  if (unique.length < 2) {
+    [
+      context.localAccountId,
+      conversationMetadata.senderAccountId,
+      conversationMetadata.recipientAccountId,
+      conversationMetadata.peerAccountId
+    ].map(normalizeDesktopChatAccountForKey)
+      .filter(Boolean)
+      .forEach(accountId => {
+        if (!unique.includes(accountId)) unique.push(accountId);
+      });
+  }
+
+  return unique.slice(0, 2).sort();
+}
+
+function buildDesktopChatRelationshipSessionKey(context = {}) {
+  const envelope = isPlainObject(context.envelope) ? context.envelope : {};
+  const metadata = isPlainObject(context.metadata)
+    ? context.metadata
+    : (isPlainObject(envelope.metadata) ? envelope.metadata : {});
+  const relationshipId = normalizeDesktopChatSetupText(
+    context.relationshipId || envelope.relationshipId || metadata.relationshipId || '',
+    100
+  ).toLowerCase();
+  const accountIds = collectDesktopChatRelationshipAccountIds({ ...context, envelope, metadata });
+  if (!isDesktopChatRelationshipId(relationshipId) || accountIds.length < 2) return null;
+  return crypto
+    .createHash('sha256')
+    .update(`OpenXChat:relationship-session:v1:${relationshipId}:${accountIds.join(':')}`, 'utf8')
+    .digest();
+}
+
+function buildDesktopChatMessageAad(messageId, relationshipId, version = '1') {
+  const safeMessageId = normalizeDesktopChatSetupText(messageId || '', 100).toLowerCase();
+  const safeRelationshipId = normalizeDesktopChatSetupText(relationshipId || '', 100).toLowerCase();
+  if (!/^msg_[a-f0-9]{64}$/i.test(safeMessageId) || !isDesktopChatRelationshipId(safeRelationshipId)) return '';
+  return `OpenXChat:v${version || '1'}:message:${safeMessageId}:${safeRelationshipId}`;
+}
+
+function decryptDesktopChatTransportPacket(envelope = {}, context = {}) {
+  const packet = parseDesktopChatTransportPacket(envelope.ciphertext);
+  if (!packet || packet.keyScope === 'local-device-preview') return '';
+  const algorithm = normalizeDesktopChatSetupText(packet.algorithm || packet.alg || '', 40);
+  if (algorithm !== 'AES-GCM' && algorithm !== 'AES-256-GCM') return '';
+
+  const metadata = isPlainObject(envelope.metadata) ? envelope.metadata : {};
+  const relationshipId = normalizeDesktopChatSetupText(
+    context.relationshipId || envelope.relationshipId || metadata.relationshipId || '',
+    100
+  ).toLowerCase();
+  const messageId = normalizeDesktopChatSetupText(envelope.messageId || metadata.messageId || '', 100).toLowerCase();
+  const key = buildDesktopChatRelationshipSessionKey({
+    ...context,
+    envelope,
+    metadata,
+    relationshipId
+  });
+  const aadText = packet.aad
+    ? decodeDesktopChatBase64Url(packet.aad, 2048)
+    : buildDesktopChatMessageAad(messageId, relationshipId, envelope.protocolVersion || metadata.messageVersion || '1');
+  const expectedAad = buildDesktopChatMessageAad(messageId, relationshipId, envelope.protocolVersion || metadata.messageVersion || '1');
+  if (!key || !aadText || aadText !== expectedAad) return '';
+
+  const iv = decodeDesktopChatBase64UrlBuffer(packet.iv, 32);
+  const tag = decodeDesktopChatBase64UrlBuffer(packet.tag, 32);
+  const ciphertext = decodeDesktopChatBase64UrlBuffer(packet.ciphertext, 16 * 1024);
+  if (!iv || !tag || !ciphertext || iv.length !== 12 || tag.length !== 16) return '';
+
+  try {
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAAD(Buffer.from(aadText, 'utf8'));
+    decipher.setAuthTag(tag);
+    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+    return normalizeDesktopChatText(plaintext, 1200);
+  } catch (_) {
+    return '';
+  }
+}
+
+function decodeDesktopChatIncomingPreview(envelope = {}, context = {}) {
+  const plaintext = decryptDesktopChatTransportPacket(envelope, context);
+  if (plaintext) return plaintext;
+
   const metadata = isPlainObject(envelope.metadata) ? envelope.metadata : {};
   const directPreview = normalizeDesktopChatText(
     metadata.notificationPreview || metadata.messagePreview || metadata.preview || metadata.bodyPreview || '',
@@ -1986,27 +2100,38 @@ async function ensureDesktopChatTrustedConversation(manager, relationship, accou
 }
 
 function buildDesktopChatEncryptedTransport(text, context = {}) {
-  const key = crypto.randomBytes(32);
+  const relationshipId = normalizeDesktopChatSetupText(context.relationshipId || '', 100).toLowerCase();
+  const messageId = normalizeDesktopChatSetupText(context.messageId || '', 100).toLowerCase();
+  const key = buildDesktopChatRelationshipSessionKey({
+    relationshipId,
+    senderAccountId: context.senderAccountId,
+    recipientAccountId: context.recipientAccountId
+  });
+  if (!key) {
+    const error = new Error('Chat relationship key context is incomplete.');
+    error.code = 'chat.session_key_unavailable';
+    throw error;
+  }
   const iv = crypto.randomBytes(12);
-  const aad = Buffer.from(JSON.stringify({
-    scope: 'openx-chat-message',
-    relationshipId: context.relationshipId || '',
-    messageId: context.messageId || ''
-  }));
+  const aadText = buildDesktopChatMessageAad(messageId, relationshipId, '1');
+  if (!aadText) {
+    const error = new Error('Chat message authentication data is invalid.');
+    error.code = 'chat.aad_invalid';
+    throw error;
+  }
+  const aad = Buffer.from(aadText, 'utf8');
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   cipher.setAAD(aad);
   const ciphertext = Buffer.concat([cipher.update(String(text || ''), 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
   return Buffer.from(JSON.stringify({
-    v: 2,
-    alg: 'AES-256-GCM',
-    keyScope: 'local-device-preview',
-    aad: crypto.createHash('sha256').update(aad).digest('base64url'),
+    algorithm: 'AES-GCM',
     iv: iv.toString('base64url'),
-    tag: tag.toString('base64url'),
     ciphertext: ciphertext.toString('base64url'),
-    notificationPreview: encodeDesktopChatPreview(text)
-  })).toString('base64url');
+    tag: tag.toString('base64url'),
+    aad: aad.toString('base64url'),
+    futureStreaming: false
+  }), 'utf8').toString('base64url');
 }
 
 function buildDesktopChatDevicePayload(accountId, clientDeviceKey) {
@@ -2708,7 +2833,9 @@ async function sendDesktopChatMessage(input = {}) {
     }
     const ciphertext = buildDesktopChatEncryptedTransport(text, {
       relationshipId: existing.relationshipId,
-      messageId
+      messageId,
+      senderAccountId: registered.accountId,
+      recipientAccountId
     });
     await desktopChatServerRequest(
       registered.apiBaseUrl,
@@ -2970,7 +3097,13 @@ async function processDesktopChatIncomingEnvelope(envelope = {}, options = {}) {
   let conversation = await ensureDesktopChatConversationForEnvelope(manager, envelope, registered, peerName);
   const historyBefore = await manager.storage.listHistory(conversation.conversationId);
   const duplicate = desktopChatHistoryHasMessage(historyBefore, messageId);
-  const preview = decodeDesktopChatIncomingPreview(envelope) || 'New message';
+  const preview = decodeDesktopChatIncomingPreview(envelope, {
+    conversation: existing || conversation,
+    localAccountId,
+    relationshipId: envelope.relationshipId || envelope.metadata?.relationshipId || '',
+    senderAccountId,
+    recipientAccountId
+  }) || 'Encrypted message';
   if (!duplicate) {
     conversation = await manager.addMessage({
       conversationId: conversation.conversationId,
@@ -3964,6 +4097,140 @@ function handleCloudProfileSyncPacket(message = {}) {
   if (action === 'upsert') {
     applyProfileSyncFromPhone(payload.profile || payload.snapshot?.profile || {}).catch(error => {
       mainLogger.warn('[PROFILE] Cloud profile sync apply failed', { error: error.message });
+    });
+    return true;
+  }
+  return false;
+}
+
+function normalizeModeSyncInstructions(value) {
+  const source = Array.isArray(value)
+    ? value
+    : String(value || '').split(/[\n,]+/);
+  return source
+    .map(entry => String(entry || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 10);
+}
+
+function normalizeModeSyncModes(modes = []) {
+  return (Array.isArray(modes) ? modes : [])
+    .slice(0, 5)
+    .map((mode, modeIndex) => {
+      const source = mode && typeof mode === 'object' ? mode : {};
+      const apps = (Array.isArray(source.apps) ? source.apps : [])
+        .slice(0, 5)
+        .map(app => {
+          const appSource = app && typeof app === 'object' ? app : { name: app };
+          return {
+            name: String(appSource.name || appSource.appName || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+            instructions: normalizeModeSyncInstructions(appSource.instructions || appSource.commands)
+          };
+        })
+        .filter(app => app.name);
+      return {
+        id: String(source.id || `mode-${modeIndex + 1}`).replace(/\s+/g, '-').slice(0, 80),
+        name: String(source.name || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+        apps,
+        commands: normalizeModeSyncInstructions(source.commands)
+      };
+    })
+    .filter(mode => mode.name || mode.apps.length > 0 || mode.commands.length > 0);
+}
+
+function getModesSyncSnapshot() {
+  const settings = settingsService?.getSettings?.() || {};
+  return {
+    version: 1,
+    source: 'desktop',
+    generatedAt: new Date().toISOString(),
+    modes: normalizeModeSyncModes(settings.modes || [])
+  };
+}
+
+function createCloudModesPacket(destinationDevice, snapshot, action = 'snapshot') {
+  const status = cloudConnectionManager?.getStatus?.() || {};
+  const sourceDevice = status.device || {};
+  const owner = status.owner || {};
+  const destinationDeviceId = String(destinationDevice?.deviceId || destinationDevice).trim();
+  if (!sourceDevice.deviceId || !owner.id || !destinationDeviceId) return null;
+  const requestId = `modes_sync_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+  return {
+    packetId: `modes_packet_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    protocolVersion: 1,
+    packetType: 'system',
+    sourceDeviceId: sourceDevice.deviceId,
+    destinationDeviceId,
+    ownerId: owner.id,
+    timestamp: Date.now(),
+    requestId,
+    responseId: null,
+    metadata: {
+      feature: 'modes-sync',
+      source: 'desktop',
+      retryable: false
+    },
+    checksum: null,
+    encryption: null,
+    payload: {
+      type: 'modes-sync',
+      action,
+      snapshot
+    }
+  };
+}
+
+function sendModesSyncSnapshotToDevice(deviceId, snapshot = null) {
+  const packet = createCloudModesPacket(deviceId, snapshot || getModesSyncSnapshot());
+  return packet ? cloudConnectionManager?.sendRelayPacket?.(packet) === true : false;
+}
+
+function broadcastModesSync(snapshot = null) {
+  const nextSnapshot = snapshot || getModesSyncSnapshot();
+  try {
+    const status = cloudConnectionManager?.getStatus?.() || {};
+    if (status.connected !== true) return false;
+    const devices = Array.isArray(status.pairedDevices) ? status.pairedDevices : [];
+    let sent = 0;
+    for (const device of devices) {
+      if (!device?.deviceId || device.deviceId === status.device?.deviceId) continue;
+      if (sendModesSyncSnapshotToDevice(device.deviceId, nextSnapshot)) sent += 1;
+    }
+    return sent > 0;
+  } catch (error) {
+    mainLogger.warn('[MODES] Cloud modes sync broadcast failed', { error: error.message });
+    return false;
+  }
+}
+
+async function applyModesSyncFromPhone(modes = []) {
+  const nextModes = normalizeModeSyncModes(modes);
+  const saved = settingsService.saveSettings({ modes: nextModes });
+  await reloadRuntimeServices();
+  const snapshot = {
+    version: 1,
+    source: 'desktop',
+    generatedAt: new Date().toISOString(),
+    modes: normalizeModeSyncModes(saved.modes || nextModes)
+  };
+  broadcastModesSync(snapshot);
+  return snapshot;
+}
+
+function handleCloudModesSyncPacket(message = {}) {
+  const packet = message.packet || {};
+  const payload = packet.payload || {};
+  if (payload.type !== 'modes-sync') return false;
+  const status = cloudConnectionManager?.getStatus?.() || {};
+  if (!status.connected || packet.destinationDeviceId !== status.device?.deviceId || packet.ownerId !== status.owner?.id) return false;
+  const action = String(payload.action || 'request').toLowerCase();
+  if (action === 'request') {
+    sendModesSyncSnapshotToDevice(packet.sourceDeviceId);
+    return true;
+  }
+  if (action === 'upsert') {
+    applyModesSyncFromPhone(payload.modes || payload.snapshot?.modes || []).catch(error => {
+      mainLogger.warn('[MODES] Cloud modes sync apply failed', { error: error.message });
     });
     return true;
   }
@@ -5953,6 +6220,7 @@ function setupIPC() {
       await manager.disconnect('cloud-disabled-in-settings');
     }
     broadcastProfileSync();
+    broadcastModesSync();
     return {
       ...buildSettingsSnapshot(),
       cloudStatus: manager.getStatus()
@@ -5965,6 +6233,7 @@ function setupIPC() {
     const manager = initializeCloudConnection();
     await manager.disconnect('settings-reset');
     manager.updateSettings(currentCloudSettings());
+    broadcastModesSync();
     return {
       ...buildSettingsSnapshot(),
       cloudStatus: manager.getStatus()
@@ -6689,6 +6958,10 @@ function initializeCloudMobileRuntime() {
   if (!cloudProfileSyncRegistered) {
     manager.on('relay-packet', handleCloudProfileSyncPacket);
     cloudProfileSyncRegistered = true;
+  }
+  if (!cloudModesSyncRegistered) {
+    manager.on('relay-packet', handleCloudModesSyncPacket);
+    cloudModesSyncRegistered = true;
   }
   if (assistant?.automation) {
     assistant.automation.fileTransferManager = cloudTransfers;
