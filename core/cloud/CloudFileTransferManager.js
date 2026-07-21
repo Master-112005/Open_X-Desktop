@@ -39,12 +39,15 @@ class CloudFileTransferManager extends EventEmitter {
     this.started = false;
     this.boundPacketHandler = message => this.handleRelayPacket(message);
     this.boundRelayErrorHandler = message => this.handleRelayError(message);
+    this.boundRelayAckHandler = message => this.handleRelayAck(message);
+    this.controlRequests = new Map();
   }
 
   start() {
     if (this.started || !this.connectionManager) return false;
     this.connectionManager.on('relay-packet', this.boundPacketHandler);
     this.connectionManager.on('relay-error', this.boundRelayErrorHandler);
+    this.connectionManager.on('relay-ack', this.boundRelayAckHandler);
     this.started = true;
     return true;
   }
@@ -53,12 +56,14 @@ class CloudFileTransferManager extends EventEmitter {
     if (this.started && this.connectionManager) {
       this.connectionManager.off('relay-packet', this.boundPacketHandler);
       this.connectionManager.off('relay-error', this.boundRelayErrorHandler);
+      this.connectionManager.off('relay-ack', this.boundRelayAckHandler);
     }
     this.started = false;
     for (const transfer of this.incoming.values()) this.cleanupIncoming(transfer, 'destroy');
     for (const transfer of this.outgoing.values()) this.cleanupOutgoing(transfer, 'destroy');
     this.incoming.clear();
     this.outgoing.clear();
+    this.controlRequests.clear();
     this.removeAllListeners();
   }
 
@@ -203,22 +208,38 @@ class CloudFileTransferManager extends EventEmitter {
     if (payload.type !== 'cloud-file-transfer') return;
     const action = String(payload.action || '').trim();
     try {
-      if (action === 'metadata') return this.handleMetadata(packet, payload);
-      if (action === 'accept') return this.handleAccept(payload);
-      if (action === 'reject') return this.handleReject(payload);
-      if (action === 'chunk') return this.handleChunk(packet, payload);
-      if (action === 'chunk-ack') return this.handleChunkAck(payload);
-      if (action === 'complete') return this.handleComplete(payload);
-      if (action === 'complete-ack') return this.handleCompleteAck(payload);
-      if (action === 'cancel') return this.handleCancel(payload);
-      if (action === 'pause') return this.handlePause(payload);
-      if (action === 'resume') return this.handleResume(payload);
+      let result;
+      if (action === 'metadata') result = this.handleMetadata(packet, payload);
+      else if (action === 'accept') result = this.handleAccept(payload);
+      else if (action === 'reject') result = this.handleReject(payload);
+      else if (action === 'chunk') result = this.handleChunk(packet, payload);
+      else if (action === 'chunk-ack') result = this.handleChunkAck(payload);
+      else if (action === 'complete') result = this.handleComplete(payload);
+      else if (action === 'complete-ack') result = this.handleCompleteAck(payload);
+      else if (action === 'cancel') result = this.handleCancel(payload);
+      else if (action === 'pause') result = this.handlePause(payload);
+      else if (action === 'resume') result = this.handleResume(payload);
+      if (result && typeof result.catch === 'function') {
+        result.catch(error => this.handleTransferHandlerError(packet, payload, action, error));
+      }
+      return result;
     } catch (error) {
-      this.log('warn', 'Chunk Failure', {
-        transferId: payload.transferId || null,
-        action,
-        error: error.message
-      });
+      this.handleTransferHandlerError(packet, payload, action, error);
+    }
+  }
+
+  handleTransferHandlerError(_packet, payload, action, error) {
+    const transferId = String(payload?.transferId || '').trim();
+    this.log('warn', 'Transfer Handler Failure', {
+      transferId: transferId || null,
+      action,
+      error: error.message
+    });
+    const transfer = transferId
+      ? this.incoming.get(transferId) || this.outgoing.get(transferId)
+      : null;
+    if (transfer && ['chunk', 'complete', 'complete-ack'].includes(action)) {
+      this.failTransfer(transfer, 'transfer-handler-failed', error.message);
     }
   }
 
@@ -432,6 +453,7 @@ class CloudFileTransferManager extends EventEmitter {
   }
 
   sendControl(transfer, action, payload) {
+    const requestId = `${transfer.transferId}:${action}:${payload.chunkIndex ?? payload.nextChunkIndex ?? 'control'}:${createId('request')}`;
     const packet = {
       packetId: createId('cloud_file_packet'),
       protocolVersion: PROTOCOL_VERSION,
@@ -444,7 +466,7 @@ class CloudFileTransferManager extends EventEmitter {
         : transfer.destinationDeviceId,
       ownerId: transfer.ownerId,
       timestamp: Date.now(),
-      requestId: `${transfer.transferId}:${action}:${payload.chunkIndex ?? payload.nextChunkIndex ?? 'control'}:${createId('request')}`,
+      requestId,
       responseId: null,
       metadata: { feature: 'cloud-file-transfer', action },
       checksum: null,
@@ -455,7 +477,14 @@ class CloudFileTransferManager extends EventEmitter {
         ...payload
       }
     };
-    return this.connectionManager?.sendRelayPacket?.(packet) === true;
+    this.controlRequests.set(requestId, {
+      transferId: transfer.transferId,
+      action,
+      packetId: packet.packetId
+    });
+    const sent = this.connectionManager?.sendRelayPacket?.(packet) === true;
+    if (!sent) this.controlRequests.delete(requestId);
+    return sent;
   }
 
   sendError(transferOrPacket, transferId, code, message) {
@@ -513,6 +542,7 @@ class CloudFileTransferManager extends EventEmitter {
   cleanupIncoming(transfer, reason, options = {}) {
     if (transfer.timeout) clearTimeout(transfer.timeout);
     this.incoming.delete(transfer.transferId);
+    this.forgetControlRequests(transfer.transferId);
     if (!options.keepRecord && transfer.tempPath) fs.promises.rm(transfer.tempPath, { force: true }).catch(() => {});
     if (!options.keepRecord && reason !== 'rejected') this.recordTransfer(transfer, 'failed');
   }
@@ -520,12 +550,15 @@ class CloudFileTransferManager extends EventEmitter {
   cleanupOutgoing(transfer, reason, options = {}) {
     if (transfer.timeout) clearTimeout(transfer.timeout);
     this.outgoing.delete(transfer.transferId);
+    this.forgetControlRequests(transfer.transferId);
     if (transfer.fileHandle) {
       transfer.fileHandle.close().catch(() => {});
       transfer.fileHandle = null;
     }
     if (!options.keepRecord && reason !== 'rejected') this.recordTransfer(transfer, 'failed');
-    if (reason !== 'completed' && reason !== 'rejected') transfer.reject?.(new Error(reason || 'Transfer failed.'));
+    if (!options.skipReject && reason !== 'completed' && reason !== 'rejected') {
+      transfer.reject?.(new Error(reason || 'Transfer failed.'));
+    }
   }
 
   async hashFile(filePath) {
@@ -571,11 +604,68 @@ class CloudFileTransferManager extends EventEmitter {
   }
 
   handleRelayError(message) {
+    const requestId = String(message?.requestId || '').trim();
+    const tracked = requestId ? this.controlRequests.get(requestId) : null;
+    const transferId = tracked?.transferId || this.extractTransferIdFromRequestId(requestId) || '';
+    const transfer = transferId
+      ? this.outgoing.get(transferId) || this.incoming.get(transferId)
+      : null;
     this.log('warn', 'Relay Failure', {
       packetId: message?.packetId || null,
-      requestId: message?.requestId || null,
+      requestId: requestId || null,
+      transferId: transferId || null,
+      action: tracked?.action || null,
       code: message?.code || 'relay-error'
     });
+    if (!transfer) return;
+    const code = String(message?.code || 'relay-error').trim() || 'relay-error';
+    const reason = String(message?.message || code).trim() || code;
+    this.failTransfer(transfer, code, reason);
+  }
+
+  handleRelayAck(message) {
+    const requestId = String(message?.requestId || '').trim();
+    if (requestId) this.controlRequests.delete(requestId);
+  }
+
+  extractTransferIdFromRequestId(requestId) {
+    const value = String(requestId || '');
+    if (!value) return '';
+    const actions = ['metadata', 'accept', 'reject', 'chunk', 'chunk-ack', 'complete', 'complete-ack', 'cancel', 'pause', 'resume', 'error'];
+    for (const action of actions) {
+      const marker = `:${action}:`;
+      const index = value.indexOf(marker);
+      if (index > 0) return value.slice(0, index);
+    }
+    return '';
+  }
+
+  forgetControlRequests(transferId) {
+    const id = String(transferId || '').trim();
+    if (!id) return;
+    for (const [requestId, record] of this.controlRequests.entries()) {
+      if (record?.transferId === id) this.controlRequests.delete(requestId);
+    }
+  }
+
+  failTransfer(transfer, code, message) {
+    const isIncoming = this.incoming.has(transfer.transferId);
+    const isOutgoing = this.outgoing.has(transfer.transferId);
+    if (!isIncoming && !isOutgoing) return;
+    const error = new Error(message || code || 'Transfer failed.');
+    error.code = code || 'transfer_failed';
+    const event = {
+      ...this.publicTransfer(transfer),
+      reason: error.code,
+      error: error.message
+    };
+    if (isOutgoing) {
+      transfer.reject?.(error);
+      this.cleanupOutgoing(transfer, error.code, { skipReject: true });
+    } else {
+      this.cleanupIncoming(transfer, error.code);
+    }
+    this.emit('failed', event);
   }
 
   log(level, message, data = {}) {
