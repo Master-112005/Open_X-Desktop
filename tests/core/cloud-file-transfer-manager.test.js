@@ -164,6 +164,41 @@ describe('CloudFileTransferManager', () => {
     assert.equal(manager.outgoing.size, 0);
   });
 
+  it('fails an outgoing transfer immediately when the relay rejects a control packet', async () => {
+    const source = path.join(tempDir, 'offline.bin');
+    fs.writeFileSync(source, Buffer.alloc(1024, 5));
+    const connection = createConnection();
+    const manager = new CloudFileTransferManager({
+      connectionManager: connection,
+      chunkBytes: 512,
+      logger: { info() {}, warn() {}, error() {} }
+    });
+    const failures = [];
+    manager.on('failed', event => failures.push(event));
+
+    const pending = manager.sendFileToDevice('phone_1', source);
+    await waitFor(() => connection.sent.length === 1);
+    const requestId = connection.sent[0].requestId;
+    const transferId = connection.sent[0].payload.transferId;
+    assert.equal(manager.outgoing.has(transferId), true);
+    assert.equal(manager.controlRequests.has(requestId), true);
+
+    manager.handleRelayError({
+      type: 'relay:error',
+      packetId: connection.sent[0].packetId,
+      requestId,
+      code: 'destination-offline',
+      message: 'Destination Offline'
+    });
+
+    await assert.rejects(() => pending, /Destination Offline/);
+    assert.equal(manager.outgoing.size, 0);
+    assert.equal(manager.controlRequests.size, 0);
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0].transferId, transferId);
+    assert.equal(failures[0].reason, 'destination-offline');
+  });
+
   it('receives chunks only after explicit acceptance and verifies final hash', async () => {
     const connection = createConnection();
     const manager = new CloudFileTransferManager({
@@ -207,6 +242,60 @@ describe('CloudFileTransferManager', () => {
     });
     await manager.handleComplete({ transferId });
     assert.equal(fs.readFileSync(path.join(tempDir, 'received', 'mobile.txt'), 'utf8'), 'phone to desktop');
+  });
+
+  it('catches asynchronous transfer handler failures and cleans the affected transfer', async () => {
+    const connection = createConnection();
+    const manager = new CloudFileTransferManager({
+      connectionManager: connection,
+      logger: { info() {}, warn() {}, error() {} },
+      receiveDirectory: path.join(tempDir, 'received'),
+      tempDirectory: path.join(tempDir, 'tmp')
+    });
+    const transferId = 'cloud-test-async-failure';
+    const data = Buffer.from('phone chunk');
+    const sha256 = crypto.createHash('sha256').update(data).digest('hex');
+    const failures = [];
+    manager.on('failed', event => failures.push(event));
+
+    await manager.handleMetadata({
+      sourceDeviceId: 'phone_1',
+      destinationDeviceId: 'desktop_1',
+      ownerId: 'owner_1'
+    }, {
+      type: 'cloud-file-transfer',
+      action: 'metadata',
+      transferId,
+      fileName: 'broken.txt',
+      fileSize: data.length,
+      sha256,
+      chunkCount: 1
+    });
+    manager.acceptTransfer(transferId);
+    manager.handleChunk = async () => {
+      throw new Error('forced async failure');
+    };
+
+    manager.handleRelayPacket({
+      packet: {
+        sourceDeviceId: 'phone_1',
+        destinationDeviceId: 'desktop_1',
+        ownerId: 'owner_1',
+        payload: {
+          type: 'cloud-file-transfer',
+          action: 'chunk',
+          transferId,
+          chunkIndex: 0,
+          data: data.toString('base64'),
+          sha256
+        }
+      }
+    });
+
+    await waitFor(() => failures.length === 1);
+    assert.equal(manager.incoming.size, 0);
+    assert.equal(failures[0].transferId, transferId);
+    assert.equal(failures[0].reason, 'transfer-handler-failed');
   });
 
   it('keeps relay packet chunks below the configured packet limit', async () => {
