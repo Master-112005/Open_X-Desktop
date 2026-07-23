@@ -2,7 +2,7 @@
 
 const {
   clamp01,
-  cosineSimilarity,
+  faceEmbeddingSimilarity,
   faceBoxIoU,
   faceQualityScore,
   id,
@@ -21,16 +21,23 @@ class FaceGroupingEngine {
     this.events = events;
   }
 
-  groupUnknownFace({ vector, photoId, faceId, faceBox = null, imageWidth = null, imageHeight = null, source = 'ai-vision', confidence = 0, quality: inputQuality = null } = {}) {
+  groupUnknownFace({ vector, photoId, faceId, faceBox = null, imageWidth = null, imageHeight = null, source = 'ai-vision', confidence = 0, quality: inputQuality = null, metadata = null } = {}) {
     if (!this.configuration.privacy.groupingEnabled) return { skipped: true, reason: 'grouping-disabled' };
     const quality = Number.isFinite(Number(inputQuality))
       ? clamp01(inputQuality)
-      : faceQualityScore({ confidence, faceBox, imageWidth, imageHeight, vector });
+      : faceQualityScore({
+        confidence,
+        faceBox,
+        imageWidth,
+        imageHeight,
+        vector,
+        qualitySignals: metadata?.qualitySignals || null
+      });
     const cluster = this._bestCluster(vector, { quality });
     const qualityPenalty = quality < Number(this.configuration.quality?.minScanQuality ?? 0.56)
       ? Number(this.configuration.quality?.lowQualityThresholdPenalty ?? 0.025)
       : 0;
-    const groupingThreshold = this.configuration.thresholds.grouping + qualityPenalty;
+    const groupingThreshold = this._groupingThreshold(cluster, quality) + qualityPenalty;
     const clusterId = cluster?.similarity >= groupingThreshold ? cluster.cluster.id : id('unknownface');
     if (!this.state.unknownClusters[clusterId]) {
       this.state.unknownClusters[clusterId] = {
@@ -53,7 +60,8 @@ class FaceGroupingEngine {
       vector,
       photoId,
       faceId,
-      faceBox: normalizedFaceBox
+      faceBox: normalizedFaceBox,
+      quality
     });
     if (duplicate) {
       duplicate.confidence = Math.max(Number(duplicate.confidence) || 0, Number(confidence) || 0);
@@ -81,7 +89,8 @@ class FaceGroupingEngine {
       imageHeight: normalizedFaceBox?.imageHeight || null,
       source,
       confidence,
-      quality
+      quality,
+      metadata
     });
     record.embeddingIds.push(embedding.id);
     if (photoId && !record.photoIds.includes(photoId)) record.photoIds.push(photoId);
@@ -142,21 +151,23 @@ class FaceGroupingEngine {
       const scored = embeddings
         .map(embedding => ({
           embedding,
-          similarity: cosineSimilarity(vector, embedding.vector),
+          similarity: faceEmbeddingSimilarity({ vector, quality: options.quality }, embedding),
           quality: clamp01(embedding.quality ?? embedding.confidence ?? 0.75)
         }))
         .sort((left, right) => right.similarity - left.similarity);
       const top = scored.slice(0, Math.min(5, scored.length));
       const bestSimilarity = top[0]?.similarity || 0;
       const topMean = top.reduce((sum, item) => sum + item.similarity, 0) / Math.max(1, top.length);
+      const probeQuality = clamp01(options.quality ?? 0.75);
+      const clusterQuality = top.reduce((sum, item) => sum + item.quality, 0) / Math.max(1, top.length);
       const centroid = weightedMeanVector(scored.map(item => ({
         vector: item.embedding.vector,
         weight: Math.max(0.05, item.quality)
       })));
-      const centroidSimilarity = centroid.length ? cosineSimilarity(vector, centroid) : bestSimilarity;
+      const centroidSimilarity = centroid.length
+        ? faceEmbeddingSimilarity({ vector, quality: options.quality }, { vector: centroid, quality: clusterQuality || 0.75 })
+        : bestSimilarity;
       const supportCount = scored.filter(item => item.similarity >= this.configuration.thresholds.suggestion).length;
-      const probeQuality = clamp01(options.quality ?? 0.75);
-      const clusterQuality = top.reduce((sum, item) => sum + item.quality, 0) / Math.max(1, top.length);
       const qualityFactor = 0.94 + (Math.min(probeQuality, clusterQuality) * 0.06);
       const similarity = clamp01(((bestSimilarity * 0.56) + (topMean * 0.20) + (centroidSimilarity * 0.24) + Math.min(0.016, supportCount * 0.004)) * qualityFactor);
       if (!best || similarity > best.similarity) {
@@ -172,6 +183,17 @@ class FaceGroupingEngine {
     return best;
   }
 
+  _groupingThreshold(clusterMatch = null, quality = 0.75) {
+    const base = Number(this.configuration.thresholds.grouping ?? 0.94);
+    const supportCount = Number(clusterMatch?.supportCount || 0);
+    const clusterSize = Number(clusterMatch?.cluster?.embeddingIds?.length || 0);
+    const evidenceDiscount = supportCount >= 4 || clusterSize >= 6
+      ? 0.018
+      : supportCount >= 2 || clusterSize >= 3 ? 0.012 : 0;
+    const qualityDiscount = clamp01(quality) >= 0.82 ? 0.006 : 0;
+    return Math.max(0.915, base - evidenceDiscount - qualityDiscount);
+  }
+
   _findDuplicateClusterEmbedding(cluster = {}, input = {}) {
     const vector = Array.isArray(input.vector) ? input.vector : [];
     const threshold = Number(this.configuration.thresholds.duplicate ?? 0.998);
@@ -181,7 +203,9 @@ class FaceGroupingEngine {
       const embedding = this.state.embeddings?.[embeddingId];
       if (!embedding || !input.photoId || !embedding.photoId) continue;
       const samePhoto = input.photoId === embedding.photoId;
-      const similarity = vector.length && Array.isArray(embedding.vector) ? cosineSimilarity(vector, embedding.vector) : 0;
+      const similarity = vector.length && Array.isArray(embedding.vector)
+        ? faceEmbeddingSimilarity({ vector, quality: input.quality }, embedding)
+        : 0;
       if (samePhoto) {
         if (input.faceId && embedding.faceId && input.faceId === embedding.faceId) return embedding;
         if (input.faceBox && embedding.faceBox && faceBoxIoU(input.faceBox, embedding.faceBox) >= boxThreshold) return embedding;

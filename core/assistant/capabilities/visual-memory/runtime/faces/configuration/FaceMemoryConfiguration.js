@@ -4,7 +4,7 @@ class FaceMemoryConfiguration {
   constructor(options = {}) {
     this.enabled = options.enabled === true;
     this.thresholds = {
-      grouping: Number(options.thresholds?.grouping ?? 0.965),
+      grouping: Number(options.thresholds?.grouping ?? 0.94),
       matching: Number(options.thresholds?.matching ?? 0.92),
       confidence: Number(options.thresholds?.confidence ?? 0.7),
       suggestion: Number(options.thresholds?.suggestion ?? 0.78),
@@ -15,6 +15,8 @@ class FaceMemoryConfiguration {
       clusterAutoAssign: Number(options.thresholds?.clusterAutoAssign ?? 0.92),
       clusterAutoAssignMargin: Number(options.thresholds?.clusterAutoAssignMargin ?? 0.024),
       matchingMargin: Number(options.thresholds?.matchingMargin ?? 0.035),
+      rejection: Number(options.thresholds?.rejection ?? 0.9),
+      rejectionBoxIoU: Number(options.thresholds?.rejectionBoxIoU ?? 0.34),
       duplicate: Number(options.thresholds?.duplicate ?? 0.998),
       duplicateCrossPhoto: Number(options.thresholds?.duplicateCrossPhoto ?? 0.9995),
       duplicateBoxIoU: Number(options.thresholds?.duplicateBoxIoU ?? 0.94)
@@ -41,7 +43,8 @@ class FaceMemoryConfiguration {
     };
     this.performance = {
       maxEmbeddingsPerIdentity: Math.max(1, Number(options.performance?.maxEmbeddingsPerIdentity || 250)),
-      maxUnknownClusters: Math.max(10, Number(options.performance?.maxUnknownClusters || 500))
+      maxUnknownClusters: Math.max(10, Number(options.performance?.maxUnknownClusters || 500)),
+      maxRejectedFaces: Math.max(10, Number(options.performance?.maxRejectedFaces || 5000))
     };
   }
 

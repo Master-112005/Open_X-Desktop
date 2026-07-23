@@ -10,6 +10,11 @@ const {
   FACE_MEMORY_OUT_OF_SCOPE,
   VisualMemoryEngine
 } = require('../../core/assistant/capabilities/visual-memory');
+const {
+  faceEmbeddingSimilarity,
+  faceQualityScore,
+  faceSignalQuality
+} = require('../../core/assistant/capabilities/visual-memory/runtime/faces/utils/face-utils');
 
 function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'openx-face-memory-'));
@@ -57,6 +62,78 @@ describe('Face Memory System', () => {
     assert.strictEqual(suggestions.length, 1);
     assert.strictEqual(suggestions[0].photoCount, 2);
     assert(suggestions[0].options.includes('Name Person'));
+  });
+
+  it('collapses repeated local face descriptors into one unnamed person', async () => {
+    const engine = await enabledEngine();
+    const firstDescriptor = [0.2, 0.1, 0.3, 0.4, 0.12, 0.08, 0.22, 0.18, 0.03, 0.02, 0.04, 0.01];
+    const secondDescriptor = [0.205, 0.095, 0.31, 0.39, 0.13, 0.075, 0.21, 0.185, 0.035, 0.019, 0.041, 0.012];
+    const differentDescriptor = [0.9, 0.75, 0.2, 0.05, 0.65, 0.6, 0.02, 0.8, 0.44, 0.3, 0.01, 0.7];
+
+    const first = engine.ingestUnknownFace({
+      vector: firstDescriptor,
+      photoId: 'same-person-1',
+      faceId: 'same-person-face-1',
+      confidence: 0.96,
+      quality: 0.88,
+      metadata: { vectorType: 'local-face-region-v3' }
+    });
+    const second = engine.ingestUnknownFace({
+      vector: secondDescriptor,
+      photoId: 'same-person-2',
+      faceId: 'same-person-face-2',
+      confidence: 0.95,
+      quality: 0.87,
+      metadata: { vectorType: 'local-face-region-v3' }
+    });
+    const different = engine.ingestUnknownFace({
+      vector: differentDescriptor,
+      photoId: 'different-person',
+      faceId: 'different-person-face',
+      confidence: 0.95,
+      quality: 0.87,
+      metadata: { vectorType: 'local-face-region-v3' }
+    });
+
+    const unknownClusters = Object.values(engine.state.unknownClusters)
+      .filter(cluster => cluster.status === 'unknown');
+
+    assert(faceEmbeddingSimilarity(firstDescriptor, secondDescriptor) >= 0.94);
+    assert(faceEmbeddingSimilarity(firstDescriptor, differentDescriptor) < 0.75);
+    assert.strictEqual(first.cluster.id, second.cluster.id);
+    assert.notStrictEqual(first.cluster.id, different.cluster.id);
+    assert.strictEqual(unknownClusters.length, 2);
+    assert.strictEqual(first.cluster.photoIds.length, 2);
+  });
+
+  it('uses runtime face quality signals to separate clear and weak face crops', async () => {
+    const clearSignals = {
+      sharpness: 0.09,
+      contrast: 0.12,
+      textureEnergy: 0.08,
+      brightness: 0.52,
+      brightnessSpread: 0.16,
+      symmetry: 0.82
+    };
+    const weakSignals = {
+      sharpness: 0.002,
+      contrast: 0.004,
+      textureEnergy: 0.003,
+      brightness: 0.99,
+      brightnessSpread: 0.006,
+      symmetry: 0.08
+    };
+    const baseInput = {
+      confidence: 0.94,
+      faceBox: { x: 40, y: 40, width: 120, height: 132, imageWidth: 900, imageHeight: 700 },
+      imageWidth: 900,
+      imageHeight: 700,
+      vector: [0.2, 0.1, 0.3, 0.4, 0.12, 0.08, 0.22, 0.18]
+    };
+
+    assert(faceSignalQuality(clearSignals) > faceSignalQuality(weakSignals));
+    assert(faceQualityScore({ ...baseInput, qualitySignals: clearSignals }) >
+      faceQualityScore({ ...baseInput, qualitySignals: weakSignals }));
   });
 
   it('enrolls a user-confirmed identity and matches future embeddings', async () => {
@@ -227,6 +304,48 @@ describe('Face Memory System', () => {
     assert.strictEqual(match.best.name, 'Rahul');
     assert.strictEqual(removed, true);
     assert.strictEqual(engine.state.unknownClusters[removable.id], undefined);
+  });
+
+  it('remembers rejected unnamed clusters and suppresses the same face in future scans', async () => {
+    const engine = await enabledEngine();
+    const faceBox = { x: 28, y: 34, width: 86, height: 92, imageWidth: 300, imageHeight: 300 };
+    const initial = engine.ingestUnknownFace({
+      vector: [0.2, 0.1, 0.3, 0.4, 0.12, 0.08, 0.22, 0.18, 0.03, 0.02, 0.04, 0.01],
+      photoId: 'rejected-photo',
+      faceId: 'rejected-face',
+      faceBox,
+      confidence: 0.96,
+      quality: 0.88,
+      metadata: { vectorType: 'local-face-region-v4' }
+    });
+
+    const removed = engine.deleteCluster(initial.cluster.id);
+    const rejected = engine.isRejectedFace({
+      vector: [0.201, 0.101, 0.299, 0.401, 0.121, 0.079, 0.221, 0.179, 0.031, 0.021, 0.041, 0.011],
+      photoId: 'future-rescan-photo',
+      faceId: 'future-rescan-face',
+      faceBox,
+      confidence: 0.95,
+      quality: 0.87,
+      metadata: { vectorType: 'local-face-region-v4' }
+    }, { rejectedFaceSimilarity: 0.9 });
+    const rescan = engine.ingestUnknownFace({
+      vector: [0.201, 0.101, 0.299, 0.401, 0.121, 0.079, 0.221, 0.179, 0.031, 0.021, 0.041, 0.011],
+      photoId: 'future-rescan-photo',
+      faceId: 'future-rescan-face',
+      faceBox,
+      confidence: 0.95,
+      quality: 0.87,
+      metadata: { vectorType: 'local-face-region-v4' }
+    });
+
+    assert.strictEqual(removed, true);
+    assert.strictEqual(rejected.rejected, true);
+    assert.strictEqual(rejected.reason, 'previously-rejected-face-signature');
+    assert.strictEqual(rescan.skipped, true);
+    assert.strictEqual(rescan.reason, 'previously-rejected-face');
+    assert(Object.keys(engine.state.rejectedFaces).length >= 2);
+    assert.strictEqual(Object.values(engine.state.unknownClusters).filter(cluster => cluster.status === 'unknown').length, 0);
   });
 
   it('auto-attaches exact named-face matches and suppresses same-photo duplicate embeddings', async () => {
@@ -484,5 +603,142 @@ describe('Face Memory System', () => {
     await second.api.resetFaceMemory();
     assert.strictEqual((await second.api.getFaceMemoryStatus()).consent.enabled, false);
     await second.api.shutdown();
+  });
+
+  it('merges duplicate unnamed clusters during Visual Memory scan cleanup', async () => {
+    const dataDir = tempDir();
+    const engine = new VisualMemoryEngine({
+      dataDir,
+      logging: { console: false, file: false },
+      faces: {
+        thresholds: { grouping: 0.9999 },
+        enrollment: { minUnknownPhotos: 2 }
+      }
+    });
+    await engine.api.start();
+    await engine.api.enableFaceMemory({ acceptedBy: 'test-user' });
+    await engine.api.ingestUnknownFace({
+      vector: [0.2, 0.1, 0.3, 0.4, 0.12, 0.08, 0.22, 0.18, 0.03, 0.02, 0.04, 0.01],
+      photoId: 'cleanup-duplicate-1',
+      faceId: 'cleanup-face-1',
+      confidence: 0.96,
+      quality: 0.88,
+      metadata: { vectorType: 'local-face-region-v3' }
+    });
+    await engine.api.ingestUnknownFace({
+      vector: [0.205, 0.095, 0.31, 0.39, 0.13, 0.075, 0.21, 0.185, 0.035, 0.019, 0.041, 0.012],
+      photoId: 'cleanup-duplicate-2',
+      faceId: 'cleanup-face-2',
+      confidence: 0.95,
+      quality: 0.87,
+      metadata: { vectorType: 'local-face-region-v3' }
+    });
+
+    assert.strictEqual(Object.values(engine.faces.state.unknownClusters).filter(cluster => cluster.status === 'unknown').length, 2);
+
+    const cleanup = engine.api._cleanupUnknownFaceClusters({
+      duplicateClusterSimilarity: 0.94,
+      duplicateClusterMargin: 0
+    });
+    const clusters = Object.values(engine.faces.state.unknownClusters).filter(cluster => cluster.status === 'unknown');
+
+    assert.strictEqual(cleanup.mergedClusters, 1);
+    assert.strictEqual(clusters.length, 1);
+    assert.strictEqual(clusters[0].photoIds.length, 2);
+
+    await engine.api.shutdown();
+  });
+
+  it('merges single-photo local descriptor clusters that are similar but not exact duplicates', async () => {
+    const dataDir = tempDir();
+    const engine = new VisualMemoryEngine({
+      dataDir,
+      logging: { console: false, file: false },
+      faces: {
+        thresholds: { grouping: 0.9999 },
+        enrollment: { minUnknownPhotos: 2 }
+      }
+    });
+    const firstDescriptor = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    const secondDescriptor = [0.965, 0.262, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    await engine.api.start();
+    await engine.api.enableFaceMemory({ acceptedBy: 'test-user' });
+    await engine.api.ingestUnknownFace({
+      vector: firstDescriptor,
+      photoId: 'same-person-angle-1',
+      faceId: 'same-person-angle-face-1',
+      faceBox: { x: 30, y: 42, width: 96, height: 104, imageWidth: 400, imageHeight: 400 },
+      confidence: 0.96,
+      quality: 0.88,
+      metadata: { vectorType: 'local-face-region-v4' }
+    });
+    await engine.api.ingestUnknownFace({
+      vector: secondDescriptor,
+      photoId: 'same-person-angle-2',
+      faceId: 'same-person-angle-face-2',
+      faceBox: { x: 130, y: 48, width: 94, height: 102, imageWidth: 400, imageHeight: 400 },
+      confidence: 0.95,
+      quality: 0.87,
+      metadata: { vectorType: 'local-face-region-v4' }
+    });
+
+    assert(faceEmbeddingSimilarity(firstDescriptor, secondDescriptor) >= 0.9);
+    assert(faceEmbeddingSimilarity(firstDescriptor, secondDescriptor) < 0.94);
+    assert.strictEqual(Object.values(engine.faces.state.unknownClusters).filter(cluster => cluster.status === 'unknown').length, 2);
+
+    const cleanup = engine.api._cleanupUnknownFaceClusters({
+      duplicateClusterSimilarity: 0.94,
+      duplicateClusterMargin: 0.012
+    });
+    const clusters = Object.values(engine.faces.state.unknownClusters).filter(cluster => cluster.status === 'unknown');
+
+    assert.strictEqual(cleanup.mergedClusters, 1);
+    assert.strictEqual(clusters.length, 1);
+    assert.strictEqual(clusters[0].photoIds.length, 2);
+
+    await engine.api.shutdown();
+  });
+
+  it('does not merge separate people from the same group photo during cleanup', async () => {
+    const dataDir = tempDir();
+    const engine = new VisualMemoryEngine({
+      dataDir,
+      logging: { console: false, file: false },
+      faces: {
+        thresholds: { grouping: 0.9999 },
+        enrollment: { minUnknownPhotos: 2 }
+      }
+    });
+    await engine.api.start();
+    await engine.api.enableFaceMemory({ acceptedBy: 'test-user' });
+    await engine.api.ingestUnknownFace({
+      vector: [0.2, 0.1, 0.3, 0.4, 0.12, 0.08, 0.22, 0.18, 0.03, 0.02, 0.04, 0.01],
+      photoId: 'group-photo',
+      faceId: 'group-face-left',
+      faceBox: { x: 40, y: 50, width: 110, height: 120, imageWidth: 900, imageHeight: 700 },
+      confidence: 0.96,
+      quality: 0.88,
+      metadata: { vectorType: 'local-face-region-v4' }
+    });
+    await engine.api.ingestUnknownFace({
+      vector: [0.205, 0.095, 0.31, 0.39, 0.13, 0.075, 0.21, 0.185, 0.035, 0.019, 0.041, 0.012],
+      photoId: 'group-photo',
+      faceId: 'group-face-right',
+      faceBox: { x: 420, y: 54, width: 112, height: 122, imageWidth: 900, imageHeight: 700 },
+      confidence: 0.95,
+      quality: 0.87,
+      metadata: { vectorType: 'local-face-region-v4' }
+    });
+
+    const cleanup = engine.api._cleanupUnknownFaceClusters({
+      duplicateClusterSimilarity: 0.9,
+      duplicateClusterMargin: 0
+    });
+    const clusters = Object.values(engine.faces.state.unknownClusters).filter(cluster => cluster.status === 'unknown');
+
+    assert.strictEqual(cleanup.mergedClusters, 0);
+    assert.strictEqual(clusters.length, 2);
+
+    await engine.api.shutdown();
   });
 });

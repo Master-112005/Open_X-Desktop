@@ -926,9 +926,19 @@ function normalizePeopleScanProgress(payload = {}) {
     detectedFaces: Number(payload.detectedFaces || 0),
     verifiedFaces: Number(payload.verifiedFaces || 0),
     matchedKnownPeople: Number(payload.matchedKnownPeople || 0),
+    currentPhotoIndex: Number(payload.currentPhotoIndex || 0),
+    currentPhotoName: String(payload.currentPhotoName || ''),
+    photoDetectedFaces: Number(payload.photoDetectedFaces || 0),
+    photoVerifiedFaces: Number(payload.photoVerifiedFaces || 0),
+    photoMatchedKnownPeople: Number(payload.photoMatchedKnownPeople || 0),
+    photoGroupedFaces: Number(payload.photoGroupedFaces || 0),
+    photoDuplicateFacesSkipped: Number(payload.photoDuplicateFacesSkipped || 0),
+    photoRejectedFacesSkipped: Number(payload.photoRejectedFacesSkipped || 0),
+    photoDuplicatePeopleMerged: Number(payload.photoDuplicatePeopleMerged || 0),
     newUnnamedPeople: Number(payload.newUnnamedPeople || 0),
     readyToName: Number(payload.readyToName || 0),
     duplicateFacesSkipped: Number(payload.duplicateFacesSkipped || 0),
+    rejectedFacesSkipped: Number(payload.rejectedFacesSkipped || 0),
     duplicatePeopleMerged: Number(payload.duplicatePeopleMerged || 0),
     unclearFacesRemoved: Number(payload.unclearFacesRemoved || 0),
     skipped: Number(payload.skipped || 0),
@@ -961,11 +971,19 @@ function renderPeopleScanProgress() {
 
   const stats = [];
   if (state.total > 0) stats.push(peopleScanStat('Photos', `${state.scanned}/${state.total}`));
+  if (state.currentPhotoName) stats.push(peopleScanStat('Current', state.currentPhotoName));
+  if (state.photoDetectedFaces > 0) stats.push(peopleScanStat('This photo', `${state.photoDetectedFaces} found`));
+  if (state.photoVerifiedFaces > 0) stats.push(peopleScanStat('Clear here', state.photoVerifiedFaces));
+  if (state.photoMatchedKnownPeople > 0) stats.push(peopleScanStat('Matched here', state.photoMatchedKnownPeople));
+  if (state.photoGroupedFaces > 0) stats.push(peopleScanStat('Added here', state.photoGroupedFaces));
+  if (state.photoRejectedFacesSkipped > 0) stats.push(peopleScanStat('Rejected here', state.photoRejectedFacesSkipped));
+  if (state.photoDuplicatePeopleMerged > 0) stats.push(peopleScanStat('Merged here', state.photoDuplicatePeopleMerged));
   if (state.detectedFaces > 0) stats.push(peopleScanStat('Faces found', state.detectedFaces));
   if (state.verifiedFaces > 0) stats.push(peopleScanStat('Clear faces', state.verifiedFaces));
   if (state.matchedKnownPeople > 0) stats.push(peopleScanStat('Matched', state.matchedKnownPeople));
   if (state.readyToName > 0) stats.push(peopleScanStat('Ready to name', state.readyToName));
   if (state.duplicateFacesSkipped > 0) stats.push(peopleScanStat('Duplicates skipped', state.duplicateFacesSkipped));
+  if (state.rejectedFacesSkipped > 0) stats.push(peopleScanStat('Rejected hidden', state.rejectedFacesSkipped));
   if (state.unclearFacesRemoved > 0) stats.push(peopleScanStat('Unclear removed', state.unclearFacesRemoved));
   if (state.warnings > 0) stats.push(peopleScanStat('Warnings', state.warnings));
   peopleScanProgressStatsEl.replaceChildren(...stats);
@@ -1014,9 +1032,10 @@ function progressFromPeopleScanResult(result = {}) {
     detectedFaces: data.detectedFaces,
     verifiedFaces: data.verifiedFaces,
     matchedKnownPeople: Number(data.autoAssigned || 0) + Number(data.knownClustersReconciled || 0),
-    newUnnamedPeople: data.grouped,
+    newUnnamedPeople: peopleSummary.unnamedPeople ?? peopleSummary.readyToName ?? data.grouped,
     readyToName: peopleSummary.readyToName ?? data.grouped,
     duplicateFacesSkipped: data.duplicateSuppressed,
+    rejectedFacesSkipped: data.rejectedFacesSuppressed,
     duplicatePeopleMerged: data.duplicateClustersMerged,
     unclearFacesRemoved: Number(data.lowQualityFaces || 0) + Number(data.falsePositiveFaces || 0) + Number(data.invalidClustersRemoved || 0),
     skipped: data.skipped,
