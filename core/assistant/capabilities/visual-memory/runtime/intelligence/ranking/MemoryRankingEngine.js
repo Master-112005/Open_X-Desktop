@@ -54,7 +54,7 @@ class MemoryRankingEngine {
     const candidateScore = Math.max(0, Math.min(1, Number(candidate.rankingScore || 0) / 100));
     const similarityScore = this.similarityEngine.score(vision, context.options.referenceEmbedding || null);
     const confidence = this.confidenceEngine.combine({
-      weights: this._rankingWeights(reasoning.relationshipPlan),
+      weights: this._rankingWeights(reasoning.relationshipPlan, faceSearch),
       scores: {
         visual: visualScore,
         relationship: relationshipScore,
@@ -130,7 +130,7 @@ class MemoryRankingEngine {
     }
     const existing = evidence.faceMemory?.search || null;
     if (existing?.active) {
-      const score = this._scoreFromCoverage(existing.coverage, existing.hasNamedFaceEvidence);
+      const score = this._scoreFromCoverage(existing.coverage, existing.hasNamedFaceEvidence, existing.hasFaceEvidence);
       return {
         active: true,
         strict: existing.strict === true,
@@ -148,28 +148,29 @@ class MemoryRankingEngine {
       + countPersonMatches(evidence.peopleNames || [], requiredOwners);
     const coverage = required > 0 ? matched / required : 0;
     const hasNamedFaceEvidence = (evidence.peopleNames || []).length > 0 || (evidence.relationships || []).length > 0;
+    const hasFaceEvidence = Number(evidence.faceCount || evidence.faceMemory?.faceCount || 0) > 0;
     return {
       active: true,
       strict: faceSearchContext.strict === true,
-      score: this._scoreFromCoverage(coverage, hasNamedFaceEvidence),
+      score: this._scoreFromCoverage(coverage, hasNamedFaceEvidence, hasFaceEvidence),
       coverage,
       reject: faceSearchContext.strict === true && required > 0 && coverage < 1
     };
   }
 
-  _scoreFromCoverage(coverage, hasNamedFaceEvidence) {
+  _scoreFromCoverage(coverage, hasNamedFaceEvidence, hasFaceEvidence = false) {
     const bounded = Math.max(0, Math.min(1, Number(coverage || 0)));
     if (bounded <= 0) return 0;
-    const base = hasNamedFaceEvidence ? 0.72 : 0.42;
+    const base = hasNamedFaceEvidence ? 0.72 : hasFaceEvidence ? 0.58 : 0.34;
     return Math.min(1, base + (bounded * 0.26) + (bounded >= 1 ? 0.02 : 0));
   }
 
-  _rankingWeights(relationshipPlan = {}) {
+  _rankingWeights(relationshipPlan = {}, faceSearch = {}) {
     const weights = { ...this.configuration.ranking };
-    if (!relationshipPlan.active) return weights;
+    if (!relationshipPlan.active && !faceSearch.active) return weights;
     return {
       ...weights,
-      relationshipWeight: Math.max(Number(weights.relationshipWeight || 0), 0.42),
+      relationshipWeight: Math.max(Number(weights.relationshipWeight || 0), faceSearch.active ? 0.5 : 0.42),
       visualWeight: Math.max(Number(weights.visualWeight || 0), 0.24),
       candidateWeight: Math.min(Number(weights.candidateWeight ?? 0.18), 0.08),
       contextWeight: Math.min(Number(weights.contextWeight ?? 0.18), 0.08)

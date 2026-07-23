@@ -213,8 +213,13 @@ describe('OpenX Gallery Experience', () => {
     await engine.api.enableFaceMemory({ acceptedBy: 'test-rescan' });
     await engine.api.ingestUnknownFace({ vector: [0, 1], photoId: 'desktopShot', faceId: 'old-bad-cluster', confidence: 0.95 });
 
-    const result = await engine.api.scanGalleryPeople({ maxPhotos: 4 });
+    const progressEvents = [];
+    const result = await engine.api.scanGalleryPeople({
+      maxPhotos: 4,
+      onProgress: event => progressEvents.push(event)
+    });
     const people = await engine.api.getOpenXGalleryPeople();
+    const progressStages = progressEvents.map(event => event.stage);
 
     assert.strictEqual(result.success, true);
     assert.strictEqual(result.reset.removedClusters, 1);
@@ -225,6 +230,14 @@ describe('OpenX Gallery Experience', () => {
     assert(result.warnings.some(item => item.code === 'duplicate-face-detection-suppressed'));
     assert.strictEqual(result.verification.requireFaceDetection, true);
     assert.strictEqual(result.verification.requireFaceEmbedding, true);
+    assert(progressStages.includes('loading-runtime'));
+    assert(progressStages.includes('scanning-photos'));
+    assert(progressStages.includes('cleaning-faces'));
+    assert(progressStages.includes('matching-known-people'));
+    assert(progressStages.includes('saving-results'));
+    assert(progressStages.includes('complete'));
+    assert(progressEvents.some(event => /Scanning photos/.test(event.message)));
+    assert(progressEvents.some(event => event.stage === 'complete' && /verified/.test(event.detail)));
     assert(people.unknown.length >= 1);
     assert(people.unknown.every(person => person.nameable === true));
     assert.strictEqual(people.unknown[0].representativeFaceBox.width, 178);

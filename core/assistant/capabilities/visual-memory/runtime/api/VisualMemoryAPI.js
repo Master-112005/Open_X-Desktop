@@ -372,10 +372,12 @@ class VisualMemoryAPI {
 
   async scanGalleryPeople(options = {}) {
     await this.engine.initialize();
+    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
     const scanOptions = {
       ...DEFAULT_FACE_SCAN_OPTIONS,
       ...(options || {})
     };
+    delete scanOptions.onProgress;
     const requestedMaxPhotos = Number(scanOptions.maxPhotos);
     scanOptions.maxPhotos = Number.isFinite(requestedMaxPhotos) && requestedMaxPhotos > 0
       ? Math.max(1, Math.min(500000, Math.floor(requestedMaxPhotos)))
@@ -396,6 +398,11 @@ class VisualMemoryAPI {
     scanOptions.duplicateClusterMargin = Math.max(0, Math.min(0.08, Number(scanOptions.duplicateClusterMargin) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterMargin));
     const startedAt = Date.now();
 
+    this._emitPeopleScanProgress(onProgress, {
+      stage: 'preparing',
+      message: 'Preparing People scan.',
+      detail: 'OpenX is checking scan settings and Face Memory permissions.'
+    });
     this._logInfo('People scan started. OpenX will check indexed photos for clear, verified faces.', {
       maxPhotos: scanOptions.maxPhotos || 'all-indexed-photos',
       faceConfidence: scanOptions.faceConfidence,
@@ -407,11 +414,23 @@ class VisualMemoryAPI {
       duplicateClusterMargin: scanOptions.duplicateClusterMargin
     });
 
+    this._emitPeopleScanProgress(onProgress, {
+      stage: 'loading-runtime',
+      message: 'Loading local face scanner.',
+      detail: 'OpenX is starting local face detection and face-matching support.'
+    });
     const vision = await this._resolveVisionEngine();
     if (!vision.available) {
       this._logWarn('People scan stopped because the AI Vision face runtime is not available.', {
         reason: vision.reason,
         warnings: vision.warnings?.length || 0
+      });
+      this._emitPeopleScanProgress(onProgress, {
+        stage: 'failed',
+        message: 'People scan could not start.',
+        detail: 'The local AI Vision face runtime is not available.',
+        success: false,
+        reason: vision.reason
       });
       return {
         success: false,
@@ -424,6 +443,11 @@ class VisualMemoryAPI {
         verification: this._faceScanVerification(scanOptions)
       };
     }
+    this._emitPeopleScanProgress(onProgress, {
+      stage: 'runtime-ready',
+      message: 'Face scanner is ready.',
+      detail: 'OpenX will now scan indexed Gallery photos locally.'
+    });
 
     const status = this.engine.faces.getStatus();
     if (status?.enabled !== true) {
@@ -435,6 +459,13 @@ class VisualMemoryAPI {
       : this._resetGalleryScanUnknownFaces();
     if (resetSummary.removedClusters > 0 || resetSummary.removedEmbeddings > 0) {
       this._logInfo('Cleared old unnamed people before rescanning so the People view stays accurate.', resetSummary);
+      this._emitPeopleScanProgress(onProgress, {
+        stage: 'cleaning-old-results',
+        message: 'Refreshing old unnamed people.',
+        detail: `Removed ${resetSummary.removedClusters} old unnamed group${resetSummary.removedClusters === 1 ? '' : 's'} before rescanning.`,
+        removedClusters: resetSummary.removedClusters,
+        removedEmbeddings: resetSummary.removedEmbeddings
+      });
     }
 
     const existingPhotoIds = new Set(Object.values(this.engine.faces.state.embeddings || {})
@@ -450,6 +481,15 @@ class VisualMemoryAPI {
       queuedPhotos: photos.length,
       scanLimit: scanOptions.maxPhotos || 'all'
     });
+    this._emitPeopleScanProgress(onProgress, {
+      stage: 'photo-queue',
+      message: photos.length > 0
+        ? `Ready to scan ${photos.length} photo${photos.length === 1 ? '' : 's'}.`
+        : 'No indexed photos are available to scan.',
+      total: photos.length,
+      indexedPhotos: Object.keys(this.engine.database.getTable('photos') || {}).length,
+      alreadyKnownPhotos: existingPhotoIds.size
+    });
 
     const summary = {
       success: true,
@@ -463,6 +503,7 @@ class VisualMemoryAPI {
       autoAssigned: 0,
       duplicateSuppressed: 0,
       duplicateClustersMerged: 0,
+      knownClustersReconciled: 0,
       invalidClustersRemoved: 0,
       skipped: 0,
       reset: resetSummary,
@@ -473,7 +514,7 @@ class VisualMemoryAPI {
 
     for (const photo of photos) {
       summary.scanned += 1;
-      this._logPeopleScanProgress(summary.scanned, photos.length);
+      this._logPeopleScanProgress(summary.scanned, photos.length, onProgress, summary);
       try {
         const result = await vision.engine.infer({
           imagePath: photo.filePath,
@@ -530,6 +571,15 @@ class VisualMemoryAPI {
       }
     }
 
+    this._emitPeopleScanProgress(onProgress, {
+      stage: 'cleaning-faces',
+      message: 'Cleaning face results.',
+      detail: 'OpenX is removing unclear faces and duplicate face suggestions.',
+      scanned: summary.scanned,
+      total: photos.length,
+      detectedFaces: summary.detectedFaces,
+      verifiedFaces: summary.verifiedFaces
+    });
     const cleanup = this._cleanupUnknownFaceClusters(scanOptions);
     summary.cleanup = cleanup;
     summary.duplicateClustersMerged = cleanup.mergedClusters;
@@ -537,6 +587,34 @@ class VisualMemoryAPI {
     if (cleanup.mergedClusters > 0 || cleanup.removedClusters > 0) {
       this._logInfo('People scan cleanup removed unclear faces and merged duplicate unnamed people.', cleanup);
     }
+    this._emitPeopleScanProgress(onProgress, {
+      stage: 'matching-known-people',
+      message: 'Matching faces with saved people.',
+      detail: 'OpenX is checking whether unnamed groups already belong to named people.',
+      scanned: summary.scanned,
+      total: photos.length,
+      duplicatePeopleMerged: summary.duplicateClustersMerged,
+      unclearFacesRemoved: summary.lowQualityFaces + summary.falsePositiveFaces + summary.invalidClustersRemoved
+    });
+    const knownClusterReconciliation = this.engine.faces.reconcileUnknownClustersWithIdentities?.(scanOptions) || { assignedClusters: 0 };
+    summary.knownClusterReconciliation = knownClusterReconciliation;
+    summary.knownClustersReconciled = knownClusterReconciliation.assignedClusters || 0;
+    if (summary.knownClustersReconciled > 0) {
+      this._logInfo('People scan matched duplicate unnamed people to already named people.', {
+        assignedClusters: knownClusterReconciliation.assignedClusters,
+        assignedEmbeddings: knownClusterReconciliation.assignedEmbeddingCount,
+        deferredClusters: knownClusterReconciliation.deferredClusters
+      });
+    }
+    this._emitPeopleScanProgress(onProgress, {
+      stage: 'saving-results',
+      message: 'Saving People results.',
+      detail: 'OpenX is updating the local Gallery People view.',
+      scanned: summary.scanned,
+      total: photos.length,
+      matchedKnownPeople: summary.autoAssigned + summary.knownClustersReconciled,
+      duplicateFacesSkipped: summary.duplicateSuppressed
+    });
     await this.engine.persistFaceMemory();
     summary.people = this.engine.galleryExperience.getPeople();
     summary.durationMs = Date.now() - startedAt;
@@ -549,6 +627,7 @@ class VisualMemoryAPI {
       namedPeople: peopleSummary.namedPeople || 0,
       readyToName: peopleSummary.readyToName || 0,
       knownPeopleMatched: summary.autoAssigned,
+      duplicatePeopleMatchedToKnown: summary.knownClustersReconciled,
       duplicateFacesSkipped: summary.duplicateSuppressed,
       duplicatePeopleMerged: summary.duplicateClustersMerged,
       unclearFacesRemoved: summary.lowQualityFaces + summary.falsePositiveFaces + summary.invalidClustersRemoved,
@@ -556,6 +635,26 @@ class VisualMemoryAPI {
       warnings: summary.warnings.length,
       durationMs: summary.durationMs,
       people: peopleSummary.totalPeople || summary.people?.items?.length || undefined
+    });
+    this._emitPeopleScanProgress(onProgress, {
+      stage: 'complete',
+      message: 'People scan complete.',
+      detail: this._peopleScanSummaryText(summary, peopleSummary),
+      success: true,
+      scanned: summary.scanned,
+      total: photos.length,
+      detectedFaces: summary.detectedFaces,
+      verifiedFaces: summary.verifiedFaces,
+      newUnnamedPeople: summary.grouped,
+      namedPeople: peopleSummary.namedPeople || 0,
+      readyToName: peopleSummary.readyToName || 0,
+      matchedKnownPeople: summary.autoAssigned + summary.knownClustersReconciled,
+      duplicateFacesSkipped: summary.duplicateSuppressed,
+      duplicatePeopleMerged: summary.duplicateClustersMerged,
+      unclearFacesRemoved: summary.lowQualityFaces + summary.falsePositiveFaces + summary.invalidClustersRemoved,
+      skipped: summary.skipped,
+      warnings: summary.warnings.length,
+      durationMs: summary.durationMs
     });
     return summary;
   }
@@ -584,6 +683,11 @@ class VisualMemoryAPI {
   async matchFace(vector) {
     await this.engine.initialize();
     return this.engine.faces.matchFace(vector);
+  }
+
+  async identifyFace(input = {}, options = {}) {
+    await this.engine.initialize();
+    return this.engine.faces.identifyFace(input, options);
   }
 
   async searchFaces(query = {}) {
@@ -651,25 +755,37 @@ class VisualMemoryAPI {
     candidatePool.faceSearchContext = faceSearchContext;
     const byPhoto = new Map();
     for (const embedding of Object.values(state.embeddings || {})) {
-      if (!embedding?.photoId || !embedding.identityId) continue;
+      if (!embedding?.photoId) continue;
       const identity = identities[embedding.identityId];
       const profile = profiles[identity?.profileId];
-      if (!profile) continue;
       const item = byPhoto.get(embedding.photoId) || {
         names: new Set(),
         relationships: new Set(),
         identityIds: new Set(),
         profileIds: new Set(),
-        faceCount: 0
+        unknownClusterIds: new Set(),
+        faceCount: 0,
+        namedFaceCount: 0,
+        unknownFaceCount: 0,
+        bestQuality: 0,
+        bestConfidence: 0
       };
       item.faceCount += 1;
-      if (profile.name) item.names.add(profile.name);
-      if (identity?.name) item.names.add(identity.name);
-      for (const relationship of this._relationshipSearchTerms(profile.relationship || identity?.relationship || '')) {
-        item.relationships.add(relationship);
+      item.bestQuality = Math.max(item.bestQuality, Number(embedding.quality || 0));
+      item.bestConfidence = Math.max(item.bestConfidence, Number(embedding.confidence || 0));
+      if (identity && profile) {
+        item.namedFaceCount += 1;
+        if (profile.name) item.names.add(profile.name);
+        if (identity?.name) item.names.add(identity.name);
+        for (const relationship of this._relationshipSearchTerms(profile.relationship || identity?.relationship || '')) {
+          item.relationships.add(relationship);
+        }
+        item.identityIds.add(identity.id);
+        item.profileIds.add(profile.id);
+      } else if (embedding.clusterId && state.unknownClusters?.[embedding.clusterId]?.status === 'unknown') {
+        item.unknownFaceCount += 1;
+        item.unknownClusterIds.add(embedding.clusterId);
       }
-      item.identityIds.add(identity.id);
-      item.profileIds.add(profile.id);
       byPhoto.set(embedding.photoId, item);
     }
     for (const candidate of candidates) {
@@ -682,14 +798,21 @@ class VisualMemoryAPI {
         relationships,
         identityIds: Array.from(evidence.identityIds),
         profileIds: Array.from(evidence.profileIds),
-        faceCount: evidence.faceCount
+        unknownClusterIds: Array.from(evidence.unknownClusterIds),
+        faceCount: evidence.faceCount,
+        namedFaceCount: evidence.namedFaceCount,
+        unknownFaceCount: evidence.unknownFaceCount,
+        bestQuality: Number(evidence.bestQuality.toFixed(4)),
+        bestConfidence: Number(evidence.bestConfidence.toFixed(4)),
+        hasFaceEvidence: evidence.faceCount > 0
       };
       candidate.faceMemorySearch = this._scoreCandidateFaceEvidence(candidate.faceMemory, faceSearchContext);
       candidate.metadata = {
         ...(candidate.metadata || {}),
         peopleNames,
         faceRelationships: relationships,
-        personCount: Math.max(Number(candidate.metadata?.personCount) || 0, evidence.faceCount)
+        personCount: Math.max(Number(candidate.metadata?.personCount) || 0, evidence.faceCount),
+        faceEvidence: evidence.faceCount > 0 ? 'verified-local-face-memory' : candidate.metadata?.faceEvidence
       };
     }
     return candidatePool;
@@ -701,9 +824,18 @@ class VisualMemoryAPI {
       .filter(item => key !== 'owner' || item.metadata?.explicit !== false)
       .map(item => String(item.value || '').trim())
       .filter(Boolean);
-    const people = values('people');
+    const rawPeople = values('people');
+    const unknownPersonTerms = new Set(['unknown', 'unnamed', 'unidentified']);
+    const people = rawPeople.filter(person => !unknownPersonTerms.has(person.toLowerCase()));
     const relationships = values('relationships');
     const owners = values('owner');
+    const photoTypes = values('photoTypes');
+    const media = values('media');
+    const queryText = values('queryText').join(' ');
+    const faceIntentText = [queryText, ...photoTypes, ...media].join(' ').toLowerCase();
+    const wantsAnyFace = /\b(?:face|faces|person|people|portrait|selfie|group photo)\b/.test(faceIntentText);
+    const wantsUnknownFace = rawPeople.some(person => unknownPersonTerms.has(person.toLowerCase())) ||
+      /\b(?:unknown|unnamed|unidentified|new face|new person|not named|without name)\b/.test(faceIntentText);
     const identityEvidence = Object.values(identities || {}).map(identity => {
       const profile = profiles?.[identity.profileId] || {};
       const names = [identity.name, profile.name].filter(Boolean);
@@ -730,11 +862,13 @@ class VisualMemoryAPI {
     )));
     const resolvable = resolvablePeople.length + resolvableRelationships.length + resolvableOwners.length;
     return {
-      active: people.length > 0 || relationships.length > 0 || owners.length > 0,
+      active: people.length > 0 || relationships.length > 0 || resolvableOwners.length > 0 || wantsAnyFace || wantsUnknownFace,
       strict: resolvable > 0,
       people,
       relationships,
       owners,
+      wantsAnyFace,
+      wantsUnknownFace,
       resolvablePeople,
       resolvableRelationships,
       resolvableOwners,
@@ -749,24 +883,37 @@ class VisualMemoryAPI {
     }
     const peopleNames = Array.isArray(faceMemory.peopleNames) ? faceMemory.peopleNames : [];
     const relationships = Array.isArray(faceMemory.relationships) ? faceMemory.relationships : [];
+    const faceCount = Number(faceMemory.faceCount || 0);
+    const namedFaceCount = Number(faceMemory.namedFaceCount || 0);
+    const unknownFaceCount = Number(faceMemory.unknownFaceCount || 0);
     const requiredPeople = faceSearchContext.strict ? faceSearchContext.resolvablePeople : faceSearchContext.people;
     const requiredRelationships = faceSearchContext.strict ? faceSearchContext.resolvableRelationships : faceSearchContext.relationships;
-    const requiredOwners = faceSearchContext.strict ? faceSearchContext.resolvableOwners : faceSearchContext.owners;
+    const requiredOwners = faceSearchContext.strict ? faceSearchContext.resolvableOwners : [];
     const matchedPeople = requiredPeople.filter(request => peopleNames.some(name => personValuesMatch(name, request)));
     const matchedRelationships = requiredRelationships.filter(request => relationships.some(relationship => relationshipValuesMatch(relationship, request)));
     const matchedOwners = requiredOwners.filter(request => peopleNames.some(name => personValuesMatch(name, request)));
     const required = requiredPeople.length + requiredRelationships.length + requiredOwners.length;
     const matched = matchedPeople.length + matchedRelationships.length + matchedOwners.length;
+    const generalFaceMatched = faceSearchContext.wantsAnyFace === true && faceCount > 0;
+    const unknownFaceMatched = faceSearchContext.wantsUnknownFace === true && unknownFaceCount > 0;
+    const generalRequired = required === 0 && (faceSearchContext.wantsAnyFace || faceSearchContext.wantsUnknownFace) ? 1 : 0;
+    const generalMatched = generalRequired > 0 && (generalFaceMatched || unknownFaceMatched) ? 1 : 0;
     return {
       active: true,
       strict: faceSearchContext.strict === true,
-      required,
-      matched,
-      coverage: required > 0 ? matched / required : 0,
+      required: required + generalRequired,
+      matched: matched + generalMatched,
+      coverage: (required + generalRequired) > 0 ? (matched + generalMatched) / (required + generalRequired) : 0,
       matchedPeople,
       matchedRelationships,
       matchedOwners,
-      hasNamedFaceEvidence: peopleNames.length > 0 || relationships.length > 0
+      hasNamedFaceEvidence: peopleNames.length > 0 || relationships.length > 0 || namedFaceCount > 0,
+      hasFaceEvidence: faceCount > 0,
+      faceCount,
+      namedFaceCount,
+      unknownFaceCount,
+      generalFaceMatched,
+      unknownFaceMatched
     };
   }
 
@@ -1422,14 +1569,85 @@ class VisualMemoryAPI {
     return { removedEmbeddings: removableEmbeddingIds.size, removedClusters: removableClusterIds.length };
   }
 
-  _logPeopleScanProgress(scanned, total) {
+  _logPeopleScanProgress(scanned, total, onProgress = null, summary = {}) {
     if (total <= 0) return;
     if (scanned !== 1 && scanned !== total && scanned % 25 !== 0) return;
     this._logInfo(`People scan progress: checked ${scanned} of ${total} photo${total === 1 ? '' : 's'}.`, {
       scanned,
       total,
-      remaining: Math.max(0, total - scanned)
+      remaining: Math.max(0, total - scanned),
+      detectedFaces: summary.detectedFaces || 0,
+      verifiedFaces: summary.verifiedFaces || 0
     });
+    this._emitPeopleScanProgress(onProgress, {
+      stage: 'scanning-photos',
+      message: `Scanning photos ${scanned} of ${total}.`,
+      detail: `${summary.detectedFaces || 0} face${summary.detectedFaces === 1 ? '' : 's'} detected, ${summary.verifiedFaces || 0} clear face${summary.verifiedFaces === 1 ? '' : 's'} verified.`,
+      scanned,
+      total,
+      detectedFaces: summary.detectedFaces || 0,
+      verifiedFaces: summary.verifiedFaces || 0,
+      duplicateFacesSkipped: summary.duplicateSuppressed || 0,
+      skipped: summary.skipped || 0
+    });
+  }
+
+  _emitPeopleScanProgress(onProgress, payload = {}) {
+    if (typeof onProgress !== 'function') return;
+    const scanned = Number(payload.scanned || 0);
+    const total = Number(payload.total || 0);
+    const percent = total > 0
+      ? Math.max(0, Math.min(100, Math.round((scanned / total) * 100)))
+      : Number.isFinite(Number(payload.percent)) ? Number(payload.percent) : null;
+    try {
+      onProgress({
+        stage: String(payload.stage || 'scan'),
+        message: String(payload.message || 'Scanning Gallery.'),
+        detail: payload.detail ? String(payload.detail) : '',
+        success: payload.success,
+        reason: payload.reason || '',
+        scanned,
+        total,
+        percent,
+        indexedPhotos: Number(payload.indexedPhotos || 0),
+        alreadyKnownPhotos: Number(payload.alreadyKnownPhotos || 0),
+        detectedFaces: Number(payload.detectedFaces || 0),
+        verifiedFaces: Number(payload.verifiedFaces || 0),
+        newUnnamedPeople: Number(payload.newUnnamedPeople || 0),
+        namedPeople: Number(payload.namedPeople || 0),
+        readyToName: Number(payload.readyToName || 0),
+        matchedKnownPeople: Number(payload.matchedKnownPeople || 0),
+        duplicateFacesSkipped: Number(payload.duplicateFacesSkipped || 0),
+        duplicatePeopleMerged: Number(payload.duplicatePeopleMerged || 0),
+        unclearFacesRemoved: Number(payload.unclearFacesRemoved || 0),
+        removedClusters: Number(payload.removedClusters || 0),
+        removedEmbeddings: Number(payload.removedEmbeddings || 0),
+        skipped: Number(payload.skipped || 0),
+        warnings: Number(payload.warnings || 0),
+        durationMs: Number(payload.durationMs || 0),
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      this._logDebug('People scan progress listener failed.', { error: error.message });
+    }
+  }
+
+  _peopleScanSummaryText(summary = {}, peopleSummary = {}) {
+    if (summary.scanned <= 0) return 'No indexed photos were available to scan.';
+    const clearFaces = Number(summary.verifiedFaces || 0);
+    const readyToName = Number(peopleSummary.readyToName || 0);
+    const matchedKnown = Number(summary.autoAssigned || 0) + Number(summary.knownClustersReconciled || 0);
+    const duplicateFaces = Number(summary.duplicateSuppressed || 0);
+    const unclearFaces = Number(summary.lowQualityFaces || 0) + Number(summary.falsePositiveFaces || 0) + Number(summary.invalidClustersRemoved || 0);
+    const parts = [
+      `Checked ${summary.scanned} photo${summary.scanned === 1 ? '' : 's'}`,
+      `verified ${clearFaces} clear face${clearFaces === 1 ? '' : 's'}`
+    ];
+    if (matchedKnown > 0) parts.push(`matched ${matchedKnown} to saved people`);
+    if (readyToName > 0) parts.push(`${readyToName} unnamed ready to name`);
+    if (duplicateFaces > 0) parts.push(`skipped ${duplicateFaces} duplicate face${duplicateFaces === 1 ? '' : 's'}`);
+    if (unclearFaces > 0) parts.push(`removed ${unclearFaces} unclear or object-like face${unclearFaces === 1 ? '' : 's'}`);
+    return `${parts.join(', ')}.`;
   }
 
   _photoLabel(photo = {}) {

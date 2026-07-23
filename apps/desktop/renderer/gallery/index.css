@@ -244,7 +244,7 @@ button {
 
 .workspace {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
   padding: 18px;
 }
@@ -254,6 +254,92 @@ button {
   display: flex;
   justify-content: space-between;
   margin-bottom: 16px;
+}
+
+.people-scan-progress {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 13%, var(--adaptive-control-strong)), var(--adaptive-control));
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--adaptive-border));
+  border-radius: 16px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  display: grid;
+  gap: 10px;
+  margin: -4px 0 14px;
+  padding: 13px 14px;
+}
+
+.people-scan-progress[hidden] {
+  display: none;
+}
+
+.people-scan-progress-head {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.people-scan-progress-head strong {
+  color: var(--adaptive-text);
+  display: block;
+  font-size: 14px;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.people-scan-progress-head span {
+  color: var(--adaptive-muted);
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  margin-top: 3px;
+}
+
+#people-scan-progress-percent {
+  background: color-mix(in srgb, var(--accent) 18%, rgba(255, 255, 255, 0.1));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--adaptive-border));
+  border-radius: 999px;
+  color: var(--adaptive-text);
+  display: inline-grid;
+  font-size: 12px;
+  font-weight: 850;
+  min-width: 48px;
+  padding: 5px 8px;
+  place-items: center;
+}
+
+.people-scan-progress-bar {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  height: 7px;
+  overflow: hidden;
+}
+
+.people-scan-progress-bar span {
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  transform-origin: left center;
+  transition: width 0.24s var(--motion-ease);
+  width: 0%;
+}
+
+.people-scan-progress-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.people-scan-stat {
+  background: rgba(255, 255, 255, 0.075);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  color: var(--adaptive-muted);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1;
+  padding: 6px 8px;
 }
 
 h1 {

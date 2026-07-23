@@ -25,6 +25,9 @@ describe('Gallery Renderer UI', function() {
 
   it('should expose real Favorites, Recent, and People gallery views', function() {
     assert.match(html, /id="people-scan-button"/);
+    assert.match(html, /id="people-scan-progress"/);
+    assert.match(html, /id="people-scan-progress-title"/);
+    assert.match(html, /id="people-scan-progress-fill"/);
     assert.match(html, /data-view="favorites"/);
     assert.match(html, /data-view="recent"/);
     assert.match(html, /data-view="people"/);
@@ -39,6 +42,9 @@ describe('Gallery Renderer UI', function() {
     assert.match(script, /function applyPersonFaceCrop\(avatar, image, crop\)/);
     assert.match(script, /avatar\.classList\.add\('has-face-crop'\)/);
     assert.match(script, /function scanPeople\(\)/);
+    assert.match(script, /function renderPeopleScanProgress\(\)/);
+    assert.match(script, /function normalizePeopleScanProgress\(payload = \{\}\)/);
+    assert.match(script, /window\.openx\?\.onGalleryPeopleScanProgress\?\./);
     assert.match(script, /window\.openx\?\.scanGalleryPeople\?\./);
     assert.match(script, /window\.openx\?\.nameGalleryFace\?\./);
     assert.match(script, /window\.openx\?\.updateGalleryFacePerson\?\./);
@@ -60,6 +66,8 @@ describe('Gallery Renderer UI', function() {
     assert.match(html, /id="person-assign-list"/);
     assert.match(script, /No photos opened in the last 3 days\./);
     assert.match(script, /AI Vision runtime is not available for face scanning\./);
+    assert.match(script, /Scanning People\./);
+    assert.match(script, /People scan complete/);
     assert.match(css, /\.photo-scroll::-webkit-scrollbar\s*\{[\s\S]*display:\s*block/);
     assert.match(css, /\.photo-scroll::-webkit-scrollbar-thumb\s*\{/);
     assert.match(script, /strip\.className = 'named-people-strip'/);
@@ -96,5 +104,8 @@ describe('Gallery Renderer UI', function() {
     assert.match(css, /\.person-avatar\.has-face-crop img\s*\{/);
     assert.match(css, /max-width:\s*none/);
     assert.match(css, /\.people-scan-button\s*\{/);
+    assert.match(css, /\.people-scan-progress\s*\{/);
+    assert.match(css, /\.people-scan-progress-bar\s*\{/);
+    assert.match(css, /\.people-scan-stat\s*\{/);
   });
 });

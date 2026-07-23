@@ -172,6 +172,52 @@ describe('Visual Memory Intelligence', () => {
     await engine.api.shutdown();
   });
 
+  it('uses unnamed Face Memory evidence for broad face and unidentified-person searches', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-memory-unnamed-face-search-'));
+    const engine = new VisualMemoryEngine({ dataDir, logging: { console: false, file: false }, faces: { enrollment: { minUnknownPhotos: 2 } } });
+    await engine.api.start();
+    await engine.database.replaceTable('photos', {
+      unnamedFace: { id: 'unnamedFace', fileName: 'party-face.jpg', filePath: 'C:/Pictures/party-face.jpg', fileType: 'jpg', createdAt: ago(1) },
+      noFace: { id: 'noFace', fileName: 'landscape.jpg', filePath: 'C:/Pictures/landscape.jpg', fileType: 'jpg', createdAt: ago(1) }
+    });
+    await engine.database.replaceTable('metadata', {
+      unnamedFace: { id: 'unnamedFace', photoId: 'unnamedFace', filePath: 'C:/Pictures/party-face.jpg', fileType: 'jpg', createdAt: ago(1) },
+      noFace: { id: 'noFace', photoId: 'noFace', filePath: 'C:/Pictures/landscape.jpg', fileType: 'jpg', createdAt: ago(1) }
+    });
+    await engine.api.enableFaceMemory({ acceptedBy: 'test-user' });
+    await engine.api.ingestUnknownFace({
+      vector: [0, 1],
+      photoId: 'unnamedFace',
+      faceId: 'unnamed-face-1',
+      confidence: 0.96,
+      quality: 0.88
+    });
+
+    const broadFaceQuery = new VisualQueryEngine().understand({
+      rawInput: 'find photos with faces',
+      normalizedInput: 'find photos with faces',
+      resolvedContext: { confidence: 0.8 }
+    });
+    const unnamedQuery = new VisualQueryEngine().understand({
+      rawInput: 'show unnamed people in my photos',
+      normalizedInput: 'show unnamed people in my photos',
+      resolvedContext: { confidence: 0.8 }
+    });
+    const broadResult = await engine.api.searchMemories({ visualQuery: broadFaceQuery });
+    const unnamedResult = await engine.api.searchMemories({ visualQuery: unnamedQuery });
+
+    assert.strictEqual(broadResult.success, true);
+    assert.strictEqual(broadResult.results[0].photoId, 'unnamedFace');
+    assert.strictEqual(broadResult.results[0].candidate.faceMemory.faceCount, 1);
+    assert.strictEqual(broadResult.results[0].evidence.faceSearchCoverage, 1);
+    assert.strictEqual(unnamedResult.success, true);
+    assert.strictEqual(unnamedResult.results[0].photoId, 'unnamedFace');
+    assert.strictEqual(unnamedResult.results[0].candidate.faceMemory.unknownFaceCount, 1);
+    assert.strictEqual(unnamedResult.results[0].evidence.faceSearchCoverage, 1);
+
+    await engine.api.shutdown();
+  });
+
   it('requires saved face evidence for relationship-only parent searches', async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-memory-parent-search-'));
     const engine = new VisualMemoryEngine({ dataDir, logging: { console: false, file: false }, faces: { enrollment: { minUnknownPhotos: 2 } } });

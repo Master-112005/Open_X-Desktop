@@ -4799,6 +4799,35 @@ function sendGalleryOpenPhoto(photoId, viewer = null) {
   }
 }
 
+function sendGalleryPeopleScanProgress(payload = {}) {
+  if (!galleryWindow || galleryWindow.isDestroyed()) return;
+  galleryWindow.webContents.send('gallery:peopleScanProgress', {
+    stage: String(payload.stage || 'scan'),
+    message: String(payload.message || ''),
+    detail: String(payload.detail || ''),
+    success: payload.success,
+    reason: String(payload.reason || ''),
+    scanned: Number(payload.scanned || 0),
+    total: Number(payload.total || 0),
+    percent: payload.percent === null ? null : Number(payload.percent || 0),
+    indexedPhotos: Number(payload.indexedPhotos || 0),
+    alreadyKnownPhotos: Number(payload.alreadyKnownPhotos || 0),
+    detectedFaces: Number(payload.detectedFaces || 0),
+    verifiedFaces: Number(payload.verifiedFaces || 0),
+    newUnnamedPeople: Number(payload.newUnnamedPeople || 0),
+    namedPeople: Number(payload.namedPeople || 0),
+    readyToName: Number(payload.readyToName || 0),
+    matchedKnownPeople: Number(payload.matchedKnownPeople || 0),
+    duplicateFacesSkipped: Number(payload.duplicateFacesSkipped || 0),
+    duplicatePeopleMerged: Number(payload.duplicatePeopleMerged || 0),
+    unclearFacesRemoved: Number(payload.unclearFacesRemoved || 0),
+    skipped: Number(payload.skipped || 0),
+    warnings: Number(payload.warnings || 0),
+    durationMs: Number(payload.durationMs || 0),
+    timestamp: String(payload.timestamp || new Date().toISOString())
+  });
+}
+
 function mimeTypeForImage(filePath) {
   const extension = path.extname(String(filePath || '')).toLowerCase();
   if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg';
@@ -5046,7 +5075,8 @@ async function scanGalleryPeople(options = {}) {
   });
   const result = await engine.api.scanGalleryPeople({
     maxPhotos: options.maxPhotos,
-    acceptedBy: 'gallery-people-scan'
+    acceptedBy: 'gallery-people-scan',
+    onProgress: sendGalleryPeopleScanProgress
   });
   if (result.success === false) {
     mainLogger.warn('[Gallery] People scan could not run.', {

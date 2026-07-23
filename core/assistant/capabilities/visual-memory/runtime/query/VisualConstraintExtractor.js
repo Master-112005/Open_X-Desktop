@@ -57,7 +57,8 @@ const NON_PERSON_TERMS = new Set([
   'all', 'any', 'camera', 'favorite', 'favorites', 'favourite', 'favourites',
   'face', 'faces', 'gallery', 'image', 'images', 'latest', 'memory', 'photo',
   'photos', 'pic', 'pics', 'picture', 'pictures', 'recent', 'screenshot',
-  'screenshots', 'selfie', 'the', 'this', 'that', 'these', 'those'
+  'screenshots', 'selfie', 'unknown', 'unnamed', 'unidentified', 'the', 'this',
+  'that', 'these', 'those'
 ].map(value => String(value).toLowerCase()));
 
 function addUnique(target, item) {
@@ -169,6 +170,10 @@ class VisualConstraintExtractor {
 
   _addPeople(constraints, context, text) {
     this._addExplicitSelf(constraints, text);
+    if (/\b(?:unknown|unnamed|unidentified|not\s+named|without\s+name)\s+(?:person|people|face|faces)\b/i.test(text) ||
+      /\b(?:person|people|face|faces)\s+(?:unknown|unnamed|unidentified|not\s+named|without\s+name)\b/i.test(text)) {
+      addUnique(constraints.people, this._constraint('person', 'unknown', 0.86, 'visual-query.unknown-face'));
+    }
 
     for (const entity of [...context.getEntities('people'), ...context.getEntities('contacts')]) {
       const value = entity.canonical || entity.value || entity.name || '';
@@ -286,6 +291,7 @@ class VisualConstraintExtractor {
   _addPhotoTypes(constraints, text, parsed) {
     const types = [
       ['selfie', /\bselfie\b/i],
+      ['face', /\b(?:face|faces|person|people|portrait\s+face|clear\s+face)\b/i],
       ['group photo', /\bgroup\s+(?:photo|picture|image)\b/i],
       ['portrait', /\bportrait\b/i],
       ['landscape', /\blandscape\b/i],

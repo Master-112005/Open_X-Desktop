@@ -19,6 +19,12 @@ const viewerFavoriteEl = document.getElementById('viewer-favorite');
 const personAssignOverlayEl = document.getElementById('person-assign-overlay');
 const personAssignListEl = document.getElementById('person-assign-list');
 const personAssignCloseEl = document.getElementById('person-assign-close');
+const peopleScanProgressEl = document.getElementById('people-scan-progress');
+const peopleScanProgressTitleEl = document.getElementById('people-scan-progress-title');
+const peopleScanProgressDetailEl = document.getElementById('people-scan-progress-detail');
+const peopleScanProgressPercentEl = document.getElementById('people-scan-progress-percent');
+const peopleScanProgressFillEl = document.getElementById('people-scan-progress-fill');
+const peopleScanProgressStatsEl = document.getElementById('people-scan-progress-stats');
 
 const PAGE_SIZE = 80;
 const MAX_IMAGE_LOADS = 4;
@@ -61,6 +67,8 @@ let currentViewerFavorite = false;
 let activeView = 'timeline';
 let peopleData = null;
 let pendingAssignClusterId = '';
+let peopleScanProgressState = null;
+let offGalleryPeopleScanProgress = null;
 const imageLoadQueue = [];
 const imageSrcCache = new Map();
 
@@ -733,6 +741,7 @@ function renderPeople() {
   }
 
   timelineEl.replaceChildren(view);
+  renderPeopleScanProgress();
 }
 
 function render() {
@@ -900,8 +909,80 @@ async function toggleViewerFavorite() {
   }
 }
 
-function setPeopleScanStatus(message) {
+function normalizePeopleScanProgress(payload = {}) {
+  const scanned = Number(payload.scanned || 0);
+  const total = Number(payload.total || 0);
+  const percent = total > 0
+    ? Math.max(0, Math.min(100, Number(payload.percent ?? Math.round((scanned / total) * 100))))
+    : null;
+  return {
+    stage: String(payload.stage || 'scan'),
+    message: String(payload.message || 'Scanning People.'),
+    detail: String(payload.detail || ''),
+    success: payload.success,
+    scanned,
+    total,
+    percent,
+    detectedFaces: Number(payload.detectedFaces || 0),
+    verifiedFaces: Number(payload.verifiedFaces || 0),
+    matchedKnownPeople: Number(payload.matchedKnownPeople || 0),
+    newUnnamedPeople: Number(payload.newUnnamedPeople || 0),
+    readyToName: Number(payload.readyToName || 0),
+    duplicateFacesSkipped: Number(payload.duplicateFacesSkipped || 0),
+    duplicatePeopleMerged: Number(payload.duplicatePeopleMerged || 0),
+    unclearFacesRemoved: Number(payload.unclearFacesRemoved || 0),
+    skipped: Number(payload.skipped || 0),
+    warnings: Number(payload.warnings || 0),
+    durationMs: Number(payload.durationMs || 0)
+  };
+}
+
+function peopleScanStat(label, value) {
+  const item = document.createElement('span');
+  item.className = 'people-scan-stat';
+  item.textContent = `${label}: ${value}`;
+  return item;
+}
+
+function renderPeopleScanProgress() {
+  if (!peopleScanProgressEl) return;
+  const state = peopleScanProgressState;
+  if (activeView !== 'people' || !state) {
+    peopleScanProgressEl.hidden = true;
+    return;
+  }
+  peopleScanProgressEl.hidden = false;
+  peopleScanProgressEl.dataset.stage = state.stage;
+  peopleScanProgressTitleEl.textContent = state.message || 'Scanning People.';
+  peopleScanProgressDetailEl.textContent = state.detail || 'OpenX is scanning your local Gallery photos.';
+  const percent = state.percent;
+  peopleScanProgressPercentEl.textContent = percent === null ? '...' : `${percent}%`;
+  peopleScanProgressFillEl.style.width = percent === null ? '18%' : `${percent}%`;
+
+  const stats = [];
+  if (state.total > 0) stats.push(peopleScanStat('Photos', `${state.scanned}/${state.total}`));
+  if (state.detectedFaces > 0) stats.push(peopleScanStat('Faces found', state.detectedFaces));
+  if (state.verifiedFaces > 0) stats.push(peopleScanStat('Clear faces', state.verifiedFaces));
+  if (state.matchedKnownPeople > 0) stats.push(peopleScanStat('Matched', state.matchedKnownPeople));
+  if (state.readyToName > 0) stats.push(peopleScanStat('Ready to name', state.readyToName));
+  if (state.duplicateFacesSkipped > 0) stats.push(peopleScanStat('Duplicates skipped', state.duplicateFacesSkipped));
+  if (state.unclearFacesRemoved > 0) stats.push(peopleScanStat('Unclear removed', state.unclearFacesRemoved));
+  if (state.warnings > 0) stats.push(peopleScanStat('Warnings', state.warnings));
+  peopleScanProgressStatsEl.replaceChildren(...stats);
+}
+
+function setPeopleScanStatus(message, payload = null) {
   if (activeView === 'people' && message) rangeLabelEl.textContent = message;
+  if (payload) {
+    peopleScanProgressState = normalizePeopleScanProgress({ ...payload, message });
+  } else if (message) {
+    peopleScanProgressState = normalizePeopleScanProgress({
+      ...(peopleScanProgressState || {}),
+      stage: peopleScanProgressState?.stage || 'status',
+      message
+    });
+  }
+  renderPeopleScanProgress();
 }
 
 function describePeopleScan(result = {}) {
@@ -910,9 +991,9 @@ function describePeopleScan(result = {}) {
     if (data.reason === 'vision-runtime-unavailable') return 'AI Vision runtime is not available for face scanning.';
     return 'People scan could not run.';
   }
-  if (data.grouped > 0) {
-    return `Found ${data.grouped} verified face match${data.grouped === 1 ? '' : 'es'}.`;
-  }
+  const matchedKnown = Number(data.autoAssigned || 0) + Number(data.knownClustersReconciled || 0);
+  const readyToName = Number(data.people?.summary?.readyToName ?? data.grouped ?? 0) || 0;
+  if (matchedKnown > 0 || readyToName > 0) return `People scan complete: ${matchedKnown} matched, ${readyToName} ready to name.`;
   if (data.detectedFaces > 0) {
     return 'Faces were detected, but no verified embeddings passed.';
   }
@@ -920,17 +1001,48 @@ function describePeopleScan(result = {}) {
   return 'No photos available to scan.';
 }
 
+function progressFromPeopleScanResult(result = {}) {
+  const data = result.data || result;
+  const peopleSummary = data.people?.summary || {};
+  return {
+    stage: data.success === false || result.success === false ? 'failed' : 'complete',
+    success: !(data.success === false || result.success === false),
+    detail: data.detail || '',
+    scanned: data.scanned,
+    total: data.scanned,
+    percent: data.scanned > 0 ? 100 : null,
+    detectedFaces: data.detectedFaces,
+    verifiedFaces: data.verifiedFaces,
+    matchedKnownPeople: Number(data.autoAssigned || 0) + Number(data.knownClustersReconciled || 0),
+    newUnnamedPeople: data.grouped,
+    readyToName: peopleSummary.readyToName ?? data.grouped,
+    duplicateFacesSkipped: data.duplicateSuppressed,
+    duplicatePeopleMerged: data.duplicateClustersMerged,
+    unclearFacesRemoved: Number(data.lowQualityFaces || 0) + Number(data.falsePositiveFaces || 0) + Number(data.invalidClustersRemoved || 0),
+    skipped: data.skipped,
+    warnings: Array.isArray(data.warnings) ? data.warnings.length : Number(data.warnings || 0),
+    durationMs: data.durationMs
+  };
+}
+
 async function scanPeople() {
   if (activeView !== 'people' || peopleScanButtonEl.disabled) return;
   peopleScanButtonEl.disabled = true;
   peopleScanButtonEl.textContent = 'Scanning...';
-  setPeopleScanStatus('Scanning photos for verified people...');
+  setPeopleScanStatus('Preparing People scan.', {
+    stage: 'preparing',
+    detail: 'OpenX is getting the local face scanner ready.'
+  });
   try {
     const result = await window.openx?.scanGalleryPeople?.({});
     await loadGalleryView('people');
-    setPeopleScanStatus(describePeopleScan(result));
+    setPeopleScanStatus(describePeopleScan(result), progressFromPeopleScanResult(result));
   } catch (error) {
-    setPeopleScanStatus('People scan failed.');
+    setPeopleScanStatus('People scan failed.', {
+      stage: 'failed',
+      success: false,
+      detail: 'OpenX could not complete the face scan. Try again after checking the Gallery logs.'
+    });
   } finally {
     peopleScanButtonEl.disabled = false;
     peopleScanButtonEl.textContent = 'Scan People';
@@ -941,6 +1053,10 @@ async function loadGalleryView(view = activeView) {
   activeView = String(view || 'timeline').toLowerCase();
   if (activeView === 'photos') activeView = 'timeline';
   peopleScanButtonEl.hidden = activeView !== 'people';
+  if (activeView !== 'people') {
+    peopleScanProgressState = null;
+    renderPeopleScanProgress();
+  }
   document.querySelectorAll('.nav-item').forEach(item => {
     item.classList.toggle('active', item.dataset.view === activeView || (activeView === 'timeline' && item.dataset.view === 'photos'));
   });
@@ -1051,6 +1167,7 @@ window.addEventListener('beforeunload', () => {
   if (searchDebounceTimer) window.clearTimeout(searchDebounceTimer);
   if (renderFrame) window.cancelAnimationFrame(renderFrame);
   if (scrollFrame) window.cancelAnimationFrame(scrollFrame);
+  offGalleryPeopleScanProgress?.();
   imageObserver?.disconnect?.();
   imageLoadQueue.length = 0;
 });
@@ -1095,6 +1212,10 @@ window.openx?.onGalleryView?.(view => {
 });
 window.openx?.onGalleryOpenPhoto?.(payload => {
   openViewerFromPayload(payload).catch(() => {});
+});
+offGalleryPeopleScanProgress = window.openx?.onGalleryPeopleScanProgress?.(payload => {
+  if (activeView !== 'people') return;
+  setPeopleScanStatus(payload?.message || 'Scanning People.', payload);
 });
 loadTheme();
 window.openx?.onSettingsChanged?.(snapshot => applySettingsTheme(snapshot));

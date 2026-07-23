@@ -5,6 +5,7 @@ const { getVisualConceptTerms } = require('../utils/VisualConceptLexicon');
 
 const VISUAL_TERMS = [
   'photo', 'photos', 'picture', 'pictures', 'pic', 'pics', 'image', 'images',
+  'face', 'faces', 'person', 'people',
   'screenshot', 'screenshots', 'wallpaper', 'wallpapers', 'selfie', 'selfies',
   'receipt', 'receipts', 'invoice', 'invoices', 'document', 'documents',
   'passport', 'license', 'id card', 'album', 'gallery', 'memories',
