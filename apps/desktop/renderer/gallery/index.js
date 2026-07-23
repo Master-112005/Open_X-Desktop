@@ -940,6 +940,9 @@ function normalizePeopleScanProgress(payload = {}) {
     duplicateFacesSkipped: Number(payload.duplicateFacesSkipped || 0),
     rejectedFacesSkipped: Number(payload.rejectedFacesSkipped || 0),
     duplicatePeopleMerged: Number(payload.duplicatePeopleMerged || 0),
+    faceComparisons: Number(payload.faceComparisons || 0),
+    faceComparisonLinks: Number(payload.faceComparisonLinks || 0),
+    faceComparisonComponents: Number(payload.faceComparisonComponents || 0),
     unclearFacesRemoved: Number(payload.unclearFacesRemoved || 0),
     skipped: Number(payload.skipped || 0),
     warnings: Number(payload.warnings || 0),
@@ -982,6 +985,9 @@ function renderPeopleScanProgress() {
   if (state.verifiedFaces > 0) stats.push(peopleScanStat('Clear faces', state.verifiedFaces));
   if (state.matchedKnownPeople > 0) stats.push(peopleScanStat('Matched', state.matchedKnownPeople));
   if (state.readyToName > 0) stats.push(peopleScanStat('Ready to name', state.readyToName));
+  if (state.faceComparisons > 0) stats.push(peopleScanStat('Pairs compared', state.faceComparisons));
+  if (state.faceComparisonLinks > 0) stats.push(peopleScanStat('Face links', state.faceComparisonLinks));
+  if (state.faceComparisonComponents > 0) stats.push(peopleScanStat('Groups merged', state.faceComparisonComponents));
   if (state.duplicateFacesSkipped > 0) stats.push(peopleScanStat('Duplicates skipped', state.duplicateFacesSkipped));
   if (state.rejectedFacesSkipped > 0) stats.push(peopleScanStat('Rejected hidden', state.rejectedFacesSkipped));
   if (state.unclearFacesRemoved > 0) stats.push(peopleScanStat('Unclear removed', state.unclearFacesRemoved));
@@ -1037,6 +1043,9 @@ function progressFromPeopleScanResult(result = {}) {
     duplicateFacesSkipped: data.duplicateSuppressed,
     rejectedFacesSkipped: data.rejectedFacesSuppressed,
     duplicatePeopleMerged: data.duplicateClustersMerged,
+    faceComparisons: data.globalComparison?.pairsCompared,
+    faceComparisonLinks: data.globalComparison?.linksAccepted,
+    faceComparisonComponents: data.globalComparison?.componentsMerged,
     unclearFacesRemoved: Number(data.lowQualityFaces || 0) + Number(data.falsePositiveFaces || 0) + Number(data.invalidClustersRemoved || 0),
     skipped: data.skipped,
     warnings: Array.isArray(data.warnings) ? data.warnings.length : Number(data.warnings || 0),

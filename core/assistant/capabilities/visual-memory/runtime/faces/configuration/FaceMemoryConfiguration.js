@@ -15,6 +15,9 @@ class FaceMemoryConfiguration {
       clusterAutoAssign: Number(options.thresholds?.clusterAutoAssign ?? 0.92),
       clusterAutoAssignMargin: Number(options.thresholds?.clusterAutoAssignMargin ?? 0.024),
       matchingMargin: Number(options.thresholds?.matchingMargin ?? 0.035),
+      faceComparison: Number(options.thresholds?.faceComparison ?? 0.875),
+      faceComparisonStrong: Number(options.thresholds?.faceComparisonStrong ?? 0.925),
+      faceComparisonMargin: Number(options.thresholds?.faceComparisonMargin ?? 0.006),
       rejection: Number(options.thresholds?.rejection ?? 0.9),
       rejectionBoxIoU: Number(options.thresholds?.rejectionBoxIoU ?? 0.34),
       duplicate: Number(options.thresholds?.duplicate ?? 0.998),
@@ -44,6 +47,7 @@ class FaceMemoryConfiguration {
     this.performance = {
       maxEmbeddingsPerIdentity: Math.max(1, Number(options.performance?.maxEmbeddingsPerIdentity || 250)),
       maxUnknownClusters: Math.max(10, Number(options.performance?.maxUnknownClusters || 500)),
+      maxFaceComparisonEmbeddings: Math.max(100, Number(options.performance?.maxFaceComparisonEmbeddings || 4000)),
       maxRejectedFaces: Math.max(10, Number(options.performance?.maxRejectedFaces || 5000))
     };
   }

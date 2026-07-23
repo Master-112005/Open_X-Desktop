@@ -37,6 +37,10 @@ const DEFAULT_FACE_SCAN_OPTIONS = Object.freeze({
   minFaceVectorDimensions: 64,
   duplicateClusterSimilarity: 0.94,
   duplicateClusterMargin: 0.012,
+  faceComparisonSimilarity: 0.875,
+  faceComparisonStrongSimilarity: 0.925,
+  faceComparisonMargin: 0.006,
+  maxFaceComparisonEmbeddings: 4000,
   rejectedFaceSimilarity: 0.9,
   incrementalMerge: true,
   progressEveryPhotos: 1,
@@ -409,6 +413,10 @@ class VisualMemoryAPI {
     scanOptions.minFaceVectorDimensions = Math.max(0, Math.min(512, Number(scanOptions.minFaceVectorDimensions) || DEFAULT_FACE_SCAN_OPTIONS.minFaceVectorDimensions));
     scanOptions.duplicateClusterSimilarity = Math.max(0.88, Math.min(0.9999, Number(scanOptions.duplicateClusterSimilarity) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterSimilarity));
     scanOptions.duplicateClusterMargin = Math.max(0, Math.min(0.08, Number(scanOptions.duplicateClusterMargin) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterMargin));
+    scanOptions.faceComparisonSimilarity = Math.max(0.82, Math.min(0.985, Number(scanOptions.faceComparisonSimilarity ?? this.engine.faces?.configuration?.thresholds?.faceComparison) || DEFAULT_FACE_SCAN_OPTIONS.faceComparisonSimilarity));
+    scanOptions.faceComparisonStrongSimilarity = Math.max(scanOptions.faceComparisonSimilarity, Math.min(0.995, Number(scanOptions.faceComparisonStrongSimilarity ?? this.engine.faces?.configuration?.thresholds?.faceComparisonStrong) || DEFAULT_FACE_SCAN_OPTIONS.faceComparisonStrongSimilarity));
+    scanOptions.faceComparisonMargin = Math.max(0, Math.min(0.05, Number(scanOptions.faceComparisonMargin ?? this.engine.faces?.configuration?.thresholds?.faceComparisonMargin) || DEFAULT_FACE_SCAN_OPTIONS.faceComparisonMargin));
+    scanOptions.maxFaceComparisonEmbeddings = Math.max(100, Math.min(20000, Number(scanOptions.maxFaceComparisonEmbeddings ?? this.engine.faces?.configuration?.performance?.maxFaceComparisonEmbeddings) || DEFAULT_FACE_SCAN_OPTIONS.maxFaceComparisonEmbeddings));
     scanOptions.rejectedFaceSimilarity = Math.max(0.82, Math.min(0.995, Number(scanOptions.rejectedFaceSimilarity) || DEFAULT_FACE_SCAN_OPTIONS.rejectedFaceSimilarity));
     scanOptions.incrementalMerge = scanOptions.incrementalMerge !== false;
     scanOptions.yieldBetweenPhotos = scanOptions.yieldBetweenPhotos !== false;
@@ -433,6 +441,10 @@ class VisualMemoryAPI {
       minFaceSignalQuality: scanOptions.minFaceSignalQuality,
       duplicateClusterSimilarity: scanOptions.duplicateClusterSimilarity,
       duplicateClusterMargin: scanOptions.duplicateClusterMargin,
+      faceComparisonSimilarity: scanOptions.faceComparisonSimilarity,
+      faceComparisonStrongSimilarity: scanOptions.faceComparisonStrongSimilarity,
+      faceComparisonMargin: scanOptions.faceComparisonMargin,
+      maxFaceComparisonEmbeddings: scanOptions.maxFaceComparisonEmbeddings,
       rejectedFaceSimilarity: scanOptions.rejectedFaceSimilarity,
       scanCadence: scanOptions.progressEveryPhotos === 1 ? 'one-photo-at-a-time' : `every-${scanOptions.progressEveryPhotos}-photos`,
       incrementalMerge: scanOptions.incrementalMerge
@@ -678,8 +690,8 @@ class VisualMemoryAPI {
 
     this._emitPeopleScanProgress(onProgress, {
       stage: 'cleaning-faces',
-      message: 'Cleaning face results.',
-      detail: 'OpenX is removing unclear faces and duplicate face suggestions.',
+      message: 'Comparing face features.',
+      detail: 'OpenX is comparing every kept face against the other kept faces to merge duplicate people.',
       scanned: summary.scanned,
       total: photos.length,
       detectedFaces: summary.detectedFaces,
@@ -689,9 +701,10 @@ class VisualMemoryAPI {
     });
     const cleanup = this._cleanupUnknownFaceClusters(scanOptions);
     summary.cleanup = cleanup;
+    summary.globalComparison = cleanup.globalComparison || {};
     summary.duplicateClustersMerged += cleanup.mergedClusters;
     summary.invalidClustersRemoved = cleanup.removedClusters;
-    if (cleanup.mergedClusters > 0 || cleanup.removedClusters > 0) {
+    if (cleanup.mergedClusters > 0 || cleanup.removedClusters > 0 || cleanup.globalComparison?.pairsCompared > 0) {
       this._logInfo('People scan cleanup removed unclear faces and merged duplicate unnamed people.', cleanup);
     }
     this._emitPeopleScanProgress(onProgress, {
@@ -701,6 +714,9 @@ class VisualMemoryAPI {
       scanned: summary.scanned,
       total: photos.length,
       duplicatePeopleMerged: summary.duplicateClustersMerged,
+      faceComparisons: summary.globalComparison.pairsCompared || 0,
+      faceComparisonLinks: summary.globalComparison.linksAccepted || 0,
+      faceComparisonComponents: summary.globalComparison.componentsMerged || 0,
       unclearFacesRemoved: summary.lowQualityFaces + summary.falsePositiveFaces + summary.invalidClustersRemoved
     });
     const knownClusterReconciliation = this.engine.faces.reconcileUnknownClustersWithIdentities?.(scanOptions) || { assignedClusters: 0 };
@@ -721,7 +737,10 @@ class VisualMemoryAPI {
       total: photos.length,
       matchedKnownPeople: summary.autoAssigned + summary.knownClustersReconciled,
       duplicateFacesSkipped: summary.duplicateSuppressed,
-      rejectedFacesSkipped: summary.rejectedFacesSuppressed
+      rejectedFacesSkipped: summary.rejectedFacesSuppressed,
+      faceComparisons: summary.globalComparison.pairsCompared || 0,
+      faceComparisonLinks: summary.globalComparison.linksAccepted || 0,
+      faceComparisonComponents: summary.globalComparison.componentsMerged || 0
     });
     await this.engine.persistFaceMemory();
     summary.people = this.engine.galleryExperience.getPeople();
@@ -739,6 +758,9 @@ class VisualMemoryAPI {
       duplicateFacesSkipped: summary.duplicateSuppressed,
       rejectedFacesSkipped: summary.rejectedFacesSuppressed,
       duplicatePeopleMerged: summary.duplicateClustersMerged,
+      faceComparisons: summary.globalComparison.pairsCompared || 0,
+      faceComparisonLinks: summary.globalComparison.linksAccepted || 0,
+      faceComparisonComponents: summary.globalComparison.componentsMerged || 0,
       unclearFacesRemoved: summary.lowQualityFaces + summary.falsePositiveFaces + summary.invalidClustersRemoved,
       skipped: summary.skipped,
       warnings: summary.warnings.length,
@@ -761,6 +783,9 @@ class VisualMemoryAPI {
       duplicateFacesSkipped: summary.duplicateSuppressed,
       rejectedFacesSkipped: summary.rejectedFacesSuppressed,
       duplicatePeopleMerged: summary.duplicateClustersMerged,
+      faceComparisons: summary.globalComparison.pairsCompared || 0,
+      faceComparisonLinks: summary.globalComparison.linksAccepted || 0,
+      faceComparisonComponents: summary.globalComparison.componentsMerged || 0,
       unclearFacesRemoved: summary.lowQualityFaces + summary.falsePositiveFaces + summary.invalidClustersRemoved,
       skipped: summary.skipped,
       warnings: summary.warnings.length,
@@ -1609,7 +1634,169 @@ class VisualMemoryAPI {
     const graphMerge = this._mergeDuplicateUnknownClusterGraph(options);
     mergedClusters += graphMerge.mergedClusters;
     mergeRound += graphMerge.mergeRounds;
-    return { removedClusters, removedEmbeddings, mergedClusters, mergeRounds: mergeRound };
+    const globalComparison = this._mergeUnknownFacesByGlobalComparison(options);
+    mergedClusters += globalComparison.mergedClusters;
+    mergeRound += globalComparison.mergeRounds;
+    return { removedClusters, removedEmbeddings, mergedClusters, mergeRounds: mergeRound, globalComparison };
+  }
+
+  _mergeUnknownFacesByGlobalComparison(options = {}) {
+    const state = this.engine.faces?.state || {};
+    const clusters = Object.values(state.unknownClusters || {})
+      .filter(cluster => cluster.status === 'unknown' && !cluster.ignoredAt && !cluster.neverAskAgain);
+    const summary = {
+      clustersChecked: clusters.length,
+      facesCompared: 0,
+      pairsCompared: 0,
+      linksAccepted: 0,
+      strongLinks: 0,
+      nearestNeighborLinks: 0,
+      localDescriptorLinks: 0,
+      skippedSameClusterPairs: 0,
+      skippedSamePhotoConflicts: 0,
+      componentsMerged: 0,
+      mergedClusters: 0,
+      mergeRounds: 0,
+      truncated: false,
+      maxEmbeddings: Math.max(100, Number(options.maxFaceComparisonEmbeddings || DEFAULT_FACE_SCAN_OPTIONS.maxFaceComparisonEmbeddings))
+    };
+    if (clusters.length < 2) return summary;
+
+    let faces = [];
+    for (const cluster of clusters) {
+      for (const embedding of this._clusterEmbeddings(cluster)) {
+        faces.push({
+          cluster,
+          clusterId: cluster.id,
+          embedding,
+          embeddingId: embedding.id || `${cluster.id}:${faces.length}`,
+          quality: Math.max(0, Math.min(1, Number(embedding.quality ?? embedding.confidence ?? cluster.quality ?? 0.75)))
+        });
+      }
+    }
+    if (faces.length < 2) {
+      summary.facesCompared = faces.length;
+      return summary;
+    }
+    if (faces.length > summary.maxEmbeddings) {
+      summary.truncated = true;
+      summary.totalFacesBeforeLimit = faces.length;
+      faces = faces
+        .sort((left, right) => right.quality - left.quality)
+        .slice(0, summary.maxEmbeddings);
+    }
+    summary.facesCompared = faces.length;
+
+    const parent = new Map(clusters.map(cluster => [cluster.id, cluster.id]));
+    const find = clusterId => {
+      let current = clusterId;
+      while (parent.get(current) !== current) current = parent.get(current);
+      let cursor = clusterId;
+      while (parent.get(cursor) !== cursor) {
+        const next = parent.get(cursor);
+        parent.set(cursor, current);
+        cursor = next;
+      }
+      return current;
+    };
+    const union = (leftId, rightId) => {
+      const leftRoot = find(leftId);
+      const rightRoot = find(rightId);
+      if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
+    };
+
+    const candidatePairs = [];
+    const bestByEmbedding = new Map();
+    for (let leftIndex = 0; leftIndex < faces.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < faces.length; rightIndex += 1) {
+        const left = faces[leftIndex];
+        const right = faces[rightIndex];
+        if (left.clusterId === right.clusterId) {
+          summary.skippedSameClusterPairs += 1;
+          continue;
+        }
+        if (this._clustersShareConflictingPhoto(left.cluster, right.cluster)) {
+          summary.skippedSamePhotoConflicts += 1;
+          continue;
+        }
+        summary.pairsCompared += 1;
+        const thresholds = this._faceComparisonThresholds(left.embedding, right.embedding, options);
+        const similarity = faceEmbeddingSimilarity(left.embedding, right.embedding);
+        const pair = {
+          key: `${left.embeddingId}|${right.embeddingId}`,
+          left,
+          right,
+          similarity,
+          threshold: thresholds.threshold,
+          strongThreshold: thresholds.strongThreshold,
+          localDescriptorPair: thresholds.localDescriptorPair
+        };
+        this._rememberBestFacePair(bestByEmbedding, left.embeddingId, pair.key, similarity);
+        this._rememberBestFacePair(bestByEmbedding, right.embeddingId, pair.key, similarity);
+        if (similarity >= thresholds.threshold) candidatePairs.push(pair);
+      }
+    }
+
+    candidatePairs.sort((left, right) => right.similarity - left.similarity);
+    const marginThreshold = Math.max(0, Number(options.faceComparisonMargin ?? this.engine.faces?.configuration?.thresholds?.faceComparisonMargin ?? DEFAULT_FACE_SCAN_OPTIONS.faceComparisonMargin));
+    for (const pair of candidatePairs) {
+      const leftBest = bestByEmbedding.get(pair.left.embeddingId);
+      const rightBest = bestByEmbedding.get(pair.right.embeddingId);
+      const leftIsBest = leftBest?.best?.key === pair.key;
+      const rightIsBest = rightBest?.best?.key === pair.key;
+      const leftMargin = Number(leftBest?.best?.similarity || 0) - Number(leftBest?.second?.similarity || 0);
+      const rightMargin = Number(rightBest?.best?.similarity || 0) - Number(rightBest?.second?.similarity || 0);
+      const strongLink = pair.similarity >= pair.strongThreshold;
+      const nearestNeighborLink = pair.similarity >= pair.threshold &&
+        ((leftIsBest && rightIsBest) ||
+          (leftIsBest && leftMargin >= marginThreshold) ||
+          (rightIsBest && rightMargin >= marginThreshold));
+      if (!strongLink && !nearestNeighborLink) continue;
+      union(pair.left.clusterId, pair.right.clusterId);
+      summary.linksAccepted += 1;
+      if (strongLink) summary.strongLinks += 1;
+      if (nearestNeighborLink) summary.nearestNeighborLinks += 1;
+      if (pair.localDescriptorPair) summary.localDescriptorLinks += 1;
+    }
+
+    const groups = new Map();
+    for (const cluster of clusters) {
+      if (!state.unknownClusters?.[cluster.id]) continue;
+      const root = find(cluster.id);
+      if (!groups.has(root)) groups.set(root, []);
+      groups.get(root).push(cluster);
+    }
+
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      const ordered = group
+        .filter(cluster => state.unknownClusters?.[cluster.id])
+        .sort((left, right) => this._clusterEvidenceWeight(right) - this._clusterEvidenceWeight(left));
+      const target = ordered[0];
+      let componentMerged = false;
+      for (const source of ordered.slice(1)) {
+        if (state.unknownClusters?.[source.id] && this._mergeUnknownFaceCluster(source.id, target.id)) {
+          summary.mergedClusters += 1;
+          componentMerged = true;
+        }
+      }
+      if (componentMerged) summary.componentsMerged += 1;
+    }
+    summary.mergeRounds = summary.mergedClusters > 0 ? 1 : 0;
+    this._logInfo('People scan final face comparison completed.', {
+      clustersChecked: summary.clustersChecked,
+      facesCompared: summary.facesCompared,
+      pairsCompared: summary.pairsCompared,
+      linksAccepted: summary.linksAccepted,
+      strongLinks: summary.strongLinks,
+      nearestNeighborLinks: summary.nearestNeighborLinks,
+      localDescriptorLinks: summary.localDescriptorLinks,
+      skippedSamePhotoConflicts: summary.skippedSamePhotoConflicts,
+      componentsMerged: summary.componentsMerged,
+      mergedClusters: summary.mergedClusters,
+      truncated: summary.truncated
+    });
+    return summary;
   }
 
   _mergeTouchedUnknownFaceClusters(touchedClusterIds = [], options = {}) {
@@ -1893,6 +2080,36 @@ class VisualMemoryAPI {
     };
   }
 
+  _faceComparisonThresholds(leftEmbedding = {}, rightEmbedding = {}, options = {}) {
+    const localDescriptorPair = this._clusterPairUsesLocalDescriptors([leftEmbedding], [rightEmbedding]);
+    const leftQuality = Math.max(0, Math.min(1, Number(leftEmbedding.quality ?? leftEmbedding.confidence ?? 0.75)));
+    const rightQuality = Math.max(0, Math.min(1, Number(rightEmbedding.quality ?? rightEmbedding.confidence ?? 0.75)));
+    const quality = Math.min(leftQuality, rightQuality);
+    const qualityPenalty = quality < 0.6 ? 0.025 : quality < 0.72 ? 0.012 : 0;
+    const configuredLocalThreshold = Number(options.faceComparisonSimilarity ?? this.engine.faces?.configuration?.thresholds?.faceComparison ?? DEFAULT_FACE_SCAN_OPTIONS.faceComparisonSimilarity);
+    const configuredLocalStrong = Number(options.faceComparisonStrongSimilarity ?? this.engine.faces?.configuration?.thresholds?.faceComparisonStrong ?? DEFAULT_FACE_SCAN_OPTIONS.faceComparisonStrongSimilarity);
+    const configuredDeepThreshold = Number(options.duplicateClusterSimilarity ?? DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterSimilarity);
+    const threshold = localDescriptorPair
+      ? Math.max(0.82, Math.min(0.985, configuredLocalThreshold + qualityPenalty))
+      : Math.max(0.92, Math.min(0.995, configuredDeepThreshold + qualityPenalty));
+    const strongThreshold = localDescriptorPair
+      ? Math.max(threshold, Math.min(0.995, configuredLocalStrong + qualityPenalty))
+      : Math.max(threshold, Math.min(0.998, threshold + 0.025));
+    return { threshold, strongThreshold, localDescriptorPair };
+  }
+
+  _rememberBestFacePair(bestByEmbedding, embeddingId, pairKey, similarity) {
+    const current = bestByEmbedding.get(embeddingId) || { best: null, second: null };
+    const item = { key: pairKey, similarity };
+    if (!current.best || similarity > current.best.similarity) {
+      current.second = current.best;
+      current.best = item;
+    } else if ((!current.second || similarity > current.second.similarity) && current.best.key !== pairKey) {
+      current.second = item;
+    }
+    bestByEmbedding.set(embeddingId, current);
+  }
+
   _clusterPairUsesLocalDescriptors(leftEmbeddings = [], rightEmbeddings = []) {
     return leftEmbeddings.some(embedding => this._isLocalFaceDescriptor(embedding)) &&
       rightEmbeddings.some(embedding => this._isLocalFaceDescriptor(embedding));
@@ -2076,6 +2293,9 @@ class VisualMemoryAPI {
         duplicateFacesSkipped: Number(payload.duplicateFacesSkipped || 0),
         rejectedFacesSkipped: Number(payload.rejectedFacesSkipped || 0),
         duplicatePeopleMerged: Number(payload.duplicatePeopleMerged || 0),
+        faceComparisons: Number(payload.faceComparisons || 0),
+        faceComparisonLinks: Number(payload.faceComparisonLinks || 0),
+        faceComparisonComponents: Number(payload.faceComparisonComponents || 0),
         unclearFacesRemoved: Number(payload.unclearFacesRemoved || 0),
         removedClusters: Number(payload.removedClusters || 0),
         removedEmbeddings: Number(payload.removedEmbeddings || 0),
@@ -2097,6 +2317,8 @@ class VisualMemoryAPI {
     const duplicateFaces = Number(summary.duplicateSuppressed || 0);
     const rejectedFaces = Number(summary.rejectedFacesSuppressed || 0);
     const duplicatePeople = Number(summary.duplicateClustersMerged || 0);
+    const faceComparisons = Number(summary.globalComparison?.pairsCompared || 0);
+    const faceLinks = Number(summary.globalComparison?.linksAccepted || 0);
     const unclearFaces = Number(summary.lowQualityFaces || 0) + Number(summary.falsePositiveFaces || 0) + Number(summary.invalidClustersRemoved || 0);
     const parts = [
       `Checked ${summary.scanned} photo${summary.scanned === 1 ? '' : 's'}`,
@@ -2104,6 +2326,8 @@ class VisualMemoryAPI {
     ];
     if (matchedKnown > 0) parts.push(`matched ${matchedKnown} to saved people`);
     if (readyToName > 0) parts.push(`${readyToName} unnamed ready to name`);
+    if (faceComparisons > 0) parts.push(`compared ${faceComparisons} face pair${faceComparisons === 1 ? '' : 's'}`);
+    if (faceLinks > 0) parts.push(`linked ${faceLinks} duplicate face match${faceLinks === 1 ? '' : 'es'}`);
     if (duplicatePeople > 0) parts.push(`merged ${duplicatePeople} duplicate person group${duplicatePeople === 1 ? '' : 's'}`);
     if (duplicateFaces > 0) parts.push(`skipped ${duplicateFaces} duplicate face${duplicateFaces === 1 ? '' : 's'}`);
     if (rejectedFaces > 0) parts.push(`hid ${rejectedFaces} face${rejectedFaces === 1 ? '' : 's'} you rejected before`);
