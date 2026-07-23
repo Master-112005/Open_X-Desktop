@@ -687,11 +687,16 @@ describe('Face Memory System', () => {
     assert.strictEqual(Object.values(engine.faces.state.unknownClusters).filter(cluster => cluster.status === 'unknown').length, 2);
 
     const cleanup = engine.api._cleanupUnknownFaceClusters({
-      duplicateClusterSimilarity: 0.94,
-      duplicateClusterMargin: 0.012
+      duplicateClusterSimilarity: 0.999,
+      duplicateClusterMargin: 0.012,
+      faceComparisonSimilarity: 0.9,
+      faceComparisonStrongSimilarity: 0.925
     });
     const clusters = Object.values(engine.faces.state.unknownClusters).filter(cluster => cluster.status === 'unknown');
 
+    assert(cleanup.globalComparison.pairsCompared >= 1);
+    assert.strictEqual(cleanup.globalComparison.linksAccepted, 1);
+    assert.strictEqual(cleanup.globalComparison.componentsMerged, 1);
     assert.strictEqual(cleanup.mergedClusters, 1);
     assert.strictEqual(clusters.length, 1);
     assert.strictEqual(clusters[0].photoIds.length, 2);
@@ -736,6 +741,7 @@ describe('Face Memory System', () => {
     });
     const clusters = Object.values(engine.faces.state.unknownClusters).filter(cluster => cluster.status === 'unknown');
 
+    assert(cleanup.globalComparison.skippedSamePhotoConflicts >= 1);
     assert.strictEqual(cleanup.mergedClusters, 0);
     assert.strictEqual(clusters.length, 2);
 
