@@ -713,7 +713,8 @@ class ActionRouter {
       /\b(?:open|show|check|connect|disconnect|forget|enable|disable|turn|switch|settings|status)\b/.test(text);
     const appListCommand = /^(?:open|launch|start|run|close|quit|exit|terminate|switch|focus)\s+[a-z0-9 ._-]+(?:\s+(?:and|then|also|plus)\s+[a-z0-9 ._-]+)+$/i.test(String(rawText || '').trim()) &&
       !/\b(?:file|folder|document|song|video|music|search|find|remind|timer|alarm)\b/i.test(text);
-    return fileCommand || renameCommand || phoneTransferCommand || scheduleCommand || networkCommand || appListCommand;
+    const knownWebOpenCommand = this._looksLikeKnownWebOpenRequest(rawText);
+    return fileCommand || renameCommand || phoneTransferCommand || scheduleCommand || networkCommand || appListCommand || knownWebOpenCommand;
   }
 
   _resolveCapabilityCommandIntent(rawText, preparedInput = {}, options = {}) {
@@ -2872,7 +2873,11 @@ class ActionRouter {
       query
     }, confidence);
 
-    if ([rawLower, correctedLower].some(source => /^(?:open|go\s+to|launch|start)\s+(?:my\s+)?youtube(?:\s+homepage)?$/.test(source))) {
+    if ([rawLower, correctedLower].some(source => /^(?:open|launch|start)\s+(?:my\s+)?youtube$/.test(source))) {
+      return null;
+    }
+
+    if ([rawLower, correctedLower].some(source => /^(?:go\s+to)\s+(?:my\s+)?youtube$|^(?:open|go\s+to|launch|start)\s+(?:my\s+)?youtube\s+homepage$/.test(source))) {
       return openUrl('https://www.youtube.com/');
     }
 
@@ -3817,19 +3822,22 @@ class ActionRouter {
     }
 
     const forceNewWindow = intentId === 'app.open' && this._hasExplicitNewKeyword(raw, lower);
+    const entities = {
+      appName,
+      routeSource: 'explicit-app-domain',
+      ...(intentId === 'app.open'
+        ? {
+            requestedOperation: forceNewWindow ? 'open-new-window' : 'open-or-focus',
+            ...(forceNewWindow ? { forceNewWindow: true } : {})
+          }
+        : {})
+    };
     return {
       intent,
       confidence: 1,
-      entities: {
-        appName,
-        routeSource: 'explicit-app-domain',
-        ...(intentId === 'app.open'
-          ? {
-              requestedOperation: forceNewWindow ? 'open-new-window' : 'open-or-focus',
-              ...(forceNewWindow ? { forceNewWindow: true } : {})
-            }
-          : {})
-      }
+      entities: intentId === 'app.open'
+        ? this._buildAppOpenFallbackEntities(appName, entities, { allowSearchFallback: true })
+        : entities
     };
   }
 
@@ -4025,15 +4033,19 @@ class ActionRouter {
       if (compoundTarget) appName = compoundTarget;
     }
 
+    const entities = {
+      appName,
+      requestedOperation: frame.requestedOperation,
+      routeSource: 'app-language-v1',
+      ...(frame.forceNewWindow ? { forceNewWindow: true } : {})
+    };
+
     return {
       intent,
       confidence: frame.confidence,
-      entities: {
-        appName,
-        requestedOperation: frame.requestedOperation,
-        routeSource: 'app-language-v1',
-        ...(frame.forceNewWindow ? { forceNewWindow: true } : {})
-      },
+      entities: intentId === 'app.open'
+        ? this._buildAppOpenFallbackEntities(appName, entities)
+        : entities,
       semanticFrame: {
         ...frame,
         domain: 'app',
@@ -4085,26 +4097,30 @@ class ActionRouter {
     const websiteMatch = lower.match(/^(?:open|launch|start|go\s+to)\s+(?:the\s+)?(?:website\s+of\s+)?(.+)$/i);
     if (websiteMatch && websiteMatch[1]) {
       const targetWebsite = websiteMatch[1].trim().toLowerCase();
-      const websiteUrl = WEBSITE_URL_MAP[targetWebsite];
+      const trustedWebsite = resolveTrustedWebTarget(targetWebsite);
+      const websiteUrl = trustedWebsite?.url || WEBSITE_URL_MAP[targetWebsite];
       if (websiteUrl && explicitWebCue) {
         return { intent: browserIntent, confidence: 1, entities: { url: websiteUrl } };
       }
     }
 
     const targetAfterOpen = lower.replace(/^(?:open|launch|start|run|show|navigate to|go to)\s+/i, '').trim();
-    if (targetAfterOpen && WEBSITE_URL_MAP[targetAfterOpen] && explicitWebCue) {
-      return { intent: browserIntent, confidence: 1, entities: { url: WEBSITE_URL_MAP[targetAfterOpen] } };
+    const trustedTargetAfterOpen = targetAfterOpen ? resolveTrustedWebTarget(targetAfterOpen) : null;
+    const urlAfterOpen = trustedTargetAfterOpen?.url || WEBSITE_URL_MAP[targetAfterOpen];
+    if (targetAfterOpen && urlAfterOpen && explicitWebCue) {
+      return { intent: browserIntent, confidence: 1, entities: { url: urlAfterOpen } };
     }
-    if (targetAfterOpen && WEBSITE_URL_MAP[targetAfterOpen] && !explicitWebCue) {
+    if (targetAfterOpen && urlAfterOpen && !explicitWebCue) {
       const appIntent = this.intentRegistry.get('app.open');
       return appIntent
         ? {
             intent: appIntent,
             confidence: 1,
             entities: {
-              appName: targetAfterOpen,
-              webFallbackUrl: WEBSITE_URL_MAP[targetAfterOpen],
+              appName: trustedTargetAfterOpen?.key || targetAfterOpen,
+              webFallbackUrl: urlAfterOpen,
               webFallbackBrowser: 'chrome',
+              ...(trustedTargetAfterOpen?.title ? { webFallbackTitle: trustedTargetAfterOpen.title } : {}),
               routeSource: 'app-local-first-url-map',
               requestedOperation: 'open-or-focus'
             }
@@ -4224,15 +4240,20 @@ class ActionRouter {
     }
 
     const target = resolveTrustedWebTarget(query);
+    if (!target) {
+      return null;
+    }
+
     const intent = this.intentRegistry.get('app.open');
     return intent
       ? {
           intent,
           confidence: 1,
           entities: {
-            appName: query,
-            webFallbackUrl: target?.url || '',
+            appName: target.key,
+            webFallbackUrl: target.url,
             webFallbackBrowser: 'chrome',
+            webFallbackTitle: target.title,
             routeSource: 'app-local-first-web-fallback',
             requestedOperation: 'open-or-focus'
           }
@@ -4242,6 +4263,75 @@ class ActionRouter {
 
   _normalizeKnownWebTarget(value) {
     return normalizeWebTarget(value);
+  }
+
+  _looksLikeKnownWebOpenRequest(rawText) {
+    const source = String(rawText || '').trim();
+    const match = source.match(/^(?:open|launch|start|go\s+to|pull\s+up|show\s+me|show)\s+(.+?)(?:\s+(?:website|site))?(?:\s+(?:in|on)\s+(?:chrome|browser|edge|firefox))?$/i);
+    if (!match?.[1]) {
+      return false;
+    }
+
+    const target = match[1]
+      .replace(/^(?:the|a|an)\s+/i, '')
+      .trim();
+    if (!target || this._looksLikeLocalPhotosTarget(target, source)) {
+      return false;
+    }
+
+    return Boolean(this._normalizeKnownWebTarget(target));
+  }
+
+  _buildAppOpenFallbackEntities(appName, entities = {}, options = {}) {
+    const cleanAppName = String(appName || '').trim();
+    if (!cleanAppName) {
+      return entities;
+    }
+
+    const trusted = resolveTrustedWebTarget(cleanAppName);
+    if (trusted) {
+      return {
+        ...entities,
+        appName: trusted.key,
+        webFallbackUrl: trusted.url,
+        webFallbackBrowser: entities.webFallbackBrowser || 'chrome',
+        webFallbackTitle: trusted.title,
+        routeSource: entities.routeSource || 'app-local-first-web-fallback'
+      };
+    }
+
+    if (options.allowSearchFallback === true && this._isSafeAppWebSearchFallback(cleanAppName)) {
+      return {
+        ...entities,
+        appName: cleanAppName,
+        allowWebSearchFallback: true,
+        webSearchFallbackQuery: cleanAppName,
+        webFallbackBrowser: entities.webFallbackBrowser || 'chrome',
+        routeSource: entities.routeSource || 'app-local-first-search-fallback'
+      };
+    }
+
+    return {
+      ...entities,
+      appName: cleanAppName
+    };
+  }
+
+  _isSafeAppWebSearchFallback(appName) {
+    const normalized = Normalizer.normalizeText(appName);
+    if (!normalized || normalized.length < 2) {
+      return false;
+    }
+    if (/^(?:file|folder|directory|document|downloads?|desktop|pictures?|photos?|videos?|music|system|settings|control panel)$/.test(normalized)) {
+      return false;
+    }
+    if (/^(?:ms-settings|shell|chrome|edge|about|file):/i.test(String(appName || '').trim())) {
+      return false;
+    }
+    if (/\.[a-z0-9]{1,10}$/i.test(normalized)) {
+      return false;
+    }
+    return true;
   }
 
   _hasExplicitWebCue(input) {
@@ -4385,25 +4475,27 @@ class ActionRouter {
     const forceNewWindow = this._hasExplicitNewKeyword(raw, correctedText);
     const compoundTarget = this._detectCompoundAppTarget(raw, correctedText, appName);
     if (compoundTarget) {
+      const entities = this._buildAppOpenFallbackEntities(compoundTarget, {
+        appName: compoundTarget,
+        requestedOperation: forceNewWindow ? 'open-new-window' : 'open-or-focus',
+        ...(forceNewWindow ? { forceNewWindow: true } : {})
+      });
       return {
         intent,
         confidence: 0.99,
-        entities: {
-          appName: compoundTarget,
-          requestedOperation: forceNewWindow ? 'open-new-window' : 'open-or-focus',
-          ...(forceNewWindow ? { forceNewWindow: true } : {})
-        }
+        entities
       };
     }
 
+    const entities = this._buildAppOpenFallbackEntities(appName, {
+      appName,
+      requestedOperation: forceNewWindow ? 'open-new-window' : 'open-or-focus',
+      ...(forceNewWindow ? { forceNewWindow: true } : {})
+    });
     return {
       intent,
       confidence: 0.99,
-      entities: {
-        appName,
-        requestedOperation: forceNewWindow ? 'open-new-window' : 'open-or-focus',
-        ...(forceNewWindow ? { forceNewWindow: true } : {})
-      }
+      entities
     };
   }
 
@@ -5353,15 +5445,15 @@ const newTabMatch = input.match(
       ['timer.resume', /^resume\s+(?:the\s+|my\s+)?(?:active\s+)?timer$/],
       ['timer.reset', /^(?:reset|restart)\s+(?:the\s+|my\s+)?timer$/],
       ['timer.remaining', /^(?:how\s+much\s+time\s+(?:is\s+)?left|show\s+(?:the\s+)?remaining\s+time|time\s+left)$/],
-      ['timer.list', /^(?:show|list|what|tell)\b.*\b(?:active\s+)?timers?\b/],
+      ['timer.list', /^(?:(?:show|list|what|tell|check)\b.*\b(?:active\s+)?timers?\b|(?:how\s+many|count|do\s+i\s+have|are\s+there|any)\b.*\b(?:active\s+)?timers?\b)/],
       ['timer.cancel', /^(?:stop|cancel|delete)\s+(?:the\s+|my\s+)?(?:active\s+)?timer$/],
       ['reminder.clear', /^(?:delete|clear|cancel)\s+all\s+(?:my\s+)?reminders?$/],
-      ['reminder.list', /^(?:show|list|tell)\b.*\breminders?\b/],
+      ['reminder.list', /^(?:(?:show|list|tell|check|what(?:'s|\s+is|\s+are)?)\b.*\breminders?\b|(?:how\s+many|count|do\s+i\s+have|are\s+there|any)\b.*\breminders?\b|reminders?\b.*\b(?:today|tomorrow|active|upcoming|scheduled)\b)/],
       ['reminder.snooze', /^snooze\s+(?:this\s+|the\s+|my\s+)?reminder(?:\s+for\s+.+)?$/],
       ['reminder.cancel', /^(?:delete|cancel|stop)\s+(?:this\s+|the\s+|my\s+)?reminder$/],
       ['alarm.clear', /^(?:delete|clear|cancel|stop)\s+all\s+(?:my\s+)?alarms?$/],
       ['alarm.snooze', /^snooze\s+(?:the\s+|my\s+)?alarm(?:\s+for\s+.+)?$/],
-      ['alarm.list', /^(?:show|list|tell)\b.*\b(?:active\s+)?alarms?\b/],
+      ['alarm.list', /^(?:(?:show|list|tell|check|what(?:'s|\s+is|\s+are)?)\b.*\b(?:active\s+)?alarms?\b|(?:how\s+many|count|do\s+i\s+have|are\s+there|any)\b.*\b(?:active\s+)?alarms?\b)/],
       ['alarm.cancel', /^(?:delete|cancel|stop|dismiss)\s+(?:this\s+|the\s+|my\s+)?alarm$/]
     ];
     for (const [intentId, pattern] of routes) {
@@ -5369,7 +5461,14 @@ const newTabMatch = input.match(
       const intent = this.intentRegistry.get(intentId);
       if (!intent) return null;
       const entities = this.entityExtractor.extract(intent, rawText);
-      if (intentId === 'reminder.list' && /\btoday\b/.test(input)) entities.scope = 'today';
+      if (/\.(?:list)$/.test(intentId)) {
+        if (/\btoday\b/.test(input)) entities.scope = 'today';
+        else if (/\ball\b/.test(input)) entities.scope = 'all';
+        else if (/\b(?:active|upcoming|scheduled)\b/.test(input)) entities.scope = 'active';
+        if (/\b(?:how\s+many|count|do\s+i\s+have|are\s+there|any)\b/.test(input)) {
+          entities.countOnly = true;
+        }
+      }
       return { intent, confidence: 1, entities };
     }
     return null;
@@ -6293,7 +6392,7 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     const normalized = String(preparedInput?.correctedText || text).trim().toLowerCase();
     const explicitSearch = /^(?:search|google|look up|find on web|search the web|tell me about|what about)\b/i.test(normalized);
     const knowledgeQuestion = /^(?:what|who|when|where|why|how|which)\b/i.test(normalized) &&
-      !/\b(?:running|open|opened|active|visible|in\s+use|being\s+used|used|system|computer|pc|laptop|file|folder|remind)\b/i.test(normalized);
+      !/\b(?:running|open|opened|active|visible|in\s+use|being\s+used|used|system|computer|pc|laptop|file|folder|remind|reminders?|alarms?|timers?)\b/i.test(normalized);
     const hasKnowledgeSignal = this._looksLikeWebSearchQuery(normalized) ||
       /\b(?:ipl|cricket|fifa|world\s+cup|match(?:es)?|fixtures?|schedule|score|scores|winner|winners|champion|champions|event|release|released|premiere|price|latest|current|today'?s?|news|best|top|list|movie|movies|paper|journal|research|documentation|docs|tutorials?|examples?|guide)\b/.test(normalized);
     if (!explicitSearch && !(knowledgeQuestion && hasKnowledgeSignal)) {

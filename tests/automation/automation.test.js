@@ -247,6 +247,43 @@ describe('Automation Engine', function() {
     assert.equal(browserOpened, false);
   });
 
+  it('should use web search fallback only when an app request explicitly allows it', async function() {
+    const engine = new AutomationEngine({});
+    let openedQuery = '';
+
+    engine.apps.open = appName => ({ success: false, error: `Could not find app: ${appName}` });
+    engine.folders.open = () => ({ success: false, error: 'not a folder' });
+    engine.browser.checkInternetConnection = async () => true;
+    engine.browser.openFirstResult = async query => {
+      openedQuery = query;
+      return {
+        success: true,
+        data: {
+          browserName: 'chrome',
+          query,
+          title: 'Sparkdeck',
+          url: 'https://example.com/sparkdeck',
+          launchMethod: 'ranked-search-result'
+        }
+      };
+    };
+    engine.verifier.controllers.apps.waitForVisibleApp = () => null;
+
+    const result = await engine.execute('app.open', {
+      appName: 'sparkdeck',
+      allowWebSearchFallback: true,
+      webSearchFallbackQuery: 'sparkdeck',
+      webFallbackBrowser: 'chrome'
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(openedQuery, 'sparkdeck');
+    assert.equal(result.data.webFallback, true);
+    assert.equal(result.data.webSearchFallback, true);
+    assert.equal(result.data.webSearchFallbackQuery, 'sparkdeck');
+    assert.equal(result.data.launchMethod, 'ranked-search-result');
+  });
+
   it('should send a resolved local file to the requesting phone device', async function() {
     const tempDir = fs.mkdtempSync(path.join(path.join(os.homedir(), 'Documents'), 'openx-phone-send-'));
     const source = path.join(tempDir, 'report.pdf');

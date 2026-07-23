@@ -188,7 +188,7 @@ class AutomationEngine {
       'timer.cancel': () => this.scheduler.cancelLatest('Timer'),
       'timer.reset': () => this.scheduler.resetActiveTimer(),
       'timer.remaining': () => this.scheduler.getRemainingTimer(),
-      'timer.list': () => this.scheduler.listSchedules('Timer'),
+      'timer.list': (entities) => this.scheduler.listSchedules('Timer', entities.scope || 'active'),
       'timer.clear': () => this.scheduler.clearSchedules('Timer'),
       'stopwatch.start': () => this.scheduler.startStopwatch(),
       'stopwatch.pause': () => this.scheduler.pauseStopwatch(),
@@ -202,7 +202,7 @@ class AutomationEngine {
       'reminder.snooze': (entities) => this.scheduler.snoozeLatestReminder(entities.duration || 5),
       'alarm.snooze': (entities) => this.scheduler.snoozeLatestAlarm(entities.duration || 5),
       'alarm.cancel': () => this.scheduler.cancelLatest('Alarm'),
-      'alarm.list': () => this.scheduler.listSchedules('Alarm'),
+      'alarm.list': (entities) => this.scheduler.listSchedules('Alarm', entities.scope || 'active'),
       'alarm.clear': () => this.scheduler.clearSchedules('Alarm'),
       'calendar.open': () => this.planner.open('calendar'),
       'timetable.open': () => this.planner.open('timetable'),
@@ -289,7 +289,9 @@ class AutomationEngine {
     const appName = String(entities.appName || '').trim();
     const trusted = resolveTrustedWebTarget(appName);
     const url = String(entities.webFallbackUrl || trusted?.url || '').trim();
-    if (!url) {
+    const searchQuery = String(entities.webSearchFallbackQuery || appName || '').trim();
+    const allowSearchFallback = entities.allowWebSearchFallback === true && searchQuery;
+    if (!url && !allowSearchFallback) {
       return null;
     }
 
@@ -298,6 +300,28 @@ class AutomationEngine {
     }
 
     const requestedBrowser = entities.webFallbackBrowser || 'chrome';
+    if (!url) {
+      const openedFirst = await this.browser.openFirstResult(searchQuery);
+      return openedFirst?.success
+        ? {
+            success: true,
+            data: {
+              ...openedFirst.data,
+              app: appName,
+              appId: appName.toLowerCase(),
+              webFallback: true,
+              webSearchFallback: true,
+              webSearchFallbackQuery: searchQuery,
+              webFallbackBrowser: openedFirst.data?.browserName || requestedBrowser,
+              tabQuery: searchQuery,
+              tabTitle: openedFirst.data?.title || searchQuery,
+              launchMethod: openedFirst.data?.launchMethod || 'chrome-web-search-fallback',
+              localLaunchError: localResult?.error || null
+            }
+          }
+        : openedFirst;
+    }
+
     const opened = this.browser.open(url, {
       browserName: requestedBrowser,
       newTab: entities.newTab === true

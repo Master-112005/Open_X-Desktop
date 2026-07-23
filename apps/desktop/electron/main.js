@@ -5528,13 +5528,19 @@ function presentCloudFileTransferStatus(transfer = {}, status = 'progress') {
   const fileName = cloudTransferDisplayName(transfer);
   const percent = Math.max(0, Math.min(100, Math.round(Number(transfer.percent) || 0)));
   const filePath = String(transfer.filePath || transfer.destination || '').trim();
+  const direction = String(transfer.direction || '').toLowerCase();
+  const outgoingToMobile = direction === 'desktop-to-phone';
   const completed = status === 'completed';
   const failed = status === 'failed';
   const response = completed
-    ? `${fileName} was saved to Documents\\OpenX.`
+    ? outgoingToMobile
+      ? `${fileName} was sent to mobile.`
+      : `${fileName} was saved to Documents\\OpenX.`
     : failed
       ? `${fileName} transfer failed.`
-      : `Receiving ${fileName}: ${percent}%.`;
+      : outgoingToMobile
+        ? `Sending ${fileName}: ${percent}%.`
+        : `Receiving ${fileName}: ${percent}%.`;
   try {
     voiceOverlay.displayAssistantResult({
       success: !failed,
@@ -5545,8 +5551,8 @@ function presentCloudFileTransferStatus(transfer = {}, status = 'progress') {
           {
             index: 1,
             name: fileName,
-            type: completed ? 'saved file' : 'file transfer',
-            location: completed ? 'Documents\\OpenX' : `${percent}%`,
+            type: completed ? outgoingToMobile ? 'sent file' : 'saved file' : 'file transfer',
+            location: completed ? outgoingToMobile ? 'OpenX Mobile' : 'Documents\\OpenX' : `${percent}%`,
             snippet: filePath || response
           }
         ],
@@ -5554,9 +5560,13 @@ function presentCloudFileTransferStatus(transfer = {}, status = 'progress') {
       },
       ui: {
         icon: failed ? '!' : 'FI',
-        previewStatus: completed ? 'File received' : failed ? 'Transfer failed' : `Receiving ${percent}%`,
+        previewStatus: completed
+          ? outgoingToMobile ? 'File sent to mobile' : 'File received'
+          : failed
+            ? 'Transfer failed'
+            : outgoingToMobile ? `Sending ${percent}%` : `Receiving ${percent}%`,
         preExpandDelayMs: completed || failed ? 600 : 0,
-        autoHideMs: completed || failed ? 8000 : 0,
+        autoHideMs: completed ? outgoingToMobile ? 5000 : 8000 : failed ? 8000 : 0,
         persistUntilAction: false
       }
     });

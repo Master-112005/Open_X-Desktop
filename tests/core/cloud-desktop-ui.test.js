@@ -25,6 +25,10 @@ describe('Cloud desktop UI routing', () => {
 
     assert.match(main, /function presentCloudFileTransferPrompt\(transfer = \{\}\)/);
     assert.match(main, /intent: 'cloud\.fileTransfer\.incoming'/);
+    assert.match(main, /File sent to mobile/);
+    assert.match(main, /File received/);
+    assert.match(main, /direction === 'desktop-to-phone'/);
+    assert.match(main, /outgoingToMobile \? 5000 : 8000/);
     assert.match(main, /registerIpcHandler\('cloud:fileTransferAction'/);
     assert.match(main, /Documents\\\\OpenX/);
     assert.doesNotMatch(main, /showMessageBox\(\{/);

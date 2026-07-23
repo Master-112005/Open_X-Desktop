@@ -61,6 +61,7 @@
     "copyright": "Copyright (c) 2024-2026 RAKESH",
     "asar": true,
     "asarUnpack": [
+      "core/vision/runtime/windows-face-analysis.ps1",
       "node_modules/sherpa-onnx-node/**/*",
       "node_modules/playwright/**/*",
       "node_modules/playwright-core/**/*"

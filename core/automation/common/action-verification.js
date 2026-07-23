@@ -254,6 +254,15 @@ class ActionVerifier {
       });
     }
 
+    if (result.data?.controllerVerified === true && /^(?:file|folder)\.(?:open|search|list)$/.test(actionId)) {
+      return ok(result.data?.verification?.check || 'controller-verification', {
+        method: 'controller',
+        target: this._targetLabel(actionId, entities, result),
+        ...(result.data?.path ? { path: result.data.path } : {}),
+        ...(Number.isFinite(Number(result.data?.count)) ? { count: Number(result.data.count) } : {})
+      });
+    }
+
     if (actionId.startsWith('file.')) {
       return this._verifyFileAction(actionId, result);
     }
