@@ -923,6 +923,9 @@ function normalizePeopleScanProgress(payload = {}) {
     scanned,
     total,
     percent,
+    skippedAlreadyScannedPhotos: Number(payload.skippedAlreadyScannedPhotos || 0),
+    skippedExistingFaceDataPhotos: Number(payload.skippedExistingFaceDataPhotos || 0),
+    skippedCompletedFaceScanPhotos: Number(payload.skippedCompletedFaceScanPhotos || 0),
     detectedFaces: Number(payload.detectedFaces || 0),
     verifiedFaces: Number(payload.verifiedFaces || 0),
     matchedKnownPeople: Number(payload.matchedKnownPeople || 0),
@@ -974,6 +977,7 @@ function renderPeopleScanProgress() {
 
   const stats = [];
   if (state.total > 0) stats.push(peopleScanStat('Photos', `${state.scanned}/${state.total}`));
+  if (state.skippedAlreadyScannedPhotos > 0) stats.push(peopleScanStat('Skipped scanned', state.skippedAlreadyScannedPhotos));
   if (state.currentPhotoName) stats.push(peopleScanStat('Current', state.currentPhotoName));
   if (state.photoDetectedFaces > 0) stats.push(peopleScanStat('This photo', `${state.photoDetectedFaces} found`));
   if (state.photoVerifiedFaces > 0) stats.push(peopleScanStat('Clear here', state.photoVerifiedFaces));
@@ -1035,6 +1039,9 @@ function progressFromPeopleScanResult(result = {}) {
     scanned: data.scanned,
     total: data.scanned,
     percent: data.scanned > 0 ? 100 : null,
+    skippedAlreadyScannedPhotos: data.skippedAlreadyScannedPhotos,
+    skippedExistingFaceDataPhotos: data.skippedExistingFaceDataPhotos,
+    skippedCompletedFaceScanPhotos: data.skippedCompletedFaceScanPhotos,
     detectedFaces: data.detectedFaces,
     verifiedFaces: data.verifiedFaces,
     matchedKnownPeople: Number(data.autoAssigned || 0) + Number(data.knownClustersReconciled || 0),

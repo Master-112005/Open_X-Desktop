@@ -8,15 +8,16 @@ const {
   id,
   normalizeFaceBox,
   normalizedFaceBoxDistance,
-  nowIso,
-  weightedMeanVector
+  nowIso
 } = require('../utils/face-utils');
+const FaceComparisonEngine = require('../comparison/FaceComparisonEngine');
 
 class FaceGroupingEngine {
-  constructor({ state, embeddings, configuration, diagnostics, events } = {}) {
+  constructor({ state, embeddings, configuration, comparison, diagnostics, events } = {}) {
     this.state = state;
     this.embeddings = embeddings;
     this.configuration = configuration;
+    this.comparison = comparison || new FaceComparisonEngine({ configuration });
     this.diagnostics = diagnostics;
     this.events = events;
   }
@@ -148,35 +149,20 @@ class FaceGroupingEngine {
       if (cluster.status !== 'unknown' || cluster.ignoredAt || cluster.neverAskAgain) continue;
       const embeddings = this.embeddings.listForCluster(cluster.id);
       if (embeddings.length === 0) continue;
-      const scored = embeddings
-        .map(embedding => ({
-          embedding,
-          similarity: faceEmbeddingSimilarity({ vector, quality: options.quality }, embedding),
-          quality: clamp01(embedding.quality ?? embedding.confidence ?? 0.75)
-        }))
-        .sort((left, right) => right.similarity - left.similarity);
-      const top = scored.slice(0, Math.min(5, scored.length));
-      const bestSimilarity = top[0]?.similarity || 0;
-      const topMean = top.reduce((sum, item) => sum + item.similarity, 0) / Math.max(1, top.length);
-      const probeQuality = clamp01(options.quality ?? 0.75);
-      const clusterQuality = top.reduce((sum, item) => sum + item.quality, 0) / Math.max(1, top.length);
-      const centroid = weightedMeanVector(scored.map(item => ({
-        vector: item.embedding.vector,
-        weight: Math.max(0.05, item.quality)
-      })));
-      const centroidSimilarity = centroid.length
-        ? faceEmbeddingSimilarity({ vector, quality: options.quality }, { vector: centroid, quality: clusterQuality || 0.75 })
-        : bestSimilarity;
-      const supportCount = scored.filter(item => item.similarity >= this.configuration.thresholds.suggestion).length;
-      const qualityFactor = 0.94 + (Math.min(probeQuality, clusterQuality) * 0.06);
-      const similarity = clamp01(((bestSimilarity * 0.56) + (topMean * 0.20) + (centroidSimilarity * 0.24) + Math.min(0.016, supportCount * 0.004)) * qualityFactor);
+      const decision = this.comparison.scoreProbeAgainstSet({ vector, quality: options.quality }, embeddings, {
+        faceComparisonSimilarity: this.configuration.thresholds.faceComparison,
+        faceComparisonStrongSimilarity: this.configuration.thresholds.faceComparisonStrong
+      });
+      if (!decision.comparable) continue;
+      const similarity = decision.confidence;
       if (!best || similarity > best.similarity) {
         best = {
           cluster,
           similarity,
-          bestSimilarity,
-          centroidSimilarity,
-          supportCount
+          bestSimilarity: decision.bestSimilarity,
+          centroidSimilarity: decision.centroidSimilarity,
+          supportCount: decision.supportCount,
+          localDescriptorPair: decision.localDescriptorPair
         };
       }
     }

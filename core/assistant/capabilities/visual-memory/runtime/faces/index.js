@@ -9,6 +9,7 @@ module.exports = {
   ConsentManager: require('./consent/ConsentManager'),
   FacePrivacyManager: require('./privacy/FacePrivacyManager'),
   FaceEmbeddingStore: require('./embeddings/FaceEmbeddingStore'),
+  FaceComparisonEngine: require('./comparison/FaceComparisonEngine'),
   FaceGroupingEngine: require('./grouping/FaceGroupingEngine'),
   FaceMatchingEngine: require('./matching/FaceMatchingEngine'),
   FaceEnrollmentManager: require('./enrollment/FaceEnrollmentManager'),

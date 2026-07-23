@@ -8,6 +8,7 @@ const FaceMemoryValidator = require('../validation/FaceMemoryValidator');
 const ConsentManager = require('../consent/ConsentManager');
 const FacePrivacyManager = require('../privacy/FacePrivacyManager');
 const FaceEmbeddingStore = require('../embeddings/FaceEmbeddingStore');
+const FaceComparisonEngine = require('../comparison/FaceComparisonEngine');
 const FaceGroupingEngine = require('../grouping/FaceGroupingEngine');
 const FaceMatchingEngine = require('../matching/FaceMatchingEngine');
 const PersonProfileManager = require('../profiles/PersonProfileManager');
@@ -35,6 +36,7 @@ function createState() {
     profiles: {},
     embeddings: {},
     unknownClusters: {},
+    faceScanPhotos: {},
     rejectedFaces: {},
     relationships: {},
     history: []
@@ -47,6 +49,7 @@ function ensureStateShape(state = {}) {
   if (!state.profiles) state.profiles = {};
   if (!state.embeddings) state.embeddings = {};
   if (!state.unknownClusters) state.unknownClusters = {};
+  if (!state.faceScanPhotos) state.faceScanPhotos = {};
   if (!state.rejectedFaces) state.rejectedFaces = {};
   if (!state.relationships) state.relationships = {};
   if (!Array.isArray(state.history)) state.history = [];
@@ -68,9 +71,10 @@ class FaceMemoryEngine {
     this.privacy = new FacePrivacyManager({ state: this.state, configuration: this.configuration, consent: this.consent, diagnostics: this.diagnostics });
     this.embeddings = new FaceEmbeddingStore({ state: this.state, validator: this.validator });
     this.profiles = new PersonProfileManager({ state: this.state });
+    this.comparison = options.comparison || new FaceComparisonEngine({ configuration: this.configuration });
     this.identities = new IdentityManager({ state: this.state, profiles: this.profiles, embeddings: this.embeddings, validator: this.validator, events: this.events, diagnostics: this.diagnostics });
-    this.grouping = new FaceGroupingEngine({ state: this.state, embeddings: this.embeddings, configuration: this.configuration, diagnostics: this.diagnostics, events: this.events });
-    this.matching = new FaceMatchingEngine({ state: this.state, embeddings: this.embeddings, configuration: this.configuration });
+    this.grouping = new FaceGroupingEngine({ state: this.state, embeddings: this.embeddings, configuration: this.configuration, comparison: this.comparison, diagnostics: this.diagnostics, events: this.events });
+    this.matching = new FaceMatchingEngine({ state: this.state, embeddings: this.embeddings, configuration: this.configuration, comparison: this.comparison });
     this.enrollment = new FaceEnrollmentManager({ consent: this.consent, grouping: this.grouping, identities: this.identities, privacy: this.privacy, validator: this.validator });
     this.relationships = new FaceRelationshipManager({ state: this.state });
     this.timeline = new FaceTimelineManager({ state: this.state, embeddings: this.embeddings });
@@ -386,7 +390,10 @@ class FaceMemoryEngine {
       };
     }
     const unknown = this._bestUnknownClusterForVector(vector, { quality });
-    if (unknown?.cluster && unknown.similarity >= Number(options.unknownThreshold ?? this.configuration.thresholds.grouping)) {
+    const unknownThreshold = Number(options.unknownThreshold ?? (unknown?.localDescriptorPair
+      ? this.configuration.thresholds.faceComparison
+      : this.configuration.thresholds.grouping));
+    if (unknown?.cluster && unknown.similarity >= unknownThreshold) {
       return {
         decision: 'existing-unknown',
         status: 'same-unnamed-person',
@@ -450,6 +457,7 @@ class FaceMemoryEngine {
       profiles: this.state.profiles,
       embeddings: this.state.embeddings,
       unknownClusters: this.state.unknownClusters,
+      faceScanPhotos: this.state.faceScanPhotos,
       rejectedFaces: this.state.rejectedFaces,
       relationships: this.state.relationships,
       configuration: this.configuration?.toJSON?.() || null
@@ -480,6 +488,7 @@ class FaceMemoryEngine {
       identities: Object.keys(this.state.identities).length,
       profiles: Object.keys(this.state.profiles).length,
       unknownClusters: Object.keys(this.state.unknownClusters).length,
+      faceScanPhotos: Object.keys(this.state.faceScanPhotos || {}).length,
       rejectedFaces: Object.keys(this.state.rejectedFaces || {}).length,
       embeddings: Object.keys(this.state.embeddings).length,
       diagnostics: this.diagnostics.summary()
@@ -615,26 +624,18 @@ class FaceMemoryEngine {
       const embeddings = this.embeddings.listForCluster(cluster.id)
         .filter(embedding => embedding && Array.isArray(embedding.vector));
       if (embeddings.length === 0) continue;
-      const centroid = weightedMeanVector(embeddings.map(embedding => ({
-        vector: embedding.vector,
-        weight: Math.max(0.05, clamp01(embedding.quality ?? embedding.confidence ?? 0.75))
-      })));
-      const topQualities = embeddings
-        .map(embedding => clamp01(embedding.quality ?? embedding.confidence ?? 0.75))
-        .sort((left, right) => right - left)
-        .slice(0, Math.min(5, embeddings.length));
-      const quality = topQualities.length
-        ? topQualities.reduce((sum, value) => sum + value, 0) / topQualities.length
-        : 0.75;
-      const similarity = centroid.length
-        ? faceEmbeddingSimilarity({ vector, quality: options.quality }, { vector: centroid, quality })
-        : 0;
-      const weightedSimilarity = Math.min(1, similarity * (0.94 + (Math.min(clamp01(options.quality ?? 0.75), quality || 0.75) * 0.06)));
-      if (!best || weightedSimilarity > best.similarity) {
+      const decision = this.comparison.scoreProbeAgainstSet({ vector, quality: options.quality }, embeddings, {
+        faceComparisonSimilarity: this.configuration.thresholds.faceComparison,
+        faceComparisonStrongSimilarity: this.configuration.thresholds.faceComparisonStrong
+      });
+      if (!decision.comparable) continue;
+      if (!best || decision.confidence > best.similarity) {
         best = {
           cluster,
-          similarity: weightedSimilarity,
-          embeddingCount: embeddings.length
+          similarity: decision.confidence,
+          embeddingCount: embeddings.length,
+          localDescriptorPair: decision.localDescriptorPair,
+          supportCount: decision.supportCount
         };
       }
     }
