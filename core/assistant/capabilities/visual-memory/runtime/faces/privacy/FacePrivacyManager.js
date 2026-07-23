@@ -37,6 +37,7 @@ class FacePrivacyManager {
     this.state.profiles = {};
     this.state.embeddings = {};
     this.state.unknownClusters = {};
+    this.state.faceScanPhotos = {};
     this.state.rejectedFaces = {};
     this.state.relationships = {};
     this.state.history = [];

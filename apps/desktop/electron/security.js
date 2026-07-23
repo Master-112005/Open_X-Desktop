@@ -555,7 +555,9 @@ function validateGalleryPeopleScan(payload = {}) {
   return {
     maxPhotos: Number.isFinite(requestedMaxPhotos) && requestedMaxPhotos > 0
       ? Math.max(1, Math.min(500000, Math.floor(requestedMaxPhotos)))
-      : null
+      : null,
+    rescan: payload.rescan === true,
+    incremental: payload.incremental === false ? false : true
   };
 }
 

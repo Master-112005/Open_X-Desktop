@@ -2,16 +2,16 @@
 
 const {
   clamp01,
-  faceEmbeddingSimilarity,
-  faceQualityScore,
-  weightedMeanVector
+  faceQualityScore
 } = require('../utils/face-utils');
+const FaceComparisonEngine = require('../comparison/FaceComparisonEngine');
 
 class FaceMatchingEngine {
-  constructor({ state, embeddings, configuration } = {}) {
+  constructor({ state, embeddings, configuration, comparison } = {}) {
     this.state = state;
     this.embeddings = embeddings;
     this.configuration = configuration;
+    this.comparison = comparison || new FaceComparisonEngine({ configuration });
   }
 
   match(vector, options = {}) {
@@ -28,30 +28,17 @@ class FaceMatchingEngine {
       });
     const matches = [];
     for (const identity of Object.values(this.state.identities)) {
-      const scored = this.embeddings.listForIdentity(identity.id)
-        .map(embedding => ({
-          embedding,
-          similarity: faceEmbeddingSimilarity({ vector, quality: probeQuality }, embedding),
-          quality: clamp01(embedding.quality ?? embedding.confidence ?? 0.75)
-        }))
-        .sort((left, right) => right.similarity - left.similarity);
-      const evidenceCount = scored.length;
-      if (evidenceCount === 0) continue;
-      const best = scored[0].similarity;
-      const top = scored.slice(0, Math.min(5, scored.length));
-      const topMean = top.reduce((sum, item) => sum + item.similarity, 0) / top.length;
-      const evidenceQuality = top.reduce((sum, item) => sum + item.quality, 0) / top.length;
-      const centroid = weightedMeanVector(scored.map(item => ({
-        vector: item.embedding.vector,
-        weight: Math.max(0.05, item.quality)
-      })));
-      const centroidSimilarity = centroid.length
-        ? faceEmbeddingSimilarity({ vector, quality: probeQuality }, { vector: centroid, quality: evidenceQuality || 0.75 })
-        : best;
-      const supportCount = scored.filter(item => item.similarity >= this.configuration.thresholds.suggestion).length;
-      const supportBoost = Math.min(0.018, supportCount * 0.004);
-      const qualityFactor = 0.94 + (Math.min(probeQuality, evidenceQuality) * 0.06);
-      const composite = clamp01(((best * 0.58) + (topMean * 0.22) + (centroidSimilarity * 0.20) + supportBoost) * qualityFactor);
+      const scored = this.comparison.scoreProbeAgainstSet(
+        { vector, quality: probeQuality, confidence: options.confidence, metadata: options.metadata || null },
+        this.embeddings.listForIdentity(identity.id),
+        {
+          faceComparisonSimilarity: this.configuration.thresholds.faceComparison,
+          faceComparisonStrongSimilarity: this.configuration.thresholds.faceComparisonStrong,
+          matchingMargin: this.configuration.thresholds.matchingMargin
+        }
+      );
+      if (!scored.comparable) continue;
+      const composite = clamp01(scored.confidence);
       if (composite >= this.configuration.thresholds.confidence) {
         matches.push({
           identityId: identity.id,
@@ -59,11 +46,12 @@ class FaceMatchingEngine {
           name: this.state.profiles[identity.profileId]?.name || '',
           relationship: this.state.profiles[identity.profileId]?.relationship || identity.relationship || '',
           confidence: Number(composite.toFixed(4)),
-          bestSimilarity: Number(best.toFixed(4)),
-          centroidSimilarity: Number(centroidSimilarity.toFixed(4)),
-          supportCount,
-          quality: Number(Math.min(probeQuality, evidenceQuality).toFixed(4)),
-          evidenceCount,
+          bestSimilarity: scored.bestSimilarityRounded,
+          centroidSimilarity: scored.centroidSimilarityRounded,
+          supportCount: scored.supportCount,
+          quality: scored.qualityRounded,
+          evidenceCount: scored.evidenceCount,
+          localDescriptorPair: scored.localDescriptorPair,
           ambiguous: composite < this.configuration.thresholds.matching
         });
       }

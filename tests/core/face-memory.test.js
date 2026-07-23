@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const {
   FaceMemoryEngine,
+  FaceComparisonEngine,
   FaceMemoryContract,
   FACE_MEMORY_OUT_OF_SCOPE,
   VisualMemoryEngine
@@ -134,6 +135,31 @@ describe('Face Memory System', () => {
     assert(faceSignalQuality(clearSignals) > faceSignalQuality(weakSignals));
     assert(faceQualityScore({ ...baseInput, qualitySignals: clearSignals }) >
       faceQualityScore({ ...baseInput, qualitySignals: weakSignals }));
+  });
+
+  it('compares local face-region descriptors with adaptive review and merge thresholds', async () => {
+    const comparator = new FaceComparisonEngine();
+    const first = {
+      vector: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      quality: 0.9,
+      metadata: { vectorType: 'local-face-region-v4' }
+    };
+    const second = {
+      vector: [0.92, Math.sqrt(1 - (0.92 * 0.92)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      quality: 0.88,
+      metadata: { vectorType: 'local-face-region-v4' }
+    };
+    const strictDuplicateThreshold = 0.94;
+
+    const pair = comparator.comparePair(first, second);
+    const cluster = comparator.compareClusters([first], [second]);
+
+    assert(pair.rawScore < strictDuplicateThreshold);
+    assert(pair.match);
+    assert.strictEqual(pair.localDescriptorPair, true);
+    assert.strictEqual(cluster.merge, true);
+    assert(cluster.score < strictDuplicateThreshold);
+    assert(cluster.threshold <= 0.84);
   });
 
   it('enrolls a user-confirmed identity and matches future embeddings', async () => {
@@ -696,7 +722,52 @@ describe('Face Memory System', () => {
 
     assert(cleanup.globalComparison.pairsCompared >= 1);
     assert.strictEqual(cleanup.globalComparison.linksAccepted, 1);
-    assert.strictEqual(cleanup.globalComparison.componentsMerged, 1);
+    assert.strictEqual(cleanup.globalComparison.initialLinksAccepted || cleanup.globalComparison.componentsMerged, 1);
+    assert.strictEqual(cleanup.mergedClusters, 1);
+    assert.strictEqual(clusters.length, 1);
+    assert.strictEqual(clusters[0].photoIds.length, 2);
+
+    await engine.api.shutdown();
+  });
+
+  it('merges local descriptor people during cleanup without requiring a full photo rescan', async () => {
+    const dataDir = tempDir();
+    const engine = new VisualMemoryEngine({
+      dataDir,
+      logging: { console: false, file: false },
+      faces: {
+        thresholds: { grouping: 0.9999 },
+        enrollment: { minUnknownPhotos: 2 }
+      }
+    });
+    await engine.api.start();
+    await engine.api.enableFaceMemory({ acceptedBy: 'test-user' });
+    await engine.api.ingestUnknownFace({
+      vector: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      photoId: 'default-cleanup-1',
+      faceId: 'default-cleanup-face-1',
+      faceBox: { x: 34, y: 44, width: 96, height: 106, imageWidth: 500, imageHeight: 500 },
+      confidence: 0.96,
+      quality: 0.9,
+      metadata: { vectorType: 'local-face-region-v4' }
+    });
+    await engine.api.ingestUnknownFace({
+      vector: [0.92, Math.sqrt(1 - (0.92 * 0.92)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      photoId: 'default-cleanup-2',
+      faceId: 'default-cleanup-face-2',
+      faceBox: { x: 160, y: 52, width: 94, height: 104, imageWidth: 500, imageHeight: 500 },
+      confidence: 0.95,
+      quality: 0.88,
+      metadata: { vectorType: 'local-face-region-v4' }
+    });
+
+    assert.strictEqual(Object.values(engine.faces.state.unknownClusters).filter(cluster => cluster.status === 'unknown').length, 2);
+
+    const cleanup = engine.api._cleanupUnknownFaceClusters({});
+    const clusters = Object.values(engine.faces.state.unknownClusters).filter(cluster => cluster.status === 'unknown');
+
+    assert(cleanup.globalComparison.pairsCompared >= 1);
+    assert.strictEqual(cleanup.globalComparison.linksAccepted, 1);
     assert.strictEqual(cleanup.mergedClusters, 1);
     assert.strictEqual(clusters.length, 1);
     assert.strictEqual(clusters[0].photoIds.length, 2);

@@ -5071,10 +5071,13 @@ async function removeGalleryFaceCluster(clusterId) {
 async function scanGalleryPeople(options = {}) {
   const engine = await ensureVisualMemoryRuntime();
   mainLogger.info('[Gallery] People scan requested from the Gallery UI.', {
-    maxPhotos: options.maxPhotos || null
+    maxPhotos: options.maxPhotos || null,
+    scanMode: options.rescan === true ? 'full-rescan' : options.incremental === false ? 'all-without-reset' : 'incremental'
   });
   const result = await engine.api.scanGalleryPeople({
     maxPhotos: options.maxPhotos,
+    rescan: options.rescan === true,
+    incremental: options.incremental === false ? false : true,
     acceptedBy: 'gallery-people-scan',
     onProgress: sendGalleryPeopleScanProgress
   });
@@ -5089,6 +5092,7 @@ async function scanGalleryPeople(options = {}) {
       detectedFaces: result.detectedFaces,
       verifiedFaces: result.verifiedFaces,
       grouped: result.grouped,
+      skippedAlreadyScannedPhotos: result.skippedAlreadyScannedPhotos,
       skipped: result.skipped,
       warnings: result.warnings?.length || 0
     });

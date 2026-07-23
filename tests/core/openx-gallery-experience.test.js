@@ -216,6 +216,7 @@ describe('OpenX Gallery Experience', () => {
     const progressEvents = [];
     const result = await engine.api.scanGalleryPeople({
       maxPhotos: 4,
+      rescan: true,
       onProgress: event => progressEvents.push(event)
     });
     const people = await engine.api.getOpenXGalleryPeople();
@@ -251,6 +252,46 @@ describe('OpenX Gallery Experience', () => {
     assert(people.unknown.every(person => person.nameable === true));
     assert.strictEqual(people.unknown[0].representativeFaceBox.width, 178);
     assert.strictEqual(people.unknown[0].representativeFaceBox.imageWidth, 1000);
+
+    await engine.api.shutdown();
+  });
+
+  it('scans only new or unscanned photos on normal People scan requests', async () => {
+    let inferenceCount = 0;
+    const visionEngine = {
+      async initialize() {},
+      runtime: { getStatus: () => ({ adapters: ['test'] }) },
+      async infer() {
+        inferenceCount += 1;
+        return { faces: [], embeddings: [], warnings: [] };
+      }
+    };
+    const engine = new VisualMemoryEngine({
+      dataDir: tempDir(),
+      logging: { console: false, file: false },
+      visionEngine,
+      faces: { enrollment: { minUnknownPhotos: 2 } }
+    });
+    await engine.api.start();
+    await seedVisualMemory(engine);
+    await engine.api.enableFaceMemory({ acceptedBy: 'test-incremental-scan' });
+
+    const first = await engine.api.scanGalleryPeople();
+    const firstInferenceCount = inferenceCount;
+    const secondProgress = [];
+    const second = await engine.api.scanGalleryPeople({
+      onProgress: event => secondProgress.push(event)
+    });
+
+    assert.strictEqual(first.success, true);
+    assert.strictEqual(first.scanned, 3);
+    assert.strictEqual(Object.keys(engine.faces.state.faceScanPhotos).length, 3);
+    assert.strictEqual(second.success, true);
+    assert.strictEqual(second.scanned, 0);
+    assert.strictEqual(second.skippedAlreadyScannedPhotos, 3);
+    assert.strictEqual(second.skippedCompletedFaceScanPhotos, 3);
+    assert.strictEqual(inferenceCount, firstInferenceCount);
+    assert(secondProgress.some(event => event.stage === 'photo-queue' && event.skippedAlreadyScannedPhotos === 3));
 
     await engine.api.shutdown();
   });
