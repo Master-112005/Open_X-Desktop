@@ -12,6 +12,8 @@ class FaceMemoryConfiguration {
       autoAssignStrong: Number(options.thresholds?.autoAssignStrong ?? 0.965),
       autoAssignKnown: Number(options.thresholds?.autoAssignKnown ?? 0.94),
       autoAssignMargin: Number(options.thresholds?.autoAssignMargin ?? 0.018),
+      clusterAutoAssign: Number(options.thresholds?.clusterAutoAssign ?? 0.92),
+      clusterAutoAssignMargin: Number(options.thresholds?.clusterAutoAssignMargin ?? 0.024),
       matchingMargin: Number(options.thresholds?.matchingMargin ?? 0.035),
       duplicate: Number(options.thresholds?.duplicate ?? 0.998),
       duplicateCrossPhoto: Number(options.thresholds?.duplicateCrossPhoto ?? 0.9995),
@@ -25,6 +27,7 @@ class FaceMemoryConfiguration {
     this.enrollment = {
       minUnknownPhotos: Math.max(2, Number(options.enrollment?.minUnknownPhotos || 5)),
       autoAssignMinEvidence: Math.max(2, Number(options.enrollment?.autoAssignMinEvidence || 2)),
+      clusterAutoAssignMinEvidence: Math.max(2, Number(options.enrollment?.clusterAutoAssignMinEvidence || 2)),
       allowSuggestions: options.enrollment?.allowSuggestions !== false,
       autoCreateIdentities: false
     };

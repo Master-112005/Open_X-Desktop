@@ -127,6 +127,25 @@ describe('Visual Query Understanding', () => {
     assert(scene.constraints.scenes.some(item => String(item.value).toLowerCase() === 'mountain'));
   });
 
+  it('treats broad face and unnamed-person requests as local visual memory searches', () => {
+    const engine = new VisualQueryEngine();
+    const faces = engine.understand({
+      rawInput: 'find photos with clear faces',
+      normalizedInput: 'find photos with clear faces',
+      resolvedContext: { conversationMemory: {}, confidence: 0.8 }
+    });
+    const unnamed = engine.understand({
+      rawInput: 'show unnamed people in my photos',
+      normalizedInput: 'show unnamed people in my photos',
+      resolvedContext: { conversationMemory: {}, confidence: 0.8 }
+    });
+
+    assert.strictEqual(faces.active, true);
+    assert(faces.constraints.photoTypes.some(item => item.value === 'face'));
+    assert.strictEqual(unnamed.active, true);
+    assert(unnamed.constraints.people.some(item => String(item.value).toLowerCase() === 'unknown'));
+  });
+
   it('skips non-visual assistant commands', () => {
     const engine = new VisualQueryEngine();
     const result = engine.understand({

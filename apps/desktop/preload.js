@@ -1174,6 +1174,15 @@ const openxApi = {
     const handler = (_event, payload) => callback(payload);
     ipcRenderer.on('gallery:openPhoto', handler);
     return () => ipcRenderer.removeListener('gallery:openPhoto', handler);
+  },
+
+  onGalleryPeopleScanProgress: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Gallery people scan listener must be a function');
+    }
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('gallery:peopleScanProgress', handler);
+    return () => ipcRenderer.removeListener('gallery:peopleScanProgress', handler);
   }
 };
 

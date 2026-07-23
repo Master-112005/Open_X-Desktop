@@ -44,6 +44,19 @@
           </div>
           <p class="range-label" id="range-label">Loading</p>
         </div>
+        <div class="people-scan-progress" id="people-scan-progress" hidden aria-live="polite">
+          <div class="people-scan-progress-head">
+            <div>
+              <strong id="people-scan-progress-title">Preparing People scan</strong>
+              <span id="people-scan-progress-detail">OpenX is getting the local face scanner ready.</span>
+            </div>
+            <span id="people-scan-progress-percent">0%</span>
+          </div>
+          <div class="people-scan-progress-bar" aria-hidden="true">
+            <span id="people-scan-progress-fill"></span>
+          </div>
+          <div class="people-scan-progress-stats" id="people-scan-progress-stats"></div>
+        </div>
         <div class="photo-scroll" id="photo-scroll" tabindex="0">
           <div class="empty-state" id="empty-state">No indexed photos yet.</div>
           <div class="timeline" id="timeline"></div>

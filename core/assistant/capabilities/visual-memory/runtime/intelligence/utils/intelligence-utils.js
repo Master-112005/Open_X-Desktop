@@ -86,6 +86,8 @@ function candidateEvidence(candidate = {}, vision = {}) {
     ...(Array.isArray(metadata.labels) ? metadata.labels : []),
     ...(Array.isArray(metadata.objects) ? metadata.objects.map(item => item.label || item.name || item) : []),
     ...(Array.isArray(metadata.scenes) ? metadata.scenes.map(item => item.label || item.name || item) : []),
+    ...((Number(faceMemory.faceCount) || 0) > 0 ? ['face', 'faces', 'person', 'people'] : []),
+    ...((Number(faceMemory.unknownFaceCount) || 0) > 0 ? ['unknown face', 'unnamed person', 'unidentified person'] : []),
     folder.label,
     folder.path,
     ...(candidate.albums || []).flatMap(album => [album.title, album.name, album.path])
@@ -105,7 +107,10 @@ function candidateEvidence(candidate = {}, vision = {}) {
     photo,
     faceMemory,
     peopleNames,
-    relationships
+    relationships,
+    faceCount: Number(faceMemory.faceCount || metadata.personCount || 0) || 0,
+    namedFaceCount: Number(faceMemory.namedFaceCount || 0) || 0,
+    unknownFaceCount: Number(faceMemory.unknownFaceCount || 0) || 0
   };
 }
 
