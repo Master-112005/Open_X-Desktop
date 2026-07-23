@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  cosineSimilarity,
+  faceEmbeddingSimilarity,
   faceBoxIoU,
   id,
   normalizeFaceBox,
@@ -140,7 +140,8 @@ class IdentityManager {
       imageHeight: faceBox?.imageHeight || input.imageHeight || null,
       source: input.source || options.source || 'ai-vision',
       confidence: input.confidence || 0,
-      quality: input.quality
+      quality: input.quality,
+      metadata: input.metadata || null
     });
     identity.embeddingIds = Array.from(new Set([...(identity.embeddingIds || []), embedding.id]));
     identity.history = Array.isArray(identity.history) ? identity.history : [];
@@ -258,7 +259,9 @@ class IdentityManager {
     const faceBox = this._normalizeFaceBox(input.faceBox, input.imageWidth, input.imageHeight);
     for (const embedding of this.embeddings.listForIdentity(identityId)) {
       if (!input.photoId || !embedding.photoId) continue;
-      const similarity = vector.length && Array.isArray(embedding.vector) ? cosineSimilarity(vector, embedding.vector) : 0;
+      const similarity = vector.length && Array.isArray(embedding.vector)
+        ? faceEmbeddingSimilarity({ vector, quality: input.quality }, embedding)
+        : 0;
       if (input.photoId === embedding.photoId) {
         if (input.faceId && embedding.faceId && input.faceId === embedding.faceId) return embedding;
         if (faceBox && embedding.faceBox && faceBoxIoU(faceBox, embedding.faceBox) >= boxThreshold) return embedding;

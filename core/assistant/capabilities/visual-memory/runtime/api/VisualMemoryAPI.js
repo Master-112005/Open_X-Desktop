@@ -4,8 +4,9 @@ const path = require('path');
 const { IMAGE_EXTENSIONS } = require('../utils/constants');
 const { listFilesRecursive } = require('../utils/FileSystemUtils');
 const {
-  cosineSimilarity,
+  faceEmbeddingSimilarity,
   faceQualityScore,
+  faceSignalQuality,
   normalizeFaceBox,
   normalizedFaceBoxDistance,
   weightedMeanVector
@@ -29,9 +30,17 @@ const DEFAULT_FACE_SCAN_OPTIONS = Object.freeze({
   minFaceSharpness: 0.012,
   minFaceContrast: 0.018,
   minFaceTextureEnergy: 0.012,
+  minFaceBrightness: 0.06,
+  maxFaceBrightness: 0.96,
+  minFaceSymmetry: 0.18,
+  minFaceSignalQuality: 0.12,
   minFaceVectorDimensions: 64,
-  duplicateClusterSimilarity: 0.985,
-  duplicateClusterMargin: 0.012
+  duplicateClusterSimilarity: 0.94,
+  duplicateClusterMargin: 0.012,
+  rejectedFaceSimilarity: 0.9,
+  incrementalMerge: true,
+  progressEveryPhotos: 1,
+  yieldBetweenPhotos: true
 });
 
 class VisualMemoryAPI {
@@ -393,9 +402,20 @@ class VisualMemoryAPI {
     scanOptions.minFaceSharpness = Math.max(0, Math.min(0.2, Number(scanOptions.minFaceSharpness) || DEFAULT_FACE_SCAN_OPTIONS.minFaceSharpness));
     scanOptions.minFaceContrast = Math.max(0, Math.min(0.2, Number(scanOptions.minFaceContrast) || DEFAULT_FACE_SCAN_OPTIONS.minFaceContrast));
     scanOptions.minFaceTextureEnergy = Math.max(0, Math.min(0.2, Number(scanOptions.minFaceTextureEnergy) || DEFAULT_FACE_SCAN_OPTIONS.minFaceTextureEnergy));
+    scanOptions.minFaceBrightness = Math.max(0, Math.min(0.45, Number(scanOptions.minFaceBrightness) || DEFAULT_FACE_SCAN_OPTIONS.minFaceBrightness));
+    scanOptions.maxFaceBrightness = Math.max(0.55, Math.min(1, Number(scanOptions.maxFaceBrightness) || DEFAULT_FACE_SCAN_OPTIONS.maxFaceBrightness));
+    scanOptions.minFaceSymmetry = Math.max(0, Math.min(0.8, Number(scanOptions.minFaceSymmetry) || DEFAULT_FACE_SCAN_OPTIONS.minFaceSymmetry));
+    scanOptions.minFaceSignalQuality = Math.max(0, Math.min(0.8, Number(scanOptions.minFaceSignalQuality) || DEFAULT_FACE_SCAN_OPTIONS.minFaceSignalQuality));
     scanOptions.minFaceVectorDimensions = Math.max(0, Math.min(512, Number(scanOptions.minFaceVectorDimensions) || DEFAULT_FACE_SCAN_OPTIONS.minFaceVectorDimensions));
-    scanOptions.duplicateClusterSimilarity = Math.max(0.95, Math.min(0.9999, Number(scanOptions.duplicateClusterSimilarity) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterSimilarity));
+    scanOptions.duplicateClusterSimilarity = Math.max(0.88, Math.min(0.9999, Number(scanOptions.duplicateClusterSimilarity) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterSimilarity));
     scanOptions.duplicateClusterMargin = Math.max(0, Math.min(0.08, Number(scanOptions.duplicateClusterMargin) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterMargin));
+    scanOptions.rejectedFaceSimilarity = Math.max(0.82, Math.min(0.995, Number(scanOptions.rejectedFaceSimilarity) || DEFAULT_FACE_SCAN_OPTIONS.rejectedFaceSimilarity));
+    scanOptions.incrementalMerge = scanOptions.incrementalMerge !== false;
+    scanOptions.yieldBetweenPhotos = scanOptions.yieldBetweenPhotos !== false;
+    const requestedProgressEveryPhotos = Number(scanOptions.progressEveryPhotos);
+    scanOptions.progressEveryPhotos = Number.isFinite(requestedProgressEveryPhotos) && requestedProgressEveryPhotos > 0
+      ? Math.max(1, Math.min(1000, Math.floor(requestedProgressEveryPhotos)))
+      : DEFAULT_FACE_SCAN_OPTIONS.progressEveryPhotos;
     const startedAt = Date.now();
 
     this._emitPeopleScanProgress(onProgress, {
@@ -410,8 +430,12 @@ class VisualMemoryAPI {
       faceQuality: scanOptions.faceQuality,
       minFacePixels: scanOptions.minFacePixels,
       minFaceSharpness: scanOptions.minFaceSharpness,
+      minFaceSignalQuality: scanOptions.minFaceSignalQuality,
       duplicateClusterSimilarity: scanOptions.duplicateClusterSimilarity,
-      duplicateClusterMargin: scanOptions.duplicateClusterMargin
+      duplicateClusterMargin: scanOptions.duplicateClusterMargin,
+      rejectedFaceSimilarity: scanOptions.rejectedFaceSimilarity,
+      scanCadence: scanOptions.progressEveryPhotos === 1 ? 'one-photo-at-a-time' : `every-${scanOptions.progressEveryPhotos}-photos`,
+      incrementalMerge: scanOptions.incrementalMerge
     });
 
     this._emitPeopleScanProgress(onProgress, {
@@ -502,10 +526,13 @@ class VisualMemoryAPI {
       falsePositiveFaces: 0,
       autoAssigned: 0,
       duplicateSuppressed: 0,
+      rejectedFacesSuppressed: 0,
       duplicateClustersMerged: 0,
+      incrementalDuplicateClustersMerged: 0,
       knownClustersReconciled: 0,
       invalidClustersRemoved: 0,
       skipped: 0,
+      progressEveryPhotos: scanOptions.progressEveryPhotos,
       reset: resetSummary,
       warnings: [],
       verification: this._faceScanVerification(scanOptions)
@@ -513,8 +540,35 @@ class VisualMemoryAPI {
     const acceptedFaceIndex = [];
 
     for (const photo of photos) {
-      summary.scanned += 1;
-      this._logPeopleScanProgress(summary.scanned, photos.length, onProgress, summary);
+      const photoNumber = summary.scanned + 1;
+      const photoLabel = this._photoLabel(photo);
+      const photoStats = {
+        detectedFaces: 0,
+        verifiedFaces: 0,
+        groupedFaces: 0,
+        matchedKnownPeople: 0,
+        duplicateFacesSkipped: 0,
+        rejectedFacesSkipped: 0,
+        duplicatePeopleMerged: 0,
+        skipped: false
+      };
+      const touchedClusterIds = new Set();
+      this._emitPeopleScanProgress(onProgress, {
+        stage: 'scanning-photo',
+        message: `Checking photo ${photoNumber} of ${photos.length}.`,
+        detail: `Scanning ${photoLabel} for clear faces and facial features.`,
+        scanned: summary.scanned,
+        total: photos.length,
+        currentPhotoIndex: photoNumber,
+        currentPhotoName: photoLabel,
+        detectedFaces: summary.detectedFaces,
+        verifiedFaces: summary.verifiedFaces,
+        duplicateFacesSkipped: summary.duplicateSuppressed,
+        rejectedFacesSkipped: summary.rejectedFacesSuppressed,
+        duplicatePeopleMerged: summary.duplicateClustersMerged,
+        skipped: summary.skipped,
+        warnings: summary.warnings.length
+      });
       try {
         const result = await vision.engine.infer({
           imagePath: photo.filePath,
@@ -528,6 +582,8 @@ class VisualMemoryAPI {
           }
         });
         const verified = this._verifiedFaceEmbeddings(result, photo.id, scanOptions);
+        photoStats.detectedFaces = verified.detectedFaces;
+        photoStats.verifiedFaces = verified.items.length;
         summary.detectedFaces += verified.detectedFaces;
         summary.lowQualityFaces += verified.lowQualityFaces || 0;
         summary.falsePositiveFaces += verified.falsePositiveFaces || 0;
@@ -536,39 +592,88 @@ class VisualMemoryAPI {
         const scanDuplicates = verified.items.length - uniqueItems.length;
         if (scanDuplicates > 0) {
           summary.duplicateSuppressed += scanDuplicates;
+          photoStats.duplicateFacesSkipped += scanDuplicates;
           summary.warnings.push({ photoId: photo.id, code: 'scan-duplicate-face-suppressed', count: scanDuplicates });
         }
-        summary.verifiedFaces += uniqueItems.length;
-        if (uniqueItems.length === 0) {
-          summary.skipped += 1;
-          continue;
-        }
-        this._logDebug(`Verified ${uniqueItems.length} face${uniqueItems.length === 1 ? '' : 's'} in ${this._photoLabel(photo)}.`, {
-          photoId: photo.id,
-          detectedFaces: verified.detectedFaces,
-          verifiedFaces: uniqueItems.length
-        });
+        const acceptedItems = [];
         for (const item of uniqueItems) {
-          const grouped = this.engine.faces.ingestUnknownFace(item);
-          if (grouped?.autoAssigned) {
-            summary.autoAssigned += 1;
-            if (grouped.duplicate) summary.duplicateSuppressed += 1;
-          } else if (grouped?.duplicate) {
-            summary.duplicateSuppressed += 1;
-          } else if (!grouped?.skipped) {
-            summary.grouped += 1;
+          const rejected = this.engine.faces.isRejectedFace?.(item, {
+            ...scanOptions,
+            rejectionSimilarity: scanOptions.rejectedFaceSimilarity
+          });
+          if (rejected?.rejected) {
+            summary.rejectedFacesSuppressed += 1;
+            photoStats.rejectedFacesSkipped += 1;
+            summary.warnings.push({
+              photoId: photo.id,
+              faceId: item.faceId,
+              code: 'previously-rejected-face-suppressed',
+              reason: rejected.reason,
+              similarity: rejected.similarity
+            });
+            continue;
           }
-          else summary.warnings.push({ photoId: photo.id, code: grouped.reason || 'face-memory-skipped' });
+          acceptedItems.push(item);
+        }
+        photoStats.verifiedFaces = acceptedItems.length;
+        summary.verifiedFaces += acceptedItems.length;
+        if (acceptedItems.length === 0) {
+          summary.skipped += 1;
+          photoStats.skipped = true;
+        } else {
+          this._logDebug(`Verified ${acceptedItems.length} face${acceptedItems.length === 1 ? '' : 's'} in ${photoLabel}.`, {
+            photoId: photo.id,
+            detectedFaces: verified.detectedFaces,
+            verifiedFaces: acceptedItems.length,
+            rejectedFacesSkipped: photoStats.rejectedFacesSkipped
+          });
+          for (const item of acceptedItems) {
+            const grouped = this.engine.faces.ingestUnknownFace(item);
+            if (grouped?.cluster?.id) touchedClusterIds.add(grouped.cluster.id);
+            if (grouped?.autoAssigned) {
+              summary.autoAssigned += 1;
+              photoStats.matchedKnownPeople += 1;
+              if (grouped.duplicate) {
+                summary.duplicateSuppressed += 1;
+                photoStats.duplicateFacesSkipped += 1;
+              }
+            } else if (grouped?.duplicate) {
+              summary.duplicateSuppressed += 1;
+              photoStats.duplicateFacesSkipped += 1;
+            } else if (!grouped?.skipped) {
+              summary.grouped += 1;
+              photoStats.groupedFaces += 1;
+            } else {
+              summary.warnings.push({ photoId: photo.id, code: grouped.reason || 'face-memory-skipped' });
+            }
+          }
+          if (scanOptions.incrementalMerge && touchedClusterIds.size > 0) {
+            const incrementalCleanup = this._mergeTouchedUnknownFaceClusters(Array.from(touchedClusterIds), scanOptions);
+            if (incrementalCleanup.mergedClusters > 0) {
+              summary.duplicateClustersMerged += incrementalCleanup.mergedClusters;
+              summary.incrementalDuplicateClustersMerged += incrementalCleanup.mergedClusters;
+              photoStats.duplicatePeopleMerged += incrementalCleanup.mergedClusters;
+              this._logDebug(`Merged duplicate people immediately after checking ${photoLabel}.`, {
+                photoId: photo.id,
+                mergedClusters: incrementalCleanup.mergedClusters,
+                mergeRounds: incrementalCleanup.mergeRounds
+              });
+            }
+          }
         }
       } catch (error) {
         summary.skipped += 1;
+        photoStats.skipped = true;
         summary.warnings.push({ photoId: photo.id, code: error.code || 'vision-inference-failed', message: error.message });
-        this._logWarn(`Could not check ${this._photoLabel(photo)} for faces.`, {
+        this._logWarn(`Could not check ${photoLabel} for faces.`, {
           photoId: photo.id,
           code: error.code || 'vision-inference-failed',
           error: error.message
         });
       }
+      summary.scanned += 1;
+      this._logPeopleScanProgress(summary.scanned, photos.length, onProgress, summary, { photo, photoStats });
+      if (scanOptions.yieldBetweenPhotos) await this._yieldToEventLoop();
     }
 
     this._emitPeopleScanProgress(onProgress, {
@@ -578,11 +683,13 @@ class VisualMemoryAPI {
       scanned: summary.scanned,
       total: photos.length,
       detectedFaces: summary.detectedFaces,
-      verifiedFaces: summary.verifiedFaces
+      verifiedFaces: summary.verifiedFaces,
+      duplicateFacesSkipped: summary.duplicateSuppressed,
+      rejectedFacesSkipped: summary.rejectedFacesSuppressed
     });
     const cleanup = this._cleanupUnknownFaceClusters(scanOptions);
     summary.cleanup = cleanup;
-    summary.duplicateClustersMerged = cleanup.mergedClusters;
+    summary.duplicateClustersMerged += cleanup.mergedClusters;
     summary.invalidClustersRemoved = cleanup.removedClusters;
     if (cleanup.mergedClusters > 0 || cleanup.removedClusters > 0) {
       this._logInfo('People scan cleanup removed unclear faces and merged duplicate unnamed people.', cleanup);
@@ -613,7 +720,8 @@ class VisualMemoryAPI {
       scanned: summary.scanned,
       total: photos.length,
       matchedKnownPeople: summary.autoAssigned + summary.knownClustersReconciled,
-      duplicateFacesSkipped: summary.duplicateSuppressed
+      duplicateFacesSkipped: summary.duplicateSuppressed,
+      rejectedFacesSkipped: summary.rejectedFacesSuppressed
     });
     await this.engine.persistFaceMemory();
     summary.people = this.engine.galleryExperience.getPeople();
@@ -623,12 +731,13 @@ class VisualMemoryAPI {
       scanned: summary.scanned,
       facesDetected: summary.detectedFaces,
       facesVerified: summary.verifiedFaces,
-      newUnnamedPeople: summary.grouped,
+      newUnnamedPeople: peopleSummary.unnamedPeople || peopleSummary.readyToName || 0,
       namedPeople: peopleSummary.namedPeople || 0,
       readyToName: peopleSummary.readyToName || 0,
       knownPeopleMatched: summary.autoAssigned,
       duplicatePeopleMatchedToKnown: summary.knownClustersReconciled,
       duplicateFacesSkipped: summary.duplicateSuppressed,
+      rejectedFacesSkipped: summary.rejectedFacesSuppressed,
       duplicatePeopleMerged: summary.duplicateClustersMerged,
       unclearFacesRemoved: summary.lowQualityFaces + summary.falsePositiveFaces + summary.invalidClustersRemoved,
       skipped: summary.skipped,
@@ -645,11 +754,12 @@ class VisualMemoryAPI {
       total: photos.length,
       detectedFaces: summary.detectedFaces,
       verifiedFaces: summary.verifiedFaces,
-      newUnnamedPeople: summary.grouped,
+      newUnnamedPeople: peopleSummary.unnamedPeople || peopleSummary.readyToName || 0,
       namedPeople: peopleSummary.namedPeople || 0,
       readyToName: peopleSummary.readyToName || 0,
       matchedKnownPeople: summary.autoAssigned + summary.knownClustersReconciled,
       duplicateFacesSkipped: summary.duplicateSuppressed,
+      rejectedFacesSkipped: summary.rejectedFacesSuppressed,
       duplicatePeopleMerged: summary.duplicateClustersMerged,
       unclearFacesRemoved: summary.lowQualityFaces + summary.falsePositiveFaces + summary.invalidClustersRemoved,
       skipped: summary.skipped,
@@ -1185,6 +1295,10 @@ class VisualMemoryAPI {
       faceQualityThreshold: options.faceQuality,
       minFacePixels: options.minFacePixels,
       minFaceSharpness: options.minFaceSharpness,
+      minFaceBrightness: options.minFaceBrightness,
+      maxFaceBrightness: options.maxFaceBrightness,
+      minFaceSymmetry: options.minFaceSymmetry,
+      minFaceSignalQuality: options.minFaceSignalQuality,
       duplicateClusterSimilarity: options.duplicateClusterSimilarity,
       duplicateClusterMargin: options.duplicateClusterMargin,
       source: 'ai-vision'
@@ -1233,12 +1347,14 @@ class VisualMemoryAPI {
       const imageWidth = Number(face.imageWidth || face.box?.imageWidth || 0) || null;
       const imageHeight = Number(face.imageHeight || face.box?.imageHeight || 0) || null;
       const confidence = Math.min(faceConfidence, embeddingConfidence);
+      const qualitySignals = this._faceQualitySignals(embedding);
       const quality = faceQualityScore({
         confidence,
         faceBox: face.box || null,
         imageWidth,
         imageHeight,
-        vector: embedding.vector
+        vector: embedding.vector,
+        qualitySignals
       });
       const validation = this._validateClearFaceCandidate({
         face,
@@ -1281,7 +1397,8 @@ class VisualMemoryAPI {
         faceBox: face.box || null,
         imageWidth: Number(face.imageWidth || face.box?.imageWidth || 0) || null,
         imageHeight: Number(face.imageHeight || face.box?.imageHeight || 0) || null,
-        quality
+        quality,
+        metadata: embedding.metadata && typeof embedding.metadata === 'object' ? { ...embedding.metadata } : {}
       });
     }
     return { items, detectedFaces: rawFaces.length, warnings, lowQualityFaces, falsePositiveFaces };
@@ -1310,8 +1427,20 @@ class VisualMemoryAPI {
       const sharpness = Number(qualitySignals.sharpness ?? qualitySignals.meanGradient ?? 0);
       const contrast = Number(qualitySignals.contrast ?? 0);
       const textureEnergy = Number(qualitySignals.textureEnergy ?? 0);
+      const brightness = Number(qualitySignals.brightness ?? 0.5);
+      const symmetry = Number(qualitySignals.symmetry ?? 0.72);
+      const signalQuality = faceSignalQuality(qualitySignals);
       if (Number.isFinite(textureEnergy) && textureEnergy < options.minFaceTextureEnergy) {
         return { valid: false, reason: 'object-like-face-texture' };
+      }
+      if (Number.isFinite(brightness) && (brightness < options.minFaceBrightness || brightness > options.maxFaceBrightness)) {
+        return { valid: false, reason: 'low-quality-face' };
+      }
+      if (Number.isFinite(symmetry) && symmetry < options.minFaceSymmetry) {
+        return { valid: false, reason: 'object-like-face-symmetry' };
+      }
+      if (signalQuality !== null && signalQuality < options.minFaceSignalQuality) {
+        return { valid: false, reason: 'low-quality-face' };
       }
       if (Number.isFinite(sharpness) && sharpness < options.minFaceSharpness) {
         return { valid: false, reason: 'low-quality-face' };
@@ -1357,7 +1486,7 @@ class VisualMemoryAPI {
     const leftVector = Array.isArray(left?.vector) ? left.vector : [];
     const rightVector = Array.isArray(right?.vector) ? right.vector : [];
     if (!leftVector.length || !rightVector.length) return false;
-    return cosineSimilarity(leftVector, rightVector) >= threshold;
+    return faceEmbeddingSimilarity(left, right) >= threshold;
   }
 
   _isDuplicateFaceBox(left = {}, right = {}) {
@@ -1411,7 +1540,7 @@ class VisualMemoryAPI {
     if (!left || !right) return false;
     const leftVector = Array.isArray(left.vector) ? left.vector : [];
     const rightVector = Array.isArray(right.vector) ? right.vector : [];
-    const similarity = leftVector.length && rightVector.length ? cosineSimilarity(leftVector, rightVector) : 0;
+    const similarity = leftVector.length && rightVector.length ? faceEmbeddingSimilarity(left, right) : 0;
     const leftBox = normalizeFaceBox(left.faceBox, left.imageWidth, left.imageHeight);
     const rightBox = normalizeFaceBox(right.faceBox, right.imageWidth, right.imageHeight);
     const duplicateThreshold = Number(this.engine.faces?.configuration?.thresholds?.duplicate ?? 0.998);
@@ -1453,23 +1582,82 @@ class VisualMemoryAPI {
       if (!cluster.representativeFaceBox && cluster.faceBoxes.length > 0) cluster.representativeFaceBox = cluster.faceBoxes[0];
     }
 
-    const ordered = Object.values(clusters)
-      .filter(cluster => cluster.status === 'unknown' && !cluster.ignoredAt && !cluster.neverAskAgain)
-      .sort((left, right) => (right.photoIds?.length || 0) - (left.photoIds?.length || 0) ||
-        (right.confidence || 0) - (left.confidence || 0));
-    const kept = [];
     let mergedClusters = 0;
-    for (const cluster of ordered) {
-      if (!clusters[cluster.id]) continue;
-      const duplicateTarget = this._findDuplicateUnknownClusterTarget(cluster, kept, options);
-      if (duplicateTarget) {
-        this._mergeUnknownFaceCluster(cluster.id, duplicateTarget.id);
-        mergedClusters += 1;
-      } else {
-        kept.push(cluster);
+    let mergeRound = 0;
+    let mergedInRound = true;
+    while (mergedInRound && mergeRound < 8) {
+      mergeRound += 1;
+      mergedInRound = false;
+      const ordered = Object.values(clusters)
+        .filter(cluster => cluster.status === 'unknown' && !cluster.ignoredAt && !cluster.neverAskAgain)
+        .sort((left, right) => (right.photoIds?.length || 0) - (left.photoIds?.length || 0) ||
+          (right.embeddingIds?.length || 0) - (left.embeddingIds?.length || 0) ||
+          (right.confidence || 0) - (left.confidence || 0));
+      const kept = [];
+      for (const cluster of ordered) {
+        if (!clusters[cluster.id]) continue;
+        const duplicateTarget = this._findDuplicateUnknownClusterTarget(cluster, kept, options);
+        if (duplicateTarget) {
+          this._mergeUnknownFaceCluster(cluster.id, duplicateTarget.id);
+          mergedClusters += 1;
+          mergedInRound = true;
+        } else {
+          kept.push(cluster);
+        }
       }
     }
-    return { removedClusters, removedEmbeddings, mergedClusters };
+    const graphMerge = this._mergeDuplicateUnknownClusterGraph(options);
+    mergedClusters += graphMerge.mergedClusters;
+    mergeRound += graphMerge.mergeRounds;
+    return { removedClusters, removedEmbeddings, mergedClusters, mergeRounds: mergeRound };
+  }
+
+  _mergeTouchedUnknownFaceClusters(touchedClusterIds = [], options = {}) {
+    const state = this.engine.faces?.state || {};
+    const clusters = state.unknownClusters || {};
+    let activeIds = Array.from(new Set(touchedClusterIds))
+      .filter(clusterId => clusters[clusterId]?.status === 'unknown');
+    if (activeIds.length === 0) return { mergedClusters: 0, mergeRounds: 0 };
+
+    let mergedClusters = 0;
+    let mergeRounds = 0;
+    for (let round = 0; round < 4 && activeIds.length > 0; round += 1) {
+      let mergedThisRound = 0;
+      for (const clusterId of [...activeIds]) {
+        const cluster = clusters[clusterId];
+        if (!cluster || cluster.status !== 'unknown' || cluster.ignoredAt || cluster.neverAskAgain) continue;
+        const candidates = Object.values(clusters)
+          .filter(candidate => candidate?.id &&
+            candidate.id !== cluster.id &&
+            candidate.status === 'unknown' &&
+            !candidate.ignoredAt &&
+            !candidate.neverAskAgain);
+        const duplicateTarget = this._findDuplicateUnknownClusterTarget(cluster, candidates, options);
+        if (!duplicateTarget || !clusters[duplicateTarget.id]) continue;
+
+        const clusterWeight = this._clusterEvidenceWeight(cluster);
+        const targetWeight = this._clusterEvidenceWeight(duplicateTarget);
+        const sourceId = clusterWeight > targetWeight ? duplicateTarget.id : cluster.id;
+        const targetId = clusterWeight > targetWeight ? cluster.id : duplicateTarget.id;
+        if (sourceId === targetId || !clusters[sourceId] || !clusters[targetId]) continue;
+        if (this._mergeUnknownFaceCluster(sourceId, targetId)) {
+          mergedClusters += 1;
+          mergedThisRound += 1;
+          activeIds = activeIds.filter(id => id !== sourceId);
+          if (!activeIds.includes(targetId)) activeIds.push(targetId);
+        }
+      }
+      if (mergedThisRound === 0) break;
+      mergeRounds += 1;
+    }
+
+    return { mergedClusters, mergeRounds };
+  }
+
+  _clusterEvidenceWeight(cluster = {}) {
+    return (Number(cluster.photoIds?.length || 0) * 4) +
+      (Number(cluster.embeddingIds?.length || 0) * 2) +
+      Number(cluster.quality || cluster.confidence || 0);
   }
 
   _dedupeClusterFaceBoxes(faceBoxes = []) {
@@ -1493,31 +1681,244 @@ class VisualMemoryAPI {
     if (!cluster?.id || candidates.length === 0) return null;
     const sourceVector = this._clusterCentroidVector(cluster);
     if (!sourceVector.length) return null;
+    const sourceEmbeddings = this._clusterEmbeddings(cluster);
+    const sourceQuality = this._clusterQuality(sourceEmbeddings);
     const scored = candidates
       .filter(candidate => candidate?.id && candidate.id !== cluster.id)
-      .map(candidate => ({
-        cluster: candidate,
-        similarity: cosineSimilarity(sourceVector, this._clusterCentroidVector(candidate))
-      }))
+      .map(candidate => {
+        const targetEmbeddings = this._clusterEmbeddings(candidate);
+        const targetVector = this._clusterCentroidVector(candidate);
+        const targetQuality = this._clusterQuality(targetEmbeddings);
+        const pairSummary = this._clusterPairSimilaritySummary(sourceEmbeddings, targetEmbeddings, options);
+        const centroidSimilarity = targetVector.length
+          ? faceEmbeddingSimilarity(
+            { vector: sourceVector, quality: sourceQuality },
+            { vector: targetVector, quality: targetQuality }
+          )
+          : 0;
+        const evidenceCount = Math.min(sourceEmbeddings.length, targetEmbeddings.length);
+        const supportBoost = Math.min(0.018, pairSummary.highPairCount * 0.004);
+        const localDescriptorPair = this._clusterPairUsesLocalDescriptors(sourceEmbeddings, targetEmbeddings);
+        return {
+          cluster: candidate,
+          similarity: Math.min(1, (centroidSimilarity * 0.54) +
+            (pairSummary.topSimilarity * 0.28) +
+            (pairSummary.meanSimilarity * 0.18) +
+            supportBoost),
+          centroidSimilarity,
+          evidenceCount,
+          highPairCount: pairSummary.highPairCount,
+          topPairSimilarity: pairSummary.topSimilarity,
+          localDescriptorPair,
+          sharedPhotoConflict: this._clustersShareConflictingPhoto(cluster, candidate)
+        };
+      })
       .filter(item => Number.isFinite(item.similarity))
       .sort((left, right) => right.similarity - left.similarity);
     const best = scored[0] || null;
     if (!best) return null;
+    if (best.sharedPhotoConflict) return null;
     const second = scored[1] || null;
     const threshold = Number(options.duplicateClusterSimilarity) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterSimilarity;
+    const singletonPenalty = best.evidenceCount <= 1 ? (best.localDescriptorPair ? 0.006 : 0.035) : 0;
+    const repeatedEvidenceDiscount = best.evidenceCount >= 3 && best.highPairCount >= 2 ? 0.012 : 0;
+    const sharedPhotoPenalty = best.sharedPhotoConflict ? 0.045 : 0;
+    const localDescriptorDiscount = best.localDescriptorPair ? 0.055 : 0;
+    const effectiveThreshold = Math.max(
+      best.localDescriptorPair ? 0.86 : 0.91,
+      threshold + singletonPenalty + sharedPhotoPenalty - repeatedEvidenceDiscount - localDescriptorDiscount
+    );
     const margin = best.similarity - (second?.similarity || 0);
-    const requiredMargin = Number(options.duplicateClusterMargin) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterMargin;
-    return best.similarity >= threshold && margin >= requiredMargin ? best.cluster : null;
+    const configuredMargin = Number(options.duplicateClusterMargin) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterMargin;
+    const requiredMargin = best.localDescriptorPair
+      ? Math.max(0.002, Math.min(configuredMargin, 0.004))
+      : Math.max(0.012, configuredMargin);
+    const pairSupportOffset = best.localDescriptorPair ? 0.006 : 0.018;
+    const enoughPairSupport = best.highPairCount >= Math.min(2, Math.max(1, best.evidenceCount)) ||
+      best.topPairSimilarity >= Math.min(0.998, effectiveThreshold + pairSupportOffset);
+    return best.similarity >= effectiveThreshold && margin >= requiredMargin && enoughPairSupport ? best.cluster : null;
+  }
+
+  _mergeDuplicateUnknownClusterGraph(options = {}) {
+    const state = this.engine.faces?.state || {};
+    const clusters = Object.values(state.unknownClusters || {})
+      .filter(cluster => cluster.status === 'unknown' && !cluster.ignoredAt && !cluster.neverAskAgain);
+    if (clusters.length < 2) return { mergedClusters: 0, mergeRounds: 0 };
+    const parent = new Map(clusters.map(cluster => [cluster.id, cluster.id]));
+    const find = id => {
+      let current = id;
+      while (parent.get(current) !== current) current = parent.get(current);
+      let cursor = id;
+      while (parent.get(cursor) !== cursor) {
+        const next = parent.get(cursor);
+        parent.set(cursor, current);
+        cursor = next;
+      }
+      return current;
+    };
+    const union = (leftId, rightId) => {
+      const leftRoot = find(leftId);
+      const rightRoot = find(rightId);
+      if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
+    };
+
+    for (let leftIndex = 0; leftIndex < clusters.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < clusters.length; rightIndex += 1) {
+        const decision = this._scoreDuplicateUnknownClusterPair(clusters[leftIndex], clusters[rightIndex], options);
+        if (decision.merge) union(clusters[leftIndex].id, clusters[rightIndex].id);
+      }
+    }
+
+    const groups = new Map();
+    for (const cluster of clusters) {
+      const root = find(cluster.id);
+      if (!groups.has(root)) groups.set(root, []);
+      groups.get(root).push(cluster);
+    }
+
+    let mergedClusters = 0;
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      const ordered = group
+        .filter(cluster => state.unknownClusters?.[cluster.id])
+        .sort((left, right) => (right.photoIds?.length || 0) - (left.photoIds?.length || 0) ||
+          (right.embeddingIds?.length || 0) - (left.embeddingIds?.length || 0) ||
+          (right.quality || 0) - (left.quality || 0) ||
+          (right.confidence || 0) - (left.confidence || 0));
+      const target = ordered[0];
+      for (const source of ordered.slice(1)) {
+        if (state.unknownClusters?.[source.id] && this._mergeUnknownFaceCluster(source.id, target.id)) {
+          mergedClusters += 1;
+        }
+      }
+    }
+    return { mergedClusters, mergeRounds: mergedClusters > 0 ? 1 : 0 };
+  }
+
+  _scoreDuplicateUnknownClusterPair(leftCluster = {}, rightCluster = {}, options = {}) {
+    const leftEmbeddings = this._clusterEmbeddings(leftCluster);
+    const rightEmbeddings = this._clusterEmbeddings(rightCluster);
+    const leftVector = this._clusterCentroidVector(leftCluster);
+    const rightVector = this._clusterCentroidVector(rightCluster);
+    if (!leftVector.length || !rightVector.length || leftEmbeddings.length === 0 || rightEmbeddings.length === 0) {
+      return { merge: false, score: 0, reason: 'missing-embedding' };
+    }
+    const leftQuality = this._clusterQuality(leftEmbeddings);
+    const rightQuality = this._clusterQuality(rightEmbeddings);
+    const centroidSimilarity = faceEmbeddingSimilarity(
+      { vector: leftVector, quality: leftQuality },
+      { vector: rightVector, quality: rightQuality }
+    );
+    const pairSummary = this._clusterPairSimilaritySummary(leftEmbeddings, rightEmbeddings, options);
+    const evidenceCount = Math.min(leftEmbeddings.length, rightEmbeddings.length);
+    const threshold = Number(options.duplicateClusterSimilarity) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterSimilarity;
+    const localDescriptorPair = this._clusterPairUsesLocalDescriptors(leftEmbeddings, rightEmbeddings);
+    const singletonPenalty = evidenceCount <= 1 ? (localDescriptorPair ? 0.006 : 0.04) : 0;
+    const repeatedEvidenceDiscount = evidenceCount >= 3 && pairSummary.highPairCount >= 2 ? 0.014 : 0;
+    const sharedPhotoConflict = this._clustersShareConflictingPhoto(leftCluster, rightCluster);
+    if (sharedPhotoConflict) {
+      return {
+        merge: false,
+        score: 0,
+        reason: 'same-photo-different-face',
+        sharedPhotoConflict: true
+      };
+    }
+    const sharedPhotoPenalty = sharedPhotoConflict ? 0.05 : 0;
+    const localDescriptorDiscount = localDescriptorPair ? 0.055 : 0;
+    const effectiveThreshold = Math.max(
+      localDescriptorPair ? 0.86 : 0.91,
+      threshold + singletonPenalty + sharedPhotoPenalty - repeatedEvidenceDiscount - localDescriptorDiscount
+    );
+    const supportBoost = Math.min(0.018, pairSummary.highPairCount * 0.004);
+    const score = Math.min(1, (centroidSimilarity * 0.50) +
+      (pairSummary.topSimilarity * 0.30) +
+      (pairSummary.meanSimilarity * 0.18) +
+      supportBoost);
+    const enoughPairSupport = pairSummary.highPairCount >= Math.min(2, Math.max(1, evidenceCount)) ||
+      pairSummary.topSimilarity >= Math.min(0.998, effectiveThreshold + (localDescriptorPair ? 0.006 : 0.02));
+    return {
+      merge: score >= effectiveThreshold && enoughPairSupport,
+      score,
+      centroidSimilarity,
+      topPairSimilarity: pairSummary.topSimilarity,
+      meanPairSimilarity: pairSummary.meanSimilarity,
+      highPairCount: pairSummary.highPairCount,
+      evidenceCount,
+      effectiveThreshold,
+      localDescriptorPair,
+      sharedPhotoConflict
+    };
   }
 
   _clusterCentroidVector(cluster = {}) {
-    const embeddings = cluster.embeddingIds
-      ?.map(embeddingId => this.engine.faces?.state?.embeddings?.[embeddingId])
-      .filter(embedding => embedding && Array.isArray(embedding.vector)) || [];
+    const embeddings = this._clusterEmbeddings(cluster);
     return weightedMeanVector(embeddings.map(embedding => ({
       vector: embedding.vector,
       weight: Math.max(0.05, Number(embedding.quality ?? embedding.confidence ?? 0.75))
     })));
+  }
+
+  _clusterEmbeddings(cluster = {}) {
+    return cluster.embeddingIds
+      ?.map(embeddingId => this.engine.faces?.state?.embeddings?.[embeddingId])
+      .filter(embedding => embedding && Array.isArray(embedding.vector) && embedding.vector.length > 0) || [];
+  }
+
+  _clusterQuality(embeddings = []) {
+    const qualities = embeddings
+      .map(embedding => Math.max(0, Math.min(1, Number(embedding.quality ?? embedding.confidence ?? 0.75))))
+      .sort((left, right) => right - left)
+      .slice(0, Math.min(5, embeddings.length));
+    return qualities.length
+      ? qualities.reduce((sum, value) => sum + value, 0) / qualities.length
+      : 0.75;
+  }
+
+  _clusterPairSimilaritySummary(leftEmbeddings = [], rightEmbeddings = [], options = {}) {
+    const threshold = Number(options.duplicateClusterSimilarity) || DEFAULT_FACE_SCAN_OPTIONS.duplicateClusterSimilarity;
+    const scores = [];
+    for (const left of leftEmbeddings.slice(0, 12)) {
+      for (const right of rightEmbeddings.slice(0, 12)) {
+        scores.push(faceEmbeddingSimilarity(left, right));
+      }
+    }
+    if (scores.length === 0) return { topSimilarity: 0, meanSimilarity: 0, highPairCount: 0 };
+    scores.sort((left, right) => right - left);
+    const topScores = scores.slice(0, Math.min(8, scores.length));
+    return {
+      topSimilarity: topScores[0] || 0,
+      meanSimilarity: topScores.reduce((sum, value) => sum + value, 0) / Math.max(1, topScores.length),
+      highPairCount: scores.filter(score => score >= Math.max(0.9, threshold - 0.025)).length
+    };
+  }
+
+  _clusterPairUsesLocalDescriptors(leftEmbeddings = [], rightEmbeddings = []) {
+    return leftEmbeddings.some(embedding => this._isLocalFaceDescriptor(embedding)) &&
+      rightEmbeddings.some(embedding => this._isLocalFaceDescriptor(embedding));
+  }
+
+  _isLocalFaceDescriptor(embedding = {}) {
+    const vectorType = String(embedding.metadata?.vectorType || embedding.vectorType || '').toLowerCase();
+    const source = String(embedding.source || embedding.metadata?.source || '').toLowerCase();
+    return vectorType.startsWith('local-face-region') || source.includes('face-region');
+  }
+
+  _clustersShareConflictingPhoto(leftCluster = {}, rightCluster = {}) {
+    const leftBoxes = Array.isArray(leftCluster.faceBoxes) ? leftCluster.faceBoxes : [];
+    const rightBoxes = Array.isArray(rightCluster.faceBoxes) ? rightCluster.faceBoxes : [];
+    const leftPhotos = new Set((leftCluster.photoIds || []).filter(Boolean));
+    const sharedPhotoIds = (rightCluster.photoIds || []).filter(photoId => photoId && leftPhotos.has(photoId));
+    if (sharedPhotoIds.length === 0) return false;
+    for (const photoId of sharedPhotoIds) {
+      const leftPhotoBoxes = leftBoxes.filter(box => box?.photoId === photoId);
+      const rightPhotoBoxes = rightBoxes.filter(box => box?.photoId === photoId);
+      if (leftPhotoBoxes.length === 0 || rightPhotoBoxes.length === 0) return true;
+      const hasDuplicateBox = leftPhotoBoxes.some(leftBox =>
+        rightPhotoBoxes.some(rightBox => this._isDuplicateFaceBox(leftBox, rightBox)));
+      if (!hasDuplicateBox) return true;
+    }
+    return false;
   }
 
   _mergeUnknownFaceCluster(sourceId, targetId) {
@@ -1569,25 +1970,71 @@ class VisualMemoryAPI {
     return { removedEmbeddings: removableEmbeddingIds.size, removedClusters: removableClusterIds.length };
   }
 
-  _logPeopleScanProgress(scanned, total, onProgress = null, summary = {}) {
+  _logPeopleScanProgress(scanned, total, onProgress = null, summary = {}, context = {}) {
     if (total <= 0) return;
-    if (scanned !== 1 && scanned !== total && scanned % 25 !== 0) return;
+    const progressEvery = Math.max(1, Number(summary.progressEveryPhotos || DEFAULT_FACE_SCAN_OPTIONS.progressEveryPhotos) || 1);
+    if (scanned !== 1 && scanned !== total && scanned % progressEvery !== 0) return;
+    const photo = context.photo || null;
+    const photoStats = context.photoStats || {};
+    const photoLabel = photo ? this._photoLabel(photo) : '';
+    const photoDetectedFaces = Number(photoStats.detectedFaces || 0);
+    const photoVerifiedFaces = Number(photoStats.verifiedFaces || 0);
+    const photoMatchedKnownPeople = Number(photoStats.matchedKnownPeople || 0);
+    const photoGroupedFaces = Number(photoStats.groupedFaces || 0);
+    const photoDuplicateFacesSkipped = Number(photoStats.duplicateFacesSkipped || 0);
+    const photoRejectedFacesSkipped = Number(photoStats.rejectedFacesSkipped || 0);
+    const photoDuplicatePeopleMerged = Number(photoStats.duplicatePeopleMerged || 0);
+    const photoParts = photoLabel
+      ? [
+        `Checked ${photoLabel}`,
+        `${photoDetectedFaces} face${photoDetectedFaces === 1 ? '' : 's'} found`,
+        `${photoVerifiedFaces} clear face${photoVerifiedFaces === 1 ? '' : 's'} verified`
+      ]
+      : [
+        `${summary.detectedFaces || 0} face${summary.detectedFaces === 1 ? '' : 's'} detected`,
+        `${summary.verifiedFaces || 0} clear face${summary.verifiedFaces === 1 ? '' : 's'} verified`
+      ];
+    if (photoMatchedKnownPeople > 0) photoParts.push(`${photoMatchedKnownPeople} matched to saved people`);
+    if (photoGroupedFaces > 0) photoParts.push(`${photoGroupedFaces} added to People`);
+    if (photoDuplicateFacesSkipped > 0) photoParts.push(`${photoDuplicateFacesSkipped} duplicate face${photoDuplicateFacesSkipped === 1 ? '' : 's'} skipped`);
+    if (photoRejectedFacesSkipped > 0) photoParts.push(`${photoRejectedFacesSkipped} rejected face${photoRejectedFacesSkipped === 1 ? '' : 's'} hidden`);
+    if (photoDuplicatePeopleMerged > 0) photoParts.push(`${photoDuplicatePeopleMerged} duplicate person group${photoDuplicatePeopleMerged === 1 ? '' : 's'} merged`);
+    if (photoStats.skipped) photoParts.push('no usable face evidence kept');
     this._logInfo(`People scan progress: checked ${scanned} of ${total} photo${total === 1 ? '' : 's'}.`, {
       scanned,
       total,
       remaining: Math.max(0, total - scanned),
+      currentPhoto: photoLabel || undefined,
+      photoDetectedFaces,
+      photoVerifiedFaces,
+      photoMatchedKnownPeople,
+      photoGroupedFaces,
+      photoDuplicateFacesSkipped,
+      photoRejectedFacesSkipped,
+      photoDuplicatePeopleMerged,
       detectedFaces: summary.detectedFaces || 0,
       verifiedFaces: summary.verifiedFaces || 0
     });
     this._emitPeopleScanProgress(onProgress, {
       stage: 'scanning-photos',
-      message: `Scanning photos ${scanned} of ${total}.`,
-      detail: `${summary.detectedFaces || 0} face${summary.detectedFaces === 1 ? '' : 's'} detected, ${summary.verifiedFaces || 0} clear face${summary.verifiedFaces === 1 ? '' : 's'} verified.`,
+      message: `Scanning photos: ${scanned} of ${total} checked.`,
+      detail: `${photoParts.join(', ')}.`,
       scanned,
       total,
+      currentPhotoIndex: scanned,
+      currentPhotoName: photoLabel,
+      photoDetectedFaces,
+      photoVerifiedFaces,
+      photoMatchedKnownPeople,
+      photoGroupedFaces,
+      photoDuplicateFacesSkipped,
+      photoRejectedFacesSkipped,
+      photoDuplicatePeopleMerged,
       detectedFaces: summary.detectedFaces || 0,
       verifiedFaces: summary.verifiedFaces || 0,
       duplicateFacesSkipped: summary.duplicateSuppressed || 0,
+      rejectedFacesSkipped: summary.rejectedFacesSuppressed || 0,
+      duplicatePeopleMerged: summary.duplicateClustersMerged || 0,
       skipped: summary.skipped || 0
     });
   }
@@ -1617,7 +2064,17 @@ class VisualMemoryAPI {
         namedPeople: Number(payload.namedPeople || 0),
         readyToName: Number(payload.readyToName || 0),
         matchedKnownPeople: Number(payload.matchedKnownPeople || 0),
+        currentPhotoIndex: Number(payload.currentPhotoIndex || 0),
+        currentPhotoName: payload.currentPhotoName ? String(payload.currentPhotoName) : '',
+        photoDetectedFaces: Number(payload.photoDetectedFaces || 0),
+        photoVerifiedFaces: Number(payload.photoVerifiedFaces || 0),
+        photoMatchedKnownPeople: Number(payload.photoMatchedKnownPeople || 0),
+        photoGroupedFaces: Number(payload.photoGroupedFaces || 0),
+        photoDuplicateFacesSkipped: Number(payload.photoDuplicateFacesSkipped || 0),
+        photoRejectedFacesSkipped: Number(payload.photoRejectedFacesSkipped || 0),
+        photoDuplicatePeopleMerged: Number(payload.photoDuplicatePeopleMerged || 0),
         duplicateFacesSkipped: Number(payload.duplicateFacesSkipped || 0),
+        rejectedFacesSkipped: Number(payload.rejectedFacesSkipped || 0),
         duplicatePeopleMerged: Number(payload.duplicatePeopleMerged || 0),
         unclearFacesRemoved: Number(payload.unclearFacesRemoved || 0),
         removedClusters: Number(payload.removedClusters || 0),
@@ -1638,6 +2095,8 @@ class VisualMemoryAPI {
     const readyToName = Number(peopleSummary.readyToName || 0);
     const matchedKnown = Number(summary.autoAssigned || 0) + Number(summary.knownClustersReconciled || 0);
     const duplicateFaces = Number(summary.duplicateSuppressed || 0);
+    const rejectedFaces = Number(summary.rejectedFacesSuppressed || 0);
+    const duplicatePeople = Number(summary.duplicateClustersMerged || 0);
     const unclearFaces = Number(summary.lowQualityFaces || 0) + Number(summary.falsePositiveFaces || 0) + Number(summary.invalidClustersRemoved || 0);
     const parts = [
       `Checked ${summary.scanned} photo${summary.scanned === 1 ? '' : 's'}`,
@@ -1645,13 +2104,22 @@ class VisualMemoryAPI {
     ];
     if (matchedKnown > 0) parts.push(`matched ${matchedKnown} to saved people`);
     if (readyToName > 0) parts.push(`${readyToName} unnamed ready to name`);
+    if (duplicatePeople > 0) parts.push(`merged ${duplicatePeople} duplicate person group${duplicatePeople === 1 ? '' : 's'}`);
     if (duplicateFaces > 0) parts.push(`skipped ${duplicateFaces} duplicate face${duplicateFaces === 1 ? '' : 's'}`);
+    if (rejectedFaces > 0) parts.push(`hid ${rejectedFaces} face${rejectedFaces === 1 ? '' : 's'} you rejected before`);
     if (unclearFaces > 0) parts.push(`removed ${unclearFaces} unclear or object-like face${unclearFaces === 1 ? '' : 's'}`);
     return `${parts.join(', ')}.`;
   }
 
   _photoLabel(photo = {}) {
     return String(photo.fileName || path.basename(String(photo.filePath || '')) || photo.id || 'photo');
+  }
+
+  _yieldToEventLoop() {
+    return new Promise(resolve => {
+      if (typeof setImmediate === 'function') setImmediate(resolve);
+      else setTimeout(resolve, 0);
+    });
   }
 
   _logInfo(message, data = {}) {

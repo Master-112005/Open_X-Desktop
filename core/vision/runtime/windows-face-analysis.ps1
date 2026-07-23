@@ -62,6 +62,12 @@ function Read-CellFeatures([System.Drawing.Bitmap]$bitmap, [int]$x0, [int]$y0, [
   $greenSum = 0.0
   $blueSum = 0.0
   $gradientSum = 0.0
+  $edgeXSum = 0.0
+  $edgeYSum = 0.0
+  $absEdgeXSum = 0.0
+  $absEdgeYSum = 0.0
+  $brightSum = 0.0
+  $darkSum = 0.0
   $count = 0
   $strideX = [Math]::Max(1, [int][Math]::Ceiling(([Math]::Max(1, $x1 - $x0)) / 5.0))
   $strideY = [Math]::Max(1, [int][Math]::Ceiling(([Math]::Max(1, $y1 - $y0)) / 5.0))
@@ -76,31 +82,86 @@ function Read-CellFeatures([System.Drawing.Bitmap]$bitmap, [int]$x0, [int]$y0, [
       $redSum += $red / 255.0
       $greenSum += $green / 255.0
       $blueSum += $blue / 255.0
+      if ($gray -ge 0.64) { $brightSum += 1.0 }
+      if ($gray -le 0.28) { $darkSum += 1.0 }
       if ($x + 1 -lt $x1 -and $y + 1 -lt $y1) {
         $right = $bitmap.GetPixel($x + 1, $y)
         $down = $bitmap.GetPixel($x, $y + 1)
         $rightGray = (((Convert-ToDoubleScalar $right.R) * 0.299) + ((Convert-ToDoubleScalar $right.G) * 0.587) + ((Convert-ToDoubleScalar $right.B) * 0.114)) / 255.0
         $downGray = (((Convert-ToDoubleScalar $down.R) * 0.299) + ((Convert-ToDoubleScalar $down.G) * 0.587) + ((Convert-ToDoubleScalar $down.B) * 0.114)) / 255.0
-        $gradientSum += [Math]::Abs($gray - $rightGray) + [Math]::Abs($gray - $downGray)
+        $edgeX = $rightGray - $gray
+        $edgeY = $downGray - $gray
+        $gradientSum += [Math]::Abs($edgeX) + [Math]::Abs($edgeY)
+        $edgeXSum += $edgeX
+        $edgeYSum += $edgeY
+        $absEdgeXSum += [Math]::Abs($edgeX)
+        $absEdgeYSum += [Math]::Abs($edgeY)
       }
       $count += 1
     }
   }
-  if ($count -le 0) { return @(0.0, 0.0, 0.0, 0.0, 0.0) }
+  if ($count -le 0) { return @(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0) }
   return @(
     (Divide-Scalar $graySum $count),
     (Divide-Scalar $redSum $count),
     (Divide-Scalar $greenSum $count),
     (Divide-Scalar $blueSum $count),
-    (Divide-Scalar $gradientSum $count)
+    (Divide-Scalar $gradientSum $count),
+    (Divide-Scalar $edgeXSum $count),
+    (Divide-Scalar $edgeYSum $count),
+    (Divide-Scalar $absEdgeXSum $count),
+    (Divide-Scalar $absEdgeYSum $count),
+    (Divide-Scalar $brightSum $count),
+    (Divide-Scalar $darkSum $count)
   )
 }
 
+function Add-CenteredVectorSeries($target, $values, [double]$scale) {
+  if ($null -eq $values -or $values.Count -le 0) { return }
+  $mean = ($values | Measure-Object -Average).Average
+  foreach ($value in $values) {
+    $target.Add([double](((Convert-ToDoubleScalar $value) - (Convert-ToDoubleScalar $mean)) * $scale))
+  }
+}
+
+function Resolve-FaceRegion([System.Drawing.Bitmap]$bitmap, [int]$x, [int]$y, [int]$width, [int]$height) {
+  $padX = [Math]::Max(2.0, $width * 0.10)
+  $padTop = [Math]::Max(2.0, $height * 0.16)
+  $padBottom = [Math]::Max(2.0, $height * 0.08)
+  $rawLeft = $x - $padX
+  $rawTop = $y - $padTop
+  $rawRight = $x + $width + $padX
+  $rawBottom = $y + $height + $padBottom
+  $centerX = ($rawLeft + $rawRight) / 2.0
+  $centerY = ($rawTop + $rawBottom) / 2.0
+  $side = [Math]::Max(($rawRight - $rawLeft), ($rawBottom - $rawTop))
+  $left = [int][Math]::Max(0, [Math]::Floor($centerX - ($side / 2.0)))
+  $top = [int][Math]::Max(0, [Math]::Floor($centerY - ($side / 2.0)))
+  $right = [int][Math]::Min($bitmap.Width, [Math]::Ceiling($centerX + ($side / 2.0)))
+  $bottom = [int][Math]::Min($bitmap.Height, [Math]::Ceiling($centerY + ($side / 2.0)))
+  if ($right -le $left -or $bottom -le $top) {
+    $left = [int][Math]::Max(0, $x)
+    $top = [int][Math]::Max(0, $y)
+    $right = [int][Math]::Min($bitmap.Width, $x + $width)
+    $bottom = [int][Math]::Min($bitmap.Height, $y + $height)
+  }
+  return @{
+    left = $left
+    top = $top
+    right = $right
+    bottom = $bottom
+    padX = [Math]::Round($padX, 4)
+    padTop = [Math]::Round($padTop, 4)
+    padBottom = [Math]::Round($padBottom, 4)
+  }
+}
+
 function New-FaceVector([System.Drawing.Bitmap]$bitmap, [int]$x, [int]$y, [int]$width, [int]$height) {
-  $left = [int][Math]::Max(0, $x)
-  $top = [int][Math]::Max(0, $y)
-  $right = [int][Math]::Min($bitmap.Width, $x + $width)
-  $bottom = [int][Math]::Min($bitmap.Height, $y + $height)
+  $region = Resolve-FaceRegion $bitmap $x $y $width $height
+  $left = [int]$region.left
+  $top = [int]$region.top
+  $right = [int]$region.right
+  $bottom = [int]$region.bottom
   if ($right -le $left -or $bottom -le $top) { return @() }
 
   $cells = 6
@@ -109,6 +170,12 @@ function New-FaceVector([System.Drawing.Bitmap]$bitmap, [int]$x, [int]$y, [int]$
   $greenCells = New-Object System.Collections.Generic.List[double]
   $blueCells = New-Object System.Collections.Generic.List[double]
   $gradientCells = New-Object System.Collections.Generic.List[double]
+  $edgeXCells = New-Object System.Collections.Generic.List[double]
+  $edgeYCells = New-Object System.Collections.Generic.List[double]
+  $absEdgeXCells = New-Object System.Collections.Generic.List[double]
+  $absEdgeYCells = New-Object System.Collections.Generic.List[double]
+  $brightCells = New-Object System.Collections.Generic.List[double]
+  $darkCells = New-Object System.Collections.Generic.List[double]
   for ($row = 0; $row -lt $cells; $row++) {
     for ($col = 0; $col -lt $cells; $col++) {
       $cx0 = [int][Math]::Floor($left + (($right - $left) * $col / $cells))
@@ -121,14 +188,58 @@ function New-FaceVector([System.Drawing.Bitmap]$bitmap, [int]$x, [int]$y, [int]$
       $greenCells.Add((Convert-ToDoubleScalar $features[2]))
       $blueCells.Add((Convert-ToDoubleScalar $features[3]))
       $gradientCells.Add((Convert-ToDoubleScalar $features[4]))
+      $edgeXCells.Add((Convert-ToDoubleScalar $features[5]))
+      $edgeYCells.Add((Convert-ToDoubleScalar $features[6]))
+      $absEdgeXCells.Add((Convert-ToDoubleScalar $features[7]))
+      $absEdgeYCells.Add((Convert-ToDoubleScalar $features[8]))
+      $brightCells.Add((Convert-ToDoubleScalar $features[9]))
+      $darkCells.Add((Convert-ToDoubleScalar $features[10]))
     }
   }
 
   $vector = New-Object System.Collections.Generic.List[double]
-  foreach ($cellsToCenter in @($grayCells, $redCells, $greenCells, $blueCells, $gradientCells)) {
-    $mean = ($cellsToCenter | Measure-Object -Average).Average
-    foreach ($value in $cellsToCenter) {
-      $vector.Add([double]($value - $mean))
+  Add-CenteredVectorSeries $vector $grayCells 1.35
+  Add-CenteredVectorSeries $vector $redCells 0.32
+  Add-CenteredVectorSeries $vector $greenCells 0.32
+  Add-CenteredVectorSeries $vector $blueCells 0.32
+  Add-CenteredVectorSeries $vector $gradientCells 1.15
+  Add-CenteredVectorSeries $vector $edgeXCells 0.82
+  Add-CenteredVectorSeries $vector $edgeYCells 0.82
+  Add-CenteredVectorSeries $vector $absEdgeXCells 0.72
+  Add-CenteredVectorSeries $vector $absEdgeYCells 0.72
+  Add-CenteredVectorSeries $vector $brightCells 0.48
+  Add-CenteredVectorSeries $vector $darkCells 0.48
+
+  $grayMean = ($grayCells | Measure-Object -Average).Average
+  $gradientMean = ($gradientCells | Measure-Object -Average).Average
+  for ($row = 0; $row -lt $cells; $row++) {
+    $rowGray = 0.0
+    $rowGradient = 0.0
+    for ($col = 0; $col -lt $cells; $col++) {
+      $cellIndex = ($row * $cells) + $col
+      $rowGray += (Convert-ToDoubleScalar $grayCells[$cellIndex])
+      $rowGradient += (Convert-ToDoubleScalar $gradientCells[$cellIndex])
+    }
+    $vector.Add([double](((Divide-Scalar $rowGray $cells) - $grayMean) * 0.9))
+    $vector.Add([double](((Divide-Scalar $rowGradient $cells) - $gradientMean) * 0.75))
+  }
+  for ($col = 0; $col -lt $cells; $col++) {
+    $colGray = 0.0
+    $colGradient = 0.0
+    for ($row = 0; $row -lt $cells; $row++) {
+      $cellIndex = ($row * $cells) + $col
+      $colGray += (Convert-ToDoubleScalar $grayCells[$cellIndex])
+      $colGradient += (Convert-ToDoubleScalar $gradientCells[$cellIndex])
+    }
+    $vector.Add([double](((Divide-Scalar $colGray $cells) - $grayMean) * 0.9))
+    $vector.Add([double](((Divide-Scalar $colGradient $cells) - $gradientMean) * 0.75))
+  }
+  for ($row = 0; $row -lt $cells; $row++) {
+    for ($col = 0; $col -lt ([int]($cells / 2)); $col++) {
+      $leftIndex = ($row * $cells) + $col
+      $rightIndex = ($row * $cells) + (($cells - 1) - $col)
+      $vector.Add([double](((Convert-ToDoubleScalar $grayCells[$leftIndex]) - (Convert-ToDoubleScalar $grayCells[$rightIndex])) * 0.68))
+      $vector.Add([double](((Convert-ToDoubleScalar $gradientCells[$leftIndex]) - (Convert-ToDoubleScalar $gradientCells[$rightIndex])) * 0.48))
     }
   }
 
@@ -155,22 +266,30 @@ function New-FaceVector([System.Drawing.Bitmap]$bitmap, [int]$x, [int]$y, [int]$
 }
 
 function Get-FaceQualitySignals([System.Drawing.Bitmap]$bitmap, [int]$x, [int]$y, [int]$width, [int]$height) {
-  $left = [int][Math]::Max(0, $x)
-  $top = [int][Math]::Max(0, $y)
-  $right = [int][Math]::Min($bitmap.Width, $x + $width)
-  $bottom = [int][Math]::Min($bitmap.Height, $y + $height)
+  $region = Resolve-FaceRegion $bitmap $x $y $width $height
+  $left = [int]$region.left
+  $top = [int]$region.top
+  $right = [int]$region.right
+  $bottom = [int]$region.bottom
   if ($right -le $left -or $bottom -le $top) {
     return @{
       contrast = 0.0
       sharpness = 0.0
       textureEnergy = 0.0
       areaRatio = 0.0
+      brightness = 0.0
+      brightnessSpread = 0.0
+      symmetry = 0.0
     }
   }
 
   $grayValues = New-Object System.Collections.Generic.List[double]
   $gradientValues = New-Object System.Collections.Generic.List[double]
+  $brightnessSum = 0.0
+  $symmetryDelta = 0.0
+  $symmetryCount = 0
   $cells = 6
+  $grayGrid = New-Object 'double[,]' $cells,$cells
   for ($row = 0; $row -lt $cells; $row++) {
     for ($col = 0; $col -lt $cells; $col++) {
       $cx0 = [int][Math]::Floor($left + (($right - $left) * $col / $cells))
@@ -178,8 +297,19 @@ function Get-FaceQualitySignals([System.Drawing.Bitmap]$bitmap, [int]$x, [int]$y
       $cy0 = [int][Math]::Floor($top + (($bottom - $top) * $row / $cells))
       $cy1 = [int][Math]::Floor($top + (($bottom - $top) * ($row + 1) / $cells))
       $features = @(Read-CellFeatures $bitmap $cx0 $cy0 ([int][Math]::Max($cx0 + 1, $cx1)) ([int][Math]::Max($cy0 + 1, $cy1)))
-      $grayValues.Add((Convert-ToDoubleScalar $features[0]))
+      $gray = Convert-ToDoubleScalar $features[0]
+      $grayGrid[$row,$col] = $gray
+      $grayValues.Add($gray)
       $gradientValues.Add((Convert-ToDoubleScalar $features[4]))
+      $brightnessSum += $gray
+    }
+  }
+  for ($row = 0; $row -lt $cells; $row++) {
+    for ($col = 0; $col -lt ([int]($cells / 2)); $col++) {
+      $leftGray = Convert-ToDoubleScalar $grayGrid[$row,$col]
+      $rightGray = Convert-ToDoubleScalar $grayGrid[$row,(($cells - 1) - $col)]
+      $symmetryDelta += [Math]::Abs($leftGray - $rightGray)
+      $symmetryCount += 1
     }
   }
 
@@ -196,11 +326,16 @@ function Get-FaceQualitySignals([System.Drawing.Bitmap]$bitmap, [int]$x, [int]$y
   $contrast = [Math]::Sqrt((Divide-Scalar $variance $count))
   $texture = Divide-Scalar $textureEnergy $count
   $areaRatio = Divide-Scalar (($right - $left) * ($bottom - $top)) ([Math]::Max(1.0, ($bitmap.Width * $bitmap.Height)))
+  $brightness = Divide-Scalar $brightnessSum $count
+  $symmetry = 1.0 - (Divide-Scalar $symmetryDelta ([Math]::Max(1, $symmetryCount)))
   return @{
     contrast = [Math]::Round((Clamp-Double $contrast 0.0 1.0), 6)
     sharpness = [Math]::Round((Clamp-Double $gradientMean 0.0 1.0), 6)
     textureEnergy = [Math]::Round((Clamp-Double $texture 0.0 1.0), 6)
     areaRatio = [Math]::Round((Clamp-Double $areaRatio 0.0 1.0), 8)
+    brightness = [Math]::Round((Clamp-Double $brightness 0.0 1.0), 6)
+    brightnessSpread = [Math]::Round((Clamp-Double ($contrast + $texture) 0.0 1.0), 6)
+    symmetry = [Math]::Round((Clamp-Double $symmetry 0.0 1.0), 6)
   }
 }
 
@@ -274,8 +409,10 @@ try {
             vector = $vector
             source = 'windows-face-region-vector'
             metadata = @{
-              vectorType = 'local-face-region-v2'
+              vectorType = 'local-face-region-v4'
               cells = 6
+              descriptor = 'expanded-square-luminance-gradient-symmetry-profile'
+              descriptorDimensions = $vector.Count
               qualitySignals = $qualitySignals
               minDetectableFaceSize = [int]$MinFaceSize
               maxDetectableFaceSize = [int]$MaxFaceSize

@@ -18,8 +18,13 @@ const FaceTimelineManager = require('../timelines/FaceTimelineManager');
 const FaceCollectionManager = require('../collections/FaceCollectionManager');
 const {
   clamp01,
-  cosineSimilarity,
+  faceBoxIoU,
+  faceEmbeddingSimilarity,
   faceQualityScore,
+  id,
+  normalizeFaceBox,
+  normalizedFaceBoxDistance,
+  nowIso,
   weightedMeanVector
 } = require('../utils/face-utils');
 
@@ -30,9 +35,22 @@ function createState() {
     profiles: {},
     embeddings: {},
     unknownClusters: {},
+    rejectedFaces: {},
     relationships: {},
     history: []
   };
+}
+
+function ensureStateShape(state = {}) {
+  if (!state.consent) state.consent = { status: 'unknown' };
+  if (!state.identities) state.identities = {};
+  if (!state.profiles) state.profiles = {};
+  if (!state.embeddings) state.embeddings = {};
+  if (!state.unknownClusters) state.unknownClusters = {};
+  if (!state.rejectedFaces) state.rejectedFaces = {};
+  if (!state.relationships) state.relationships = {};
+  if (!Array.isArray(state.history)) state.history = [];
+  return state;
 }
 
 class FaceMemoryEngine {
@@ -40,7 +58,7 @@ class FaceMemoryEngine {
     this.configuration = options.configuration instanceof FaceMemoryConfiguration
       ? options.configuration
       : new FaceMemoryConfiguration(options.configuration || options);
-    this.state = options.state || createState();
+    this.state = ensureStateShape(options.state || createState());
     if (this.state.consent?.status === 'enabled') this.configuration.enabled = true;
     this.events = options.events || new FaceMemoryEventBus();
     this.diagnostics = options.diagnostics || new FaceMemoryDiagnostics({ logger: options.logger || null });
@@ -87,9 +105,25 @@ class FaceMemoryEngine {
         faceBox: input?.faceBox,
         imageWidth: input?.imageWidth,
         imageHeight: input?.imageHeight,
-        vector: input?.vector
+        vector: input?.vector,
+        qualitySignals: input?.metadata?.qualitySignals || null
       });
     const enrichedInput = { ...(input || {}), quality };
+    const rejected = this.isRejectedFace(enrichedInput);
+    if (rejected?.rejected) {
+      this.diagnostics?.record?.('previously-rejected-face-suppressed', {
+        photoId: enrichedInput.photoId || null,
+        faceId: enrichedInput.faceId || null,
+        reason: rejected.reason,
+        similarity: rejected.similarity,
+        rejectedFaceId: rejected.rejectedFaceId || null
+      });
+      return {
+        skipped: true,
+        reason: 'previously-rejected-face',
+        rejected
+      };
+    }
     const match = this.matching.match(enrichedInput.vector || [], enrichedInput);
     const best = match?.best || null;
     const autoAssignMargin = Number(this.configuration.thresholds.autoAssignMargin ?? 0.018);
@@ -235,7 +269,57 @@ class FaceMemoryEngine {
 
   deleteCluster(clusterId) {
     if (!this.configuration.enabled) throw new Error('Face Memory is disabled.');
+    this._rememberRejectedCluster(clusterId, 'user-rejected');
     return this.enrollment.deleteCluster(clusterId);
+  }
+
+  isRejectedFace(input = {}, options = {}) {
+    const rejected = Object.values(this.state.rejectedFaces || {});
+    if (rejected.length === 0) return { rejected: false };
+    const vector = Array.isArray(input.vector) ? input.vector : [];
+    const faceBox = normalizeFaceBox(input.faceBox, input.imageWidth, input.imageHeight);
+    const threshold = Number(options.rejectedFaceSimilarity ?? options.rejectionSimilarity ?? this.configuration.thresholds.rejection ?? 0.9);
+    const boxThreshold = Number(options.rejectedFaceBoxIoU ?? this.configuration.thresholds.rejectionBoxIoU ?? 0.34);
+    let best = null;
+    for (const record of rejected) {
+      if (!record) continue;
+      const samePhoto = input.photoId && record.photoId && input.photoId === record.photoId;
+      if (samePhoto && input.faceId && record.faceId && input.faceId === record.faceId) {
+        return { rejected: true, reason: 'previously-rejected-face-id', rejectedFaceId: record.id, similarity: 1 };
+      }
+      const rejectedBox = normalizeFaceBox(record.faceBox, record.imageWidth, record.imageHeight);
+      if (samePhoto && faceBox && rejectedBox) {
+        const overlap = faceBoxIoU(faceBox, rejectedBox);
+        if (overlap >= boxThreshold || normalizedFaceBoxDistance(faceBox, rejectedBox) <= 0.055) {
+          return {
+            rejected: true,
+            reason: 'previously-rejected-face-box',
+            rejectedFaceId: record.id,
+            similarity: Number(overlap.toFixed(4))
+          };
+        }
+      }
+      if (!vector.length || !Array.isArray(record.vector) || record.vector.length === 0) continue;
+      const similarity = faceEmbeddingSimilarity(
+        { vector, quality: input.quality ?? input.confidence ?? 0.75 },
+        record
+      );
+      if (!best || similarity > best.similarity) {
+        best = { record, similarity };
+      }
+    }
+    if (best?.similarity >= threshold) {
+      return {
+        rejected: true,
+        reason: 'previously-rejected-face-signature',
+        rejectedFaceId: best.record.id,
+        similarity: Number(best.similarity.toFixed(4))
+      };
+    }
+    return {
+      rejected: false,
+      bestSimilarity: best ? Number(best.similarity.toFixed(4)) : 0
+    };
   }
 
   matchFace(vector) {
@@ -259,7 +343,8 @@ class FaceMemoryEngine {
         faceBox: faceInput.faceBox,
         imageWidth: faceInput.imageWidth,
         imageHeight: faceInput.imageHeight,
-        vector
+        vector,
+        qualitySignals: faceInput.metadata?.qualitySignals || null
       });
     const match = this.matching.match(vector, { ...faceInput, quality });
     const best = match.best || null;
@@ -365,6 +450,7 @@ class FaceMemoryEngine {
       profiles: this.state.profiles,
       embeddings: this.state.embeddings,
       unknownClusters: this.state.unknownClusters,
+      rejectedFaces: this.state.rejectedFaces,
       relationships: this.state.relationships,
       configuration: this.configuration?.toJSON?.() || null
     }));
@@ -394,6 +480,7 @@ class FaceMemoryEngine {
       identities: Object.keys(this.state.identities).length,
       profiles: Object.keys(this.state.profiles).length,
       unknownClusters: Object.keys(this.state.unknownClusters).length,
+      rejectedFaces: Object.keys(this.state.rejectedFaces || {}).length,
       embeddings: Object.keys(this.state.embeddings).length,
       diagnostics: this.diagnostics.summary()
     };
@@ -532,7 +619,6 @@ class FaceMemoryEngine {
         vector: embedding.vector,
         weight: Math.max(0.05, clamp01(embedding.quality ?? embedding.confidence ?? 0.75))
       })));
-      const similarity = centroid.length ? cosineSimilarity(vector, centroid) : 0;
       const topQualities = embeddings
         .map(embedding => clamp01(embedding.quality ?? embedding.confidence ?? 0.75))
         .sort((left, right) => right - left)
@@ -540,6 +626,9 @@ class FaceMemoryEngine {
       const quality = topQualities.length
         ? topQualities.reduce((sum, value) => sum + value, 0) / topQualities.length
         : 0.75;
+      const similarity = centroid.length
+        ? faceEmbeddingSimilarity({ vector, quality: options.quality }, { vector: centroid, quality })
+        : 0;
       const weightedSimilarity = Math.min(1, similarity * (0.94 + (Math.min(clamp01(options.quality ?? 0.75), quality || 0.75) * 0.06)));
       if (!best || weightedSimilarity > best.similarity) {
         best = {
@@ -550,6 +639,86 @@ class FaceMemoryEngine {
       }
     }
     return best;
+  }
+
+  _rememberRejectedCluster(clusterId, reason = 'user-rejected') {
+    const cluster = this.state.unknownClusters?.[clusterId];
+    if (!cluster) return { rejectedFaces: 0 };
+    const embeddings = this.embeddings.listForCluster(clusterId)
+      .filter(embedding => embedding && Array.isArray(embedding.vector) && embedding.vector.length > 0);
+    if (!this.state.rejectedFaces) this.state.rejectedFaces = {};
+    const rejectedAt = nowIso();
+    let rejectedFaces = 0;
+    for (const embedding of embeddings) {
+      const recordId = id('rejectedface');
+      this.state.rejectedFaces[recordId] = {
+        id: recordId,
+        sourceClusterId: clusterId,
+        reason,
+        rejectedAt,
+        photoId: embedding.photoId || null,
+        faceId: embedding.faceId || null,
+        faceBox: embedding.faceBox && typeof embedding.faceBox === 'object' ? { ...embedding.faceBox } : null,
+        imageWidth: Number(embedding.imageWidth) || Number(embedding.faceBox?.imageWidth) || null,
+        imageHeight: Number(embedding.imageHeight) || Number(embedding.faceBox?.imageHeight) || null,
+        vector: embedding.vector.slice(),
+        source: embedding.source || 'ai-vision',
+        metadata: {
+          vectorType: embedding.metadata?.vectorType || null,
+          source: 'gallery-user-rejection'
+        },
+        confidence: clamp01(embedding.confidence ?? 0),
+        quality: clamp01(embedding.quality ?? embedding.confidence ?? 0.75)
+      };
+      rejectedFaces += 1;
+    }
+    const centroid = weightedMeanVector(embeddings.map(embedding => ({
+      vector: embedding.vector,
+      weight: Math.max(0.05, clamp01(embedding.quality ?? embedding.confidence ?? 0.75))
+    })));
+    if (centroid.length > 0) {
+      const centroidId = id('rejectedface');
+      this.state.rejectedFaces[centroidId] = {
+        id: centroidId,
+        sourceClusterId: clusterId,
+        reason,
+        rejectedAt,
+        photoId: null,
+        faceId: null,
+        faceBox: cluster.representativeFaceBox || null,
+        imageWidth: Number(cluster.representativeFaceBox?.imageWidth) || null,
+        imageHeight: Number(cluster.representativeFaceBox?.imageHeight) || null,
+        vector: centroid,
+        source: 'cluster-centroid',
+        metadata: {
+          source: 'gallery-user-rejection',
+          vectorType: 'rejected-cluster-centroid'
+        },
+        confidence: clamp01(cluster.confidence ?? 0),
+        quality: clamp01(cluster.quality ?? 0.75)
+      };
+      rejectedFaces += 1;
+    }
+    this._pruneRejectedFaces();
+    this.diagnostics?.record?.('unknown-face-cluster-rejected', {
+      clusterId,
+      reason,
+      rejectedFaces
+    });
+    return { rejectedFaces };
+  }
+
+  _pruneRejectedFaces() {
+    const maxRejectedFaces = Math.max(10, Number(this.configuration.performance?.maxRejectedFaces || 5000));
+    const entries = Object.entries(this.state.rejectedFaces || {});
+    if (entries.length <= maxRejectedFaces) return;
+    const keepIds = new Set(entries
+      .sort((left, right) => Date.parse(right[1]?.rejectedAt || '') - Date.parse(left[1]?.rejectedAt || ''))
+      .slice(0, maxRejectedFaces)
+      .map(([rejectedFaceId]) => rejectedFaceId));
+    for (const [rejectedFaceId] of entries) {
+      if (!keepIds.has(rejectedFaceId)) delete this.state.rejectedFaces[rejectedFaceId];
+    }
   }
 }
 

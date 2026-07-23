@@ -18,6 +18,44 @@ function cosineSimilarity(left = [], right = []) {
   return Math.max(-1, Math.min(1, dot));
 }
 
+function euclideanSimilarity(left = [], right = []) {
+  const a = normalizeVector(left);
+  const b = normalizeVector(right);
+  const length = Math.min(a.length, b.length);
+  if (!length) return 0;
+  let sum = 0;
+  for (let index = 0; index < length; index += 1) {
+    const delta = a[index] - b[index];
+    sum += delta * delta;
+  }
+  return clamp01(1 - (Math.sqrt(sum) / Math.SQRT2));
+}
+
+function vectorOverlap(left = [], right = []) {
+  const leftLength = Array.isArray(left) ? left.length : 0;
+  const rightLength = Array.isArray(right) ? right.length : 0;
+  const maxLength = Math.max(leftLength, rightLength);
+  return maxLength > 0 ? Math.min(leftLength, rightLength) / maxLength : 0;
+}
+
+function faceEmbeddingSimilarity(left = [], right = [], options = {}) {
+  const leftVector = Array.isArray(left?.vector) ? left.vector : left;
+  const rightVector = Array.isArray(right?.vector) ? right.vector : right;
+  if (!Array.isArray(leftVector) || !Array.isArray(rightVector) || !leftVector.length || !rightVector.length) return 0;
+  const cosine = clamp01(cosineSimilarity(leftVector, rightVector));
+  const euclidean = euclideanSimilarity(leftVector, rightVector);
+  const overlap = vectorOverlap(leftVector, rightVector);
+  const dimensions = Math.min(leftVector.length, rightVector.length);
+  const quality = Math.min(
+    clamp01(options.leftQuality ?? left?.quality ?? left?.confidence ?? 0.75),
+    clamp01(options.rightQuality ?? right?.quality ?? right?.confidence ?? 0.75)
+  );
+  if (cosine >= 0.999999 && euclidean >= 0.999999) return 1;
+  if (dimensions < 8) return clamp01(cosine * (0.985 + (quality * 0.015)));
+  const qualityFactor = 0.965 + (quality * 0.035);
+  return clamp01(((cosine * 0.72) + (euclidean * 0.28)) * (0.94 + (overlap * 0.06)) * qualityFactor);
+}
+
 function clamp01(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
@@ -42,6 +80,25 @@ function weightedMeanVector(items = []) {
     }
   }
   return normalizeVector(output.map(value => value / Math.max(0.0001, totalWeight)));
+}
+
+function faceSignalQuality(qualitySignals = null) {
+  if (!qualitySignals || typeof qualitySignals !== 'object') return null;
+  const sharpness = clamp01(qualitySignals.sharpness ?? qualitySignals.meanGradient ?? 0.55);
+  const contrast = clamp01(qualitySignals.contrast ?? 0.55);
+  const textureEnergy = clamp01(qualitySignals.textureEnergy ?? 0.55);
+  const brightness = clamp01(qualitySignals.brightness ?? 0.5);
+  const brightnessSpread = clamp01(qualitySignals.brightnessSpread ?? (contrast + textureEnergy));
+  const symmetry = clamp01(qualitySignals.symmetry ?? 0.72);
+  const exposureScore = clamp01(1 - (Math.abs(brightness - 0.5) / 0.5));
+  return clamp01(
+    (sharpness * 0.24) +
+    (contrast * 0.20) +
+    (textureEnergy * 0.18) +
+    (brightnessSpread * 0.12) +
+    (symmetry * 0.14) +
+    (exposureScore * 0.12)
+  );
 }
 
 function normalizeFaceBox(faceBox = null, imageWidth = null, imageHeight = null) {
@@ -96,7 +153,7 @@ function normalizedFaceBoxDistance(left = {}, right = {}) {
   );
 }
 
-function faceQualityScore({ confidence = 0, faceBox = null, imageWidth = null, imageHeight = null, vector = [] } = {}) {
+function faceQualityScore({ confidence = 0, faceBox = null, imageWidth = null, imageHeight = null, vector = [], qualitySignals = null } = {}) {
   const detectionScore = clamp01(confidence || 0.75);
   const box = normalizeFaceBox(faceBox, imageWidth, imageHeight);
   let boxScore = 0.74;
@@ -120,7 +177,11 @@ function faceQualityScore({ confidence = 0, faceBox = null, imageWidth = null, i
     return Number.isFinite(number) ? sum + number * number : sum;
   }, 0));
   const vectorScore = magnitude > 0 ? 1 : 0.35;
-  return clamp01((detectionScore * 0.38) + (boxScore * 0.28) + (aspectScore * 0.14) + (edgeScore * 0.12) + (vectorScore * 0.08));
+  const signalScore = faceSignalQuality(qualitySignals);
+  const base = (detectionScore * 0.34) + (boxScore * 0.24) + (aspectScore * 0.12) + (edgeScore * 0.10) + (vectorScore * 0.08);
+  return signalScore === null
+    ? clamp01(base + 0.12)
+    : clamp01(base + (signalScore * 0.12));
 }
 
 function id(prefix) {
@@ -134,8 +195,11 @@ function nowIso() {
 module.exports = {
   clamp01,
   cosineSimilarity,
+  euclideanSimilarity,
+  faceEmbeddingSimilarity,
   faceBoxIoU,
   faceQualityScore,
+  faceSignalQuality,
   id,
   normalizeFaceBox,
   normalizedFaceBoxDistance,

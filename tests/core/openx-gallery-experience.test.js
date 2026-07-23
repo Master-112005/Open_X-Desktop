@@ -220,6 +220,9 @@ describe('OpenX Gallery Experience', () => {
     });
     const people = await engine.api.getOpenXGalleryPeople();
     const progressStages = progressEvents.map(event => event.stage);
+    const photoStartEvents = progressEvents.filter(event => event.stage === 'scanning-photo');
+    const photoCheckedEvents = progressEvents.filter(event => event.stage === 'scanning-photos');
+    const familyProgress = photoCheckedEvents.find(event => event.currentPhotoName === 'family.jpg');
 
     assert.strictEqual(result.success, true);
     assert.strictEqual(result.reset.removedClusters, 1);
@@ -236,6 +239,12 @@ describe('OpenX Gallery Experience', () => {
     assert(progressStages.includes('matching-known-people'));
     assert(progressStages.includes('saving-results'));
     assert(progressStages.includes('complete'));
+    assert.strictEqual(photoStartEvents.length, 4);
+    assert.strictEqual(photoCheckedEvents.length, 4);
+    assert(familyProgress);
+    assert.strictEqual(familyProgress.photoDetectedFaces, 2);
+    assert.strictEqual(familyProgress.photoVerifiedFaces, 1);
+    assert(familyProgress.detail.includes('family.jpg'));
     assert(progressEvents.some(event => /Scanning photos/.test(event.message)));
     assert(progressEvents.some(event => event.stage === 'complete' && /verified/.test(event.detail)));
     assert(people.unknown.length >= 1);

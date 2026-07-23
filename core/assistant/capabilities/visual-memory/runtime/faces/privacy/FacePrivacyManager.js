@@ -37,6 +37,7 @@ class FacePrivacyManager {
     this.state.profiles = {};
     this.state.embeddings = {};
     this.state.unknownClusters = {};
+    this.state.rejectedFaces = {};
     this.state.relationships = {};
     this.state.history = [];
     this.consent.revoke('delete-everything');

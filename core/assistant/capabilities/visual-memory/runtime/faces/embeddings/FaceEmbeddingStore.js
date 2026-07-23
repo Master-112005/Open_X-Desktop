@@ -8,7 +8,7 @@ class FaceEmbeddingStore {
     this.validator = validator;
   }
 
-  addEmbedding({ vector, identityId = null, clusterId = null, photoId = null, faceId = null, faceBox = null, imageWidth = null, imageHeight = null, source = 'ai-vision', confidence = 0, quality = null } = {}) {
+  addEmbedding({ vector, identityId = null, clusterId = null, photoId = null, faceId = null, faceBox = null, imageWidth = null, imageHeight = null, source = 'ai-vision', confidence = 0, quality = null, metadata = null } = {}) {
     const validation = this.validator.validateEmbedding(vector);
     if (!validation.valid) throw new Error(validation.reason);
     const embeddingId = id('faceemb');
@@ -23,10 +23,18 @@ class FaceEmbeddingStore {
       imageHeight: Number(imageHeight) || null,
       vector: normalizeVector(vector),
       source,
+      metadata: metadata && typeof metadata === 'object' ? { ...metadata } : {},
       confidence: Math.max(0, Math.min(1, Number(confidence || 0))),
       quality: Math.max(0, Math.min(1, Number.isFinite(Number(quality))
         ? Number(quality)
-        : faceQualityScore({ confidence, faceBox, imageWidth, imageHeight, vector }))),
+        : faceQualityScore({
+          confidence,
+          faceBox,
+          imageWidth,
+          imageHeight,
+          vector,
+          qualitySignals: metadata?.qualitySignals || null
+        }))),
       createdAt: nowIso()
     };
     this.state.embeddings[embeddingId] = record;
