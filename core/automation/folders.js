@@ -44,6 +44,8 @@ const FOLDER_SEARCH_LIMITS = Object.freeze({
   maxResults: 40
 });
 
+const SEARCH_CACHE_TTL_MS = 5000;
+const SEARCH_CACHE_LIMIT = 64;
 const DEFAULT_MAX_WINDOWS_PATH_LENGTH = 260;
 
 function uniquePaths(paths) {
@@ -68,6 +70,13 @@ function hasSearchTimeRemaining(startedAt, maxElapsedMs) {
   return !Number.isFinite(maxElapsedMs) || maxElapsedMs <= 0 || Date.now() - startedAt < maxElapsedMs;
 }
 
+function cloneCacheValue(value) {
+  if (Array.isArray(value)) {
+    return [...value];
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
 function pathLocationLabel(folderPath) {
   const normalized = String(folderPath || '').toLowerCase();
   if (normalized.includes(`${path.sep}desktop${path.sep}`) || normalized.endsWith(`${path.sep}desktop`)) return 'Desktop';
@@ -87,6 +96,34 @@ class FolderController {
       allowLongPaths: Boolean(config?.folders?.allowLongPaths),
       maxPathLength: Number(config?.folders?.maxPathLength) || DEFAULT_MAX_WINDOWS_PATH_LENGTH
     };
+    this._searchCache = new Map();
+    this._matchCache = new Map();
+  }
+
+  _cacheKey(kind, parts = {}) {
+    return `${kind}:${JSON.stringify(parts)}`;
+  }
+
+  _readCache(cache, key) {
+    const entry = cache.get(key);
+    if (!entry || Date.now() - entry.createdAt > SEARCH_CACHE_TTL_MS) {
+      cache.delete(key);
+      return null;
+    }
+    return cloneCacheValue(entry.value);
+  }
+
+  _rememberCache(cache, key, value) {
+    cache.set(key, { createdAt: Date.now(), value: cloneCacheValue(value) });
+    while (cache.size > SEARCH_CACHE_LIMIT) {
+      cache.delete(cache.keys().next().value);
+    }
+    return value;
+  }
+
+  _clearSearchCaches() {
+    this._searchCache.clear();
+    this._matchCache.clear();
   }
 
   _normalizeFsError(error, fallback = 'Folder operation failed') {
@@ -136,6 +173,9 @@ class FolderController {
 
   _verifiedData(operation, folderPath, extra = {}) {
     const primaryPath = folderPath || extra.destination || extra.path || extra.source || '';
+    if (['create', 'delete', 'move'].includes(operation)) {
+      this._clearSearchCaches();
+    }
     return {
       operation,
       controllerVerified: true,
@@ -155,6 +195,18 @@ class FolderController {
     const cleanQuery = this._cleanSearchQuery(query);
     if (!cleanQuery) {
       return { success: false, error: 'No folder search query provided' };
+    }
+
+    const cacheKey = this._cacheKey('search', {
+      query: cleanQuery.toLowerCase(),
+      maxDepth: options.maxDepth,
+      maxDirectories: options.maxDirectories,
+      maxElapsedMs: options.maxElapsedMs,
+      maxResults: options.maxResults
+    });
+    const cached = this._readCache(this._searchCache, cacheKey);
+    if (cached) {
+      return cached;
     }
 
     const roots = searchRoots();
@@ -190,7 +242,7 @@ class FolderController {
     const partialByTime = !hasSearchTimeRemaining(startedAt, limits.maxElapsedMs);
     const partialByDirectory = visitedDirectories.size >= limits.maxDirectories;
 
-    return {
+    return this._rememberCache(this._searchCache, cacheKey, {
       success: true,
       data: {
         query: cleanQuery,
@@ -212,7 +264,7 @@ class FolderController {
           elapsedMs: Date.now() - startedAt
         }
       }
-    };
+    });
   }
 
   _resolveFolderPath(folderName, targetPath = null) {
@@ -559,6 +611,12 @@ class FolderController {
     }
 
     const safeName = Validator.sanitizePath(requestedName);
+    const cacheKey = this._cacheKey('matches', { name: safeName.toLowerCase() });
+    const cached = this._readCache(this._matchCache, cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const exactMatches = findEntriesByName(safeName, {
       roots: searchRoots(),
       type: 'directory',
@@ -568,10 +626,10 @@ class FolderController {
       maxMatches: 12
     }) || [];
     if (exactMatches.length > 0) {
-      return exactMatches;
+      return this._rememberCache(this._matchCache, cacheKey, exactMatches);
     }
 
-    return this._findFuzzyFolderMatches(safeName);
+    return this._rememberCache(this._matchCache, cacheKey, this._findFuzzyFolderMatches(safeName));
   }
 
   _findFuzzyFolderMatches(folderName) {

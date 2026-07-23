@@ -61,6 +61,8 @@ const SMART_FIND_LIMITS = Object.freeze({
   maxResults: 1200
 });
 
+const SEARCH_CACHE_TTL_MS = 5000;
+const SEARCH_CACHE_LIMIT = 64;
 const DEFAULT_MAX_WINDOWS_PATH_LENGTH = 260;
 
 function pathLocationLabel(filePath) {
@@ -120,6 +122,13 @@ function hasSearchTimeRemaining(startedAt, maxElapsedMs) {
   return !Number.isFinite(maxElapsedMs) || maxElapsedMs <= 0 || Date.now() - startedAt < maxElapsedMs;
 }
 
+function cloneCacheValue(value) {
+  if (Array.isArray(value)) {
+    return [...value];
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
 class FileController {
   constructor(config) {
     this.config = config || {};
@@ -128,6 +137,34 @@ class FileController {
       allowLongPaths: Boolean(config?.files?.allowLongPaths),
       maxPathLength: Number(config?.files?.maxPathLength) || DEFAULT_MAX_WINDOWS_PATH_LENGTH
     };
+    this._searchCache = new Map();
+    this._matchCache = new Map();
+  }
+
+  _cacheKey(kind, parts = {}) {
+    return `${kind}:${JSON.stringify(parts)}`;
+  }
+
+  _readCache(cache, key) {
+    const entry = cache.get(key);
+    if (!entry || Date.now() - entry.createdAt > SEARCH_CACHE_TTL_MS) {
+      cache.delete(key);
+      return null;
+    }
+    return cloneCacheValue(entry.value);
+  }
+
+  _rememberCache(cache, key, value) {
+    cache.set(key, { createdAt: Date.now(), value: cloneCacheValue(value) });
+    while (cache.size > SEARCH_CACHE_LIMIT) {
+      cache.delete(cache.keys().next().value);
+    }
+    return value;
+  }
+
+  _clearSearchCaches() {
+    this._searchCache.clear();
+    this._matchCache.clear();
   }
 
   _normalizeFsError(error, fallback = 'File operation failed') {
@@ -170,6 +207,9 @@ class FileController {
 
   _verifiedData(operation, targetPath, extra = {}) {
     const primaryPath = targetPath || extra.destination || extra.path || extra.source || extra.newPath || extra.oldPath || '';
+    if (['create', 'delete', 'rename', 'copy', 'move'].includes(operation)) {
+      this._clearSearchCaches();
+    }
     return {
       operation,
       controllerVerified: true,
@@ -616,6 +656,18 @@ class FileController {
     }
 
     const cleanQuery = this._cleanSearchQuery(query);
+    const cacheKey = this._cacheKey('search', {
+      query: cleanQuery.toLowerCase(),
+      maxDepth: options.maxDepth,
+      maxDirectories: options.maxDirectories,
+      maxElapsedMs: options.maxElapsedMs,
+      maxResults: options.maxResults
+    });
+    const cached = this._readCache(this._searchCache, cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const results = [];
     const searchDirs = uniquePaths(SEARCH_ROOTS());
     const lowerQuery = cleanQuery.toLowerCase();
@@ -660,7 +712,7 @@ class FileController {
       .map(entry => entry.path);
     stats.elapsedMs = Date.now() - startedAt;
 
-    return {
+    return this._rememberCache(this._searchCache, cacheKey, {
       success: true,
       data: {
         results: uniqueResults,
@@ -669,7 +721,7 @@ class FileController {
         query: cleanQuery,
         searchStats: stats
       }
-    };
+    });
   }
 
   smartFind(options = {}) {
@@ -871,6 +923,12 @@ class FileController {
       return resolved ? [resolved] : [];
     }
 
+    const cacheKey = this._cacheKey('matches', { name: safeName.toLowerCase() });
+    const cached = this._readCache(this._matchCache, cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const exactMatches = findEntriesByName(safeName, {
       roots: SEARCH_ROOTS(),
       type: 'file',
@@ -880,11 +938,11 @@ class FileController {
       maxMatches: 12
     }) || [];
     if (exactMatches.length > 1) {
-      return exactMatches;
+      return this._rememberCache(this._matchCache, cacheKey, exactMatches);
     }
 
     if (exactMatches.length === 1) {
-      return exactMatches;
+      return this._rememberCache(this._matchCache, cacheKey, exactMatches);
     }
 
     const fuzzyMatches = [];
@@ -906,9 +964,9 @@ class FileController {
       .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))
       .slice(0, 12);
     if (rankedMatches[0]?.score >= 95 && (!rankedMatches[1] || rankedMatches[1].score < 95)) {
-      return [rankedMatches[0].path];
+      return this._rememberCache(this._matchCache, cacheKey, [rankedMatches[0].path]);
     }
-    return rankedMatches.map(match => match.path);
+    return this._rememberCache(this._matchCache, cacheKey, rankedMatches.map(match => match.path));
   }
 
   _shouldOpenSingleFileMatch(filename, filePath, targetPath = null) {

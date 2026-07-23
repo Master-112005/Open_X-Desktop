@@ -414,6 +414,31 @@ describe('File Management Automation', function() {
     assert.equal(result.data.entries[0].location, 'Documents');
   });
 
+  it('should reuse short-lived file search results for repeated queries', function() {
+    const nested = path.join(tempProfile, 'Documents', 'Work');
+    fs.mkdirSync(nested, { recursive: true });
+    const target = path.join(nested, 'Quarterly Cache Report.docx');
+    fs.writeFileSync(target, 'report', 'utf8');
+
+    const originalSearch = engine.files._searchDirectoryRecursive.bind(engine.files);
+    let recursiveCalls = 0;
+    engine.files._searchDirectoryRecursive = function countedSearch() {
+      recursiveCalls += 1;
+      return originalSearch(...arguments);
+    };
+
+    const first = engine.files.search('quarterly cache report');
+    const callsAfterFirst = recursiveCalls;
+    const second = engine.files.search('quarterly cache report');
+
+    assert.equal(first.success, true);
+    assert.equal(second.success, true);
+    assert.equal(first.data.results[0], target);
+    assert.equal(second.data.results[0], target);
+    assert.ok(callsAfterFirst > 0);
+    assert.equal(recursiveCalls, callsAfterFirst);
+  });
+
   it('should search folders by compact and misspelled names', function() {
     const target = path.join(tempProfile, 'Documents', 'Project Archives');
     fs.mkdirSync(target, { recursive: true });
@@ -425,6 +450,29 @@ describe('File Management Automation', function() {
     assert.equal(result.data.results[0], target);
     assert.equal(result.data.entries[0].matchScore > 0, true);
     assert.equal(result.data.entries[0].location, 'Documents');
+  });
+
+  it('should reuse short-lived folder search results for repeated queries', function() {
+    const target = path.join(tempProfile, 'Documents', 'Project Cache Archives');
+    fs.mkdirSync(target, { recursive: true });
+
+    const originalSearch = engine.folders._searchFoldersRecursive.bind(engine.folders);
+    let recursiveCalls = 0;
+    engine.folders._searchFoldersRecursive = function countedSearch() {
+      recursiveCalls += 1;
+      return originalSearch(...arguments);
+    };
+
+    const first = engine.folders.search('project cache archives');
+    const callsAfterFirst = recursiveCalls;
+    const second = engine.folders.search('project cache archives');
+
+    assert.equal(first.success, true);
+    assert.equal(second.success, true);
+    assert.equal(first.data.results[0], target);
+    assert.equal(second.data.results[0], target);
+    assert.ok(callsAfterFirst > 0);
+    assert.equal(recursiveCalls, callsAfterFirst);
   });
 
   it('should fuzzy match unique folder open requests without exact folder names', function() {

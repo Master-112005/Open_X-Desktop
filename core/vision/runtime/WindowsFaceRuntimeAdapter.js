@@ -5,12 +5,26 @@ const fs = require('fs');
 const path = require('path');
 const { MODEL_IDS } = require('../contracts/VisionContracts');
 
-const SCRIPT_PATH = path.join(__dirname, 'windows-face-analysis.ps1');
+const SCRIPT_NAME = 'windows-face-analysis.ps1';
 const SUPPORTED_MODELS = new Set([MODEL_IDS.SCRFD, MODEL_IDS.MOBILE_FACE_NET]);
+
+function resolveUnpackedAsarPath(candidatePath) {
+  const value = String(candidatePath || '');
+  return value.replace(/\.asar(?=\\|\/)/i, '.asar.unpacked');
+}
+
+function resolveWindowsFaceAnalysisScriptPath(baseDir = __dirname) {
+  const scriptPath = path.join(baseDir, SCRIPT_NAME);
+  const unpackedPath = resolveUnpackedAsarPath(scriptPath);
+  if (unpackedPath !== scriptPath && fs.existsSync(unpackedPath)) {
+    return unpackedPath;
+  }
+  return scriptPath;
+}
 
 class WindowsFaceRuntimeAdapter {
   constructor(options = {}) {
-    this.scriptPath = options.scriptPath || SCRIPT_PATH;
+    this.scriptPath = options.scriptPath || resolveWindowsFaceAnalysisScriptPath();
     this.timeoutMs = Math.max(3000, Number(options.timeoutMs || 20000));
     this.maxCacheEntries = Math.max(10, Number(options.maxCacheEntries || 200));
     this.logger = options.logger || null;
@@ -272,3 +286,5 @@ class WindowsFaceRuntimeSession {
 }
 
 module.exports = WindowsFaceRuntimeAdapter;
+module.exports.resolveUnpackedAsarPath = resolveUnpackedAsarPath;
+module.exports.resolveWindowsFaceAnalysisScriptPath = resolveWindowsFaceAnalysisScriptPath;

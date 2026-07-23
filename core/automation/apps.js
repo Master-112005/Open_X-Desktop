@@ -387,7 +387,7 @@ class AppController {
     if (!target) {
       const openResult = this.open(displayName);
       if (!openResult.success) return openResult;
-      target = this.waitForVisibleApp(name, { attempts: 5, intervalMs: 180 });
+      target = this.waitForVisibleApp(name, { attempts: 3, intervalMs: 120 });
       openedApp = true;
     }
     if (!target) {
@@ -1091,8 +1091,8 @@ class AppController {
   }
 
   waitForVisibleApp(appName, options = {}) {
-    const attempts = Math.max(1, Number(options.attempts) || 4);
-    const intervalMs = Math.max(0, Number(options.intervalMs) || 300);
+    const attempts = Math.max(1, Number(options.attempts) || 2);
+    const intervalMs = Math.max(0, Number(options.intervalMs) || 150);
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const target = this.findVisibleApp(appName, {
         allowWindowFallback: attempt === attempts - 1
@@ -1104,8 +1104,8 @@ class AppController {
   }
 
   waitForAppClosed(appName, options = {}) {
-    const attempts = Math.max(1, Number(options.attempts) || 4);
-    const intervalMs = Math.max(0, Number(options.intervalMs) || 250);
+    const attempts = Math.max(1, Number(options.attempts) || 3);
+    const intervalMs = Math.max(0, Number(options.intervalMs) || 150);
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       if (!this.findVisibleApp(appName)) return true;
       if (attempt < attempts - 1) this._sleep(intervalMs);

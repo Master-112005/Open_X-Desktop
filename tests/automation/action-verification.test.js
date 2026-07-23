@@ -63,6 +63,38 @@ describe('Action Verification Contract', function() {
     }
   });
 
+  it('should trust controller-verified file opens without duplicate filesystem inspection', function() {
+    const verifier = new ActionVerifier();
+    const target = path.join(os.tmpdir(), `openx-fast-file-open-${Date.now()}.txt`);
+
+    const originalStatSync = fs.statSync;
+    fs.statSync = function patchedStatSync(filePath) {
+      if (filePath === target) {
+        throw new Error('duplicate stat should not run');
+      }
+      return originalStatSync.apply(this, arguments);
+    };
+
+    try {
+      const result = verifier.verify('file.open', { filename: path.basename(target) }, {
+        success: true,
+        data: {
+          path: target,
+          filename: path.basename(target),
+          controllerVerified: true,
+          verification: { status: 'passed', check: 'file-open', path: target }
+        }
+      });
+
+      assert.equal(result.success, true);
+      assert.equal(result.verification.status, 'passed');
+      assert.equal(result.verification.check, 'file-open');
+      assert.equal(result.verification.path, target);
+    } finally {
+      fs.statSync = originalStatSync;
+    }
+  });
+
   it('should not match every window when a process name is empty', function() {
     const verifier = new ActionVerifier({
       windows: {

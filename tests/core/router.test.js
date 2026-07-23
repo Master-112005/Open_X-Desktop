@@ -1780,6 +1780,50 @@ describe('Action Router', function() {
     assert.equal(googleColab.entities.appName, 'google colab');
   });
 
+  it('should route common web products through local app resolution before browser fallback', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const stubEngine = {
+      execute(actionId, entities) {
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const linkedIn = await router.process('open linkedin', 'chat');
+    const stackOverflow = await router.process('open stack overflow', 'chat');
+    const googleChat = await router.process('open google chat', 'chat');
+
+    assert.equal(linkedIn.intent, 'app.open');
+    assert.equal(linkedIn.entities.appName, 'linkedin');
+    assert.equal(linkedIn.entities.webFallbackUrl, 'https://www.linkedin.com/');
+    assert.equal(stackOverflow.intent, 'app.open');
+    assert.equal(stackOverflow.entities.appName, 'stackoverflow');
+    assert.equal(stackOverflow.entities.webFallbackUrl, 'https://stackoverflow.com/');
+    assert.equal(googleChat.intent, 'app.open');
+    assert.equal(googleChat.entities.webFallbackUrl, 'https://chat.google.com/');
+  });
+
+  it('should mark explicit unknown app-domain opens for controlled web search fallback', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const stubEngine = {
+      execute(actionId, entities) {
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const result = await router.process('open the app called sparkdeck', 'chat');
+
+    assert.equal(result.intent, 'app.open');
+    assert.equal(result.entities.appName, 'sparkdeck');
+    assert.equal(result.entities.allowWebSearchFallback, true);
+    assert.equal(result.entities.webSearchFallbackQuery, 'sparkdeck');
+  });
+
   it('should route natural web-app open phrasing through trusted web targets', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
@@ -2229,15 +2273,16 @@ describe('Action Router', function() {
   it('should route timer reminder and alarm management commands', async function() {
     const config = { permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } } };
     const router = new ActionRouter(config, {
-      execute(actionId) { return { success: true, data: { actionId, count: 0, entries: [] } }; }
+      execute(actionId, entities) { return { success: true, data: { actionId, ...(entities || {}), count: 0, entries: [] } }; }
     });
     const commands = new Map([
       ['pause the timer', 'timer.pause'], ['resume the timer', 'timer.resume'],
       ['reset the timer', 'timer.reset'], ['how much time is left', 'timer.remaining'],
-      ['show active timers', 'timer.list'], ['cancel all active timers', 'timer.clear'],
-      ['show all reminders', 'reminder.list'], ['delete this reminder', 'reminder.cancel'],
+      ['show active timers', 'timer.list'], ['how many timers today', 'timer.list'], ['cancel all active timers', 'timer.clear'],
+      ['show all reminders', 'reminder.list'], ['how many reminders today', 'reminder.list'],
+      ['what is how many reminders', 'reminder.list'], ['do I have any reminders today', 'reminder.list'], ['delete this reminder', 'reminder.cancel'],
       ['delete all reminders', 'reminder.clear'], ['snooze this reminder for 10 minutes', 'reminder.snooze'], ['snooze the alarm', 'alarm.snooze'],
-      ['show my alarms', 'alarm.list'], ['delete all alarms', 'alarm.clear'],
+      ['show my alarms', 'alarm.list'], ['how many alarms today', 'alarm.list'], ['delete all alarms', 'alarm.clear'],
       ['start stopwatch', 'stopwatch.start'], ['open stopwatch', 'stopwatch.start'],
       ['pause the stopwatch', 'stopwatch.pause'],
       ['resume the stopwatch', 'stopwatch.resume'], ['reset the stopwatch', 'stopwatch.reset'],
@@ -2247,6 +2292,17 @@ describe('Action Router', function() {
       const result = await router.process(command, 'chat');
       assert.equal(result.intent, expectedIntent, command);
     }
+
+    const reminderCount = await router.process('how many reminders today', 'chat');
+    assert.equal(reminderCount.intent, 'reminder.list');
+    assert.equal(reminderCount.entities.scope, 'today');
+    assert.equal(reminderCount.entities.countOnly, true);
+    assert.match(reminderCount.response, /no reminders today/i);
+
+    const prefixedReminderCount = await router.process('what is how many reminders', 'chat');
+    assert.equal(prefixedReminderCount.intent, 'reminder.list');
+    assert.equal(prefixedReminderCount.entities.countOnly, true);
+    assert.notEqual(prefixedReminderCount.intent, 'browser.search');
   });
 
   it('should route assistant calendar and timetable commands', async function() {
@@ -3602,6 +3658,30 @@ describe('Action Router', function() {
     assert.equal(result.intent, 'app.open');
     assert.equal(result.entities.appName, 'youtube');
     assert.deepEqual(executed.map(entry => entry.actionId), ['app.open']);
+  });
+
+  it('should treat plain open YouTube as local app-first with a web fallback', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const result = await router.process('open youtube', 'chat');
+    const homepage = await router.process('open youtube homepage', 'chat');
+
+    assert.equal(result.intent, 'app.open');
+    assert.equal(result.entities.appName, 'youtube');
+    assert.equal(result.entities.webFallbackUrl, 'https://www.youtube.com/');
+    assert.equal(homepage.intent, 'browser.open');
+    assert.equal(homepage.entities.url, 'https://www.youtube.com/');
+    assert.deepEqual(executed.map(entry => entry.actionId), ['app.open', 'browser.open']);
   });
 
   it('should not carry open into ask-style follow-up clauses', async function() {

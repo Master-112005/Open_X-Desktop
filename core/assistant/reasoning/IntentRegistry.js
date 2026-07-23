@@ -510,8 +510,8 @@ const INTENT_DEFINITIONS = [
     action: 'timer.remaining', entities: [], description: 'Show remaining timer time'
   },
   {
-    id: 'timer.list', patterns: ['show active timers', 'list timers'], permissionLevel: 'low',
-    action: 'timer.list', entities: [], description: 'Show active timers'
+    id: 'timer.list', patterns: ['show active timers', 'list timers', 'how many timers', 'do i have any timers'], permissionLevel: 'low',
+    action: 'timer.list', entities: [{ name: 'scope', type: 'string', required: false }], description: 'Show active timers'
   },
   {
     id: 'timer.clear', patterns: ['delete all timers', 'cancel all timers'], permissionLevel: 'low',
@@ -542,7 +542,7 @@ const INTENT_DEFINITIONS = [
     action: 'stopwatch.elapsed', entities: [], description: 'Show elapsed stopwatch time'
   },
   {
-    id: 'reminder.list', patterns: ['show reminders', 'list reminders'], permissionLevel: 'low',
+    id: 'reminder.list', patterns: ['show reminders', 'list reminders', 'how many reminders', 'how many reminders today', 'do i have any reminders today'], permissionLevel: 'low',
     action: 'reminder.list', entities: [{ name: 'scope', type: 'string', required: false }], description: 'Show reminders'
   },
   {
@@ -566,8 +566,8 @@ const INTENT_DEFINITIONS = [
     action: 'alarm.cancel', entities: [], description: 'Stop the active alarm'
   },
   {
-    id: 'alarm.list', patterns: ['show alarms', 'list alarms'], permissionLevel: 'low',
-    action: 'alarm.list', entities: [], description: 'Show active alarms'
+    id: 'alarm.list', patterns: ['show alarms', 'list alarms', 'how many alarms', 'do i have any alarms'], permissionLevel: 'low',
+    action: 'alarm.list', entities: [{ name: 'scope', type: 'string', required: false }], description: 'Show active alarms'
   },
   {
     id: 'alarm.clear', patterns: ['delete all alarms', 'clear alarms'], permissionLevel: 'low',

@@ -1080,7 +1080,12 @@ const RESPONSE_BUILDERS = {
     },
     'timer.list': context => {
       const count = valueFromContext(context, 'count', 0);
-      return count ? `You have ${count} active timer${count === 1 ? '' : 's'}.` : 'You have no active timers.';
+      const scope = String(valueFromContext(context, 'scope', 'active') || 'active').toLowerCase();
+      const scopeSuffix = scope === 'today' ? ' today' : '';
+      const activePrefix = scope === 'active' ? 'active ' : '';
+      return count
+        ? `You have ${count} ${activePrefix}timer${count === 1 ? '' : 's'}${scopeSuffix}.`
+        : `You have no ${activePrefix}timers${scopeSuffix}.`;
     },
     'timer.clear': context => `Cancelled ${valueFromContext(context, 'count', 0)} active timer${valueFromContext(context, 'count', 0) === 1 ? '' : 's'}.`,
     'stopwatch.start': () => 'Stopwatch started.',
@@ -1097,8 +1102,21 @@ const RESPONSE_BUILDERS = {
     },
     'reminder.list': context => {
       const entries = valueFromContext(context, 'entries', []);
-      if (!Array.isArray(entries) || entries.length === 0) return 'You have no matching reminders.';
-      return `Your reminders are: ${entries.slice(0, 5).map(entry => entry.message).join(', ')}.`;
+      const count = Number(valueFromContext(context, 'count', Array.isArray(entries) ? entries.length : 0));
+      const scope = String(valueFromContext(context, 'scope', '') || '').toLowerCase();
+      const countOnly = valueFromContext(context, 'countOnly', false) === true;
+      const scopeSuffix = scope === 'today' ? ' today' : '';
+      const activePrefix = scope === 'active' ? 'active ' : '';
+      if (countOnly) {
+        return count
+          ? `You have ${count} ${activePrefix}reminder${count === 1 ? '' : 's'}${scopeSuffix}.`
+          : `You have no ${activePrefix}reminders${scopeSuffix}.`;
+      }
+      if (!Array.isArray(entries) || entries.length === 0) {
+        return `You have no ${activePrefix}reminders${scopeSuffix || ' matching your request'}.`;
+      }
+      const label = scope === 'today' ? 'Your reminders today' : 'Your reminders';
+      return `${label} are: ${entries.slice(0, 5).map(entry => entry.message).join(', ')}.`;
     },
     'phone.sendFile': context => {
       const transferredName = valueFromContext(context, 'transferredName') ||
@@ -1123,7 +1141,12 @@ const RESPONSE_BUILDERS = {
     },
     'alarm.list': context => {
       const count = valueFromContext(context, 'count', 0);
-      return count ? `You have ${count} active alarm${count === 1 ? '' : 's'}.` : 'You have no active alarms.';
+      const scope = String(valueFromContext(context, 'scope', 'active') || 'active').toLowerCase();
+      const scopeSuffix = scope === 'today' ? ' today' : '';
+      const activePrefix = scope === 'active' ? 'active ' : '';
+      return count
+        ? `You have ${count} ${activePrefix}alarm${count === 1 ? '' : 's'}${scopeSuffix}.`
+        : `You have no ${activePrefix}alarms${scopeSuffix}.`;
     },
     'alarm.clear': context => `Cancelled ${valueFromContext(context, 'count', 0)} alarm${valueFromContext(context, 'count', 0) === 1 ? '' : 's'}.`,
     'calendar.open': context => chooseVariant(responseSeed(context, 'planner.open:calendar'), [

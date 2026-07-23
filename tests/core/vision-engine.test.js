@@ -1,6 +1,9 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
   VisionEngine,
   MODEL_IDS,
@@ -8,6 +11,7 @@ const {
   VisionEngineContract,
   EmbeddingManager
 } = require('../../core/vision');
+const WindowsFaceRuntimeAdapter = require('../../core/vision/runtime/WindowsFaceRuntimeAdapter');
 
 function createFakeOnnxAdapter() {
   return {
@@ -105,6 +109,34 @@ describe('VisionEngine', () => {
     assert(debugLogs.some(entry => entry.message === '[Vision Models] Runtime session ready'));
 
     await engine.shutdown();
+  });
+
+  it('resolves the Windows face analysis script from app.asar.unpacked in packaged builds', () => {
+    const resolved = WindowsFaceRuntimeAdapter.resolveUnpackedAsarPath(
+      'C:\\Program Files\\OpenX\\resources\\app.asar\\core\\vision\\runtime\\windows-face-analysis.ps1'
+    );
+
+    assert.strictEqual(
+      resolved,
+      'C:\\Program Files\\OpenX\\resources\\app.asar.unpacked\\core\\vision\\runtime\\windows-face-analysis.ps1'
+    );
+  });
+
+  it('prefers a real unpacked Windows face script when the app is packaged with ASAR', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-vision-asar-'));
+    const asarRuntimeDir = path.join(tempRoot, 'app.asar', 'core', 'vision', 'runtime');
+    const unpackedRuntimeDir = path.join(tempRoot, 'app.asar.unpacked', 'core', 'vision', 'runtime');
+    fs.mkdirSync(asarRuntimeDir, { recursive: true });
+    fs.mkdirSync(unpackedRuntimeDir, { recursive: true });
+    const unpackedScript = path.join(unpackedRuntimeDir, 'windows-face-analysis.ps1');
+    fs.writeFileSync(unpackedScript, '# packaged face analysis bridge\n');
+
+    try {
+      const resolved = WindowsFaceRuntimeAdapter.resolveWindowsFaceAnalysisScriptPath(asarRuntimeDir);
+      assert.strictEqual(resolved, unpackedScript);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it('runs coordinated inference and returns one normalized VisionResult', async () => {
