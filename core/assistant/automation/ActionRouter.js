@@ -128,6 +128,8 @@ class ActionRouter {
     this.clauseActionableCache = new Map();
     this.semanticParseCache = new Map();
     this.matchIntentCache = new Map();
+    this.recentPresentationContext = null;
+    this.presentationShortcutContextTtlMs = Number(config?.presentation?.shortcutContextTtlMs || 15 * 60 * 1000);
   }
 
   _rememberRouterCache(cache, key, value, limit = 2048) {
@@ -378,6 +380,7 @@ class ActionRouter {
       ['_resolveExplicitReminderIntent', () => this._resolveExplicitReminderIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitAlarmIntent', () => this._resolveExplicitAlarmIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitTimerIntent', () => this._resolveExplicitTimerIntent(rawCommandText, preparedInput)],
+      ['_resolveContextualPresentationShortcutIntent', () => this._resolveContextualPresentationShortcutIntent(rawCommandText, preparedInput, source)],
       ['_resolveRemoteControlIntent', () => this._resolveRemoteControlIntent(rawCommandText, preparedInput)],
       ['_resolvePresentationControlIntent', () => this._resolvePresentationControlIntent(rawCommandText, preparedInput)],
       ['_resolvePresentationFileIntent', () => this._resolvePresentationFileIntent(rawCommandText, preparedInput)],
@@ -502,6 +505,7 @@ class ActionRouter {
     const hasPressCue = /\b(?:press|tap|hit|click|select|send)\b/.test(input);
     const hasTargetCue = Boolean(targetId);
     if (!hasRemoteCue && !hasPressCue && !hasTargetCue) return null;
+    if (action === 'playPause' && !hasRemoteCue && !hasPressCue) return null;
     if (targetId === 'powerpoint' && !hasRemoteCue && !hasPressCue) return null;
 
     return route('remote.control', {
@@ -1541,6 +1545,12 @@ class ActionRouter {
     if (!text) {
       return null;
     }
+
+    const mediaWithVolumePlan = this._splitMediaPlaybackWithVolumeCommand(text);
+    if (mediaWithVolumePlan) {
+      return mediaWithVolumePlan;
+    }
+
     const hasExplicitConnector = /\b(?:and|then|after that|afterwards)\b|[;]/i.test(text);
     const hasImplicitMultiCommand = !hasExplicitConnector && this._hasImplicitMultiCommand(text);
     if (!hasExplicitConnector && !hasImplicitMultiCommand) {
@@ -1667,6 +1677,45 @@ class ActionRouter {
       return simpleAnd.slice(0, 6);
     }
     return null;
+  }
+
+  _splitMediaPlaybackWithVolumeCommand(text) {
+    const source = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!source || !/^(?:(?:please|kindly|can\s+you|could\s+you|would\s+you)\s+)?(?:play|stream|listen\s+to|watch|queue|put\s+on|start\s+playing)\b/i.test(source)) {
+      return null;
+    }
+
+    const match = source.match(
+      /^(?:(?:please|kindly|can\s+you|could\s+you|would\s+you)\s+)?((?:play|stream|listen\s+to|watch|queue|put\s+on|start\s+playing)\s+.+?)\s+(?:with|at|on|to)?\s*(?:(?:the\s+)?(?:vol|volume|sound|audio)(?:\s+(?:level|at|to|on))?\s+(\d{1,3})|(\d{1,3})(?:\s*%|\s+percent)?\s*(?:vol|volume|sound|audio)(?:\s+level)?)(?:\s*%|\s+percent)?\s*$/i
+    );
+    if (!match?.[1]) {
+      return null;
+    }
+
+    const value = Number(match[2] || match[3]);
+    if (!Number.isFinite(value) || value < 0 || value > 100) {
+      return null;
+    }
+
+    const mediaCommand = String(match[1] || '')
+      .replace(/\s+(?:and|then|also|plus)\s+(?:set|change|make|put|keep|adjust|turn)$/i, '')
+      .replace(/\s+(?:with|at|on|to)\s*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!mediaCommand || !this._mediaPlaybackClauseHasQuery(mediaCommand)) {
+      return null;
+    }
+
+    return [mediaCommand, `set volume to ${Math.round(value)}`];
+  }
+
+  _mediaPlaybackClauseHasQuery(command) {
+    const tail = String(command || '')
+      .replace(/^(?:play|stream|listen\s+to|watch|queue|put\s+on|start\s+playing)\s+/i, '')
+      .replace(/\s+(?:on|in|via|using)\s+(?:youtube|you\s*tube|spotify|soundcloud|gaana|jiosaavn|amazon\s*music|apple\s*music|saavn|chrome|edge|firefox|browser)\s*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return tail.length > 0;
   }
 
   _splitCarriedAppTargetsWithTrailingCommands(text) {
@@ -2608,6 +2657,7 @@ class ActionRouter {
         routeSource: entities?.routeSource || (intentResult.semanticFrame ? 'natural-language-router' : null),
         validationStatus: result.success ? 'passed' : 'execution-failed'
       });
+      this._rememberPresentationContextFromResult(intentResult.intent.id, entities, result, source);
 
       const modeCommandSteps = [];
       if (result.success && intentResult.intent.id === 'mode.start') {
@@ -3452,6 +3502,174 @@ class ActionRouter {
     }
 
     return null;
+  }
+
+  _resolveContextualPresentationShortcutIntent(rawText, preparedInput = {}, source = 'chat') {
+    const direction = this._extractBarePresentationShortcutDirection(rawText, preparedInput);
+    if (!direction) {
+      return null;
+    }
+
+    const context = this._getPresentationShortcutContext(preparedInput, source);
+    if (!context) {
+      return null;
+    }
+
+    const intentId = direction === 'previous' ? 'presentation.previous' : 'presentation.next';
+    const intent = this.intentRegistry.get(intentId);
+    return intent
+      ? {
+          intent,
+          confidence: context.confidence || 0.96,
+          entities: {
+            appName: 'powerpoint',
+            presentationApp: 'powerpoint',
+            windowName: 'powerpnt',
+            reference: 'active-presentation',
+            routeSource: context.routeSource || 'presentation-context-shortcut',
+            contextReason: context.reason || 'recent-presentation-control'
+          }
+        }
+      : null;
+  }
+
+  _extractBarePresentationShortcutDirection(rawText, preparedInput = {}) {
+    const values = [
+      rawText,
+      preparedInput?.correctedText,
+      preparedInput?.normalizedText,
+      preparedInput?.intentText
+    ];
+    const candidates = new Set(values
+      .map(value => String(value || '').toLowerCase().replace(/[?.!]+$/g, '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean));
+
+    for (const text of candidates) {
+      if (/^(?:please\s+)?(?:next|next\s+one|go\s+next|go\s+to\s+next|advance|advance\s+it|forward|go\s+forward|move\s+forward|right)(?:\s+please)?$/.test(text)) {
+        return 'next';
+      }
+      if (/^(?:please\s+)?(?:previous|prev|previous\s+one|back|go\s+back|move\s+back|left)(?:\s+please)?$/.test(text)) {
+        return 'previous';
+      }
+    }
+
+    return null;
+  }
+
+  _getPresentationShortcutContext(preparedInput = {}, source = 'chat') {
+    const runtimeContext = this._getActivePresentationRuntimeContext();
+    if (runtimeContext?.strong) {
+      return runtimeContext;
+    }
+
+    if (this._isFreshPresentationContext(this.recentPresentationContext)) {
+      return {
+        ...this.recentPresentationContext,
+        confidence: 0.97,
+        routeSource: 'presentation-recent-context',
+        reason: 'recent-successful-presentation-action'
+      };
+    }
+
+    const conversationContext = this._getPresentationContextFromConversation(preparedInput?.conversation);
+    if (conversationContext) {
+      return conversationContext;
+    }
+
+    if (runtimeContext && this._sourceUsuallyTargetsActiveDesktop(source)) {
+      return runtimeContext;
+    }
+
+    return null;
+  }
+
+  _isFreshPresentationContext(context) {
+    if (!context?.at) {
+      return false;
+    }
+    const age = Date.now() - Number(context.at);
+    return age >= 0 && age <= this.presentationShortcutContextTtlMs;
+  }
+
+  _getPresentationContextFromConversation(conversation) {
+    const recent = Array.isArray(conversation?.recent) ? conversation.recent : [];
+    for (let index = recent.length - 1; index >= 0; index -= 1) {
+      const entry = recent[index];
+      if (!entry?.success || !/^presentation\./.test(String(entry.intent || ''))) {
+        continue;
+      }
+      return {
+        confidence: 0.94,
+        routeSource: 'presentation-conversation-context',
+        reason: 'recent-conversation-presentation-action',
+        target: entry.target || null,
+        at: Date.now()
+      };
+    }
+    return null;
+  }
+
+  _getActivePresentationRuntimeContext() {
+    const remote = this.automationEngine?.remote;
+    if (!remote || typeof remote.listTargets !== 'function') {
+      return null;
+    }
+
+    try {
+      const result = remote.listTargets({ force: true });
+      const targets = Array.isArray(result?.data?.targets) ? result.data.targets : [];
+      const presentation = targets.find(target => (
+        target?.id === 'powerpoint' ||
+        target?.kind === 'presentation' ||
+        /\bpowerpnt\b/i.test(String(target?.processName || ''))
+      ));
+      if (!presentation) {
+        return null;
+      }
+
+      const title = `${presentation.windowTitle || ''} ${presentation.tabTitle || ''}`.toLowerCase();
+      const strong = /\b(?:powerpoint\s+slide\s+show|slide\s*show|slideshow|presenting)\b/.test(title);
+      const activeMedia = targets.some(target => target?.kind === 'media' && target?.active === true && target?.id !== 'powerpoint');
+      if (!strong && activeMedia) {
+        return null;
+      }
+
+      return {
+        confidence: strong ? 0.98 : 0.91,
+        routeSource: 'presentation-active-window',
+        reason: strong ? 'active-presentation-slide-show' : 'active-powerpoint-window',
+        windowTitle: presentation.windowTitle || '',
+        strong
+      };
+    } catch (error) {
+      this.logger.warn('Presentation context target scan failed', { error: error.message });
+      return null;
+    }
+  }
+
+  _sourceUsuallyTargetsActiveDesktop(source) {
+    return /^(?:chat|voice|phone|mobile|remote|scheduled)$/i.test(String(source || 'chat'));
+  }
+
+  _rememberPresentationContextFromResult(intentId, entities = {}, result = {}, source = 'chat') {
+    if (intentId === 'app.close' && /\b(?:power\s*point|powerpoint|powerpnt|ppt)\b/i.test(String(entities?.appName || ''))) {
+      this.recentPresentationContext = null;
+      return;
+    }
+
+    if (!/^presentation\./.test(String(intentId || '')) || result?.success !== true) {
+      return;
+    }
+
+    this.recentPresentationContext = {
+      intentId,
+      at: Date.now(),
+      source,
+      windowName: entities?.windowName || 'powerpnt',
+      mode: entities?.mode || null,
+      slideNumber: Number.isFinite(Number(entities?.slideNumber)) ? Number(entities.slideNumber) : null,
+      matchedWindow: result?.data?.matchedWindow || null
+    };
   }
 
   _resolvePresentationControlIntent(rawText, preparedInput = {}) {
@@ -5854,6 +6072,7 @@ const newTabMatch = input.match(
 
   _resolveScheduledActionRoute(command, prepared) {
     const resolvers = [
+      () => this._resolveContextualPresentationShortcutIntent(command, prepared, 'scheduled'),
       () => this._resolvePresentationControlIntent(command, prepared),
       () => this._resolveYouTubeMediaIntent(command, prepared),
       () => this._resolveKnownWebOpenIntent(command, prepared),
