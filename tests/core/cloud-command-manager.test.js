@@ -192,4 +192,55 @@ describe('CloudCommandManager', () => {
     assert.equal(executed, false);
     assert.equal(connection.sent.length, 0);
   });
+
+  it('routes remote-control packets to the remote handler and returns active targets', async () => {
+    const connection = createConnection();
+    let handledPayload = null;
+    const manager = new CloudCommandManager({
+      connectionManager: connection,
+      executionTimeoutMs: 1000,
+      commandRouter: {
+        async route() {
+          return { success: false };
+        }
+      },
+      remoteControlHandler: async (payload) => {
+        handledPayload = payload;
+        return {
+          success: true,
+          data: {
+            targets: [
+              {
+                id: 'youtube',
+                label: 'YouTube',
+                kind: 'media',
+                processName: 'chrome',
+                windowTitle: 'Dulander song - YouTube - Google Chrome',
+                tabTitle: 'Dulander song - YouTube',
+                active: true,
+                source: 'browser-tab'
+              }
+            ]
+          }
+        };
+      },
+      logger: { info() {}, warn() {}, error() {} }
+    });
+    const packet = createPacket({
+      type: 'remote-control',
+      action: 'listTargets'
+    });
+    packet.packet.metadata = { feature: 'remote-control' };
+
+    const accepted = manager.handleRelayPacket(packet);
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.equal(accepted.accepted, true);
+    assert.equal(handledPayload.action, 'listTargets');
+    assert.equal(connection.sent.length, 1);
+    assert.equal(connection.sent[0].packetType, 'response');
+    assert.equal(connection.sent[0].metadata.feature, 'remote-control');
+    assert.equal(connection.sent[0].payload.responseType, 'remote-control');
+    assert.equal(connection.sent[0].payload.payload.data.targets[0].id, 'youtube');
+  });
 });

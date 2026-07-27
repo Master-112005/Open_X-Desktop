@@ -88,6 +88,10 @@ const SCHEDULED_ACTION_INTENTS = new Set([
   'file.open',
   'folder.open',
   'media.play',
+  'presentation.start',
+  'presentation.next',
+  'presentation.previous',
+  'presentation.goto',
   'media.pause',
   'media.resume',
   'media.stop'
@@ -373,6 +377,8 @@ class ActionRouter {
       ['_resolveExplicitReminderIntent', () => this._resolveExplicitReminderIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitAlarmIntent', () => this._resolveExplicitAlarmIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitTimerIntent', () => this._resolveExplicitTimerIntent(rawCommandText, preparedInput)],
+      ['_resolvePresentationControlIntent', () => this._resolvePresentationControlIntent(rawCommandText, preparedInput)],
+      ['_resolvePresentationFileIntent', () => this._resolvePresentationFileIntent(rawCommandText, preparedInput)],
       ['_resolveSystemPowerIntent', () => this._resolveSystemPowerIntent(rawCommandText, preparedInput)],
       ['_resolveSystemSettingsIntent', () => this._resolveSystemSettingsIntent(rawCommandText, preparedInput)],
       ['_resolveSystemInsightIntent', () => this._resolveSystemInsightIntent(rawCommandText, preparedInput)],
@@ -715,6 +721,8 @@ class ActionRouter {
     const text = String(rawText || '').toLowerCase();
     const fileCommand = /\b(?:folder|directory|file|document)\b/.test(text) &&
       /\b(?:open|show|launch|start|find|locate|search|move|copy|rename|delete|create)\b/.test(text);
+    const presentationCommand = /\b(?:pptx?|presentation|presentations|slide\s+deck|slides?)\b/.test(text) &&
+      /\b(?:open|show|launch|start|find|locate|search|pull\s+up|play|present)\b/.test(text);
     // A rename command commonly omits the word "file" (for example,
     // "Rename Notes to Meeting Notes"). Preserve its original wording so the
     // noisy-voice repair path cannot turn the action verb into "remember".
@@ -729,7 +737,7 @@ class ActionRouter {
     const appListCommand = /^(?:open|launch|start|run|close|quit|exit|terminate|switch|focus)\s+[a-z0-9 ._-]+(?:\s+(?:and|then|also|plus)\s+[a-z0-9 ._-]+)+$/i.test(String(rawText || '').trim()) &&
       !/\b(?:file|folder|document|song|video|music|search|find|remind|timer|alarm)\b/i.test(text);
     const knownWebOpenCommand = this._looksLikeKnownWebOpenRequest(rawText);
-    return fileCommand || renameCommand || phoneTransferCommand || scheduleCommand || networkCommand || appListCommand || knownWebOpenCommand;
+    return fileCommand || presentationCommand || renameCommand || phoneTransferCommand || scheduleCommand || networkCommand || appListCommand || knownWebOpenCommand;
   }
 
   _resolveCapabilityCommandIntent(rawText, preparedInput = {}, options = {}) {
@@ -3385,6 +3393,201 @@ class ActionRouter {
     return null;
   }
 
+  _resolvePresentationControlIntent(rawText, preparedInput = {}) {
+    const raw = String(rawText || '').trim().toLowerCase();
+    const corrected = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
+    const input = `${raw} ${corrected}`.replace(/\s+/g, ' ').trim();
+    if (!input) {
+      return null;
+    }
+
+    if (/^(?:what|who|where|when|why|how|which)\b/.test(input)) {
+      return null;
+    }
+
+    const mentionsPresentationSurface =
+      /\b(?:power\s*point|powerpoint|power\s+paint|pptx?|presentation|presentations|slide\s*show|slideshow|slides?)\b/.test(input);
+    const mentionsCurrentSlide =
+      /\b(?:from|on|at)\s+(?:the\s+)?(?:current|active|this)\s+slide\b/.test(input) ||
+      /\b(?:current|active|this)\s+slide\b/.test(input);
+    const mentionsBeginning =
+      /\b(?:from|at)\s+(?:the\s+)?(?:start|beginning|first\s+slide|slide\s+one)\b/.test(input) ||
+      /\b(?:start|begin|run|play|present)\s+(?:the\s+)?(?:slide\s*show|slideshow|presentation)\s+(?:from\s+)?(?:start|beginning|first\s+slide|slide\s+one)\b/.test(input);
+    const mentionsSlideshow =
+      /\b(?:slide\s*show|slideshow|present\s+mode|presentation\s+mode|presenting)\b/.test(input);
+    const mentionsNextSlide =
+      /\b(?:next|advance|forward)\s+(?:slide|page)\b/.test(input) ||
+      /\b(?:go|move|jump)\s+(?:to\s+)?(?:the\s+)?next\s+(?:slide|page)\b/.test(input);
+    const mentionsPreviousSlide =
+      /\b(?:previous|prev)\s+(?:slide|page)\b/.test(input) ||
+      /\b(?:go|move|jump)\s+back\s+(?:one\s+)?(?:slide|page)?\b/.test(input) ||
+      /\b(?:go|move|jump)\s+(?:to\s+)?(?:the\s+)?(?:previous|prev)\s+(?:slide|page)\b/.test(input);
+    const slideNumber = this._extractPresentationSlideNumber(input);
+    const hasAction =
+      /\b(?:start|open|play|run|begin|launch|present|show|go|goto|jump|move|advance|next|previous|prev|back)\b/.test(input) ||
+      mentionsCurrentSlide ||
+      mentionsBeginning ||
+      Number.isFinite(slideNumber);
+
+    if (!hasAction) {
+      return null;
+    }
+
+    if (!mentionsPresentationSurface && !mentionsCurrentSlide && !mentionsBeginning &&
+      !mentionsNextSlide && !mentionsPreviousSlide && !Number.isFinite(slideNumber)) {
+      return null;
+    }
+
+    if (!mentionsSlideshow && !mentionsCurrentSlide && !mentionsBeginning &&
+      !mentionsNextSlide && !mentionsPreviousSlide && !Number.isFinite(slideNumber)) {
+      return null;
+    }
+
+    if (!mentionsBeginning && !mentionsCurrentSlide &&
+      (mentionsNextSlide || mentionsPreviousSlide || Number.isFinite(slideNumber))) {
+      const intentId = Number.isFinite(slideNumber)
+        ? 'presentation.goto'
+        : mentionsPreviousSlide
+          ? 'presentation.previous'
+          : 'presentation.next';
+      const intent = this.intentRegistry.get(intentId);
+      return intent
+        ? {
+            intent,
+            confidence: 0.98,
+            entities: {
+              appName: 'powerpoint',
+              presentationApp: 'powerpoint',
+              windowName: 'powerpnt',
+              ...(Number.isFinite(slideNumber) ? { slideNumber } : {}),
+              routeSource: 'presentation-control'
+            }
+          }
+        : null;
+    }
+
+    const intent = this.intentRegistry.get('presentation.start');
+    if (!intent) {
+      return null;
+    }
+
+    const mode = mentionsCurrentSlide ? 'current' : 'beginning';
+    return {
+      intent,
+      confidence: 0.98,
+      entities: {
+        appName: 'powerpoint',
+        presentationApp: 'powerpoint',
+        windowName: 'powerpnt',
+        mode,
+        requestedOperation: mode === 'current'
+          ? 'start-presentation-from-current-slide'
+          : 'start-presentation-from-beginning',
+        routeSource: 'presentation-control'
+      }
+    };
+  }
+
+  _extractPresentationSlideNumber(input) {
+    const text = String(input || '').toLowerCase();
+    const numericPatterns = [
+      /\b(?:go|goto|jump|move|switch|open|show|take\s+me)\s+(?:to\s+)?(?:the\s+)?(?:slide\s+)?(?:number\s+)?(\d{1,4})(?:st|nd|rd|th)?(?:\s+slide)?\b/,
+      /\bslide\s+(?:number\s+)?(\d{1,4})(?:st|nd|rd|th)?\b/,
+      /\b(\d{1,4})(?:st|nd|rd|th)?\s+slide\b/
+    ];
+
+    for (const pattern of numericPatterns) {
+      const match = text.match(pattern);
+      if (match?.[1]) {
+        const value = Number(match[1]);
+        return value > 0 && value <= 9999 ? value : null;
+      }
+    }
+
+    const wordNumbers = {
+      first: 1,
+      second: 2,
+      third: 3,
+      fourth: 4,
+      fifth: 5,
+      sixth: 6,
+      seventh: 7,
+      eighth: 8,
+      ninth: 9,
+      tenth: 10,
+      eleventh: 11,
+      twelfth: 12,
+      thirteenth: 13,
+      fourteenth: 14,
+      fifteenth: 15,
+      sixteenth: 16,
+      seventeenth: 17,
+      eighteenth: 18,
+      nineteenth: 19,
+      twentieth: 20
+    };
+    const wordMatch = text.match(/\b(?:go|goto|jump|move|switch|open|show|take\s+me)\s+(?:to\s+)?(?:the\s+)?([a-z]+)\s+slide\b/) ||
+      text.match(/\b([a-z]+)\s+slide\b/);
+    const value = wordNumbers[wordMatch?.[1]];
+    return Number.isFinite(value) ? value : null;
+  }
+
+  _resolvePresentationFileIntent(rawText, preparedInput = {}) {
+    const raw = String(rawText || '').trim().toLowerCase();
+    const corrected = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
+    const input = `${raw} ${corrected}`.replace(/\s+/g, ' ').trim();
+    if (!input) {
+      return null;
+    }
+
+    if (this._resolvePresentationControlIntent(rawText, preparedInput)) {
+      return null;
+    }
+
+    const hasAction = /^(?:open|show|find|locate|search|look\s+for|pull\s+up|launch)\b/.test(input);
+    if (!hasAction) {
+      return null;
+    }
+
+    const hasPresentationCue =
+      /\b(?:pptx?|presentation|presentations|power\s*point\s+file|powerpoint\s+file|slide\s+deck|deck|slides?)\b/.test(input) ||
+      /[^\s]+\.(?:pptx?|key)\b/i.test(input);
+    if (!hasPresentationCue) {
+      return null;
+    }
+
+    const intent = this.intentRegistry.get('file.smartFind');
+    if (!intent) {
+      return null;
+    }
+
+    const openResult = /^(?:open|show|pull\s+up|launch)\b/.test(input);
+    return {
+      intent,
+      confidence: 0.97,
+      entities: {
+        query: this._extractPresentationFileQuery(raw || corrected || input),
+        location: this._extractSmartFileLocation(input),
+        fileType: 'presentation',
+        sortBy: this._extractSmartFileSort(input),
+        timeFilter: this._extractSmartFileTime(input),
+        openResult,
+        routeSource: 'presentation-file'
+      }
+    };
+  }
+
+  _extractPresentationFileQuery(input) {
+    return String(input || '')
+      .replace(/^(?:open|show|find|locate|search|look\s+for|pull\s+up|launch)(?:\s+(?:for|up))?\s+/i, '')
+      .replace(/^(?:some|any|a|an|the|my)\s+/i, '')
+      .replace(/\b(?:pptx?|presentation|presentations|power\s*point|powerpoint|slide\s+deck|deck|slides?|file|files)\b/gi, ' ')
+      .replace(/\b(?:latest|newest|recent|recently|modified|edited|downloaded|created|open|show)\b/gi, ' ')
+      .replace(/\b(?:from|in|on)\s+(?:my\s+)?(?:desktop|downloads?|documents?|folders?|computer|pc|laptop)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   _resolveSmartFileIntent(rawText, preparedInput) {
     const corrected = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
     const raw = String(rawText || corrected || '').trim().toLowerCase();
@@ -5567,7 +5770,7 @@ const newTabMatch = input.match(
     if (!command || /\b(?:shutdown|shut\s+down|restart|reboot|power\s+off|sleep|hibernate|delete|remove\s+(?:file|folder)|erase|move|copy|send|transfer|message|email|call)\b/i.test(command)) {
       return false;
     }
-    return /^(?:open|launch|start|run|close|remove|shut|quit|exit|stop|play|watch|listen\s+to|pause|resume|continue|show)\b/i.test(command);
+    return /^(?:open|launch|start|run|close|remove|shut|quit|exit|stop|play|watch|listen\s+to|pause|resume|continue|show|go|goto|jump|move|advance|next|previous|prev|back)\b/i.test(command);
   }
 
   _buildDelayedScheduledAction(commandText) {
@@ -5590,6 +5793,7 @@ const newTabMatch = input.match(
 
   _resolveScheduledActionRoute(command, prepared) {
     const resolvers = [
+      () => this._resolvePresentationControlIntent(command, prepared),
       () => this._resolveYouTubeMediaIntent(command, prepared),
       () => this._resolveKnownWebOpenIntent(command, prepared),
       () => this._resolveBrowserFollowupIntent(command, prepared),
@@ -5655,6 +5859,24 @@ const newTabMatch = input.match(
         return {
           mediaQuery: cleanText(source.mediaQuery || source.query, 180),
           mediaPlatform: cleanText(source.mediaPlatform || source.platform || 'youtube', 40).toLowerCase()
+        };
+      case 'presentation.start':
+        return {
+          appName: 'powerpoint',
+          windowName: cleanText(source.windowName || 'powerpnt', 80) || 'powerpnt',
+          mode: /current/i.test(cleanText(source.mode, 40)) ? 'current' : 'beginning'
+        };
+      case 'presentation.next':
+      case 'presentation.previous':
+        return {
+          appName: 'powerpoint',
+          windowName: cleanText(source.windowName || 'powerpnt', 80) || 'powerpnt'
+        };
+      case 'presentation.goto':
+        return {
+          appName: 'powerpoint',
+          windowName: cleanText(source.windowName || 'powerpnt', 80) || 'powerpnt',
+          slideNumber: Math.trunc(Number(source.slideNumber))
         };
       default:
         return {};

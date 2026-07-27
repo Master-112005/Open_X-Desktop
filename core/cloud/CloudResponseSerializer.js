@@ -19,8 +19,14 @@ class CloudResponseSerializer {
     const responseId = createId('cloud_response');
     const payloadResult = responseType === 'schedule-sync'
       ? (result || null)
-      : this.sanitizeAssistantResult(result);
-    const feature = responseType === 'schedule-sync' ? 'schedule-sync' : 'assistant-command';
+      : responseType === 'remote-control'
+        ? this.sanitizeRemoteResult(result)
+        : this.sanitizeAssistantResult(result);
+    const feature = responseType === 'schedule-sync'
+      ? 'schedule-sync'
+      : responseType === 'remote-control'
+        ? 'remote-control'
+        : 'assistant-command';
     return {
       packetId: createId('cloud_packet'),
       protocolVersion: this.version,
@@ -83,6 +89,39 @@ class CloudResponseSerializer {
       entities: this.sanitizePlainObject(result.entities || {}, 20),
       data: safeData,
       error: result.error ? this.cleanText(result.error, MAX_ERROR_TEXT) : null
+    };
+  }
+
+  sanitizeRemoteResult(result = {}) {
+    const data = result?.data && typeof result.data === 'object' ? result.data : {};
+    const targets = Array.isArray(data.targets)
+      ? data.targets.slice(0, 8).map((target, index) => ({
+          index: Number(target?.index) || index + 1,
+          id: this.cleanText(target?.id || '', 40),
+          label: this.cleanText(target?.label || target?.name || `Target ${index + 1}`, 80),
+          kind: this.cleanText(target?.kind || '', 40),
+          processName: this.cleanText(target?.processName || '', 80),
+          windowTitle: this.cleanText(target?.windowTitle || '', MAX_FIELD),
+          tabTitle: this.cleanText(target?.tabTitle || '', MAX_FIELD),
+          active: target?.active === true,
+          source: this.cleanText(target?.source || '', 60)
+        }))
+      : undefined;
+    const safeData = {};
+    if (targets) safeData.targets = targets;
+    for (const key of ['count', 'generatedAt', 'action', 'targetId', 'targetLabel', 'command', 'matchedWindow', 'verified']) {
+      if (Object.prototype.hasOwnProperty.call(data, key)) {
+        safeData[key] = typeof data[key] === 'number' || typeof data[key] === 'boolean'
+          ? data[key]
+          : this.cleanText(data[key], MAX_FIELD);
+      }
+    }
+    return {
+      success: result?.success === true,
+      response: this.cleanText(result?.response || result?.message || (result?.success === false ? 'Remote control failed.' : 'Remote control updated.'), MAX_RESPONSE_TEXT),
+      message: this.cleanText(result?.message || result?.response || (result?.success === false ? 'Remote control failed.' : 'Remote control updated.'), MAX_RESPONSE_TEXT),
+      data: Object.keys(safeData).length > 0 ? safeData : null,
+      error: result?.error ? this.cleanText(result.error, MAX_ERROR_TEXT) : null
     };
   }
 

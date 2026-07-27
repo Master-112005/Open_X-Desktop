@@ -16,6 +16,10 @@ describe('Automation Engine', function() {
     assert.ok(actions.includes('volume.set'));
     assert.ok(actions.includes('app.open'));
     assert.ok(actions.includes('app.newTab'));
+    assert.ok(actions.includes('presentation.start'));
+    assert.ok(actions.includes('presentation.next'));
+    assert.ok(actions.includes('presentation.previous'));
+    assert.ok(actions.includes('presentation.goto'));
     assert.ok(actions.includes('mode.start'));
     assert.ok(actions.includes('file.create'));
     assert.ok(actions.includes('file.open'));
@@ -59,6 +63,148 @@ describe('Automation Engine', function() {
     assert.equal(timeThenToday.getMinutes(), 43);
     assert.equal(todayThenTime.getHours(), 14);
     assert.equal(todayThenTime.getMinutes(), 43);
+  });
+
+  it('should start PowerPoint slideshow from the beginning with F5', async function() {
+    const engine = new AutomationEngine({});
+    let captured = null;
+    engine.windows.sendKeys = (windowName, keys, options) => {
+      captured = { windowName, keys, options };
+      return {
+        success: true,
+        data: {
+          matchedWindow: 'Quarter Review - PowerPoint',
+          matchedHandle: 70,
+          processName: 'POWERPNT'
+        }
+      };
+    };
+
+    const result = await engine.execute('presentation.start', { mode: 'beginning' });
+
+    assert.equal(result.success, true);
+    assert.equal(captured.windowName, 'powerpnt');
+    assert.equal(captured.keys, '{F5}');
+    assert.deepEqual(captured.options.preferredProcessNames, ['powerpnt']);
+    assert.equal(result.data.mode, 'beginning');
+    assert.equal(result.data.shortcut, 'F5');
+    assert.equal(result.verification.status, 'passed');
+  });
+
+  it('should start PowerPoint slideshow from the current slide with Shift+F5', async function() {
+    const engine = new AutomationEngine({});
+    let captured = null;
+    engine.windows.sendKeys = (windowName, keys, options) => {
+      captured = { windowName, keys, options };
+      return {
+        success: true,
+        data: {
+          matchedWindow: 'Quarter Review - PowerPoint',
+          matchedHandle: 71,
+          processName: 'POWERPNT'
+        }
+      };
+    };
+
+    const result = await engine.execute('presentation.start', { mode: 'current' });
+
+    assert.equal(result.success, true);
+    assert.equal(captured.windowName, 'powerpnt');
+    assert.equal(captured.keys, '+{F5}');
+    assert.deepEqual(captured.options.preferredProcessNames, ['powerpnt']);
+    assert.equal(result.data.mode, 'current');
+    assert.equal(result.data.shortcut, 'Shift+F5');
+    assert.equal(result.verification.status, 'passed');
+  });
+
+  it('should move PowerPoint to the next slide with the right arrow', async function() {
+    const engine = new AutomationEngine({});
+    let captured = null;
+    engine.windows.sendKeys = (windowName, keys, options) => {
+      captured = { windowName, keys, options };
+      return {
+        success: true,
+        data: {
+          matchedWindow: 'Quarter Review - PowerPoint',
+          matchedHandle: 72,
+          processName: 'POWERPNT'
+        }
+      };
+    };
+
+    const result = await engine.execute('presentation.next', {});
+
+    assert.equal(result.success, true);
+    assert.equal(captured.windowName, 'powerpnt');
+    assert.equal(captured.keys, '{RIGHT}');
+    assert.deepEqual(captured.options.preferredProcessNames, ['powerpnt']);
+    assert.equal(result.data.direction, 'next');
+    assert.equal(result.verification.status, 'passed');
+  });
+
+  it('should move PowerPoint to the previous slide with the left arrow', async function() {
+    const engine = new AutomationEngine({});
+    let captured = null;
+    engine.windows.sendKeys = (windowName, keys, options) => {
+      captured = { windowName, keys, options };
+      return {
+        success: true,
+        data: {
+          matchedWindow: 'Quarter Review - PowerPoint',
+          matchedHandle: 73,
+          processName: 'POWERPNT'
+        }
+      };
+    };
+
+    const result = await engine.execute('presentation.previous', {});
+
+    assert.equal(result.success, true);
+    assert.equal(captured.windowName, 'powerpnt');
+    assert.equal(captured.keys, '{LEFT}');
+    assert.deepEqual(captured.options.preferredProcessNames, ['powerpnt']);
+    assert.equal(result.data.direction, 'previous');
+    assert.equal(result.verification.status, 'passed');
+  });
+
+  it('should jump PowerPoint to a specific slide number', async function() {
+    const engine = new AutomationEngine({});
+    let captured = null;
+    engine.windows.sendKeys = (windowName, keys, options) => {
+      captured = { windowName, keys, options };
+      return {
+        success: true,
+        data: {
+          matchedWindow: 'Quarter Review - PowerPoint',
+          matchedHandle: 74,
+          processName: 'POWERPNT'
+        }
+      };
+    };
+
+    const result = await engine.execute('presentation.goto', { slideNumber: 6 });
+
+    assert.equal(result.success, true);
+    assert.equal(captured.windowName, 'powerpnt');
+    assert.equal(captured.keys, '6{ENTER}');
+    assert.deepEqual(captured.options.preferredProcessNames, ['powerpnt']);
+    assert.equal(result.data.slideNumber, 6);
+    assert.equal(result.verification.status, 'passed');
+  });
+
+  it('should reject invalid PowerPoint slide numbers before sending keys', async function() {
+    const engine = new AutomationEngine({});
+    let called = false;
+    engine.windows.sendKeys = () => {
+      called = true;
+      return { success: true };
+    };
+
+    const result = await engine.execute('presentation.goto', { slideNumber: 0 });
+
+    assert.equal(result.success, false);
+    assert.equal(called, false);
+    assert.match(result.error, /valid PowerPoint slide number/);
   });
 
   it('should schedule one reminder for each explicit reminder time expression', async function() {

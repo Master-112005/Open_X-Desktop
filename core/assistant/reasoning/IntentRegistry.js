@@ -95,6 +95,59 @@ const INTENT_DEFINITIONS = [
     description: 'Switch to a running application'
   },
   {
+    id: 'presentation.start',
+    patterns: [
+      'start slideshow',
+      'start slide show',
+      'open slide show from beginning',
+      'play from current slide',
+      'start presentation from current slide',
+      'present from beginning'
+    ],
+    permissionLevel: 'low',
+    action: 'presentation.start',
+    entities: [
+      { name: 'appName', type: 'string', required: false },
+      { name: 'windowName', type: 'string', required: false },
+      { name: 'mode', type: 'string', required: false }
+    ],
+    description: 'Start a PowerPoint presentation from the beginning or from the current slide'
+  },
+  {
+    id: 'presentation.next',
+    patterns: ['next slide', 'advance slide', 'go to next slide', 'move forward one slide'],
+    permissionLevel: 'low',
+    action: 'presentation.next',
+    entities: [
+      { name: 'appName', type: 'string', required: false },
+      { name: 'windowName', type: 'string', required: false }
+    ],
+    description: 'Move a PowerPoint presentation to the next slide'
+  },
+  {
+    id: 'presentation.previous',
+    patterns: ['previous slide', 'prev slide', 'go back one slide', 'go to previous slide'],
+    permissionLevel: 'low',
+    action: 'presentation.previous',
+    entities: [
+      { name: 'appName', type: 'string', required: false },
+      { name: 'windowName', type: 'string', required: false }
+    ],
+    description: 'Move a PowerPoint presentation to the previous slide'
+  },
+  {
+    id: 'presentation.goto',
+    patterns: ['go to slide', 'jump to slide', 'show slide number', 'open slide number'],
+    permissionLevel: 'low',
+    action: 'presentation.goto',
+    entities: [
+      { name: 'appName', type: 'string', required: false },
+      { name: 'windowName', type: 'string', required: false },
+      { name: 'slideNumber', type: 'number', required: true }
+    ],
+    description: 'Jump a PowerPoint presentation to a specific slide number'
+  },
+  {
     id: 'mode.start',
     patterns: ['start mode', 'open mode', 'launch mode', 'activate mode', 'start the mode'],
     permissionLevel: 'low',
