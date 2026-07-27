@@ -214,6 +214,8 @@ describe('CloudCommandManager', () => {
                 id: 'youtube',
                 label: 'YouTube',
                 kind: 'media',
+                handle: 1234,
+                processId: 5678,
                 processName: 'chrome',
                 windowTitle: 'Dulander song - YouTube - Google Chrome',
                 tabTitle: 'Dulander song - YouTube',
@@ -242,5 +244,57 @@ describe('CloudCommandManager', () => {
     assert.equal(connection.sent[0].metadata.feature, 'remote-control');
     assert.equal(connection.sent[0].payload.responseType, 'remote-control');
     assert.equal(connection.sent[0].payload.payload.data.targets[0].id, 'youtube');
+    assert.equal(connection.sent[0].payload.payload.data.targets[0].handle, 1234);
+    assert.equal(connection.sent[0].payload.payload.data.targets[0].processId, 5678);
+    assert.equal(connection.sent[0].metadata.retryable, false);
+  });
+
+  it('forwards remote-control handle details to the desktop remote handler', async () => {
+    const connection = createConnection();
+    let handledPayload = null;
+    const manager = new CloudCommandManager({
+      connectionManager: connection,
+      executionTimeoutMs: 1000,
+      commandRouter: {
+        async route() {
+          return { success: false };
+        }
+      },
+      remoteControlHandler: async (payload) => {
+        handledPayload = payload;
+        return {
+          success: true,
+          data: {
+            action: 'remote.control',
+            targetId: payload.targetId,
+            command: payload.command,
+            verified: true
+          }
+        };
+      },
+      logger: { info() {}, warn() {}, error() {} }
+    });
+    const packet = createPacket({
+      type: 'remote-control',
+      action: 'control',
+      targetId: 'youtube',
+      command: 'right',
+      targetHandle: 1234,
+      targetProcessId: 5678,
+      processName: 'chrome',
+      tabTitle: 'Dulander song - YouTube'
+    });
+    packet.packet.metadata = { feature: 'remote-control' };
+
+    manager.handleRelayPacket(packet);
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.equal(handledPayload.targetId, 'youtube');
+    assert.equal(handledPayload.command, 'right');
+    assert.equal(handledPayload.targetHandle, 1234);
+    assert.equal(handledPayload.targetProcessId, 5678);
+    assert.equal(handledPayload.processName, 'chrome');
+    assert.equal(connection.sent.length, 1);
+    assert.equal(connection.sent[0].payload.payload.data.verified, true);
   });
 });

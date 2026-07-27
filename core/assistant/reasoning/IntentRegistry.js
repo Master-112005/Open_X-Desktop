@@ -148,6 +148,41 @@ const INTENT_DEFINITIONS = [
     description: 'Jump a PowerPoint presentation to a specific slide number'
   },
   {
+    id: 'remote.listTargets',
+    patterns: ['show remote apps', 'list remote apps', 'what can remote control', 'remote targets'],
+    permissionLevel: 'low',
+    action: 'remote.listTargets',
+    entities: [],
+    description: 'List currently running apps that can be controlled by OpenX Remote'
+  },
+  {
+    id: 'remote.control',
+    patterns: [
+      'remote up',
+      'remote down',
+      'remote left',
+      'remote right',
+      'remote ok',
+      'remote play',
+      'remote pause',
+      'remote back',
+      'remote fullscreen',
+      'press up',
+      'press down',
+      'press left',
+      'press right',
+      'press ok'
+    ],
+    permissionLevel: 'low',
+    action: 'remote.control',
+    entities: [
+      { name: 'targetId', type: 'string', required: false },
+      { name: 'action', type: 'string', required: true },
+      { name: 'command', type: 'string', required: false }
+    ],
+    description: 'Send a directional or shortcut command to an active OpenX Remote target'
+  },
+  {
     id: 'mode.start',
     patterns: ['start mode', 'open mode', 'launch mode', 'activate mode', 'start the mode'],
     permissionLevel: 'low',

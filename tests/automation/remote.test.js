@@ -72,6 +72,85 @@ describe('Remote Controller', function() {
     assert.strictEqual(calls[1].options.requireTitleTokenMatch, true);
   });
 
+  it('reuses a short target cache so repeated remote refreshes do not rescan windows', function() {
+    let windowScans = 0;
+    let tabScans = 0;
+    const remote = new RemoteController({}, {
+      windows: {
+        listWindows: () => {
+          windowScans += 1;
+          return [
+            { title: 'Quarterly update - PowerPoint', processName: 'POWERPNT', handle: 7, processId: 70 }
+          ];
+        },
+        listBrowserTabs: () => {
+          tabScans += 1;
+          return [
+            {
+              title: 'Dulander song - YouTube',
+              windowTitle: 'Dulander song - YouTube - Google Chrome',
+              processName: 'chrome',
+              handle: 11,
+              processId: 110,
+              isActiveTab: true
+            }
+          ];
+        }
+      }
+    });
+
+    const first = remote.listTargets();
+    const second = remote.listTargets();
+
+    assert.strictEqual(first.success, true);
+    assert.strictEqual(second.success, true);
+    assert.strictEqual(windowScans, 1);
+    assert.strictEqual(tabScans, 1);
+    assert.strictEqual(second.data.targets[0].handle, 11);
+    assert.strictEqual(second.data.targets[0].processId, 110);
+  });
+
+  it('sends direct handle details for cached remote targets and normalizes action aliases', function() {
+    const calls = [];
+    const remote = new RemoteController({}, {
+      windows: {
+        listWindows: () => [],
+        listBrowserTabs: () => [
+          {
+            title: 'Dulander song - YouTube',
+            windowTitle: 'Dulander song - YouTube - Google Chrome',
+            processName: 'chrome',
+            handle: 1234,
+            processId: 4567,
+            isActiveTab: true
+          }
+        ],
+        sendKeys: (windowName, keys, options) => {
+          calls.push({ windowName, keys, options });
+          return {
+            success: true,
+            data: {
+              matchedWindow: windowName,
+              matchedHandle: options.targetHandle,
+              processId: options.targetProcessId,
+              processName: options.targetProcessName
+            }
+          };
+        }
+      }
+    });
+
+    remote.listTargets();
+    const result = remote.sendControl({ targetId: 'youtube', action: 'next' });
+
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0].keys, '{RIGHT}');
+    assert.strictEqual(calls[0].options.targetHandle, 1234);
+    assert.strictEqual(calls[0].options.targetProcessId, 4567);
+    assert.strictEqual(result.data.processId, 4567);
+  });
+
   it('rejects unsupported remote targets', function() {
     const remote = new RemoteController({}, {
       windows: {

@@ -4604,7 +4604,10 @@ async function handleCloudRemoteControl(payload = {}) {
       targetId: payload.targetId,
       action: payload.command,
       windowTitle: payload.windowTitle,
-      tabTitle: payload.tabTitle
+      tabTitle: payload.tabTitle,
+      targetHandle: payload.targetHandle,
+      targetProcessId: payload.targetProcessId,
+      processName: payload.processName
     });
   }
   return {
@@ -6156,6 +6159,9 @@ async function buildManagedDeviceList() {
   const currentDeviceId = cloudStatus.device?.deviceId || runtimeConfig?.cloud?.deviceId || '';
 
   for (const cloud of cloudById.values()) {
+    if (currentDeviceId && cloud.deviceId === currentDeviceId) {
+      continue;
+    }
     output.push({
       deviceId: cloud.deviceId,
       deviceName: cloud.friendlyName || cloud.deviceName || cloud.deviceId,

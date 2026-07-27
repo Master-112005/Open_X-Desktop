@@ -294,12 +294,13 @@ class CloudConnectionManager extends EventEmitter {
     return sentCount;
   }
 
-  requestPairToken(options = {}) {
+  async requestPairToken(options = {}) {
     if (!this.isConnected()) {
       return Promise.reject(new Error('Connect to Relay Server first.'));
     }
     const requestId = `cloud-pair-token-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const timeoutMs = this.clamp(options.timeoutMs, 1000, 30000, 10000);
+    await this.waitForAuthentication(Math.min(timeoutMs, DEFAULT_TIMEOUT_MS));
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(requestId);
@@ -414,12 +415,13 @@ class CloudConnectionManager extends EventEmitter {
     });
   }
 
-  sendDeviceMutation(type, payload = {}, options = {}) {
+  async sendDeviceMutation(type, payload = {}, options = {}) {
     if (!this.isConnected()) {
       return Promise.reject(new Error('Connect to Relay Server first.'));
     }
     const requestId = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const timeoutMs = this.clamp(options.timeoutMs, 1000, 60000, DEFAULT_TIMEOUT_MS);
+    await this.waitForAuthentication(Math.min(timeoutMs, DEFAULT_TIMEOUT_MS));
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(requestId);
@@ -437,6 +439,39 @@ class CloudConnectionManager extends EventEmitter {
         this.pendingRequests.delete(requestId);
         reject(new Error('Cloud relay is not connected.'));
       }
+    });
+  }
+
+  waitForAuthentication(timeoutMs = DEFAULT_TIMEOUT_MS) {
+    if (this.auth?.accessToken) return Promise.resolve(true);
+    if (!this.settings.deviceId) return Promise.resolve(false);
+    if (!this.isConnected()) return Promise.reject(new Error('Connect to Relay Server first.'));
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const onStatus = status => {
+        if (status?.authenticated === true || this.auth?.accessToken) {
+          done(resolve, true);
+        }
+      };
+      const onAuthError = payload => {
+        done(reject, new Error(payload?.message || 'Cloud device authentication failed.'));
+      };
+      const done = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        this.off('status', onStatus);
+        this.off('auth-error', onAuthError);
+        callback(value);
+      };
+      const timeout = setTimeout(() => {
+        done(reject, new Error('Cloud device authentication timed out.'));
+      }, this.clamp(timeoutMs, 1000, 60000, DEFAULT_TIMEOUT_MS));
+      timeout.unref?.();
+      this.on('status', onStatus);
+      this.on('auth-error', onAuthError);
+      onStatus(this.getStatus());
     });
   }
 
@@ -571,6 +606,8 @@ class CloudConnectionManager extends EventEmitter {
     }
     if (payload?.type === 'auth:error') {
       this.logger.warn('Cloud auth warning', { code: payload.code, message: payload.message });
+      this.rejectPendingRequest(payload.requestId, new Error(payload.message || 'Cloud authentication failed.'));
+      this.emit('auth-error', payload);
       if (payload.code === 'expired-token' && this.auth?.refreshToken) this.refreshAuth();
       return;
     }

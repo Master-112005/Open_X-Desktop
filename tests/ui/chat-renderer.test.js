@@ -369,6 +369,14 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /Generate New QR/);
     assert.match(script, /function setCloudGenerateQrLabel\(/);
     assert.match(script, /function updateMobileAppPresentation\(/);
+    assert.match(script, /function isManagedPhoneDevice\(device = \{\}\)/);
+    assert.match(script, /if \(device\.isCurrentDevice === true\) return false/);
+    assert.match(script, /function isConfirmedMobileConnection\(device = \{\}\)/);
+    assert.match(script, /if \(!isManagedPhoneDevice\(device\)\) return false/);
+    assert.match(script, /\.filter\(isManagedPhoneDevice\)/);
+    assert.match(script, /mobileQrStageEl\) mobileQrStageEl\.hidden = connected/);
+    assert.match(script, /mobileConnectedSummaryEl\) mobileConnectedSummaryEl\.hidden = !connected/);
+    assert.doesNotMatch(script, /mobileQrStageEl\) mobileQrStageEl\.hidden = hasDevice/);
     assert.match(script, /function toggleMobileServerDetails\(/);
     assert.match(script, /Disconnect Server/);
     assert.match(script, /function formatPairingCountdown\(/);

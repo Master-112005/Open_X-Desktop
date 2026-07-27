@@ -56,6 +56,11 @@ function toSafeInteger(value, label) {
   return number;
 }
 
+function toSafeOptionalInteger(value) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
 const USER32_BOOTSTRAP = `
 Add-Type -AssemblyName Microsoft.VisualBasic
 $signature = @'
@@ -430,7 +435,15 @@ $wshell.SendKeys('{ENTER}')
   }
 
   sendKeys(windowName, keys, options = {}) {
-    const target = this.findWindow(windowName, options);
+    const directHandle = toSafeOptionalInteger(options.targetHandle || options.matchedHandle);
+    const target = directHandle
+      ? {
+          handle: directHandle,
+          id: toSafeOptionalInteger(options.targetProcessId || options.processId) || 0,
+          title: options.targetTitle || windowName || 'the matched window',
+          processName: options.targetProcessName || options.processName || 'unknown'
+        }
+      : this.findWindow(windowName, options);
     if (!target) {
       return { success: false, error: this._missingWindowMessage(windowName, options) };
     }
@@ -472,6 +485,7 @@ $wshell.SendKeys('${escapePowerShell(safeKeys)}')
           keys: safeKeys,
           matchedWindow: safeTarget.title,
           matchedHandle: safeTarget.handle,
+          processId: safeTarget.id || null,
           processName: safeTarget.processName
         }
       };
