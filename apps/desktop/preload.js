@@ -927,6 +927,12 @@ const openxApi = {
   setDesktopChatUiState: (state = {}) =>
     ipcRenderer.invoke('desktopChat:uiState', state),
 
+  listRemoteTargets: () =>
+    ipcRenderer.invoke('remote:listTargets'),
+
+  sendRemoteControl: (payload = {}) =>
+    ipcRenderer.invoke('remote:control', payload),
+
   getUiState: () =>
     ipcRenderer.invoke('uiState:get'),
 

@@ -18,6 +18,7 @@ class CloudCommandManager extends EventEmitter {
     this.serializer = options.serializer || new CloudResponseSerializer();
     this.scheduleProvider = typeof options.scheduleProvider === 'function' ? options.scheduleProvider : null;
     this.scheduleUpsertHandler = typeof options.scheduleUpsertHandler === 'function' ? options.scheduleUpsertHandler : null;
+    this.remoteControlHandler = typeof options.remoteControlHandler === 'function' ? options.remoteControlHandler : null;
     this.executionTimeoutMs = Number.isFinite(options.executionTimeoutMs)
       ? Math.max(1000, Math.round(options.executionTimeoutMs))
       : DEFAULT_EXECUTION_TIMEOUT_MS;
@@ -95,6 +96,11 @@ class CloudCommandManager extends EventEmitter {
       return { accepted: true, requestId: request.requestId };
     }
 
+    if (request.feature === 'remote-control') {
+      this.executeRemoteControl(request);
+      return { accepted: true, requestId: request.requestId };
+    }
+
     const queued = this.queue.enqueue(request);
     if (!queued.accepted) {
       this.setLifecycle(request.requestId, queued.code);
@@ -146,6 +152,39 @@ class CloudCommandManager extends EventEmitter {
           feature: 'schedule-sync',
           action,
           schedule: payload.schedule || payload.item || null,
+          deviceName: String(payload.deviceName || payload.sourceDeviceName || packet.metadata?.deviceName || '').trim(),
+          metadata: {
+            ...(packet.metadata || {}),
+            ...(payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {})
+          }
+        }
+      };
+    }
+
+    if (kind === 'remote-control') {
+      if (!packet.requestId) {
+        return this.fail('missing-request-id', 'Request ID is required.');
+      }
+      const action = String(payload.action || payload.operation || 'listTargets').trim();
+      const allowedActions = new Set(['listTargets', 'control']);
+      if (!allowedActions.has(action)) {
+        return this.fail('unsupported-remote-action', 'Unsupported remote control action.');
+      }
+      const targetId = String(payload.targetId || payload.target || '').trim();
+      const command = String(payload.command || payload.control || '').trim();
+      if (action === 'control' && (!targetId || !command)) {
+        return this.fail('invalid-remote-control', 'Remote target and command are required.');
+      }
+      return {
+        valid: true,
+        request: {
+          ...this.normalizeRequest(packet),
+          feature: 'remote-control',
+          action,
+          targetId,
+          command,
+          windowTitle: String(payload.windowTitle || '').trim(),
+          tabTitle: String(payload.tabTitle || '').trim(),
           deviceName: String(payload.deviceName || payload.sourceDeviceName || packet.metadata?.deviceName || '').trim(),
           metadata: {
             ...(packet.metadata || {}),
@@ -328,6 +367,44 @@ class CloudCommandManager extends EventEmitter {
         request,
         error?.code || 'schedule-sync-failed',
         error?.message || 'Schedule sync failed.',
+        { status: 'failed' }
+      ));
+    }
+  }
+
+  async executeRemoteControl(request) {
+    this.setLifecycle(request.requestId, 'executing');
+    try {
+      if (!this.remoteControlHandler) {
+        throw Object.assign(new Error('Remote control unavailable.'), { code: 'remote-control-unavailable' });
+      }
+      const result = await this.remoteControlHandler({
+        action: request.action,
+        targetId: request.targetId,
+        command: request.command,
+        windowTitle: request.windowTitle,
+        tabTitle: request.tabTitle,
+        request
+      });
+      this.setLifecycle(request.requestId, result?.success === false ? 'failed' : 'completed');
+      this.sendSerializedResponse(this.serializer.serialize({
+        request,
+        result: {
+          success: result?.success !== false,
+          response: result?.response || result?.message || 'Remote control updated.',
+          message: result?.message || result?.response || 'Remote control updated.',
+          data: result?.data || null,
+          error: result?.error || null
+        },
+        status: result?.success === false ? 'failed' : 'completed',
+        responseType: 'remote-control'
+      }));
+    } catch (error) {
+      this.setLifecycle(request.requestId, 'failed');
+      this.sendSerializedResponse(this.serializer.error(
+        request,
+        error?.code || 'remote-control-failed',
+        error?.message || 'Remote control failed.',
         { status: 'failed' }
       ));
     }

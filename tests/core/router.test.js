@@ -795,6 +795,82 @@ describe('Action Router', function() {
     assert.equal(result.entities.appName, 'powerpoint');
   });
 
+  it('should route PowerPoint slideshow controls before app and media fallbacks', async function() {
+    const config = {
+      permissions: {
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false },
+          medium: { requiresConfirmation: false, requiresAuth: false }
+        }
+      }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities, verified: true } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const fromBeginning = await router.process('start powerpoint slide show from beginning', 'chat');
+    const fromCurrent = await router.process('play from current slide', 'chat');
+    const nextSlide = await router.process('next slide', 'chat');
+    const previousSlide = await router.process('go back one slide', 'chat');
+    const sixthSlide = await router.process('go to slide 6', 'chat');
+    const sixthSlideWords = await router.process('jump to sixth slide', 'chat');
+    const firstSlideStart = await router.process('start slide show from first slide', 'chat');
+
+    assert.equal(fromBeginning.intent, 'presentation.start');
+    assert.equal(fromBeginning.entities.mode, 'beginning');
+    assert.equal(fromCurrent.intent, 'presentation.start');
+    assert.equal(fromCurrent.entities.mode, 'current');
+    assert.equal(nextSlide.intent, 'presentation.next');
+    assert.equal(previousSlide.intent, 'presentation.previous');
+    assert.equal(sixthSlide.intent, 'presentation.goto');
+    assert.equal(sixthSlide.entities.slideNumber, 6);
+    assert.equal(sixthSlideWords.intent, 'presentation.goto');
+    assert.equal(sixthSlideWords.entities.slideNumber, 6);
+    assert.equal(firstSlideStart.intent, 'presentation.start');
+    assert.equal(firstSlideStart.entities.mode, 'beginning');
+    assert.deepEqual(executed.map(step => step.actionId), [
+      'presentation.start',
+      'presentation.start',
+      'presentation.next',
+      'presentation.previous',
+      'presentation.goto',
+      'presentation.goto',
+      'presentation.start'
+    ]);
+  });
+
+  it('should treat generic ppt requests as presentation file search', async function() {
+    const config = {
+      permissions: {
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false },
+          medium: { requiresConfirmation: false, requiresAuth: false }
+        }
+      }
+    };
+    const stubEngine = {
+      execute(actionId, entities) {
+        return { success: true, data: { actionId, ...entities, verified: true } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const somePpt = await router.process('open some ppt', 'chat');
+    const presentation = await router.process('open my presentation', 'chat');
+
+    assert.equal(somePpt.intent, 'file.smartFind');
+    assert.equal(somePpt.entities.fileType, 'presentation');
+    assert.equal(somePpt.entities.openResult, true);
+    assert.equal(presentation.intent, 'file.smartFind');
+    assert.equal(presentation.entities.fileType, 'presentation');
+    assert.equal(presentation.entities.openResult, true);
+  });
+
   it('should route system status command', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
@@ -3502,6 +3578,8 @@ describe('Action Router', function() {
     const delayedYoutubeClose = await router.process('after 10 min close youtube', 'chat');
     const trailingDelayedYoutubeClose = await router.process('close youtube after 10 min', 'chat');
     const delayedPlay = await router.process('after one min play dulander song', 'chat');
+    const delayedSlideshow = await router.process('after one min start slide show from beginning', 'chat');
+    const delayedSlideJump = await router.process('after one min go to slide 6', 'chat');
 
     assert.equal(birthday.intent, 'reminder.set');
     assert.equal(birthday.entities.timeExpression, 'tomorrow');
@@ -3536,6 +3614,20 @@ describe('Action Router', function() {
     assert.deepEqual(delayedPlay.entities.scheduledAction, {
       actionId: 'media.play',
       entities: { mediaQuery: 'dulander song', mediaPlatform: 'youtube' }
+    });
+    assert.equal(delayedSlideshow.intent, 'reminder.set');
+    assert.equal(delayedSlideshow.entities.duration, 1);
+    assert.equal(delayedSlideshow.entities.reminderText, 'start slide show from beginning');
+    assert.deepEqual(delayedSlideshow.entities.scheduledAction, {
+      actionId: 'presentation.start',
+      entities: { appName: 'powerpoint', windowName: 'powerpnt', mode: 'beginning' }
+    });
+    assert.equal(delayedSlideJump.intent, 'reminder.set');
+    assert.equal(delayedSlideJump.entities.duration, 1);
+    assert.equal(delayedSlideJump.entities.reminderText, 'go to slide 6');
+    assert.deepEqual(delayedSlideJump.entities.scheduledAction, {
+      actionId: 'presentation.goto',
+      entities: { appName: 'powerpoint', windowName: 'powerpnt', slideNumber: 6 }
     });
   });
 

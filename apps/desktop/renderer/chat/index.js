@@ -79,6 +79,7 @@ const viewSwitcherEl = document.getElementById('view-switcher');
 const chatViewBtn = document.getElementById('chat-view-btn');
 const activityViewBtn = document.getElementById('activity-view-btn');
 const appsViewBtn = document.getElementById('apps-view-btn');
+const remoteViewBtn = document.getElementById('remote-view-btn');
 const peopleChatAppBtn = document.getElementById('people-chat-app-btn');
 const calendarAppBtn = document.getElementById('calendar-app-btn');
 const remindersAppBtn = document.getElementById('reminders-app-btn');
@@ -89,7 +90,14 @@ const conversationView = document.getElementById('conversation-view');
 const peopleChatView = document.getElementById('people-chat-view');
 const activityView = document.getElementById('activity-view');
 const remindersView = document.getElementById('reminders-view');
+const remoteView = document.getElementById('remote-view');
 const appsView = document.getElementById('apps-view');
+const remoteAppSummaryEl = document.getElementById('remote-app-summary');
+const remoteAppCloseBtn = document.getElementById('remote-app-close-btn');
+const remoteTargetSelectEl = document.getElementById('remote-target-select');
+const remoteRefreshBtn = document.getElementById('remote-refresh-btn');
+const remoteControlButtons = document.querySelectorAll('[data-remote-action]');
+const remoteStatusEl = document.getElementById('remote-status');
 const peopleChatShellEl = document.querySelector('.people-chat-shell');
 const peopleChatListEl = document.getElementById('people-chat-list');
 const peopleChatThreadEl = document.getElementById('people-chat-thread');
@@ -213,6 +221,9 @@ const selectedModeApps = new Map();
 let activeWorkspaceView = 'chat';
 let activeRemindersTab = 'reminders';
 let activeAboutTrigger = null;
+let remoteTargets = [];
+let selectedRemoteTargetKey = '';
+let remoteTargetsLoading = false;
 let peopleChatConversations = [];
 let activePeopleChatId = null;
 let peopleChatFilter = 'all';
@@ -2121,16 +2132,18 @@ function openPeopleChatFromDesktopEvent() {
 }
 
 function setWorkspaceView(viewName) {
-  activeWorkspaceView = ['activity', 'apps', 'people-chat', 'reminders'].includes(viewName) ? viewName : 'chat';
+  activeWorkspaceView = ['activity', 'apps', 'people-chat', 'reminders', 'remote'].includes(viewName) ? viewName : 'chat';
   const showingActivity = activeWorkspaceView === 'activity';
   const showingApps = activeWorkspaceView === 'apps';
   const showingPeopleChat = activeWorkspaceView === 'people-chat';
   const showingReminders = activeWorkspaceView === 'reminders';
+  const showingRemote = activeWorkspaceView === 'remote';
   const showingChat = activeWorkspaceView === 'chat';
-  const activeSwitcherView = showingActivity ? 'activity' : showingApps ? 'apps' : 'chat';
+  const activeSwitcherView = showingActivity ? 'activity' : showingApps ? 'apps' : showingRemote ? 'remote' : 'chat';
   if (viewSwitcherEl) viewSwitcherEl.dataset.activeView = activeSwitcherView;
   document.body?.classList.toggle('people-chat-fullscreen', showingPeopleChat);
   document.body?.classList.toggle('reminders-fullscreen', showingReminders);
+  document.body?.classList.toggle('remote-fullscreen', showingRemote);
   conversationView.classList.toggle('active', showingChat);
   conversationView.hidden = !showingChat;
   peopleChatView.classList.toggle('active', showingPeopleChat);
@@ -2139,6 +2152,8 @@ function setWorkspaceView(viewName) {
   activityView.hidden = !showingActivity;
   remindersView?.classList.toggle('active', showingReminders);
   if (remindersView) remindersView.hidden = !showingReminders;
+  remoteView?.classList.toggle('active', showingRemote);
+  if (remoteView) remoteView.hidden = !showingRemote;
   appsView.classList.toggle('active', showingApps);
   appsView.hidden = !showingApps;
   chatViewBtn.classList.toggle('active', showingChat);
@@ -2147,10 +2162,14 @@ function setWorkspaceView(viewName) {
   activityViewBtn.setAttribute('aria-pressed', String(showingActivity));
   appsViewBtn.classList.toggle('active', showingApps);
   appsViewBtn.setAttribute('aria-pressed', String(showingApps));
+  remoteViewBtn?.classList.toggle('active', showingRemote);
+  remoteViewBtn?.setAttribute('aria-pressed', String(showingRemote));
   if (showingActivity) {
     renderActivity();
   } else if (showingReminders) {
     renderRemindersApp();
+  } else if (showingRemote) {
+    refreshRemoteTargets({ quiet: remoteTargets.length > 0 });
   } else if (showingPeopleChat) {
     peopleChatThreadOpen = false;
     activePeopleChatId = null;
@@ -2164,6 +2183,114 @@ function setWorkspaceView(viewName) {
     requestAnimationFrame(() => inputBox.focus());
   }
   publishPeopleChatUiState();
+}
+
+function remoteTargetKey(target = {}) {
+  return [target.id, target.tabTitle, target.windowTitle, target.processName]
+    .map(value => String(value || '').trim())
+    .join('|');
+}
+
+function selectedRemoteTarget() {
+  const selectedKey = remoteTargetSelectEl?.value || selectedRemoteTargetKey;
+  return remoteTargets.find(target => remoteTargetKey(target) === selectedKey) || remoteTargets[0] || null;
+}
+
+function setRemoteStatus(message, tone = 'info') {
+  if (!remoteStatusEl) return;
+  remoteStatusEl.textContent = message;
+  remoteStatusEl.dataset.tone = tone;
+}
+
+function renderRemoteTargets() {
+  if (!remoteTargetSelectEl) return;
+  const previous = selectedRemoteTargetKey || remoteTargetSelectEl.value;
+  remoteTargetSelectEl.textContent = '';
+  if (!remoteTargets.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = remoteTargetsLoading ? 'Scanning active apps...' : 'No active remote apps';
+    remoteTargetSelectEl.appendChild(option);
+    remoteTargetSelectEl.disabled = true;
+    remoteControlButtons.forEach(button => { button.disabled = true; });
+    if (remoteAppSummaryEl) remoteAppSummaryEl.textContent = 'Open YouTube, PowerPoint, Instagram, or another supported target first.';
+    return;
+  }
+
+  remoteTargetSelectEl.disabled = false;
+  remoteControlButtons.forEach(button => { button.disabled = false; });
+  remoteTargets.forEach(target => {
+    const option = document.createElement('option');
+    option.value = remoteTargetKey(target);
+    option.textContent = target.tabTitle || target.label || target.windowTitle || 'Remote target';
+    remoteTargetSelectEl.appendChild(option);
+  });
+  selectedRemoteTargetKey = remoteTargets.some(target => remoteTargetKey(target) === previous)
+    ? previous
+    : remoteTargetKey(remoteTargets[0]);
+  remoteTargetSelectEl.value = selectedRemoteTargetKey;
+  if (remoteAppSummaryEl) {
+    remoteAppSummaryEl.textContent = `${remoteTargets.length} active remote ${remoteTargets.length === 1 ? 'target' : 'targets'}`;
+  }
+}
+
+async function refreshRemoteTargets(options = {}) {
+  if (!window.openx?.listRemoteTargets) {
+    remoteTargets = [];
+    renderRemoteTargets();
+    setRemoteStatus('Remote control is unavailable in this build.', 'error');
+    return;
+  }
+  remoteTargetsLoading = true;
+  renderRemoteTargets();
+  if (!options.quiet) setRemoteStatus('Scanning active remote apps...', 'info');
+  try {
+    const result = await window.openx.listRemoteTargets();
+    remoteTargets = Array.isArray(result?.data?.targets) ? result.data.targets : [];
+    renderRemoteTargets();
+    setRemoteStatus(remoteTargets.length
+      ? 'Remote is ready.'
+      : 'Open a supported app like YouTube, PowerPoint, Instagram, or Spotify.', remoteTargets.length ? 'success' : 'info');
+  } catch (error) {
+    remoteTargets = [];
+    renderRemoteTargets();
+    setRemoteStatus(error?.message || 'Could not scan remote targets.', 'error');
+  } finally {
+    remoteTargetsLoading = false;
+    renderRemoteTargets();
+  }
+}
+
+async function sendRemoteAction(action) {
+  const target = selectedRemoteTarget();
+  if (!target || !window.openx?.sendRemoteControl) {
+    setRemoteStatus('Choose an active remote target first.', 'warning');
+    return;
+  }
+  setRemoteStatus(`Sending ${action} to ${target.label || 'target'}...`, 'info');
+  remoteControlButtons.forEach(button => { button.disabled = true; });
+  try {
+    const result = await window.openx.sendRemoteControl({
+      targetId: target.id,
+      action,
+      windowTitle: target.windowTitle || '',
+      tabTitle: target.tabTitle || ''
+    });
+    if (result?.success === false) {
+      setRemoteStatus(result.error || 'Remote command failed.', 'error');
+      showToast('Remote command failed', result.error || 'The active app did not accept the command.', 'error');
+      return;
+    }
+    setRemoteStatus(`${target.label || 'App'} responded.`, 'success');
+  } catch (error) {
+    setRemoteStatus(error?.message || 'Remote command failed.', 'error');
+  } finally {
+    remoteControlButtons.forEach(button => { button.disabled = remoteTargets.length === 0; });
+  }
+}
+
+function closeRemoteApp() {
+  setWorkspaceView('apps');
 }
 
 function formatDueDate(value) {
@@ -4392,6 +4519,7 @@ sendBtn.addEventListener('click', handleSend);
 chatViewBtn.addEventListener('click', () => setWorkspaceView('chat'));
 activityViewBtn.addEventListener('click', () => setWorkspaceView('activity'));
 appsViewBtn.addEventListener('click', () => setWorkspaceView('apps'));
+remoteViewBtn?.addEventListener('click', () => setWorkspaceView('remote'));
 peopleChatAppBtn?.addEventListener('click', () => {
   peopleChatAppBtn.classList.add('opening');
   setWorkspaceView('people-chat');
@@ -4506,6 +4634,14 @@ remindersAppTabs.forEach(button => {
     setRemindersAppTab(button.dataset.remindersTab);
     renderRemindersApp();
   });
+});
+remoteAppCloseBtn?.addEventListener('click', closeRemoteApp);
+remoteRefreshBtn?.addEventListener('click', () => refreshRemoteTargets());
+remoteTargetSelectEl?.addEventListener('change', () => {
+  selectedRemoteTargetKey = remoteTargetSelectEl.value;
+});
+remoteControlButtons.forEach(button => {
+  button.addEventListener('click', () => sendRemoteAction(button.dataset.remoteAction));
 });
 deviceSearchEl?.addEventListener('input', () => renderPhoneDevices(latestManagedDevices));
 deviceFilterEl?.addEventListener('change', () => renderPhoneDevices(latestManagedDevices));

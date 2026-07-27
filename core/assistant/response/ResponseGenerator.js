@@ -476,6 +476,40 @@ const RESPONSE_BUILDERS = {
         `${name} is now in focus.`
       ]);
     },
+    'presentation.start': context => {
+      const mode = valueFromContext(context, 'mode', valueFromContext(context, 'presentationMode', 'beginning'));
+      const matchedWindow = valueFromContext(context, 'matchedWindow', '');
+      const target = matchedWindow && matchedWindow !== 'PowerPoint'
+        ? ` in ${matchedWindow}`
+        : '';
+      return mode === 'current'
+        ? `Started the PowerPoint slide show from the current slide${target}.`
+        : `Started the PowerPoint slide show from the beginning${target}.`;
+    },
+    'presentation.next': context => {
+      const matchedWindow = valueFromContext(context, 'matchedWindow', '');
+      const target = matchedWindow && matchedWindow !== 'PowerPoint'
+        ? ` in ${matchedWindow}`
+        : '';
+      return `Moved PowerPoint to the next slide${target}.`;
+    },
+    'presentation.previous': context => {
+      const matchedWindow = valueFromContext(context, 'matchedWindow', '');
+      const target = matchedWindow && matchedWindow !== 'PowerPoint'
+        ? ` in ${matchedWindow}`
+        : '';
+      return `Moved PowerPoint to the previous slide${target}.`;
+    },
+    'presentation.goto': context => {
+      const slideNumber = valueFromContext(context, 'slideNumber', '');
+      const matchedWindow = valueFromContext(context, 'matchedWindow', '');
+      const target = matchedWindow && matchedWindow !== 'PowerPoint'
+        ? ` in ${matchedWindow}`
+        : '';
+      return slideNumber
+        ? `Moved PowerPoint to slide ${slideNumber}${target}.`
+        : `Moved PowerPoint to the requested slide${target}.`;
+    },
     'mode.start': context => {
       const modeName = valueFromContext(context, 'modeName', 'mode');
       const opened = valueFromContext(context, 'opened', []);
@@ -1081,7 +1115,18 @@ const RESPONSE_BUILDERS = {
           : when;
         const actionId = String(scheduledAction.actionId || '');
         const actionEntities = scheduledAction.entities || {};
-        const target = actionId === 'browser.closeTab'
+        const presentationPhrase = actionId === 'presentation.start'
+          ? `start the PowerPoint slide show from ${actionEntities.mode === 'current' ? 'the current slide' : 'the beginning'}`
+          : actionId === 'presentation.next'
+            ? 'move PowerPoint to the next slide'
+            : actionId === 'presentation.previous'
+              ? 'move PowerPoint to the previous slide'
+              : actionId === 'presentation.goto'
+                ? `move PowerPoint to slide ${actionEntities.slideNumber || ''}`.trim()
+                : '';
+        const target = presentationPhrase
+          ? 'PowerPoint'
+          : actionId === 'browser.closeTab'
           ? `${actionEntities.tabQuery || 'current'} tab`
           : actionId === 'browser.open'
             ? actionEntities.url || 'the website'
@@ -1105,9 +1150,9 @@ const RESPONSE_BUILDERS = {
                 : actionId === 'media.stop'
                   ? 'stop media'
                   : 'close';
-        const phrase = ['media.pause', 'media.resume', 'media.stop'].includes(actionId)
+        const phrase = presentationPhrase || (['media.pause', 'media.resume', 'media.stop'].includes(actionId)
           ? verb
-          : `${verb} ${target}`;
+          : `${verb} ${target}`);
         return chooseVariant(responseSeed(context, `scheduled-action:${scheduledAction.actionId}:${target}:${scheduledWhen}`), [
           `Okay, I will ${phrase}${scheduledWhen}.`,
           `Scheduled. I will ${phrase}${scheduledWhen}.`,

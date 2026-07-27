@@ -1730,6 +1730,8 @@ button {
   align-items: center;
   display: flex;
   gap: 8px;
+  max-width: min(100%, 390px);
+  min-width: 0;
   -webkit-app-region: no-drag;
 }
 
@@ -3535,6 +3537,245 @@ body.reminders-fullscreen #reminders-view {
 body.reminders-fullscreen .reminders-app-shell {
   border-radius: 0;
   padding: 16px;
+}
+
+body.remote-fullscreen #header {
+  display: none !important;
+}
+
+body.remote-fullscreen #workspace {
+  flex: 1 1 auto;
+  height: 100vh;
+}
+
+#remote-view {
+  overflow: hidden;
+}
+
+.remote-app-shell {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-color) 10%, transparent), transparent 44%),
+    color-mix(in srgb, var(--adaptive-surface, rgba(10, 12, 18, 0.96)) 94%, rgba(0, 0, 0, 0.72));
+  backdrop-filter: blur(30px) saturate(150%);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
+  display: grid;
+  gap: 14px;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  padding: 16px;
+}
+
+.remote-app-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 4px 4px 2px;
+  -webkit-app-region: drag;
+}
+
+.remote-app-header strong {
+  color: var(--text-color);
+  display: block;
+  font-size: 17px;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.remote-app-header small {
+  color: var(--muted-color);
+  display: block;
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.remote-app-header button {
+  -webkit-app-region: no-drag;
+}
+
+.remote-target-row {
+  align-items: stretch;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.remote-target-select-wrap {
+  background: color-mix(in srgb, var(--adaptive-control, rgba(255,255,255,.1)) 90%, rgba(0,0,0,.2));
+  border: 1px solid color-mix(in srgb, var(--adaptive-border, rgba(255,255,255,.14)) 92%, transparent);
+  border-radius: 16px;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 12px;
+}
+
+.remote-target-select-wrap span {
+  color: var(--muted-color);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#remote-target-select {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-color);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 820;
+  min-width: 0;
+  outline: none;
+}
+
+#remote-target-select option {
+  background: #11131a;
+  color: #fff;
+}
+
+.remote-refresh-btn,
+.remote-action-pill {
+  background: color-mix(in srgb, var(--adaptive-control, rgba(255,255,255,.12)) 92%, rgba(0,0,0,.18));
+  border: 1px solid color-mix(in srgb, var(--adaptive-border, rgba(255,255,255,.14)) 92%, transparent);
+  border-radius: 999px;
+  color: var(--text-color);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 840;
+  min-width: 74px;
+  padding: 0 14px;
+}
+
+.remote-control-stage {
+  align-content: center;
+  display: grid;
+  gap: 18px;
+  justify-items: center;
+  min-height: 0;
+}
+
+.remote-dpad {
+  aspect-ratio: 1;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(255,255,255,.12), transparent 33%),
+    color-mix(in srgb, var(--adaptive-control, rgba(255,255,255,.11)) 90%, rgba(0,0,0,.24));
+  border: 1px solid color-mix(in srgb, var(--adaptive-border, rgba(255,255,255,.18)) 95%, transparent);
+  border-radius: 50%;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.12), 0 22px 52px rgba(0,0,0,.28);
+  display: grid;
+  grid-template-areas:
+    ". up ."
+    "left center right"
+    ". down .";
+  grid-template-columns: repeat(3, 78px);
+  grid-template-rows: repeat(3, 78px);
+  padding: 20px;
+}
+
+.remote-dpad-btn,
+.remote-dpad-center {
+  align-items: center;
+  background: color-mix(in srgb, var(--adaptive-text, #fff) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--adaptive-border, rgba(255,255,255,.18)) 95%, transparent);
+  border-radius: 50%;
+  color: var(--text-color);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 22px;
+  font-weight: 900;
+  height: 64px;
+  justify-content: center;
+  place-self: center;
+  transition: background .16s ease, transform .16s ease, border-color .16s ease;
+  width: 64px;
+}
+
+.remote-dpad-center {
+  background: linear-gradient(180deg, rgba(255,255,255,.94), rgba(232,236,244,.82));
+  color: #07090f;
+  font-size: 13px;
+}
+
+.remote-dpad-btn:hover,
+.remote-dpad-btn:focus-visible,
+.remote-dpad-center:hover,
+.remote-dpad-center:focus-visible,
+.remote-action-pill:hover,
+.remote-action-pill:focus-visible,
+.remote-refresh-btn:hover,
+.remote-refresh-btn:focus-visible {
+  background-color: color-mix(in srgb, var(--accent-color) 14%, rgba(255,255,255,.12));
+  border-color: color-mix(in srgb, var(--accent-color) 36%, rgba(255,255,255,.2));
+  outline: none;
+}
+
+.remote-dpad-btn:active,
+.remote-dpad-center:active,
+.remote-action-pill:active,
+.remote-refresh-btn:active {
+  transform: scale(.96);
+}
+
+.remote-dpad-btn:disabled,
+.remote-dpad-center:disabled,
+.remote-action-pill:disabled {
+  cursor: default;
+  opacity: .42;
+}
+
+.remote-up { grid-area: up; }
+.remote-left { grid-area: left; }
+.remote-right { grid-area: right; }
+.remote-down { grid-area: down; }
+.remote-dpad-center { grid-area: center; }
+
+.remote-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.remote-action-pill {
+  min-height: 38px;
+}
+
+.remote-status {
+  color: var(--muted-color);
+  font-size: 11px;
+  font-weight: 720;
+  line-height: 1.35;
+  margin: 0;
+  max-width: 320px;
+  min-height: 16px;
+  text-align: center;
+}
+
+.remote-status[data-tone="success"] {
+  color: color-mix(in srgb, var(--success-color, #66e0a3) 76%, white);
+}
+
+.remote-status[data-tone="error"] {
+  color: color-mix(in srgb, var(--danger-color) 78%, white);
+}
+
+@media (max-width: 460px) {
+  .remote-dpad {
+    grid-template-columns: repeat(3, 68px);
+    grid-template-rows: repeat(3, 68px);
+    padding: 16px;
+  }
+
+  .remote-dpad-btn,
+  .remote-dpad-center {
+    height: 58px;
+    width: 58px;
+  }
 }
 
 body.people-chat-fullscreen #header {
@@ -6283,12 +6524,15 @@ html[data-glass-contrast] #send-btn {
   box-sizing: border-box;
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.13), 0 8px 22px rgba(0, 0, 0, 0.12);
   display: grid;
-  grid-template-columns: repeat(3, minmax(62px, 1fr));
+  flex: 1 1 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   isolation: isolate;
   min-height: 40px;
+  min-width: 0;
   overflow: hidden;
   padding: 3px;
   position: relative;
+  width: min(100%, 316px);
 }
 
 .view-switcher::before {
@@ -6304,34 +6548,44 @@ html[data-glass-contrast] #send-btn {
   position: absolute;
   top: 3px;
   transition: left 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  width: calc((100% - 6px) / 3);
+  width: calc((100% - 6px) / 4);
   z-index: 0;
 }
 
 .view-switcher[data-active-view="activity"]::before {
-  left: calc(33.333333% + 1px);
+  left: calc(3px + ((100% - 6px) / 4));
 }
 
 .view-switcher[data-active-view="apps"]::before {
-  left: calc(66.666667% - 1px);
+  left: calc(3px + ((100% - 6px) / 2));
+}
+
+.view-switcher[data-active-view="remote"]::before {
+  left: calc(3px + (((100% - 6px) / 4) * 3));
 }
 
 .view-switcher .header-btn {
+  align-items: center;
   background: transparent !important;
   background-image: none !important;
   border: 0 !important;
   border-radius: 999px;
   box-shadow: none !important;
   color: var(--adaptive-muted, rgba(255, 255, 255, 0.72));
+  display: inline-flex;
   font-size: 12px;
   font-weight: 800;
+  gap: 4px;
+  justify-content: center;
   min-height: 34px;
   min-width: 0;
-  padding: 0 11px;
+  overflow: hidden;
+  padding: 0 7px;
   position: relative;
   text-shadow: none;
   transform: none !important;
   transition: color 180ms ease;
+  white-space: nowrap;
   z-index: 1;
 }
 
@@ -6348,6 +6602,12 @@ html[data-glass-contrast] #send-btn {
 .view-switcher #activity-badge {
   background: var(--adaptive-primary, rgba(255, 255, 255, 0.9));
   color: var(--adaptive-primary-text, #151517);
+  flex: 0 0 auto;
+  font-size: 9px;
+  height: 16px;
+  margin-left: 1px;
+  min-width: 16px;
+  padding: 0 4px;
 }
 
 .settings-segmented {
@@ -6391,7 +6651,7 @@ html[data-glass-contrast] #send-btn {
 }
 
 .settings-nav.settings-segmented::before {
-  width: calc((100% - 6px) / 3);
+  width: calc((100% - 6px) / 4);
 }
 
 .settings-nav[hidden] {

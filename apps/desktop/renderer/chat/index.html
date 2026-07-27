@@ -27,6 +27,7 @@
             Activity <span id="activity-badge" hidden>0</span>
           </button>
           <button class="header-btn view-tab" id="apps-view-btn" type="button" aria-pressed="false">Apps</button>
+          <button class="header-btn view-tab" id="remote-view-btn" type="button" aria-pressed="false">Remote</button>
         </nav>
         <button class="window-btn close" id="close-btn" title="Close" aria-label="Close">&#10005;</button>
       </div>
@@ -321,6 +322,42 @@
                 <div class="reminders-list" id="normal-alarms-list"></div>
               </section>
             </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace-view" id="remote-view" aria-label="OpenX Remote" hidden>
+        <div class="remote-app-shell">
+          <header class="remote-app-header">
+            <div>
+              <strong>OpenX Remote</strong>
+              <small id="remote-app-summary">Choose an active app to control.</small>
+            </div>
+            <button class="people-chat-icon-btn" id="remote-app-close-btn" type="button" title="Close remote" aria-label="Close remote">&#10005;</button>
+          </header>
+
+          <div class="remote-target-row">
+            <label class="remote-target-select-wrap">
+              <span>Active target</span>
+              <select id="remote-target-select" aria-label="Remote target"></select>
+            </label>
+            <button class="remote-refresh-btn" id="remote-refresh-btn" type="button">Refresh</button>
+          </div>
+
+          <div class="remote-control-stage">
+            <div class="remote-dpad" aria-label="Directional remote control">
+              <button class="remote-dpad-btn remote-up" type="button" data-remote-action="up" title="Up" aria-label="Up">&#8593;</button>
+              <button class="remote-dpad-btn remote-left" type="button" data-remote-action="left" title="Left" aria-label="Left">&#8592;</button>
+              <button class="remote-dpad-center" type="button" data-remote-action="center" title="Select or play" aria-label="Select or play">OK</button>
+              <button class="remote-dpad-btn remote-right" type="button" data-remote-action="right" title="Right" aria-label="Right">&#8594;</button>
+              <button class="remote-dpad-btn remote-down" type="button" data-remote-action="down" title="Down" aria-label="Down">&#8595;</button>
+            </div>
+            <div class="remote-action-row" aria-label="Remote shortcuts">
+              <button class="remote-action-pill" type="button" data-remote-action="back">Back</button>
+              <button class="remote-action-pill" type="button" data-remote-action="playPause">Play</button>
+              <button class="remote-action-pill" type="button" data-remote-action="fullscreen">Full</button>
+            </div>
+            <p class="remote-status" id="remote-status" aria-live="polite">Remote is ready when a supported app is active.</p>
           </div>
         </div>
       </section>

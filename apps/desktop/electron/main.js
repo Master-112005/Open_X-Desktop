@@ -448,6 +448,8 @@ const IPC_CHANNELS = [
   'desktopChat:registration:start',
   'desktopChat:profile:password',
   'desktopChat:uiState',
+  'remote:listTargets',
+  'remote:control',
   'uiState:get',
   'uiState:save',
   'security:status',
@@ -4578,6 +4580,40 @@ function handleCloudModesSyncPacket(message = {}) {
   return false;
 }
 
+function getRemoteControlTargets() {
+  const result = assistant?.automation?.remote?.listTargets?.();
+  if (result?.success === false) return result;
+  return result || { success: true, data: { targets: [], count: 0 } };
+}
+
+function sendRemoteControlAction(payload = {}) {
+  const result = assistant?.automation?.remote?.sendControl?.(payload);
+  return result || {
+    success: false,
+    error: 'Remote control is not ready.',
+    data: { action: 'remote.control' }
+  };
+}
+
+async function handleCloudRemoteControl(payload = {}) {
+  if (payload.action === 'listTargets') {
+    return getRemoteControlTargets();
+  }
+  if (payload.action === 'control') {
+    return sendRemoteControlAction({
+      targetId: payload.targetId,
+      action: payload.command,
+      windowTitle: payload.windowTitle,
+      tabTitle: payload.tabTitle
+    });
+  }
+  return {
+    success: false,
+    error: 'Unsupported remote control action.',
+    data: { action: 'remote.control' }
+  };
+}
+
 function lowerChatWindowForPlanner() {
   if (!chatWindow || chatWindow.isDestroyed() || !chatWindow.isVisible()) return;
   chatWindow.setAlwaysOnTop(false);
@@ -5924,6 +5960,7 @@ function initializeCloudCommands() {
     logger: mainLogger,
     scheduleProvider: getScheduleSyncSnapshot,
     scheduleUpsertHandler: upsertScheduleFromPhone,
+    remoteControlHandler: handleCloudRemoteControl,
     executionTimeoutMs: cloudSettings.commandExecutionTimeoutMs || 60000,
     queueMode: cloudSettings.commandQueueMode || 'queue',
     maxQueueSize: cloudSettings.commandMaxQueueSize || 25
@@ -6472,6 +6509,14 @@ function setupIPC() {
 
   registerIpcHandler('desktopChat:uiState', async (_event, payload) => {
     return recordDesktopChatUiState(payload || {});
+  });
+
+  registerIpcHandler('remote:listTargets', async () => {
+    return getRemoteControlTargets();
+  });
+
+  registerIpcHandler('remote:control', async (_event, payload) => {
+    return sendRemoteControlAction(payload || {});
   });
 
   registerIpcHandler('uiState:get', async () => {

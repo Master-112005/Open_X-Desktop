@@ -409,6 +409,22 @@ function validateScheduleAction(payload) {
   return { id, action: action === 'end' ? 'stop' : action, minutes };
 }
 
+function validateRemoteControl(payload = {}) {
+  requirePlainObject(payload, 'remote');
+  const targetId = requireString(payload.targetId || payload.target || '', 'remote.targetId', { maxLength: 40 });
+  const action = requireString(payload.action || payload.command || '', 'remote.action', { maxLength: 40 });
+  const allowedActions = new Set(['up', 'down', 'left', 'right', 'center', 'playPause', 'back', 'fullscreen']);
+  if (!allowedActions.has(action)) throw new TypeError('remote action is not supported');
+  const normalized = { targetId, action };
+  if (payload.windowTitle !== undefined) {
+    normalized.windowTitle = requireString(payload.windowTitle, 'remote.windowTitle', { maxLength: 220, allowEmpty: true });
+  }
+  if (payload.tabTitle !== undefined) {
+    normalized.tabTitle = requireString(payload.tabTitle, 'remote.tabTitle', { maxLength: 220, allowEmpty: true });
+  }
+  return normalized;
+}
+
 function validateCloudFileTransferAction(payload) {
   requirePlainObject(payload);
   const transferId = requireString(payload.transferId, 'transferId', { maxLength: 160 });
@@ -643,6 +659,8 @@ const IPC_VALIDATORS = Object.freeze({
   'desktopChat:registration:start': validateDesktopChatRegistrationStart,
   'desktopChat:profile:password': validateDesktopChatPasswordUpdate,
   'desktopChat:uiState': validateDesktopChatUiState,
+  'remote:listTargets': validateEmpty,
+  'remote:control': validateRemoteControl,
   'uiState:get': validateEmpty,
   'uiState:save': validateUiState,
   'security:status': validateEmpty,

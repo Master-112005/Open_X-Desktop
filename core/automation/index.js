@@ -15,6 +15,7 @@ const WindowsController = require('./windows');
 const SchedulerController = require('./scheduler');
 const PlannerController = require('./planner');
 const ScreenshotController = require('./screenshot-recording');
+const RemoteController = require('./remote');
 const FormAutomation = require('../../plugins/forms');
 const ActionVerifier = require('./common/action-verification');
 const { resolveTrustedWebTarget } = require('../assistant/semantic/WebTargets');
@@ -43,6 +44,7 @@ class AutomationEngine {
     this.communications = new CommunicationsController(config);
     this.system = new SystemController(config);
     this.windows = new WindowsController(config);
+    this.remote = new RemoteController(config, { windows: this.windows });
     this.scheduler = new SchedulerController(config);
     this.planner = new PlannerController(config);
     this.screenshot = new ScreenshotController(config);
@@ -111,6 +113,10 @@ class AutomationEngine {
       'app.close': (entities) => this.apps.close(entities.appName, entities),
       'app.newTab': (entities) => this.apps.openNewTab(entities.appName),
       'app.switch': (entities) => this.apps.switchTo(entities.appName),
+      'presentation.start': (entities) => this._startPresentation(entities),
+      'presentation.next': (entities) => this._controlPresentation(entities, 'next'),
+      'presentation.previous': (entities) => this._controlPresentation(entities, 'previous'),
+      'presentation.goto': (entities) => this._controlPresentation(entities, 'goto'),
       'mode.start': (entities) => this._startMode(entities.modeName),
       'file.create': (entities) => this.files.create(entities.filename, entities.path),
       'file.open': (entities) => this.files.open(entities.filename, entities),
@@ -134,6 +140,8 @@ class AutomationEngine {
       'browser.openTab': (entities) => this._openBrowserTab(entities),
       'browser.closeTab': (entities) => this._closeBrowserTab(entities),
       'browser.listTabs': (entities) => this._listBrowserTabs(entities),
+      'remote.listTargets': () => this.remote.listTargets(),
+      'remote.control': (entities) => this.remote.sendControl(entities),
       'media.play': (entities) => this.media.play(entities.mediaQuery, entities.mediaPlatform),
       'media.next': () => this.media.next(),
       'media.previous': () => this.media.previous(),
@@ -247,6 +255,107 @@ class AutomationEngine {
     if (typeof this.scheduler.setActionExecutor === 'function') {
       this.scheduler.setActionExecutor((scheduledAction, schedule) => this._executeScheduledAction(scheduledAction, schedule));
     }
+  }
+
+  _normalizePresentationMode(mode) {
+    return /\b(?:current|active|this)\b/i.test(String(mode || ''))
+      ? 'current'
+      : 'beginning';
+  }
+
+  _presentationWindowName(entities = {}) {
+    const requestedWindow = String(entities.windowName || '').trim();
+    return requestedWindow && !/^power\s*point$/i.test(requestedWindow)
+      ? requestedWindow
+      : 'powerpnt';
+  }
+
+  _sendPresentationKeys(entities = {}, keys, operation, data = {}) {
+    const windowName = this._presentationWindowName(entities);
+    const result = this.windows.sendKeys(windowName, keys, {
+      preferredProcessNames: ['powerpnt'],
+      preferredTitleTokens: ['powerpoint', 'presentation']
+    });
+
+    if (!result?.success) {
+      return {
+        success: false,
+        error: 'I could not find an open PowerPoint presentation. Open the PPT first, then ask me to start the slide show.',
+        data: {
+          action: `presentation.${operation}`,
+          appName: 'powerpoint',
+          ...data,
+          verified: false,
+          verification: {
+            status: 'failed',
+            check: 'powerpoint-window-found',
+            message: result?.error || 'No PowerPoint window was available for slideshow control'
+          }
+        }
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        action: `presentation.${operation}`,
+        appName: 'powerpoint',
+        ...data,
+        keys,
+        matchedWindow: result.data?.matchedWindow || 'PowerPoint',
+        matchedHandle: result.data?.matchedHandle || null,
+        processName: result.data?.processName || 'POWERPNT',
+        verified: true,
+        verification: {
+          status: 'passed',
+          check: 'powerpoint-control-shortcut-sent',
+          method: 'windows-sendkeys',
+          operation,
+          ...(data.mode ? { mode: data.mode } : {}),
+          ...(data.slideNumber ? { slideNumber: data.slideNumber } : {}),
+          ...(data.shortcut ? { shortcut: data.shortcut } : {})
+        }
+      }
+    };
+  }
+
+  _startPresentation(entities = {}) {
+    const mode = this._normalizePresentationMode(entities.mode || entities.presentationMode);
+    const shortcut = mode === 'current' ? 'Shift+F5' : 'F5';
+    const keys = mode === 'current' ? '+{F5}' : '{F5}';
+    return this._sendPresentationKeys(entities, keys, 'start', { mode, shortcut });
+  }
+
+  _controlPresentation(entities = {}, operation = 'next') {
+    if (operation === 'goto') {
+      const slideNumber = Math.trunc(Number(entities.slideNumber));
+      if (!Number.isFinite(slideNumber) || slideNumber < 1 || slideNumber > 9999) {
+        return {
+          success: false,
+          error: 'A valid PowerPoint slide number is required.',
+          data: {
+            action: 'presentation.goto',
+            appName: 'powerpoint',
+            slideNumber: entities.slideNumber || null,
+            verified: false,
+            verification: {
+              status: 'failed',
+              check: 'presentation-slide-number-valid',
+              message: 'Slide number must be between 1 and 9999'
+            }
+          }
+        };
+      }
+      return this._sendPresentationKeys(entities, `${slideNumber}{ENTER}`, 'goto', { slideNumber });
+    }
+
+    const isPrevious = operation === 'previous';
+    return this._sendPresentationKeys(
+      entities,
+      isPrevious ? '{LEFT}' : '{RIGHT}',
+      isPrevious ? 'previous' : 'next',
+      { direction: isPrevious ? 'previous' : 'next' }
+    );
   }
 
   async _executeScheduledAction(scheduledAction = {}, schedule = {}) {
