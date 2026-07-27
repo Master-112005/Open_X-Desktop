@@ -2432,6 +2432,19 @@ describe('Action Router', function() {
     assert.equal(result.entities.timeExpression, '9:30 pm');
     assert.equal(result.entities.recurrence, 'daily');
 
+    const timeFirst = await router.process('daily remind me at 9 30pm and 9 55 pm to mark attendance', 'chat');
+    assert.equal(timeFirst.intent, 'reminder.set');
+    assert.equal(timeFirst.entities.reminderText, 'mark attendance');
+    assert.deepEqual(timeFirst.entities.timeExpressions, ['9:30 pm', '9:55 pm']);
+    assert.equal(timeFirst.entities.timeExpression, '9:30 pm');
+    assert.equal(timeFirst.entities.recurrence, 'daily');
+
+    const trailingRecurrence = await router.process('remind me at 9:30 pm and 9:55 pm to mark attendance daily', 'chat');
+    assert.equal(trailingRecurrence.intent, 'reminder.set');
+    assert.equal(trailingRecurrence.entities.reminderText, 'mark attendance');
+    assert.deepEqual(trailingRecurrence.entities.timeExpressions, ['9:30 pm', '9:55 pm']);
+    assert.equal(trailingRecurrence.entities.recurrence, 'daily');
+
     const militaryTime = await router.process('daily remind me to mark attendance at 21:30 and 21:55', 'chat');
     assert.equal(militaryTime.intent, 'reminder.set');
     assert.equal(militaryTime.entities.reminderText, 'mark attendance');

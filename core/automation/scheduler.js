@@ -1161,6 +1161,18 @@ class SchedulerController {
     return this._stateResult(item, item.status === 'scheduled' ? 'reschedule' : 'complete', 'schedule-completed');
   }
 
+  removeSchedule(id) {
+    const item = this.scheduledItems.find(entry => entry.id === id || entry.taskName === id);
+    if (!item) return { success: false, error: 'Schedule not found' };
+    const timer = this.timers.get(item.id);
+    if (timer) clearTimeout(timer);
+    this.timers.delete(item.id);
+    item.status = 'dismissed';
+    item.updatedAt = new Date().toISOString();
+    this._saveScheduledItems();
+    return this._stateResult(item, 'remove', 'schedule-removed');
+  }
+
   upsertSyncedSchedule(input = {}, metadata = {}) {
     const normalized = this._normalizeIncomingSchedule(input, metadata);
     if (!normalized) return { success: false, error: 'Invalid schedule item' };
@@ -1306,6 +1318,7 @@ class SchedulerController {
     const entries = this.scheduledItems.filter(item => {
       if (normalizedKind && String(item.kind || '').toLowerCase() !== normalizedKind) return false;
       if (scope === 'today') {
+        if (!['scheduled', 'paused', 'due'].includes(item.status)) return false;
         const due = new Date(item.dueAt);
         return due.getFullYear() === now.getFullYear() && due.getMonth() === now.getMonth() && due.getDate() === now.getDate();
       }

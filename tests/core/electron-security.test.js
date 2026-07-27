@@ -308,6 +308,10 @@ describe('Electron Security Boundary', function() {
       IPC_VALIDATORS['schedule:alertAction']({ id: 'reminder-1', action: 'end', minutes: 5 }),
       { id: 'reminder-1', action: 'stop', minutes: 5 }
     );
+    assert.deepEqual(
+      IPC_VALIDATORS['schedule:alertAction']({ id: 'reminder-1', action: 'remove', minutes: 5 }),
+      { id: 'reminder-1', action: 'remove', minutes: 5 }
+    );
   });
 
   it('should validate Dynamic Island file transfer actions', function() {

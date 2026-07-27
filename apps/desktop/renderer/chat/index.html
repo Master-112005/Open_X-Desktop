@@ -253,6 +253,78 @@
         </div>
       </section>
 
+      <section class="workspace-view" id="reminders-view" aria-label="Reminders" hidden>
+        <div class="reminders-app-shell">
+          <header class="reminders-app-header">
+            <div>
+              <strong>Reminders</strong>
+              <small id="reminders-app-summary">0 reminders, 0 alarms</small>
+            </div>
+            <button class="people-chat-icon-btn" id="reminders-app-close-btn" type="button" title="Close reminders" aria-label="Close reminders">&#10005;</button>
+          </header>
+          <div class="reminders-overview" aria-label="Schedule totals">
+            <div class="reminders-stat">
+              <span>Reminders</span>
+              <strong id="reminders-total-reminders">0</strong>
+            </div>
+            <div class="reminders-stat">
+              <span>Alarms</span>
+              <strong id="reminders-total-alarms">0</strong>
+            </div>
+          </div>
+          <div class="reminders-app-tabs" role="tablist" aria-label="Reminder views" data-active-reminder-tab="reminders">
+            <button class="reminders-app-tab active" id="reminders-tab-btn" data-reminders-tab="reminders" type="button" role="tab" aria-selected="true">Reminders</button>
+            <button class="reminders-app-tab" id="alarms-tab-btn" data-reminders-tab="alarms" type="button" role="tab" aria-selected="false">Alarms</button>
+          </div>
+          <div class="reminders-app-body">
+            <section class="reminders-app-panel active" id="reminders-panel" data-reminders-panel="reminders" aria-label="Reminders">
+              <section class="reminders-group" aria-labelledby="daily-reminders-title">
+                <div class="reminders-group-heading">
+                  <div>
+                    <span>Repeats daily</span>
+                    <strong id="daily-reminders-title">Daily reminders</strong>
+                  </div>
+                  <em id="daily-reminders-count">0</em>
+                </div>
+                <div class="reminders-list" id="daily-reminders-list"></div>
+              </section>
+              <section class="reminders-group" aria-labelledby="normal-reminders-title">
+                <div class="reminders-group-heading">
+                  <div>
+                    <span>One time</span>
+                    <strong id="normal-reminders-title">Normal reminders</strong>
+                  </div>
+                  <em id="normal-reminders-count">0</em>
+                </div>
+                <div class="reminders-list" id="normal-reminders-list"></div>
+              </section>
+            </section>
+            <section class="reminders-app-panel" id="alarms-panel" data-reminders-panel="alarms" aria-label="Alarms" hidden>
+              <section class="reminders-group" aria-labelledby="daily-alarms-title">
+                <div class="reminders-group-heading">
+                  <div>
+                    <span>Repeats daily</span>
+                    <strong id="daily-alarms-title">Daily alarms</strong>
+                  </div>
+                  <em id="daily-alarms-count">0</em>
+                </div>
+                <div class="reminders-list" id="daily-alarms-list"></div>
+              </section>
+              <section class="reminders-group" aria-labelledby="normal-alarms-title">
+                <div class="reminders-group-heading">
+                  <div>
+                    <span>One time</span>
+                    <strong id="normal-alarms-title">Other alarms</strong>
+                  </div>
+                  <em id="normal-alarms-count">0</em>
+                </div>
+                <div class="reminders-list" id="normal-alarms-list"></div>
+              </section>
+            </section>
+          </div>
+        </div>
+      </section>
+
       <section class="workspace-view" id="apps-view" aria-label="Apps" hidden>
         <div class="apps-scroll">
           <div class="apps-grid" aria-label="OpenX apps">
@@ -277,6 +349,18 @@
               </span>
               <span class="app-card-copy">
                 <strong>Calendar</strong>
+                <small>Reminders and alarms</small>
+              </span>
+            </button>
+            <button class="app-card" id="reminders-app-btn" type="button">
+              <span class="app-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M8 6h12M8 12h12M8 18h12"/>
+                  <path d="m3 6 1.2 1.2L6.5 4.8M3 12l1.2 1.2L6.5 10.8M3 18l1.2 1.2 2.3-2.4"/>
+                </svg>
+              </span>
+              <span class="app-card-copy">
+                <strong>Reminders</strong>
                 <small>Reminders and alarms</small>
               </span>
             </button>
@@ -562,34 +646,37 @@
           </section>
 
           <section class="settings-section" data-settings-section="phone" id="settings-section-phone">
-            <div class="phone-section-header">
-              <div class="phone-section-tabs" role="tablist" aria-label="Mobile connection settings">
-                <button class="phone-section-tab active" data-phone-panel-target="connect" type="button" role="tab" aria-selected="true">Connect Mobile</button>
-                <button class="phone-section-tab" data-phone-panel-target="devices" type="button" role="tab" aria-selected="false">Connected Devices</button>
-              </div>
-            </div>
-            <div class="phone-panel active" data-phone-panel="connect">
-              <div class="section-note">OpenX will ask for your assistant security password before creating cloud pairing QR codes.</div>
-              <div class="phone-connect-view active" data-phone-connect-view="cloud">
-                <div class="section-note">Use the OpenX relay to connect the mobile app and transfer files through your cloud-paired devices.</div>
-                <div class="cloud-action-row cloud-action-row-top">
-                  <button class="primary-btn" id="cloud-connect-btn" type="button">Connect to Cloud</button>
-                  <span id="cloud-friendly-status">Cloud mode is disconnected.</span>
+            <div class="mobile-app-panel" id="mobile-app-panel">
+              <div class="mobile-app-topbar">
+                <div>
+                  <div class="section-heading">Mobile</div>
+                  <div class="section-note" id="cloud-friendly-status">Cloud mode is disconnected.</div>
                 </div>
-                <div class="cloud-pairing-card">
-                  <div class="phone-server-heading">
-                    <strong>Cloud QR</strong>
-                    <span id="cloud-pairing-status">Connect to Relay Server first.</span>
+                <button class="secondary-btn" id="mobile-settings-toggle" type="button" aria-expanded="false" aria-controls="mobile-server-details">Server details</button>
+              </div>
+              <div class="phone-panel active" data-phone-panel="connect">
+                <div class="mobile-connected-summary" id="mobile-connected-summary" hidden>
+                  <div>
+                    <span>Connected device</span>
+                    <strong id="mobile-connected-device-name">OpenX Mobile</strong>
+                    <small id="mobile-connected-device-meta">Ready for pairing, commands, and file transfer.</small>
                   </div>
-                  <button class="primary-btn" id="cloud-generate-qr-btn" type="button" disabled>Generate Cloud QR</button>
-                  <div class="phone-pairing-qr-wrap cloud-pairing-qr-wrap">
+                  <button class="secondary-btn" id="device-refresh-btn" type="button">Refresh</button>
+                </div>
+                <div class="mobile-qr-stage" id="mobile-qr-stage">
+                  <button class="mobile-qr-square" id="cloud-generate-qr-btn" type="button" disabled>
+                    <span>Generate QR</span>
                     <img id="cloud-pairing-qr" alt="OpenX cloud pairing QR code" hidden>
+                  </button>
+                  <div class="mobile-pairing-copy">
+                    <strong id="cloud-pairing-status">Connect to Relay Server first.</strong>
+                    <span id="cloud-pairing-expiry"></span>
+                    <span class="phone-pairing-countdown" id="cloud-pairing-countdown" aria-live="polite"></span>
                   </div>
-                  <div class="section-note" id="cloud-pairing-expiry"></div>
-                  <div class="phone-pairing-countdown" id="cloud-pairing-countdown" aria-live="polite"></div>
                   <div class="cloud-pairing-requests" id="cloud-pairing-requests"></div>
                 </div>
-                <div class="cloud-connection-card">
+                <div class="phone-device-list mobile-device-list" id="phone-device-list"></div>
+                <div class="mobile-server-details" id="mobile-server-details" hidden>
                   <div class="phone-server-heading">
                     <strong>Server Details</strong>
                     <span id="cloud-connection-state">Disconnected</span>
@@ -639,20 +726,8 @@
                     </div>
                   </div>
                 </div>
+                <button class="primary-btn mobile-connect-server-btn" id="cloud-connect-btn" type="button">Connect Server</button>
               </div>
-            </div>
-            <div class="phone-panel" data-phone-panel="devices" hidden>
-              <div class="device-center-heading">
-                <div>
-                  <strong>Connected Devices</strong>
-                  <div class="section-note">Cloud-paired mobile devices appear here.</div>
-                </div>
-                <button class="secondary-btn" id="device-refresh-btn" type="button">Refresh</button>
-              </div>
-              <div class="device-center-toolbar">
-                <input class="field" id="device-search" type="search" placeholder="Search devices..." aria-label="Search devices">
-              </div>
-              <div class="phone-device-list" id="phone-device-list"></div>
             </div>
           </section>
 

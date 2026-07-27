@@ -1495,6 +1495,10 @@ class ActionRouter {
       return null;
     }
 
+    if (this._looksLikeSingleMultiTimeReminderRequest(text)) {
+      return null;
+    }
+
     if (/\b(?:wifi|wi\s*fi)\b/i.test(text) &&
       /\b(?:connect|connected|disconnect|forget|enable|disable|turn\s+on|turn\s+off|switch\s+on|switch\s+off)\b/i.test(text)) {
       return null;
@@ -1776,6 +1780,15 @@ class ActionRouter {
     if (parts.length < 2) return false;
     const newActionPattern = /^(?:open|launch|start|run|close|quit|exit|terminate|minimize|maximize|switch|focus|search|google|find|look\s+up|set|turn|send|message|call|remind|notify|alert|create|delete|move|copy|rename|save|show|list|pause|resume|stop|skip|next|previous|volume|vol|brightness)\b/i;
     return parts.slice(1).every(part => !newActionPattern.test(part));
+  }
+
+  _looksLikeSingleMultiTimeReminderRequest(text) {
+    const source = String(text || '').trim();
+    if (!this._extractMultiTimeReminder(source, source)) {
+      return false;
+    }
+
+    return !/\b(?:and|then|after\s+that|afterwards|also|plus)\s+(?:open|launch|start|run|close|quit|exit|terminate|search|google|look\s+up|find|play|pause|resume|unpause|stop|set|turn|send|share|transfer|copy|move|message|text|call|create|delete|rename|save|show|list)\b/i.test(source);
   }
 
   _normalizeMultiClauses(clauses) {
@@ -5481,129 +5494,22 @@ const newTabMatch = input.match(
     ].filter(Boolean)));
 
     for (const source of sources) {
-      if (!/\b(?:remind|reminder|notify|alert)\b/i.test(source)) {
-        continue;
-      }
-
-      const normalized = this._normalizeReminderScheduleText(source);
-      const recurrence = this._extractScheduleRecurrence(normalized);
-      const beforeTextPattern = /\b(?:at|by)\s+(.+?)\s+(?:to|about|that)\s+(.+)$/i;
-      const beforeTextMatch = normalized.match(beforeTextPattern);
-      if (beforeTextMatch?.[1] && beforeTextMatch?.[2]) {
-        const timeExpressions = this._extractReminderTimeList(beforeTextMatch[1]);
-        if (timeExpressions.length > 1) {
-          const reminderText = this._cleanMultiTimeReminderText(beforeTextMatch[2], '');
-          if (reminderText) {
-            return {
-              reminderText,
-              timeExpressions,
-              recurrence,
-              reminderCategory: this.entityExtractor._extractReminderCategory(reminderText)
-            };
-          }
-        }
-      }
-
-      const tailMatch = normalized.match(/\b(?:at|by)\s+(.+)$/i);
-      if (!tailMatch?.[1]) {
-        continue;
-      }
-
-      const timeExpressions = this._extractReminderTimeList(tailMatch[1]);
-      if (timeExpressions.length < 2) {
-        continue;
-      }
-
-      const taskSource = normalized.slice(0, tailMatch.index).trim();
-      const reminderText = this._cleanMultiTimeReminderText(taskSource, '');
-      if (!reminderText) {
+      const reminderParts = this.entityExtractor.extractReminderParts(source);
+      if (!Array.isArray(reminderParts.timeExpressions) ||
+        reminderParts.timeExpressions.length < 2 ||
+        !reminderParts.reminderText) {
         continue;
       }
 
       return {
-        reminderText,
-        timeExpressions,
-        recurrence,
-        reminderCategory: this.entityExtractor._extractReminderCategory(reminderText)
+        reminderText: reminderParts.reminderText,
+        timeExpressions: reminderParts.timeExpressions,
+        recurrence: reminderParts.recurrence || this._extractScheduleRecurrence(source),
+        reminderCategory: reminderParts.reminderCategory || this.entityExtractor._extractReminderCategory(reminderParts.reminderText)
       };
     }
 
     return null;
-  }
-
-  _normalizeReminderScheduleText(value) {
-    return String(value || '')
-      .replace(/\b(?:everyday|each\s+day)\b/gi, 'every day')
-      .replace(/\b(\d{1,2})\s+(\d{1,2})\s*(am|pm)\b/gi, (_match, hour, minute, period) => {
-        return `${hour}:${String(minute).padStart(2, '0')} ${String(period).toLowerCase()}`;
-      })
-      .replace(/\b(1[3-9]|2[0-3])\s+([0-5]\d)\b/g, '$1:$2')
-      .replace(/\b(\d{1,2}):(\d)\s*(am|pm)\b/gi, (_match, hour, minute, period) => {
-        return `${hour}:0${minute} ${String(period).toLowerCase()}`;
-      })
-      .replace(/\s+/g, ' ')
-      .replace(/[.?!]+$/g, '')
-      .trim();
-  }
-
-  _extractReminderTimeList(value) {
-    const source = this._normalizeReminderScheduleText(value);
-    const matches = Array.from(source.matchAll(/\b(\d{1,2})(?::(\d{1,2}))?\s*(am|pm)?\b/gi))
-      .map(match => ({
-        hour: match[1],
-        minute: match[2] || '',
-        period: match[3] ? String(match[3]).toLowerCase() : '',
-        index: match.index || 0
-      }))
-      .filter(match => {
-        const hour = Number(match.hour);
-        const minute = match.minute ? Number(match.minute) : 0;
-        const hasMinute = Boolean(match.minute);
-        if (match.period) return hour >= 1 && hour <= 12 && minute >= 0 && minute <= 59;
-        return hasMinute && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
-      });
-    if (matches.length < 2) return [];
-
-    const nearestPeriod = (index) => {
-      let best = '';
-      let distance = Number.POSITIVE_INFINITY;
-      for (const match of matches) {
-        if (!match.period) continue;
-        const candidateDistance = Math.abs(match.index - index);
-        if (candidateDistance < distance) {
-          best = match.period;
-          distance = candidateDistance;
-        }
-      }
-      return best;
-    };
-
-    const seen = new Set();
-    const times = [];
-    for (const match of matches) {
-      const hour = Number(match.hour);
-      const period = match.period || (hour <= 12 ? nearestPeriod(match.index) : '');
-      if (!period && hour <= 12) continue;
-      const minute = match.minute ? `:${String(match.minute).padStart(2, '0')}` : '';
-      const rendered = `${hour}${minute}${period ? ` ${period}` : ''}`.trim();
-      const key = rendered.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      times.push(rendered);
-    }
-    return times;
-  }
-
-  _cleanMultiTimeReminderText(value, fallback = '') {
-    const cleaned = String(value || fallback || '')
-      .replace(/\b(?:every\s+day|daily|each\s+day|every\s+(?:morning|evening|night|weekday|week)|weekly)\b/gi, ' ')
-      .replace(/^\s*(?:please\s+)?(?:(?:remind|notify|alert)(?:\s+me)?|set\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|create\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|add\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|schedule\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|reminder)\s*(?:me\s+)?(?:to|about|that|for|on|at|by)?\s*/i, ' ')
-      .replace(/^\s*(?:me|to|about|that|for|on|at|by)\b\s*/i, ' ')
-      .replace(/\s+(?:me|to|about|that|for|on|at|by|and)$/i, ' ')
-      .replace(/\s+/g, ' ')
-      .replace(/[.?!]+$/g, '')
-      .trim();
-    return /^(?:me|myself|today|tomorrow|tonight|am|pm)$/i.test(cleaned) ? '' : cleaned;
   }
 
   _extractDelayedAction(rawText, correctedText, durationWords, durationUnits) {
