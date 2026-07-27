@@ -75,7 +75,22 @@ const DIRECT_WEB_TAB_CLOSE_TARGETS = new Set([
   'google photos',
   'google drive',
   'google docs',
-  'google colab'
+  'google colab',
+  'youtube'
+]);
+
+const SCHEDULED_ACTION_INTENTS = new Set([
+  'app.open',
+  'app.close',
+  'browser.open',
+  'browser.openTab',
+  'browser.closeTab',
+  'file.open',
+  'folder.open',
+  'media.play',
+  'media.pause',
+  'media.resume',
+  'media.stop'
 ]);
 
 class ActionRouter {
@@ -4953,7 +4968,7 @@ const newTabMatch = input.match(
       return '';
     }
 
-    if (/^(?:photos|instagram|youtube|you tube|facebook|fb)$/.test(cleaned)) {
+    if (/^(?:photos|instagram|facebook|fb)$/.test(cleaned)) {
       return '';
     }
 
@@ -5346,6 +5361,7 @@ const newTabMatch = input.match(
     const durationUnits = '(?:seconds?|secs?|minutes?|mins?|minits?|hours?|hrs?)';
     const rawReminderParts = this.entityExtractor.extractReminderParts(raw);
     const correctedReminderParts = this.entityExtractor.extractReminderParts(input);
+    const multiTimeReminder = this._extractMultiTimeReminder(raw, input);
     const taskTimer = input.match(/^(?:set|create|add)\s+(?:a\s+)?timer\s+for\s+(.+?)\s+at\s+(\d{1,2}(?:(?::|\s+)\d{2})?\s*(?:am|pm)?)$/i);
     const taskDurationTimer = input.match(new RegExp(
       `^(?:set|start|create|add)\\s+(?:a\\s+)?timer\\s+(?:for|of)\\s+(${durationWords}\\s*${durationUnits})\\s+(?:to|for)\\s+(.+)$`,
@@ -5357,7 +5373,8 @@ const newTabMatch = input.match(
       `^(?:set|start|create|add)\\s+(?:a\\s+)?timer\\s+(?:to|for)\\s+(.+?)\\s+in\\s+(${durationWords}\\s*${durationUnits})$`,
       'i'
     ));
-    if (!taskTimer && !taskDurationTimer && !rawReminderParts.timeExpression && !correctedReminderParts.timeExpression && !/^(?:(?:daily|every\s+(?:day|morning|evening|night|weekday|week|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\s+)?(?:remind|notify|alert|set\s+(?:a\s+)?(?:recurring\s+)?reminder|create\s+(?:a\s+)?(?:recurring\s+)?reminder|add\s+(?:a\s+)?(?:recurring\s+)?reminder|schedule\s+(?:a\s+)?(?:recurring\s+)?reminder)\b/i.test(input)) {
+    const delayedAction = this._extractDelayedAction(raw, input, durationWords, durationUnits);
+    if (!delayedAction && !multiTimeReminder && !taskTimer && !taskDurationTimer && !rawReminderParts.timeExpression && !correctedReminderParts.timeExpression && !/^(?:(?:daily|every\s+(?:day|morning|evening|night|weekday|week|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\s+)?(?:remind|notify|alert|set\s+(?:a\s+)?(?:recurring\s+)?reminder|create\s+(?:a\s+)?(?:recurring\s+)?reminder|add\s+(?:a\s+)?(?:recurring\s+)?reminder|schedule\s+(?:a\s+)?(?:recurring\s+)?reminder)\b/i.test(input)) {
       return null;
     }
 
@@ -5367,18 +5384,34 @@ const newTabMatch = input.match(
     }
 
     const entities = this.entityExtractor.extract(intent, rawText);
-    if (rawReminderParts.timeExpression) entities.timeExpression = rawReminderParts.timeExpression;
-    if (rawReminderParts.duration) entities.duration = rawReminderParts.duration;
-    if (rawReminderParts.reminderText) {
+    if (delayedAction) {
+      entities.duration = delayedAction.duration;
+      entities.timeExpression = delayedAction.timeExpression;
+      entities.reminderText = delayedAction.reminderText;
+      entities.reminderCategory = 'general';
+      entities.scheduledAction = delayedAction.scheduledAction;
+      entities.routeSource = 'delayed-action';
+    }
+    if (multiTimeReminder) {
+      entities.timeExpression = multiTimeReminder.timeExpressions[0];
+      entities.timeExpressions = multiTimeReminder.timeExpressions;
+      entities.reminderText = multiTimeReminder.reminderText;
+      entities.reminderCategory = multiTimeReminder.reminderCategory;
+      entities.recurrence = multiTimeReminder.recurrence || entities.recurrence;
+      entities.routeSource = 'multi-time-reminder';
+    }
+    if (!multiTimeReminder && rawReminderParts.timeExpression) entities.timeExpression = rawReminderParts.timeExpression;
+    if (!multiTimeReminder && rawReminderParts.duration) entities.duration = rawReminderParts.duration;
+    if (!delayedAction && !multiTimeReminder && rawReminderParts.reminderText) {
       entities.reminderText = rawReminderParts.reminderText;
       entities.reminderCategory = rawReminderParts.reminderCategory || this.entityExtractor._extractReminderCategory(rawReminderParts.reminderText);
     }
-    if (taskTimer) {
+    if (!delayedAction && !multiTimeReminder && taskTimer) {
       entities.reminderText = taskTimer[1].trim();
       entities.timeExpression = taskTimer[2].replace(/^(\d{1,2})\s+(\d{2})/, '$1:$2').replace(/\s+/g, ' ').trim();
       entities.reminderCategory = this.entityExtractor._extractReminderCategory(taskTimer[1]);
     }
-    if (taskDurationTimer) {
+    if (!delayedAction && !multiTimeReminder && taskDurationTimer) {
       const durationText = taskDurationTimer[1].match(new RegExp(`^${durationWords}\\s*${durationUnits}$`, 'i'))
         ? taskDurationTimer[1]
         : taskDurationTimer[2];
@@ -5391,27 +5424,32 @@ const newTabMatch = input.match(
       entities.reminderCategory = this.entityExtractor._extractReminderCategory(entities.reminderText);
     }
     const correctedEntities = this.entityExtractor.extract(intent, input);
-    if (!entities.timeExpression && correctedReminderParts.timeExpression) {
+    if (!multiTimeReminder && !entities.timeExpression && correctedReminderParts.timeExpression) {
       entities.timeExpression = correctedReminderParts.timeExpression;
     }
-    if (!entities.duration && correctedReminderParts.duration) {
+    if (!multiTimeReminder && !entities.duration && correctedReminderParts.duration) {
       entities.duration = correctedReminderParts.duration;
     }
-    if (!entities.reminderText && correctedReminderParts.reminderText) {
+    if (!multiTimeReminder && !entities.reminderText && correctedReminderParts.reminderText) {
       entities.reminderText = correctedReminderParts.reminderText;
       entities.reminderCategory = correctedReminderParts.reminderCategory || this.entityExtractor._extractReminderCategory(correctedReminderParts.reminderText);
     }
-    if (!entities.timeExpression && correctedEntities.timeExpression) {
+    if (!multiTimeReminder && !entities.timeExpression && correctedEntities.timeExpression) {
       entities.timeExpression = correctedEntities.timeExpression;
     }
-    if (!entities.duration && correctedEntities.duration) {
+    if (!multiTimeReminder && !entities.duration && correctedEntities.duration) {
       entities.duration = correctedEntities.duration;
     }
-    if (!entities.reminderText && correctedEntities.reminderText) {
+    if (!multiTimeReminder && !entities.reminderText && correctedEntities.reminderText) {
       entities.reminderText = correctedEntities.reminderText;
     }
     entities.recurrence = entities.recurrence || rawReminderParts.recurrence || correctedReminderParts.recurrence || correctedEntities.recurrence || this._extractScheduleRecurrence(`${raw} ${input}`);
     entities.timeExpression = this._stripScheduleRecurrenceFromTimeExpression(entities.timeExpression);
+    if (Array.isArray(entities.timeExpressions)) {
+      entities.timeExpressions = entities.timeExpressions
+        .map(timeExpression => this._stripScheduleRecurrenceFromTimeExpression(timeExpression))
+        .filter(Boolean);
+    }
     if (!entities.reminderText) {
       const scheduleOnlyFallbackPattern = new RegExp(
         `^(?:${durationWords}\\s*${durationUnits}|today|tomorrow(?:\\s+(?:morning|afternoon|evening|night))?|tonight|next\\s+week|(?:this|next)\\s+month\\s+\\d{1,2}|\\d{1,2}(?:st|nd|rd|th)?(?:\\s+(?:of\\s+)?(?:this|next)\\s+month|\\s+(?:this|next)\\s+month)|\\d{1,2}[\\/.-]\\d{1,2}(?:[\\/.-]\\d{2,4})?)$`,
@@ -5434,6 +5472,287 @@ const newTabMatch = input.match(
     }
 
     return null;
+  }
+
+  _extractMultiTimeReminder(rawText, correctedText) {
+    const sources = Array.from(new Set([
+      String(rawText || '').trim(),
+      String(correctedText || rawText || '').trim()
+    ].filter(Boolean)));
+
+    for (const source of sources) {
+      if (!/\b(?:remind|reminder|notify|alert)\b/i.test(source)) {
+        continue;
+      }
+
+      const normalized = this._normalizeReminderScheduleText(source);
+      const recurrence = this._extractScheduleRecurrence(normalized);
+      const beforeTextPattern = /\b(?:at|by)\s+(.+?)\s+(?:to|about|that)\s+(.+)$/i;
+      const beforeTextMatch = normalized.match(beforeTextPattern);
+      if (beforeTextMatch?.[1] && beforeTextMatch?.[2]) {
+        const timeExpressions = this._extractReminderTimeList(beforeTextMatch[1]);
+        if (timeExpressions.length > 1) {
+          const reminderText = this._cleanMultiTimeReminderText(beforeTextMatch[2], '');
+          if (reminderText) {
+            return {
+              reminderText,
+              timeExpressions,
+              recurrence,
+              reminderCategory: this.entityExtractor._extractReminderCategory(reminderText)
+            };
+          }
+        }
+      }
+
+      const tailMatch = normalized.match(/\b(?:at|by)\s+(.+)$/i);
+      if (!tailMatch?.[1]) {
+        continue;
+      }
+
+      const timeExpressions = this._extractReminderTimeList(tailMatch[1]);
+      if (timeExpressions.length < 2) {
+        continue;
+      }
+
+      const taskSource = normalized.slice(0, tailMatch.index).trim();
+      const reminderText = this._cleanMultiTimeReminderText(taskSource, '');
+      if (!reminderText) {
+        continue;
+      }
+
+      return {
+        reminderText,
+        timeExpressions,
+        recurrence,
+        reminderCategory: this.entityExtractor._extractReminderCategory(reminderText)
+      };
+    }
+
+    return null;
+  }
+
+  _normalizeReminderScheduleText(value) {
+    return String(value || '')
+      .replace(/\b(?:everyday|each\s+day)\b/gi, 'every day')
+      .replace(/\b(\d{1,2})\s+(\d{1,2})\s*(am|pm)\b/gi, (_match, hour, minute, period) => {
+        return `${hour}:${String(minute).padStart(2, '0')} ${String(period).toLowerCase()}`;
+      })
+      .replace(/\b(1[3-9]|2[0-3])\s+([0-5]\d)\b/g, '$1:$2')
+      .replace(/\b(\d{1,2}):(\d)\s*(am|pm)\b/gi, (_match, hour, minute, period) => {
+        return `${hour}:0${minute} ${String(period).toLowerCase()}`;
+      })
+      .replace(/\s+/g, ' ')
+      .replace(/[.?!]+$/g, '')
+      .trim();
+  }
+
+  _extractReminderTimeList(value) {
+    const source = this._normalizeReminderScheduleText(value);
+    const matches = Array.from(source.matchAll(/\b(\d{1,2})(?::(\d{1,2}))?\s*(am|pm)?\b/gi))
+      .map(match => ({
+        hour: match[1],
+        minute: match[2] || '',
+        period: match[3] ? String(match[3]).toLowerCase() : '',
+        index: match.index || 0
+      }))
+      .filter(match => {
+        const hour = Number(match.hour);
+        const minute = match.minute ? Number(match.minute) : 0;
+        const hasMinute = Boolean(match.minute);
+        if (match.period) return hour >= 1 && hour <= 12 && minute >= 0 && minute <= 59;
+        return hasMinute && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+      });
+    if (matches.length < 2) return [];
+
+    const nearestPeriod = (index) => {
+      let best = '';
+      let distance = Number.POSITIVE_INFINITY;
+      for (const match of matches) {
+        if (!match.period) continue;
+        const candidateDistance = Math.abs(match.index - index);
+        if (candidateDistance < distance) {
+          best = match.period;
+          distance = candidateDistance;
+        }
+      }
+      return best;
+    };
+
+    const seen = new Set();
+    const times = [];
+    for (const match of matches) {
+      const hour = Number(match.hour);
+      const period = match.period || (hour <= 12 ? nearestPeriod(match.index) : '');
+      if (!period && hour <= 12) continue;
+      const minute = match.minute ? `:${String(match.minute).padStart(2, '0')}` : '';
+      const rendered = `${hour}${minute}${period ? ` ${period}` : ''}`.trim();
+      const key = rendered.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      times.push(rendered);
+    }
+    return times;
+  }
+
+  _cleanMultiTimeReminderText(value, fallback = '') {
+    const cleaned = String(value || fallback || '')
+      .replace(/\b(?:every\s+day|daily|each\s+day|every\s+(?:morning|evening|night|weekday|week)|weekly)\b/gi, ' ')
+      .replace(/^\s*(?:please\s+)?(?:(?:remind|notify|alert)(?:\s+me)?|set\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|create\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|add\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|schedule\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|reminder)\s*(?:me\s+)?(?:to|about|that|for|on|at|by)?\s*/i, ' ')
+      .replace(/^\s*(?:me|to|about|that|for|on|at|by)\b\s*/i, ' ')
+      .replace(/\s+(?:me|to|about|that|for|on|at|by|and)$/i, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/[.?!]+$/g, '')
+      .trim();
+    return /^(?:me|myself|today|tomorrow|tonight|am|pm)$/i.test(cleaned) ? '' : cleaned;
+  }
+
+  _extractDelayedAction(rawText, correctedText, durationWords, durationUnits) {
+    const durationPattern = `(${durationWords}\\s*${durationUnits})`;
+    const sources = Array.from(new Set([
+      String(rawText || '').trim(),
+      String(correctedText || rawText || '').trim()
+    ].filter(Boolean)));
+
+    for (const source of sources) {
+      const patterns = [
+        { pattern: new RegExp(`^(?:please\\s+)?(?:after|in)\\s+${durationPattern}\\s*,?\\s+(.+)$`, 'i'), durationIndex: 1, commandIndex: 2 },
+        { pattern: new RegExp(`^(.+?)\\s+(?:after|in)\\s+${durationPattern}$`, 'i'), durationIndex: 2, commandIndex: 1 }
+      ];
+
+      for (const { pattern, durationIndex, commandIndex } of patterns) {
+        const match = source.match(pattern);
+        if (!match) {
+          continue;
+        }
+
+        const durationText = String(match[durationIndex] || '').replace(/\s+/g, ' ').trim();
+        const commandText = String(match[commandIndex] || '')
+          .replace(/[?.!]+$/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (!durationText || !this._isSchedulableCommandText(commandText)) {
+          continue;
+        }
+
+        const duration = this.entityExtractor._extractDuration(durationText);
+        if (!duration || duration <= 0) {
+          continue;
+        }
+
+        const scheduledAction = this._buildDelayedScheduledAction(commandText);
+        if (!scheduledAction) {
+          continue;
+        }
+
+        return {
+          duration,
+          timeExpression: durationText,
+          reminderText: commandText,
+          scheduledAction
+        };
+      }
+    }
+
+    return null;
+  }
+
+  _isSchedulableCommandText(value) {
+    const command = String(value || '').trim();
+    if (!command || /\b(?:shutdown|shut\s+down|restart|reboot|power\s+off|sleep|hibernate|delete|remove\s+(?:file|folder)|erase|move|copy|send|transfer|message|email|call)\b/i.test(command)) {
+      return false;
+    }
+    return /^(?:open|launch|start|run|close|remove|shut|quit|exit|stop|play|watch|listen\s+to|pause|resume|continue|show)\b/i.test(command);
+  }
+
+  _buildDelayedScheduledAction(commandText) {
+    const command = String(commandText || '')
+      .replace(/[?.!]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!command || /\b(?:shutdown|shut\s+down|restart|reboot|power\s+off|sleep|hibernate)\b/i.test(command)) {
+      return null;
+    }
+
+    const prepared = { correctedText: command.toLowerCase() };
+    const route = this._resolveScheduledActionRoute(command, prepared);
+    if (!route?.intent?.id || !SCHEDULED_ACTION_INTENTS.has(route.intent.id)) return null;
+    return {
+      actionId: route.intent.action || route.intent.id,
+      entities: this._sanitizeScheduledActionEntities(route.intent.id, route.entities || {})
+    };
+  }
+
+  _resolveScheduledActionRoute(command, prepared) {
+    const resolvers = [
+      () => this._resolveYouTubeMediaIntent(command, prepared),
+      () => this._resolveKnownWebOpenIntent(command, prepared),
+      () => this._resolveBrowserFollowupIntent(command, prepared),
+      () => this._resolveBrowserLanguageIntent(command, prepared),
+      () => this._resolveBrowserTabIntent(command, prepared),
+      () => this._resolveExplicitMediaControlIntent(command, prepared),
+      () => this._resolveMediaIntent(command, 'scheduled'),
+      () => this._resolveExplicitMediaIntent(command, prepared),
+      () => this._resolveExplicitFileIntent(command, prepared),
+      () => this._resolveExplicitFolderIntent(command, prepared),
+      () => this._resolveExplicitAppIntent(command, prepared),
+      () => this._resolveExplicitOpenIntent(command, prepared),
+      () => this._resolveExplicitAppOpenIntent(command, prepared)
+    ];
+
+    for (const resolve of resolvers) {
+      const result = resolve();
+      if (result?.intent?.id && SCHEDULED_ACTION_INTENTS.has(result.intent.id)) {
+        return result;
+      }
+    }
+    return null;
+  }
+
+  _sanitizeScheduledActionEntities(intentId, entities = {}) {
+    const source = entities && typeof entities === 'object' ? entities : {};
+    const cleanText = (value, max = 240) => String(value || '').replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+    switch (intentId) {
+      case 'app.open':
+      case 'app.close':
+        return {
+          appName: cleanText(source.appName, 120),
+          ...(source.forceNewWindow === true ? { forceNewWindow: true } : {}),
+          ...(source.requestedOperation ? { requestedOperation: cleanText(source.requestedOperation, 60) } : {}),
+          ...(source.allowWebSearchFallback === true ? { allowWebSearchFallback: true } : {}),
+          ...(source.webFallbackUrl ? { webFallbackUrl: cleanText(source.webFallbackUrl, 240) } : {}),
+          ...(source.webFallbackBrowser ? { webFallbackBrowser: cleanText(source.webFallbackBrowser, 40).toLowerCase() } : {})
+        };
+      case 'browser.open':
+        return {
+          url: cleanText(source.url, 240),
+          ...(source.browserName ? { browserName: cleanText(source.browserName, 40).toLowerCase() } : {}),
+          ...(source.newTab === true ? { newTab: true } : {})
+        };
+      case 'browser.openTab':
+      case 'browser.closeTab':
+        return {
+          browserName: cleanText(source.browserName || 'browser', 40).toLowerCase(),
+          ...(source.tabQuery ? { tabQuery: cleanText(source.tabQuery, 120) } : {}),
+          ...(source.forceNewTab === true ? { forceNewTab: true } : {})
+        };
+      case 'file.open':
+        return {
+          filename: cleanText(source.filename || source.path, 240),
+          ...(source.path ? { path: cleanText(source.path, 260) } : {})
+        };
+      case 'folder.open':
+        return {
+          folderName: cleanText(source.folderName || source.path, 240),
+          ...(source.path ? { path: cleanText(source.path, 260) } : {})
+        };
+      case 'media.play':
+        return {
+          mediaQuery: cleanText(source.mediaQuery || source.query, 180),
+          mediaPlatform: cleanText(source.mediaPlatform || source.platform || 'youtube', 40).toLowerCase()
+        };
+      default:
+        return {};
+    }
   }
 
   _resolveScheduleManagementIntent(rawText, preparedInput) {

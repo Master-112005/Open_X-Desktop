@@ -20,6 +20,20 @@ const MAX_TITLE_LENGTH = 160;
 const MAX_CATEGORY_LENGTH = 60;
 const VALID_STATUSES = new Set(['scheduled', 'paused', 'due', 'completed', 'dismissed', 'running']);
 const VALID_KINDS = new Set(['Timer', 'Alarm', 'Reminder', 'Stopwatch']);
+const SCHEDULED_ACTION_IDS = new Set([
+  'app.open',
+  'app.close',
+  'browser.open',
+  'browser.openTab',
+  'browser.closeTab',
+  'file.open',
+  'folder.open',
+  'media.play',
+  'media.pause',
+  'media.resume',
+  'media.stop'
+]);
+const SCHEDULED_ACTION_BROWSER_NAMES = new Set(['browser', 'chrome', 'edge', 'firefox']);
 
 const REMINDER_PRESENTATIONS = Object.freeze({
   education: { symbol: '\u{1F393}', label: 'School & college' },
@@ -105,10 +119,120 @@ function scheduleVerification(status, check, detail = {}) {
   return { status, check, ...detail };
 }
 
+function normalizeScheduledAction(action = {}) {
+  if (!action || typeof action !== 'object') return null;
+  const actionId = sanitizeText(action.actionId || action.intent || action.id, 80);
+  if (!SCHEDULED_ACTION_IDS.has(actionId)) return null;
+  const entities = action.entities && typeof action.entities === 'object' ? action.entities : {};
+
+  if (actionId === 'app.open' || actionId === 'app.close') {
+    const appName = sanitizeText(entities.appName, 120);
+    if (!appName) return null;
+    return {
+      actionId,
+      entities: {
+        appName,
+        ...(entities.forceNewWindow === true ? { forceNewWindow: true } : {}),
+        ...(entities.requestedOperation ? { requestedOperation: sanitizeText(entities.requestedOperation, 60) } : {}),
+        ...(entities.allowWebSearchFallback === true ? { allowWebSearchFallback: true } : {}),
+        ...(entities.webFallbackUrl ? { webFallbackUrl: sanitizeText(entities.webFallbackUrl, 240) } : {}),
+        ...(entities.webFallbackBrowser ? { webFallbackBrowser: sanitizeText(entities.webFallbackBrowser, 40).toLowerCase() } : {})
+      }
+    };
+  }
+
+  if (actionId === 'browser.closeTab') {
+    const requestedBrowser = sanitizeText(entities.browserName || 'browser', 40).toLowerCase();
+    const browserName = SCHEDULED_ACTION_BROWSER_NAMES.has(requestedBrowser) ? requestedBrowser : 'browser';
+    const tabQuery = sanitizeText(entities.tabQuery, 120);
+    return {
+      actionId,
+      entities: {
+        browserName,
+        ...(tabQuery ? { tabQuery } : {})
+      }
+    };
+  }
+
+  if (actionId === 'browser.open') {
+    const url = sanitizeText(entities.url, 240);
+    if (!url) return null;
+    return {
+      actionId,
+      entities: {
+        url,
+        ...(entities.browserName ? { browserName: sanitizeText(entities.browserName, 40).toLowerCase() } : {}),
+        ...(entities.newTab === true ? { newTab: true } : {})
+      }
+    };
+  }
+
+  if (actionId === 'browser.openTab') {
+    const tabQuery = sanitizeText(entities.tabQuery, 120);
+    if (!tabQuery) return null;
+    return {
+      actionId,
+      entities: {
+        tabQuery,
+        browserName: sanitizeText(entities.browserName || 'browser', 40).toLowerCase(),
+        ...(entities.forceNewTab === true ? { forceNewTab: true } : {})
+      }
+    };
+  }
+
+  if (actionId === 'file.open') {
+    const filename = sanitizeText(entities.filename || entities.path, 240);
+    if (!filename) return null;
+    return {
+      actionId,
+      entities: {
+        filename,
+        ...(entities.path ? { path: sanitizeText(entities.path, 260) } : {})
+      }
+    };
+  }
+
+  if (actionId === 'folder.open') {
+    const folderName = sanitizeText(entities.folderName || entities.path, 240);
+    if (!folderName) return null;
+    return {
+      actionId,
+      entities: {
+        folderName,
+        ...(entities.path ? { path: sanitizeText(entities.path, 260) } : {})
+      }
+    };
+  }
+
+  if (actionId === 'media.play') {
+    const mediaQuery = sanitizeText(entities.mediaQuery || entities.query, 180);
+    if (!mediaQuery) return null;
+    return {
+      actionId,
+      entities: {
+        mediaQuery,
+        mediaPlatform: sanitizeText(entities.mediaPlatform || entities.platform || 'youtube', 40).toLowerCase()
+      }
+    };
+  }
+
+  if (['media.pause', 'media.resume', 'media.stop'].includes(actionId)) {
+    return {
+      actionId,
+      entities: {}
+    };
+  }
+
+  return null;
+}
+
 class SchedulerController {
   constructor(config) {
     this.logger = new Logger(config?.logging || { level: 'info' });
     this.eventBus = config?.eventBus || null;
+    this.actionExecutor = typeof config?.scheduledActionExecutor === 'function'
+      ? config.scheduledActionExecutor
+      : null;
     const dataPaths = config?.app?.dataPaths || buildDataPaths(config);
     this.schedulePath = config?.app?.schedulesPath || dataPaths.schedulesPath;
     this._migrateWorkingDirectorySchedules(config);
@@ -120,6 +244,10 @@ class SchedulerController {
       this._saveScheduledItems();
     }
     this.scheduledItems.filter(item => item.status === 'scheduled').forEach(item => this._arm(item));
+  }
+
+  setActionExecutor(executor) {
+    this.actionExecutor = typeof executor === 'function' ? executor : null;
   }
 
   setTimer(durationMinutes) {
@@ -269,6 +397,7 @@ class SchedulerController {
 
     const category = inferReminderCategory(message, options.category);
     const presentation = REMINDER_PRESENTATIONS[category];
+    const scheduledAction = normalizeScheduledAction(options.scheduledAction);
     return this._scheduleNotification({
       kind: 'Reminder',
       title: this._reminderTitle(presentation),
@@ -276,7 +405,10 @@ class SchedulerController {
       dueAt,
       category,
       symbol: presentation.symbol,
-      metadata: options.recurrence ? { recurrence: this._normalizeRecurrence(options.recurrence) } : {}
+      metadata: {
+        ...(options.recurrence ? { recurrence: this._normalizeRecurrence(options.recurrence) } : {}),
+        ...(scheduledAction ? { scheduledAction } : {})
+      }
     });
   }
 
@@ -655,6 +787,14 @@ class SchedulerController {
         return this._failure(`${normalizedKind} text is required`, normalizedKind, 'schedule-input');
       }
 
+      const safeMetadata = { ...metadata };
+      const scheduledAction = normalizeScheduledAction(safeMetadata.scheduledAction);
+      if (scheduledAction) {
+        safeMetadata.scheduledAction = scheduledAction;
+      } else {
+        delete safeMetadata.scheduledAction;
+      }
+
       const taskName = this._scheduleTaskName(normalizedKind);
       const item = {
         id: taskName,
@@ -664,8 +804,8 @@ class SchedulerController {
         message: cleanMessage,
         category: sanitizeText(category || normalizedKind.toLowerCase(), MAX_CATEGORY_LENGTH),
         symbol: sanitizeText(symbol, 8) || null,
-        ...metadata,
-        recurrence: this._normalizeRecurrence(metadata.recurrence),
+        ...safeMetadata,
+        recurrence: this._normalizeRecurrence(safeMetadata.recurrence),
         dueAt: targetDate.toISOString(),
         status: 'scheduled',
         createdAt: new Date().toISOString()
@@ -737,7 +877,8 @@ class SchedulerController {
       recurrence: item.recurrence || null,
       remainingMs: item.remainingMs,
       source: item.source || null,
-      sourceDeviceId: item.sourceDeviceId || null
+      sourceDeviceId: item.sourceDeviceId || null,
+      scheduledAction: normalizeScheduledAction(item.scheduledAction)
     };
   }
 
@@ -881,6 +1022,9 @@ class SchedulerController {
     next.category = sanitizeText(next.category || next.kind.toLowerCase(), MAX_CATEGORY_LENGTH);
     next.symbol = sanitizeText(next.symbol, 8) || null;
     next.status = normalizeScheduleStatus(next.status, next.kind === 'Stopwatch' ? 'running' : 'scheduled');
+    const scheduledAction = normalizeScheduledAction(next.scheduledAction);
+    if (scheduledAction) next.scheduledAction = scheduledAction;
+    else delete next.scheduledAction;
     next.recurrence = this._normalizeRecurrence(next.recurrence);
     next.createdAt = Number.isFinite(Date.parse(next.createdAt)) ? next.createdAt : new Date().toISOString();
     next.updatedAt = Number.isFinite(Date.parse(next.updatedAt)) ? next.updatedAt : next.createdAt;
@@ -910,10 +1054,79 @@ class SchedulerController {
 
   _publishDue(item) {
     if (!item || item.status !== 'scheduled') return;
+    if (normalizeScheduledAction(item.scheduledAction)) {
+      this._executeScheduledAction(item)
+        .then(() => {
+          const current = this.scheduledItems.find(entry => entry.id === item.id || entry.taskName === item.taskName) || item;
+          this.eventBus?.publish?.(EVENTS.SCHEDULE_DUE, { ...current });
+        })
+        .catch(error => {
+          this.logger.error('Scheduled action execution failed', error);
+          const current = this.scheduledItems.find(entry => entry.id === item.id || entry.taskName === item.taskName) || item;
+          this.eventBus?.publish?.(EVENTS.SCHEDULE_DUE, { ...current });
+        });
+      return;
+    }
+
     item.status = 'due';
     item.updatedAt = new Date().toISOString();
     this._saveScheduledItems();
     this.eventBus?.publish?.(EVENTS.SCHEDULE_DUE, { ...item });
+  }
+
+  async _executeScheduledAction(item) {
+    const itemId = String(item?.id || item?.taskName || '').trim();
+    const current = this.scheduledItems.find(entry => entry.id === itemId || entry.taskName === itemId) || item;
+    const scheduledAction = normalizeScheduledAction(current?.scheduledAction);
+    if (!scheduledAction) return;
+    if (typeof this.actionExecutor !== 'function') {
+      this.logger.warn('Scheduled action is due but no executor is available', {
+        id: current.id,
+        actionId: scheduledAction.actionId
+      });
+      current.status = 'due';
+      current.updatedAt = new Date().toISOString();
+      current.scheduledActionResult = {
+        success: false,
+        actionId: scheduledAction.actionId,
+        completedAt: current.updatedAt,
+        error: 'Scheduled action executor is unavailable'
+      };
+      this._saveScheduledItems();
+      return current.scheduledActionResult;
+    }
+
+    current.status = 'running';
+    current.updatedAt = new Date().toISOString();
+    this._saveScheduledItems();
+
+    try {
+      const result = await this.actionExecutor(scheduledAction, current);
+      const active = this.scheduledItems.find(entry => entry.id === itemId || entry.taskName === itemId) || current;
+      const success = Boolean(result?.success);
+      active.status = success ? 'completed' : 'due';
+      active.scheduledActionResult = {
+        success,
+        actionId: scheduledAction.actionId,
+        completedAt: new Date().toISOString(),
+        error: success ? null : sanitizeText(result?.error || 'Scheduled action failed', 180)
+      };
+      active.updatedAt = active.scheduledActionResult.completedAt;
+      this._saveScheduledItems();
+      return active.scheduledActionResult;
+    } catch (error) {
+      const active = this.scheduledItems.find(entry => entry.id === itemId || entry.taskName === itemId) || current;
+      active.status = 'due';
+      active.scheduledActionResult = {
+        success: false,
+        actionId: scheduledAction.actionId,
+        completedAt: new Date().toISOString(),
+        error: sanitizeText(error.message || 'Scheduled action failed', 180)
+      };
+      active.updatedAt = active.scheduledActionResult.completedAt;
+      this._saveScheduledItems();
+      throw error;
+    }
   }
 
   snooze(id, minutes = 5) {

@@ -1690,11 +1690,15 @@ describe('Action Router', function() {
     const router = new ActionRouter(config, stubEngine);
 
     const result = await router.process('close chatgpt', 'chat');
+    const youtube = await router.process('close youtube', 'chat');
 
     assert.equal(result.intent, 'browser.closeTab');
     assert.equal(result.entities.browserName, 'chrome');
     assert.equal(result.entities.tabQuery, 'chatgpt');
-    assert.deepEqual(executed.map(step => step.actionId), ['browser.closeTab']);
+    assert.equal(youtube.intent, 'browser.closeTab');
+    assert.equal(youtube.entities.browserName, 'chrome');
+    assert.equal(youtube.entities.tabQuery, 'youtube');
+    assert.deepEqual(executed.map(step => step.actionId), ['browser.closeTab', 'browser.closeTab']);
   });
 
   it('should route browser tab listing commands before process status', async function() {
@@ -2407,6 +2411,32 @@ describe('Action Router', function() {
     assert.equal(result.intent, 'reminder.set');
     assert.equal(result.entities.timeExpression, '12 am');
     assert.equal(result.entities.reminderText, 'sleep');
+  });
+
+  it('should keep multiple reminder times separate from the reminder text', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const stubEngine = {
+      execute(actionId, entities) {
+        return { success: true, data: { actionId, ...entities, dueAt: new Date().toISOString(), kind: 'Reminder' } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const result = await router.process('everyday remind me to mark attendance at 9 30 pm and 9 55pm', 'chat');
+
+    assert.equal(result.intent, 'reminder.set');
+    assert.equal(result.entities.reminderText, 'mark attendance');
+    assert.deepEqual(result.entities.timeExpressions, ['9:30 pm', '9:55 pm']);
+    assert.equal(result.entities.timeExpression, '9:30 pm');
+    assert.equal(result.entities.recurrence, 'daily');
+
+    const militaryTime = await router.process('daily remind me to mark attendance at 21:30 and 21:55', 'chat');
+    assert.equal(militaryTime.intent, 'reminder.set');
+    assert.equal(militaryTime.entities.reminderText, 'mark attendance');
+    assert.deepEqual(militaryTime.entities.timeExpressions, ['21:30', '21:55']);
+    assert.equal(militaryTime.entities.recurrence, 'daily');
   });
 
   it('should route trailing remind-me event sentences without noisy repair', async function() {
@@ -3456,6 +3486,9 @@ describe('Action Router', function() {
     const afterThirtyTrailing = await router.process('remind me to call mummy after 30 min', 'chat');
     const afterHourWords = await router.process('remind me to call daddy after one hr', 'chat');
     const afterHourCompact = await router.process('remind me to call daddy after 1hr', 'chat');
+    const delayedYoutubeClose = await router.process('after 10 min close youtube', 'chat');
+    const trailingDelayedYoutubeClose = await router.process('close youtube after 10 min', 'chat');
+    const delayedPlay = await router.process('after one min play dulander song', 'chat');
 
     assert.equal(birthday.intent, 'reminder.set');
     assert.equal(birthday.entities.timeExpression, 'tomorrow');
@@ -3472,6 +3505,25 @@ describe('Action Router', function() {
     assert.equal(afterHourWords.entities.reminderText, 'call daddy');
     assert.equal(afterHourCompact.entities.duration, 60);
     assert.equal(afterHourCompact.entities.reminderText, 'call daddy');
+    assert.equal(delayedYoutubeClose.intent, 'reminder.set');
+    assert.equal(delayedYoutubeClose.entities.duration, 10);
+    assert.equal(delayedYoutubeClose.entities.reminderText, 'close youtube');
+    assert.deepEqual(delayedYoutubeClose.entities.scheduledAction, {
+      actionId: 'browser.closeTab',
+      entities: { browserName: 'chrome', tabQuery: 'youtube' }
+    });
+    assert.equal(trailingDelayedYoutubeClose.intent, 'reminder.set');
+    assert.deepEqual(trailingDelayedYoutubeClose.entities.scheduledAction, {
+      actionId: 'browser.closeTab',
+      entities: { browserName: 'chrome', tabQuery: 'youtube' }
+    });
+    assert.equal(delayedPlay.intent, 'reminder.set');
+    assert.equal(delayedPlay.entities.duration, 1);
+    assert.equal(delayedPlay.entities.reminderText, 'play dulander song');
+    assert.deepEqual(delayedPlay.entities.scheduledAction, {
+      actionId: 'media.play',
+      entities: { mediaQuery: 'dulander song', mediaPlatform: 'youtube' }
+    });
   });
 
   it('should route flexible reminder dates and ask when reminder text is missing', async function() {

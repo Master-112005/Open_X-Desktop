@@ -61,6 +61,32 @@ describe('Automation Engine', function() {
     assert.equal(todayThenTime.getMinutes(), 43);
   });
 
+  it('should schedule one reminder for each explicit reminder time expression', async function() {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-multi-reminder-'));
+    const engine = new AutomationEngine({ app: { dataDir: tempDir } });
+
+    try {
+      const result = await engine.execute('reminder.set', {
+        reminderText: 'mark attendance',
+        timeExpressions: ['9:30 pm', '9:55 pm'],
+        timeExpression: '9:30 pm',
+        recurrence: 'daily',
+        reminderCategory: 'work'
+      });
+
+      assert.equal(result.success, true);
+      assert.equal(result.data.count, 2);
+      assert.equal(result.data.entries.length, 2);
+      assert.equal(result.data.entries[0].message, 'mark attendance');
+      assert.equal(result.data.entries[1].message, 'mark attendance');
+      assert.equal(result.data.entries[0].recurrence, 'daily');
+      assert.equal(result.data.entries[1].recurrence, 'daily');
+    } finally {
+      engine.scheduler.destroy();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('should fill extracted form fields from saved personal context', async function() {
     const engine = new AutomationEngine({});
     const result = await engine.execute('form.fill', {

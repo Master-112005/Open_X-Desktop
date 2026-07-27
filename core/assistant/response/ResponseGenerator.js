@@ -149,6 +149,26 @@ function scheduleWhen(context, fallback = '') {
   return fallback;
 }
 
+function scheduleClock(value, fallback = '') {
+  const date = new Date(value || '');
+  if (Number.isFinite(date.getTime())) {
+    return date.toLocaleTimeString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  }
+  return fallback;
+}
+
+function naturalJoin(items) {
+  const values = (Array.isArray(items) ? items : [])
+    .map(item => String(item || '').trim())
+    .filter(Boolean);
+  if (values.length <= 1) return values[0] || '';
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(', ')}, and ${values[values.length - 1]}`;
+}
+
 function formatSearchEntry(entry) {
   const name = entry?.name || basenameOrValue(entry?.path);
   const location = locationLabel(entry);
@@ -1045,6 +1065,8 @@ const RESPONSE_BUILDERS = {
       const time = valueFromContext(context, 'timeExpression', '');
       const duration = valueFromContext(context, 'duration', null);
       const recurrence = valueFromContext(context, 'recurrence', null);
+      const scheduledAction = valueFromContext(context, 'scheduledAction', null);
+      const entries = valueFromContext(context, 'entries', null);
       const repeat = recurrence ? `, repeating ${String(recurrence).replace(/[:-]/g, ' ')}` : '';
       const due = scheduleWhen(context, time);
       const when = due
@@ -1053,12 +1075,65 @@ const RESPONSE_BUILDERS = {
           ? ` in ${duration} minute${duration === 1 ? '' : 's'}`
           : '';
       const action = valueFromContext(context, 'operation') === 'update' ? 'Updated' : 'Added';
+      if (scheduledAction?.actionId) {
+        const scheduledWhen = duration
+          ? ` in ${duration} minute${duration === 1 ? '' : 's'}`
+          : when;
+        const actionId = String(scheduledAction.actionId || '');
+        const actionEntities = scheduledAction.entities || {};
+        const target = actionId === 'browser.closeTab'
+          ? `${actionEntities.tabQuery || 'current'} tab`
+          : actionId === 'browser.open'
+            ? actionEntities.url || 'the website'
+            : actionId === 'browser.openTab'
+              ? `${actionEntities.tabQuery || 'the tab'}`
+              : actionId === 'media.play'
+                ? `"${actionEntities.mediaQuery || txt.replace(/^(?:play|watch|listen\s+to)\s+/i, '')}"`
+                : actionId === 'file.open'
+                  ? actionEntities.filename || 'the file'
+                  : actionId === 'folder.open'
+                    ? actionEntities.folderName || 'the folder'
+                    : actionEntities.appName || txt.replace(/^(?:open|launch|start|run|close|remove|shut|quit|exit|stop|play|watch|listen\s+to)\s+/i, '');
+        const verb = actionId === 'media.play'
+          ? 'play'
+          : actionId === 'app.open' || actionId === 'browser.open' || actionId === 'browser.openTab' || actionId === 'file.open' || actionId === 'folder.open'
+            ? 'open'
+            : actionId === 'media.pause'
+              ? 'pause media'
+              : actionId === 'media.resume'
+                ? 'resume media'
+                : actionId === 'media.stop'
+                  ? 'stop media'
+                  : 'close';
+        const phrase = ['media.pause', 'media.resume', 'media.stop'].includes(actionId)
+          ? verb
+          : `${verb} ${target}`;
+        return chooseVariant(responseSeed(context, `scheduled-action:${scheduledAction.actionId}:${target}:${scheduledWhen}`), [
+          `Okay, I will ${phrase}${scheduledWhen}.`,
+          `Scheduled. I will ${phrase}${scheduledWhen}.`,
+          `Done. I will ${phrase}${scheduledWhen}.`
+        ]);
+      }
       const reminderPrep = /^(?:call|drink|submit|go|wish|eat|sleep|stretch|sign|watch|take|buy|send|email|message|text|pay|finish|attend|join|leave|bring|pick|wake|study|work|exercise|open|close|check|read|write|complete|prepare)\b/i.test(txt)
         ? 'to'
         : 'about';
       const displayText = /^(?:meeting|class|appointment|exam|event|lecture|interview|deadline|conference|session)\b/i.test(txt)
         ? `your ${txt}`
         : txt;
+      if (Array.isArray(entries) && entries.length > 1) {
+        const timeExpressions = valueFromContext(context, 'timeExpressions', []);
+        const labels = entries.map((entry, index) => recurrence
+          ? scheduleClock(entry?.dueAt, timeExpressions[index] || '')
+          : scheduleWhen({ result: { data: entry } }, timeExpressions[index] || '')
+        );
+        const joinedTimes = naturalJoin(labels);
+        const recurrenceLabel = recurrence ? `${String(recurrence).replace(/[:-]/g, ' ')} ` : '';
+        return chooseVariant(responseSeed(context, `reminder.multi:${txt}:${joinedTimes}:${recurrence || ''}`), [
+          `${action} ${entries.length} ${recurrenceLabel}reminders for ${displayText}${joinedTimes ? ` at ${joinedTimes}` : ''}.`,
+          `Okay, I saved ${entries.length} reminders to remind you ${reminderPrep} ${displayText}${joinedTimes ? ` at ${joinedTimes}` : ''}${recurrence ? `, repeating ${String(recurrence).replace(/[:-]/g, ' ')}` : ''}.`,
+          `Saved ${entries.length} reminders for ${displayText}${joinedTimes ? ` at ${joinedTimes}` : ''}${recurrence ? `, repeating ${String(recurrence).replace(/[:-]/g, ' ')}` : ''}.`
+        ]);
+      }
       return chooseVariant(responseSeed(context, `reminder.set:${txt}:${due}:${recurrence || ''}`), [
         `${action} reminder: ${displayText}${when}${repeat}.`,
         `Okay, I will remind you ${reminderPrep} ${displayText}${when}${repeat}.`,
