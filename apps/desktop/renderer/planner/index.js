@@ -1,6 +1,4 @@
 const shellEl = document.querySelector('.planner-shell');
-const calendarTabEl = document.getElementById('calendar-tab');
-const timetableTabEl = document.getElementById('timetable-tab');
 const closeWindowEl = document.getElementById('close-window');
 const monthPickerButtonEl = document.getElementById('month-picker-button');
 const yearPickerButtonEl = document.getElementById('year-picker-button');
@@ -173,11 +171,6 @@ function renderYearPicker() {
 function setView(view) {
   currentView = view === 'timetable' ? 'timetable' : 'calendar';
   shellEl.dataset.view = currentView;
-  const showingCalendar = currentView === 'calendar';
-  calendarTabEl?.classList.toggle('active', showingCalendar);
-  timetableTabEl?.classList.toggle('active', !showingCalendar);
-  calendarTabEl?.setAttribute('aria-pressed', String(showingCalendar));
-  timetableTabEl?.setAttribute('aria-pressed', String(!showingCalendar));
   scheduleRender();
 }
 
@@ -454,8 +447,6 @@ quickAddEl.addEventListener('submit', async event => {
 
 quickAddToggleEl.addEventListener('click', () => setQuickAddOpen(sidePanelEl.hidden));
 quickAddCloseEl.addEventListener('click', () => setQuickAddOpen(false));
-calendarTabEl?.addEventListener('click', () => setView('calendar'));
-timetableTabEl?.addEventListener('click', () => setView('timetable'));
 monthPickerButtonEl?.addEventListener('click', event => {
   event.stopPropagation();
   setPickerOpen(monthPickerPopoverEl?.hidden === false ? '' : 'month');
