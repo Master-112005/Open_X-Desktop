@@ -391,6 +391,42 @@ describe('Action Router', function() {
     assert.doesNotMatch(apps.response, /completed 2 commands/i);
   });
 
+  it('should split natural media playback with a requested volume level', async function() {
+    const config = {
+      permissions: {
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false },
+          medium: { requiresConfirmation: false, requiresAuth: false }
+        }
+      }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const compact = await router.process('play eymakoo with 50 vol', 'phone');
+    assert.equal(compact.intent, 'multi.command');
+    assert.deepEqual(compact.entities.commands, ['play eymakoo', 'set volume to 50']);
+    assert.deepEqual(executed.map(step => step.actionId), ['media.play', 'volume.set']);
+    assert.equal(executed[0].entities.mediaPlatform, 'youtube');
+    assert.doesNotMatch(executed[0].entities.mediaQuery, /\b(?:50|vol|volume)\b/i);
+    assert.equal(executed[1].entities.value, 50);
+
+    executed.length = 0;
+    const platform = await router.process('play dulander song on youtube with volume 35', 'chat');
+    assert.equal(platform.intent, 'multi.command');
+    assert.deepEqual(platform.entities.commands, ['play dulander song on youtube', 'set volume to 35']);
+    assert.deepEqual(executed.map(step => step.actionId), ['media.play', 'volume.set']);
+    assert.equal(executed[0].entities.mediaQuery, 'dulander song');
+    assert.equal(executed[0].entities.mediaPlatform, 'youtube');
+    assert.equal(executed[1].entities.value, 35);
+  });
+
   it('should preserve app-list multi commands through noisy repair', async function() {
     const config = {
       permissions: {
@@ -820,6 +856,8 @@ describe('Action Router', function() {
     const sixthSlide = await router.process('go to slide 6', 'chat');
     const sixthSlideWords = await router.process('jump to sixth slide', 'chat');
     const firstSlideStart = await router.process('start slide show from first slide', 'chat');
+    const bareNext = await router.process('next', 'phone');
+    const bareBack = await router.process('back', 'phone');
 
     assert.equal(fromBeginning.intent, 'presentation.start');
     assert.equal(fromBeginning.entities.mode, 'beginning');
@@ -833,6 +871,9 @@ describe('Action Router', function() {
     assert.equal(sixthSlideWords.entities.slideNumber, 6);
     assert.equal(firstSlideStart.intent, 'presentation.start');
     assert.equal(firstSlideStart.entities.mode, 'beginning');
+    assert.equal(bareNext.intent, 'presentation.next');
+    assert.equal(bareNext.entities.routeSource, 'presentation-recent-context');
+    assert.equal(bareBack.intent, 'presentation.previous');
     assert.deepEqual(executed.map(step => step.actionId), [
       'presentation.start',
       'presentation.start',
@@ -840,8 +881,60 @@ describe('Action Router', function() {
       'presentation.previous',
       'presentation.goto',
       'presentation.goto',
-      'presentation.start'
+      'presentation.start',
+      'presentation.next',
+      'presentation.previous'
     ]);
+  });
+
+  it('should prefer active PowerPoint slideshow for bare next when media is also running', async function() {
+    const config = {
+      permissions: {
+        levels: {
+          low: { requiresConfirmation: false, requiresAuth: false },
+          medium: { requiresConfirmation: false, requiresAuth: false }
+        }
+      }
+    };
+    const executed = [];
+    const stubEngine = {
+      remote: {
+        listTargets() {
+          return {
+            success: true,
+            data: {
+              targets: [
+                {
+                  id: 'youtube',
+                  kind: 'media',
+                  active: true,
+                  windowTitle: 'YouTube - Chrome',
+                  processName: 'chrome'
+                },
+                {
+                  id: 'powerpoint',
+                  kind: 'presentation',
+                  active: false,
+                  windowTitle: 'PowerPoint Slide Show - startup.pptx',
+                  processName: 'POWERPNT'
+                }
+              ]
+            }
+          };
+        }
+      },
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities, verified: true } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const result = await router.process('next', 'chat');
+
+    assert.equal(result.intent, 'presentation.next');
+    assert.equal(result.entities.routeSource, 'presentation-active-window');
+    assert.equal(executed[0].actionId, 'presentation.next');
   });
 
   it('should treat generic ppt requests as presentation file search', async function() {

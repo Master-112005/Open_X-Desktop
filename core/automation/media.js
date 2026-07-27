@@ -1709,6 +1709,13 @@ function removePlatformClause(input) {
     .trim();
 }
 
+function removePlaybackVolumeClause(input) {
+  return String(input || '')
+    .replace(/\s+(?:with|at|on|to)?\s*(?:(?:the\s+)?(?:vol|volume|sound|audio)(?:\s+(?:level|at|to|on))?\s+\d{1,3}|\d{1,3}(?:\s*%|\s+percent)?\s*(?:vol|volume|sound|audio)(?:\s+level)?)(?:\s*%|\s+percent)?\s*$/i, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function firstPlayTail(input) {
   const match = input.match(PLAY_VERB_PATTERN);
   if (match) {
@@ -1769,7 +1776,7 @@ class MediaParser {
 
     const explicitPlatform = this._extractPlatformText(normalizedText);
     const inferredPlatform = this.platformMapper.infer(explicitPlatform, context);
-    const tail = removePlatformClause(stripPoliteNoise(firstPlayTail(normalizedText) || normalizedText));
+    const tail = removePlaybackVolumeClause(removePlatformClause(stripPoliteNoise(firstPlayTail(normalizedText) || normalizedText)));
     const entityText = restoreKnownTitleCompounds(this._cleanEntityText(tail), normalizedText);
     const genre = this._extractGenre(entityText);
     const query = this._buildQuery({ genre, entityText });

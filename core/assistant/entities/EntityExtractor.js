@@ -1423,6 +1423,7 @@ class EntityExtractor {
 
     const cleaned = commandMatch[1]
       .replace(/\s+(?:on|in|via)\s+(?:youtube|spotify|soundcloud|gaana|jiosaavn|amazon\s*music|apple\s*music|saavn).*$/i, '')
+      .replace(/\s+(?:with|at|on|to)?\s*(?:(?:the\s+)?(?:vol|volume|sound|audio)(?:\s+(?:level|at|to|on))?\s+\d{1,3}|\d{1,3}(?:\s*%|\s+percent)?\s*(?:vol|volume|sound|audio)(?:\s+level)?)(?:\s*%|\s+percent)?\s*$/i, ' ')
       .replace(/^(?:the|a|an)\s+/i, '')
       .replace(/\s+\b(?:song|songs|music|track|tracks|video|videos)\b\s*$/i, ' ')
       .replace(/\b(?:called|named)\b/gi, ' ')
