@@ -32,6 +32,81 @@ describe('Scheduler Alert Delivery', function() {
     scheduler.destroy();
   });
 
+  it('should execute validated scheduled close actions when reminders become due', async function() {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-scheduled-action-'));
+    const executed = [];
+    const events = [];
+    const scheduler = new SchedulerController({
+      app: { dataDir, cleanupLegacySchedules: false },
+      eventBus: { publish: (event, payload) => events.push({ event, payload }) },
+      scheduledActionExecutor: async (scheduledAction, schedule) => {
+        executed.push({ scheduledAction, scheduleId: schedule.id });
+        return { success: true, data: { action: scheduledAction.actionId } };
+      }
+    });
+
+    const result = scheduler.setReminder('close youtube', {
+      duration: 0.001,
+      scheduledAction: {
+        actionId: 'browser.closeTab',
+        entities: { browserName: 'chrome', tabQuery: 'youtube' }
+      }
+    });
+
+    assert.equal(result.success, true);
+    assert.deepEqual(result.data.scheduledAction, {
+      actionId: 'browser.closeTab',
+      entities: { browserName: 'chrome', tabQuery: 'youtube' }
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 120));
+    assert.equal(executed.length, 1);
+    assert.equal(executed[0].scheduledAction.actionId, 'browser.closeTab');
+    assert.deepEqual(executed[0].scheduledAction.entities, { browserName: 'chrome', tabQuery: 'youtube' });
+    assert.equal(scheduler.scheduledItems[0].status, 'completed');
+    assert.equal(scheduler.scheduledItems[0].scheduledActionResult.success, true);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].payload.status, 'completed');
+    assert.equal(events[0].payload.scheduledActionResult.success, true);
+    scheduler.destroy();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('should execute validated scheduled media actions when reminders become due', async function() {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-scheduled-media-'));
+    const executed = [];
+    const scheduler = new SchedulerController({
+      app: { dataDir, cleanupLegacySchedules: false },
+      eventBus: { publish() {} },
+      scheduledActionExecutor: async (scheduledAction, schedule) => {
+        executed.push({ scheduledAction, scheduleId: schedule.id });
+        return { success: true, data: { action: scheduledAction.actionId } };
+      }
+    });
+
+    const result = scheduler.setReminder('play dulander song', {
+      duration: 0.001,
+      scheduledAction: {
+        actionId: 'media.play',
+        entities: { mediaQuery: 'dulander song', mediaPlatform: 'youtube' }
+      }
+    });
+
+    assert.equal(result.success, true);
+    assert.deepEqual(result.data.scheduledAction, {
+      actionId: 'media.play',
+      entities: { mediaQuery: 'dulander song', mediaPlatform: 'youtube' }
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 120));
+    assert.equal(executed.length, 1);
+    assert.equal(executed[0].scheduledAction.actionId, 'media.play');
+    assert.deepEqual(executed[0].scheduledAction.entities, { mediaQuery: 'dulander song', mediaPlatform: 'youtube' });
+    assert.equal(scheduler.scheduledItems[0].status, 'completed');
+    scheduler.destroy();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
   it('should use OpenX schedule names and migrate accidental cwd schedules', function() {
     const originalCwd = process.cwd();
     const originalDataDir = process.env.OPENX_DATA_DIR;

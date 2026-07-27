@@ -177,12 +177,7 @@ class AutomationEngine {
       'alarm.set': (entities) => this.scheduler.setAlarm(entities.timeExpression, entities.alarmLabel, {
         recurrence: entities.recurrence
       }),
-      'reminder.set': (entities) => this.scheduler.setReminder(entities.reminderText, {
-        timeExpression: entities.timeExpression,
-        duration: entities.duration,
-        category: entities.reminderCategory,
-        recurrence: entities.recurrence
-      }),
+      'reminder.set': (entities) => this._setReminder(entities),
       'timer.pause': () => this.scheduler.pauseActiveTimer(),
       'timer.resume': () => this.scheduler.resumeActiveTimer(),
       'timer.cancel': () => this.scheduler.cancelLatest('Timer'),
@@ -247,6 +242,123 @@ class AutomationEngine {
       'help': () => ({ success: true, data: {} }),
       'greeting': () => ({ success: true, data: {} }),
       'thanks': () => ({ success: true, data: {} })
+    };
+
+    if (typeof this.scheduler.setActionExecutor === 'function') {
+      this.scheduler.setActionExecutor((scheduledAction, schedule) => this._executeScheduledAction(scheduledAction, schedule));
+    }
+  }
+
+  async _executeScheduledAction(scheduledAction = {}, schedule = {}) {
+    const actionId = String(scheduledAction.actionId || '').trim();
+    const entities = scheduledAction.entities && typeof scheduledAction.entities === 'object'
+      ? scheduledAction.entities
+      : {};
+    if (!actionId || !this._actionMap[actionId]) {
+      return { success: false, error: `Unsupported scheduled action: ${actionId || 'unknown'}` };
+    }
+
+    this.logger.info('Executing scheduled action', {
+      actionId,
+      scheduleId: schedule.id || schedule.taskName || null,
+      kind: schedule.kind || null
+    });
+
+    return this.execute(actionId, {
+      ...entities,
+      scheduled: true,
+      scheduleId: schedule.id || schedule.taskName || null
+    }, {
+      scheduledAction: true,
+      schedule
+    });
+  }
+
+  _setReminder(entities = {}) {
+    const timeExpressions = Array.isArray(entities.timeExpressions)
+      ? Array.from(new Set(
+          entities.timeExpressions
+            .map(timeExpression => String(timeExpression || '').replace(/\s+/g, ' ').trim())
+            .filter(Boolean)
+        ))
+      : [];
+
+    if (timeExpressions.length > 1 && !entities.duration && !entities.scheduledAction) {
+      return this._setMultipleReminders(entities, timeExpressions);
+    }
+
+    return this.scheduler.setReminder(entities.reminderText, {
+      timeExpression: entities.timeExpression,
+      duration: entities.duration,
+      category: entities.reminderCategory,
+      recurrence: entities.recurrence,
+      scheduledAction: entities.scheduledAction
+    });
+  }
+
+  _setMultipleReminders(entities = {}, timeExpressions = []) {
+    const results = timeExpressions.map(timeExpression => this.scheduler.setReminder(entities.reminderText, {
+      timeExpression,
+      category: entities.reminderCategory,
+      recurrence: entities.recurrence
+    }));
+    const entries = results
+      .filter(result => result?.success && result.data)
+      .map(result => result.data);
+    const failures = results
+      .filter(result => !result?.success)
+      .map((result, index) => ({
+        timeExpression: timeExpressions[index],
+        error: String(result?.error || 'Could not schedule reminder')
+      }));
+    const allScheduled = entries.length === timeExpressions.length && failures.length === 0;
+
+    if (!entries.length) {
+      return {
+        success: false,
+        error: failures[0]?.error || 'Could not schedule reminders',
+        data: {
+          kind: 'Reminder',
+          operation: 'schedule',
+          count: 0,
+          requestedCount: timeExpressions.length,
+          reminderText: entities.reminderText,
+          message: entities.reminderText,
+          timeExpressions,
+          failures,
+          recurrence: entities.recurrence || null,
+          category: entities.reminderCategory || null
+        }
+      };
+    }
+
+    return {
+      success: allScheduled,
+      ...(allScheduled ? {} : { error: `Scheduled ${entries.length} of ${timeExpressions.length} reminders` }),
+      data: {
+        kind: 'Reminder',
+        operation: 'schedule',
+        count: entries.length,
+        requestedCount: timeExpressions.length,
+        entries,
+        failures,
+        reminderText: entities.reminderText,
+        message: entities.reminderText,
+        timeExpression: timeExpressions[0],
+        timeExpressions,
+        dueAt: entries[0]?.dueAt || null,
+        recurrence: entries[0]?.recurrence || entities.recurrence || null,
+        category: entities.reminderCategory || entries[0]?.category || null,
+        verified: allScheduled,
+        verification: {
+          status: allScheduled ? 'passed' : 'unknown',
+          check: 'multi-reminder-schedule',
+          count: entries.length,
+          requestedCount: timeExpressions.length,
+          blocking: !allScheduled
+        },
+        responseVariantSeed: `reminder.multi:${entities.reminderText}:${timeExpressions.join('|')}:${entities.recurrence || ''}`
+      }
     };
   }
 
