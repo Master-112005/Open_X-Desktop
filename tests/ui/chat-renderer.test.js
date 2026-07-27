@@ -11,13 +11,16 @@ describe('Chat Renderer UI', function() {
 
   it('should provide dedicated chat, activity, apps, notification, and info surfaces', function() {
     const headerActions = html.match(/<div id="header-actions">([\s\S]*?)<\/div>/)?.[1] || '';
-    ['conversation-view', 'people-chat-view', 'activity-view', 'apps-view', 'reminders-view', 'toast-region', 'schedule-list', 'notification-list', 'people-chat-app-btn', 'calendar-app-btn', 'reminders-app-btn', 'gallery-app-btn', 'mobile-app-btn', 'settings-app-btn', 'header-about-btn', 'about-btn']
+    const viewSwitcher = html.match(/<nav class="view-switcher" id="view-switcher"[\s\S]*?<\/nav>/)?.[0] || '';
+    ['conversation-view', 'people-chat-view', 'activity-view', 'apps-view', 'reminders-view', 'remote-view', 'toast-region', 'schedule-list', 'notification-list', 'people-chat-app-btn', 'calendar-app-btn', 'reminders-app-btn', 'gallery-app-btn', 'mobile-app-btn', 'settings-app-btn', 'header-about-btn', 'about-btn']
       .forEach(id => assert.match(html, new RegExp(`id="${id}"`)));
     assert.doesNotMatch(html, /id="alarm-overlay"/);
     assert.doesNotMatch(script, /alarmOverlay|alarm-dismiss-btn|alarm-snooze-btn/);
     assert.match(html, /id="header-about-btn"[\s\S]*id="header-title"/);
     assert.match(headerActions, /class="view-switcher" id="view-switcher"[\s\S]*data-active-view="chat"/);
-    assert.match(headerActions, /id="chat-view-btn"[\s\S]*id="activity-view-btn"[\s\S]*id="apps-view-btn"[\s\S]*id="close-btn"/);
+    assert.match(headerActions, /id="chat-view-btn"[\s\S]*id="activity-view-btn"[\s\S]*id="apps-view-btn"[\s\S]*id="remote-view-btn"[\s\S]*id="close-btn"/);
+    assert.doesNotMatch(viewSwitcher, /id="remote-view-btn"|>Remote</);
+    assert.match(headerActions, /class="window-btn remote-header-btn" id="remote-view-btn"[\s\S]*class="remote-header-icon"/);
     assert.doesNotMatch(headerActions, /assistant-mute-btn|voice-start-btn/);
     assert.match(script, /const viewSwitcherEl = document\.getElementById\('view-switcher'\)/);
     assert.match(script, /viewSwitcherEl\.dataset\.activeView = activeSwitcherView/);
@@ -26,6 +29,8 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /\.view-switcher::before\s*\{[\s\S]*box-sizing:\s*border-box;[\s\S]*left:\s*3px;[\s\S]*width:\s*calc\(\(100% - 6px\) \/ 3\)/);
     assert.match(css, /\.view-switcher\[data-active-view="activity"\]::before\s*\{[\s\S]*left:\s*calc\(33\.333333% \+ 1px\)/);
     assert.match(css, /\.view-switcher\[data-active-view="apps"\]::before\s*\{[\s\S]*left:\s*calc\(66\.666667% - 1px\)/);
+    assert.doesNotMatch(css, /\.view-switcher\[data-active-view="remote"\]/);
+    assert.match(css, /\.remote-header-btn\.active/);
     assert.match(html, /class="composer-field"[\s\S]*id="voice-start-btn"[\s\S]*voice-start-symbol[\s\S]*&#10022;[\s\S]*id="input-box"[\s\S]*id="send-btn"/);
     assert.match(html, /class="composer-field"[\s\S]*id="send-btn"[\s\S]*<\/div>[\s\S]*class="composer-mute-btn voice-btn" id="assistant-mute-btn"/);
     assert.doesNotMatch(html, /voice-start-icon|&#127908;/);
@@ -458,6 +463,11 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /window\.openx\.clearChatHistory/);
     assert.match(script, /localStorage\.removeItem\(CHAT_HISTORY_STORAGE_KEY\)/);
     assert.match(script, /await window\.openx\.getChatHistory\(\)/);
+    assert.match(script, /saveConversationHistory\(\{ immediate: true \}\)/);
+    assert.match(script, /function persistConversationHistoryFallback/);
+    assert.match(script, /async function closeChatWindow/);
+    assert.match(script, /persistConversationHistoryFallback\(\);\s*try\s*\{\s*await flushConversationHistorySave\(\);/s);
+    assert.match(script, /closeBtn\.addEventListener\('click', closeChatWindow\)/);
     assert.match(html, /Chat History/);
     assert.match(css, /\.storage-action-card/);
   });
@@ -542,5 +552,15 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /function schedulePeopleChatRender\(\)/);
     assert.match(script, /peopleChatRenderFrame = requestAnimationFrame/);
     assert.match(script, /cancelAnimationFrame\(peopleChatRenderFrame\)/);
+  });
+
+  it('should preserve full people-chat history when preview refreshes arrive', function() {
+    assert.match(script, /function mergePeopleChatHistory\(existingHistory = \[\], incomingHistory = \[\]\)/);
+    assert.match(script, /function replacePeopleChatConversation\(conversation, options = \{\}\)/);
+    assert.match(script, /options\.preserveExistingHistory === true/);
+    assert.match(script, /mergePeopleChatHistory\(existing\.history, normalized\.history\)/);
+    assert.match(script, /const existingById = new Map\(peopleChatConversations\.map\(conversation => \[conversation\.conversationId, conversation\]\)\)/);
+    assert.match(script, /mergePeopleChatHistory\(existing\.history, conversation\.history\)/);
+    assert.match(script, /preserveExistingHistory: \['synced', 'trusted', 'updated'\]\.includes\(reason\)/);
   });
 });
