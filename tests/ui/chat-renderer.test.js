@@ -11,7 +11,7 @@ describe('Chat Renderer UI', function() {
 
   it('should provide dedicated chat, activity, apps, notification, and info surfaces', function() {
     const headerActions = html.match(/<div id="header-actions">([\s\S]*?)<\/div>/)?.[1] || '';
-    ['conversation-view', 'people-chat-view', 'activity-view', 'apps-view', 'toast-region', 'schedule-list', 'notification-list', 'people-chat-app-btn', 'calendar-app-btn', 'gallery-app-btn', 'mobile-app-btn', 'settings-app-btn', 'header-about-btn', 'about-btn']
+    ['conversation-view', 'people-chat-view', 'activity-view', 'apps-view', 'reminders-view', 'toast-region', 'schedule-list', 'notification-list', 'people-chat-app-btn', 'calendar-app-btn', 'reminders-app-btn', 'gallery-app-btn', 'mobile-app-btn', 'settings-app-btn', 'header-about-btn', 'about-btn']
       .forEach(id => assert.match(html, new RegExp(`id="${id}"`)));
     assert.doesNotMatch(html, /id="alarm-overlay"/);
     assert.doesNotMatch(script, /alarmOverlay|alarm-dismiss-btn|alarm-snooze-btn/);
@@ -255,6 +255,49 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(glassCss, /Dedicated timer and reminder alert/);
   });
 
+  it('should expose a Reminders app with removable reminders and alarms', function() {
+    assert.match(html, /id="reminders-app-btn"[\s\S]*<strong>Reminders<\/strong>[\s\S]*Reminders and alarms/);
+    assert.match(html, /id="reminders-view"[\s\S]*id="reminders-tab-btn"[\s\S]*id="alarms-tab-btn"/);
+    assert.match(html, /id="reminders-total-reminders"/);
+    assert.match(html, /id="reminders-total-alarms"/);
+    assert.doesNotMatch(html, /id="reminders-total-timers"/);
+    assert.match(html, /id="daily-reminders-list"/);
+    assert.match(html, /id="normal-reminders-list"/);
+    assert.match(html, /id="daily-alarms-list"/);
+    assert.match(html, /id="normal-alarms-list"/);
+    assert.doesNotMatch(html, /id="active-timers-list"/);
+    assert.doesNotMatch(html, /id="other-timers-list"/);
+    assert.match(html, /id="daily-reminders-count"/);
+    assert.match(html, /id="daily-alarms-count"/);
+    assert.doesNotMatch(html, /id="active-timers-count"/);
+    assert.match(script, /const remindersAppBtn = document\.getElementById\('reminders-app-btn'\)/);
+    assert.match(script, /function renderRemindersApp\(/);
+    assert.match(script, /function formatScheduleClock\(/);
+    assert.match(script, /function formatScheduleDay\(/);
+    assert.match(script, /function scheduleKindLabel\(/);
+    assert.match(script, /function setReminderCounter\(/);
+    assert.match(script, /remindersTotalRemindersEl\.textContent = String\(reminders\.length\)/);
+    assert.doesNotMatch(script, /remindersTotalTimersEl/);
+    assert.doesNotMatch(script, /activeTimersListEl/);
+    assert.match(script, /function removeReminderAppSchedule\(/);
+    assert.match(script, /handleScheduleAlert\?\.\(scheduleId, 'remove'\)/);
+    assert.match(script, /classList\.toggle\('reminders-fullscreen', showingReminders\)/);
+    assert.match(script, /setWorkspaceView\('reminders'\)/);
+    assert.match(script, /setWorkspaceView\('apps'\)/);
+    assert.match(script, /\['reminder\.list', 'alarm\.list', 'timer\.list'\]\.includes\(intent\)/);
+    assert.match(script, /entry\.type === 'schedule' \? 'Time'/);
+    assert.match(css, /\.reminders-app-shell/);
+    assert.match(css, /\.reminders-overview/);
+    assert.match(css, /\.reminders-stat/);
+    assert.match(css, /\.reminders-app-tabs/);
+    assert.match(css, /\.reminders-item-time/);
+    assert.match(css, /\.reminders-item-meta/);
+    assert.match(css, /\.reminders-remove-btn/);
+    assert.match(css, /body\.reminders-fullscreen #header,\s*body\.reminders-fullscreen #input-area\s*\{[\s\S]*display:\s*none !important;/);
+    assert.match(css, /body\.reminders-fullscreen #workspace\s*\{[\s\S]*height:\s*100vh;/);
+    assert.match(css, /\.message-result\.schedule-result \.message-result-icon/);
+  });
+
   it('should keep recurring scheduler reminders synced into Activity', function() {
     assert.match(script, /recurrence: entry\.recurrence \|\| ''/);
     assert.match(script, /function isActivityScheduleKind\(item = \{\}\)/);
@@ -299,11 +342,20 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(html, /data-section-target="phone"/);
     assert.match(script, /const mobileAppBtn = document\.getElementById\('mobile-app-btn'\)/);
     assert.match(script, /openSettingsPanel\('phone'\)/);
-    assert.match(html, /data-phone-panel-target="connect"/);
-    assert.match(html, /data-phone-panel-target="devices"/);
     assert.match(html, /data-phone-panel="connect"/);
-    assert.match(html, /data-phone-panel="devices"/);
+    assert.doesNotMatch(html, /data-phone-panel-target="connect"/);
+    assert.doesNotMatch(html, /data-phone-panel-target="devices"/);
+    assert.doesNotMatch(html, /data-phone-panel="devices"/);
+    assert.match(html, /id="mobile-app-panel"/);
+    assert.match(html, /id="mobile-settings-toggle"[\s\S]*Server details/);
+    assert.match(html, /id="mobile-server-details"[^>]*hidden/);
+    assert.match(html, /id="mobile-qr-stage"/);
+    assert.match(html, /id="mobile-connected-summary"[^>]*hidden/);
+    assert.match(html, /id="mobile-connected-device-name"/);
+    assert.match(html, /id="mobile-connected-device-meta"/);
+    assert.match(html, /id="cloud-connect-btn"[\s\S]*Connect Server/);
     assert.match(html, /id="cloud-generate-qr-btn"/);
+    assert.match(html, /id="cloud-generate-qr-btn"[\s\S]*Generate QR[\s\S]*id="cloud-pairing-qr"/);
     assert.match(html, /id="security-unlock-dialog"/);
     assert.match(html, /id="security-unlock-password"/);
     assert.doesNotMatch(html, /id="cloud-pairing-password"/);
@@ -315,13 +367,20 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(script, /window\.prompt/);
     assert.match(script, /Waiting for OpenX security unlock/);
     assert.match(script, /Generate New QR/);
+    assert.match(script, /function setCloudGenerateQrLabel\(/);
+    assert.match(script, /function updateMobileAppPresentation\(/);
+    assert.match(script, /function toggleMobileServerDetails\(/);
+    assert.match(script, /Disconnect Server/);
     assert.match(script, /function formatPairingCountdown\(/);
     assert.match(script, /Expires in \$\{formatPairingCountdown\(remaining\)\}/);
     assert.match(script, /setInterval\(update, 1000\)/);
     assert.match(script, /Cloud pairing QR expired\./);
     assert.match(script, /function setActivePhonePanel/);
-    assert.match(script, /phoneSectionTabs\.forEach/);
-    assert.match(css, /\.phone-section-tabs/);
+    assert.match(script, /loadPhoneDevices\(\)/);
+    assert.doesNotMatch(css, /\.phone-section-tabs/);
+    assert.match(css, /\.mobile-app-panel/);
+    assert.match(css, /\.mobile-qr-square/);
+    assert.match(css, /\.mobile-connect-server-btn/);
     assert.match(css, /\.phone-panel\.active/);
     assert.doesNotMatch(html, /Local QR|Local Details|data-phone-connect-mode/);
     assert.doesNotMatch(script, /generatePairingQR|getPhoneServerStatus|loadPhoneServerStatus/);
@@ -422,7 +481,8 @@ describe('Chat Renderer UI', function() {
 
   it('should render compact trusted device cards and device actions', function() {
     assert.match(html, /id="phone-device-list"/);
-    assert.match(html, /<button class="phone-section-tab"[^>]*>Connected Devices<\/button>[\s\S]*<div class="phone-panel" data-phone-panel="devices" hidden>/);
+    assert.match(html, /class="phone-device-list mobile-device-list" id="phone-device-list"/);
+    assert.doesNotMatch(html, /<button class="phone-section-tab"[^>]*>Connected Devices<\/button>/);
     assert.match(script, /phone-device-status-dot/);
     assert.match(script, /phone-device-essentials/);
     assert.match(script, /getDeviceBoxCode/);
@@ -432,6 +492,8 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /Trust/);
     assert.match(script, /Version/);
     assert.match(script, /Last seen/);
+    assert.match(script, /latestManagedDevices = Array\.isArray\(devices\) \? devices\.slice\(\) : \[\]/);
+    assert.match(script, /mobileConnectedDeviceNameEl\.textContent = device\?\.friendlyName \|\| device\?\.deviceName/);
     assert.doesNotMatch(script, /Assistant Access|File Transfer|Receive Files|Send Files|Desktop Control|Clipboard|Future Screen Sharing|Future Camera|Future Microphone/);
     assert.doesNotMatch(script, /Save Permissions|updatePhonePermissions/);
     assert.match(script, /Remove/);

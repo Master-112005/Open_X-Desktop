@@ -404,7 +404,7 @@ function validateScheduleAction(payload) {
   requirePlainObject(payload);
   const id = requireString(payload.id, 'id', { maxLength: 200 });
   const action = requireString(payload.action, 'action', { maxLength: 20 });
-  if (!['snooze', 'stop', 'end'].includes(action)) throw new TypeError('schedule action is not supported');
+  if (!['snooze', 'stop', 'end', 'remove'].includes(action)) throw new TypeError('schedule action is not supported');
   const minutes = Math.max(1, Math.min(60, Number(payload.minutes) || 5));
   return { id, action: action === 'end' ? 'stop' : action, minutes };
 }

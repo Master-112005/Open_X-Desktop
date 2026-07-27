@@ -6637,10 +6637,12 @@ function setupIPC() {
     const scheduler = assistant?.automation?.scheduler;
     const result = action === 'snooze'
       ? scheduler?.snooze(id, minutes)
-      : scheduler?.complete(id);
+      : (action === 'remove'
+        ? scheduler?.removeSchedule?.(id)
+        : scheduler?.complete(id));
     if (result?.success && String(result.data?.kind || '').toLowerCase() === 'timer') {
       if (action === 'snooze') presentLiveScheduleInDynamicIsland(result.data, { expandMs: 0 });
-      if (action === 'stop') clearLiveScheduleActivity(result.data);
+      if (action === 'stop' || action === 'remove') clearLiveScheduleActivity(result.data);
     }
     return result || { success: false, error: 'Scheduler unavailable' };
   });

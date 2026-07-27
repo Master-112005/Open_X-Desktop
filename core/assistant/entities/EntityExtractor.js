@@ -880,6 +880,121 @@ class EntityExtractor {
     return 'general';
   }
 
+  _normalizeReminderScheduleText(value) {
+    return String(value || '')
+      .replace(/\b(?:everyday|each\s+day)\b/gi, 'every day')
+      .replace(/\b(\d{1,2})\s+(\d{1,2})\s*(am|pm)\b/gi, (_match, hour, minute, period) => {
+        return `${hour}:${String(minute).padStart(2, '0')} ${String(period).toLowerCase()}`;
+      })
+      .replace(/\b(1[3-9]|2[0-3])\s+([0-5]\d)\b/g, '$1:$2')
+      .replace(/\b(\d{1,2}):(\d)\s*(am|pm)\b/gi, (_match, hour, minute, period) => {
+        return `${hour}:0${minute} ${String(period).toLowerCase()}`;
+      })
+      .replace(/\s+/g, ' ')
+      .replace(/[.?!]+$/g, '')
+      .trim();
+  }
+
+  _extractReminderTimeList(value) {
+    const source = this._normalizeReminderScheduleText(value);
+    const matches = Array.from(source.matchAll(/\b(\d{1,2})(?::(\d{1,2}))?\s*(am|pm)?\b/gi))
+      .map(match => ({
+        hour: match[1],
+        minute: match[2] || '',
+        period: match[3] ? String(match[3]).toLowerCase() : '',
+        index: match.index || 0
+      }))
+      .filter(match => {
+        const hour = Number(match.hour);
+        const minute = match.minute ? Number(match.minute) : 0;
+        const hasMinute = Boolean(match.minute);
+        if (match.period) return hour >= 1 && hour <= 12 && minute >= 0 && minute <= 59;
+        return hasMinute && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+      });
+    if (matches.length < 2) return [];
+
+    const nearestPeriod = (index) => {
+      let best = '';
+      let distance = Number.POSITIVE_INFINITY;
+      for (const match of matches) {
+        if (!match.period) continue;
+        const candidateDistance = Math.abs(match.index - index);
+        if (candidateDistance < distance) {
+          best = match.period;
+          distance = candidateDistance;
+        }
+      }
+      return best;
+    };
+
+    const seen = new Set();
+    const times = [];
+    for (const match of matches) {
+      const hour = Number(match.hour);
+      const period = match.period || (hour <= 12 ? nearestPeriod(match.index) : '');
+      if (!period && hour <= 12) continue;
+      const minute = match.minute ? `:${String(match.minute).padStart(2, '0')}` : '';
+      const rendered = `${hour}${minute}${period ? ` ${period}` : ''}`.trim();
+      const key = rendered.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      times.push(rendered);
+    }
+    return times;
+  }
+
+  _cleanMultiTimeReminderText(value, fallback = '') {
+    const cleaned = String(value || fallback || '')
+      .replace(/\b(?:every\s+day|daily|each\s+day|every\s+(?:morning|evening|night|weekday|week)|weekly)\b/gi, ' ')
+      .replace(/^\s*(?:please\s+)?(?:(?:remind|notify|alert)(?:\s+me)?|set\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|create\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|add\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|schedule\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|reminder)\s*(?:me\s+)?(?:to|about|that|for|on|at|by)?\s*/i, ' ')
+      .replace(/^\s*(?:me|to|about|that|for|on|at|by|say)\b\s*/i, ' ')
+      .replace(/\s+(?:me|to|about|that|for|on|at|by|say|and)$/i, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/[.?!]+$/g, '')
+      .trim();
+    return /^(?:me|myself|today|tomorrow|tonight|am|pm)$/i.test(cleaned) ? '' : cleaned;
+  }
+
+  _extractMultiTimeReminderParts(raw) {
+    const normalized = this._normalizeReminderScheduleText(raw);
+    const recurrenceMatch = this._extractRecurrenceMatch(normalized);
+    const recurrence = recurrenceMatch?.recurrence || undefined;
+
+    const beforeTextMatch = normalized.match(/\b(?:at|by)\s+(.+?)\s+(?:to|about|that|say|for)\s+(.+)$/i);
+    if (beforeTextMatch?.[1] && beforeTextMatch?.[2]) {
+      const timeExpressions = this._extractReminderTimeList(beforeTextMatch[1]);
+      const reminderText = this._cleanMultiTimeReminderText(beforeTextMatch[2], '');
+      if (timeExpressions.length > 1 && reminderText) {
+        return {
+          timeExpression: timeExpressions[0],
+          timeExpressions,
+          ...(recurrence ? { recurrence } : {}),
+          reminderText,
+          reminderCategory: this._extractReminderCategory(reminderText)
+        };
+      }
+    }
+
+    const tailMatch = normalized.match(/\b(?:at|by)\s+(.+)$/i);
+    if (!tailMatch?.[1]) {
+      return null;
+    }
+
+    const timeExpressions = this._extractReminderTimeList(tailMatch[1]);
+    const reminderText = this._cleanMultiTimeReminderText(normalized.slice(0, tailMatch.index).trim(), '');
+    if (timeExpressions.length < 2 || !reminderText) {
+      return null;
+    }
+
+    return {
+      timeExpression: timeExpressions[0],
+      timeExpressions,
+      ...(recurrence ? { recurrence } : {}),
+      reminderText,
+      reminderCategory: this._extractReminderCategory(reminderText)
+    };
+  }
+
   extractReminderParts(raw) {
     const source = String(raw || '')
       .replace(/\b((?:set|create|add|schedule)\s+(?:a\s+)?(?:new\s+)?reminder)\s+t\s+(?=\d)/ig, '$1 at ')
@@ -889,6 +1004,11 @@ class EntityExtractor {
       .replace(/\s+/g, ' ')
       .trim();
     if (!new RegExp(`\\b${REMINDER_VERB_PATTERN}\\b`, 'i').test(source)) return {};
+
+    const multiTimeParts = this._extractMultiTimeReminderParts(source);
+    if (multiTimeParts) {
+      return multiTimeParts;
+    }
 
     const scheduleMatches = [];
     const addMatch = (kind, match, valueIndex = 1) => {

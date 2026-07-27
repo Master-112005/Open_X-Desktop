@@ -44,6 +44,13 @@ const cloudPairingQrEl = document.getElementById('cloud-pairing-qr');
 const cloudPairingExpiryEl = document.getElementById('cloud-pairing-expiry');
 const cloudPairingCountdownEl = document.getElementById('cloud-pairing-countdown');
 const cloudPairingRequestsEl = document.getElementById('cloud-pairing-requests');
+const mobileSettingsToggle = document.getElementById('mobile-settings-toggle');
+const mobileServerDetailsEl = document.getElementById('mobile-server-details');
+const mobileAppPanelEl = document.getElementById('mobile-app-panel');
+const mobileQrStageEl = document.getElementById('mobile-qr-stage');
+const mobileConnectedSummaryEl = document.getElementById('mobile-connected-summary');
+const mobileConnectedDeviceNameEl = document.getElementById('mobile-connected-device-name');
+const mobileConnectedDeviceMetaEl = document.getElementById('mobile-connected-device-meta');
 const securityLockStatusEl = document.getElementById('security-lock-status');
 const securityRefreshBtn = document.getElementById('security-refresh-btn');
 const securityCurrentPasswordEl = document.getElementById('security-current-password');
@@ -58,7 +65,6 @@ const deviceSearchEl = document.getElementById('device-search');
 const deviceFilterEl = document.getElementById('device-filter');
 const deviceSortEl = document.getElementById('device-sort');
 const deviceRefreshBtn = document.getElementById('device-refresh-btn');
-const phoneSectionTabs = document.querySelectorAll('.phone-section-tab');
 const phonePanels = document.querySelectorAll('[data-phone-panel]');
 const phoneDeviceRemoveDialog = document.getElementById('phone-device-remove-dialog');
 const phoneDeviceRemoveMessage = document.getElementById('phone-device-remove-message');
@@ -75,12 +81,14 @@ const activityViewBtn = document.getElementById('activity-view-btn');
 const appsViewBtn = document.getElementById('apps-view-btn');
 const peopleChatAppBtn = document.getElementById('people-chat-app-btn');
 const calendarAppBtn = document.getElementById('calendar-app-btn');
+const remindersAppBtn = document.getElementById('reminders-app-btn');
 const galleryAppBtn = document.getElementById('gallery-app-btn');
 const mobileAppBtn = document.getElementById('mobile-app-btn');
 const settingsAppBtn = document.getElementById('settings-app-btn');
 const conversationView = document.getElementById('conversation-view');
 const peopleChatView = document.getElementById('people-chat-view');
 const activityView = document.getElementById('activity-view');
+const remindersView = document.getElementById('reminders-view');
 const appsView = document.getElementById('apps-view');
 const peopleChatShellEl = document.querySelector('.people-chat-shell');
 const peopleChatListEl = document.getElementById('people-chat-list');
@@ -138,6 +146,20 @@ const peopleChatOutgoingRequestsEl = document.getElementById('people-chat-outgoi
 const activityBadge = document.getElementById('activity-badge');
 const scheduleListEl = document.getElementById('schedule-list');
 const scheduleCountEl = document.getElementById('schedule-count');
+const remindersAppSummaryEl = document.getElementById('reminders-app-summary');
+const remindersAppCloseBtn = document.getElementById('reminders-app-close-btn');
+const remindersAppTabs = document.querySelectorAll('.reminders-app-tab');
+const remindersAppPanels = document.querySelectorAll('[data-reminders-panel]');
+const remindersTotalRemindersEl = document.getElementById('reminders-total-reminders');
+const remindersTotalAlarmsEl = document.getElementById('reminders-total-alarms');
+const dailyRemindersListEl = document.getElementById('daily-reminders-list');
+const normalRemindersListEl = document.getElementById('normal-reminders-list');
+const dailyAlarmsListEl = document.getElementById('daily-alarms-list');
+const normalAlarmsListEl = document.getElementById('normal-alarms-list');
+const dailyRemindersCountEl = document.getElementById('daily-reminders-count');
+const normalRemindersCountEl = document.getElementById('normal-reminders-count');
+const dailyAlarmsCountEl = document.getElementById('daily-alarms-count');
+const normalAlarmsCountEl = document.getElementById('normal-alarms-count');
 const notificationListEl = document.getElementById('notification-list');
 const toastRegionEl = document.getElementById('toast-region');
 
@@ -189,6 +211,7 @@ let modeDrafts = [];
 let selectedModeIndex = 0;
 const selectedModeApps = new Map();
 let activeWorkspaceView = 'chat';
+let activeRemindersTab = 'reminders';
 let activeAboutTrigger = null;
 let peopleChatConversations = [];
 let activePeopleChatId = null;
@@ -648,6 +671,23 @@ function normalizeResultEntries(result) {
       matchScore: Number(entry?.score || 0)
     }));
   }
+  if (['reminder.list', 'alarm.list', 'timer.list'].includes(intent)) {
+    const entries = Array.isArray(result?.data?.entries) ? result.data.entries : [];
+    return entries.slice(0, 8).map((entry, index) => ({
+      index: index + 1,
+      name: String(entry?.message || entry?.title || `Schedule ${index + 1}`),
+      type: 'schedule',
+      path: String(entry?.dueAt || ''),
+      location: String(entry?.kind || (intent === 'alarm.list' ? 'Alarm' : intent === 'timer.list' ? 'Timer' : 'Reminder')),
+      snippet: [
+        entry?.dueAt ? formatDueDate(entry.dueAt) : '',
+        entry?.recurrence ? `repeats ${String(entry.recurrence).replace(/[:-]/g, ' ')}` : '',
+        entry?.status ? String(entry.status) : ''
+      ].filter(Boolean).join(' - '),
+      sizeMB: 0,
+      matchScore: 0
+    }));
+  }
   if (!['file.search', 'folder.search', 'file.smartFind', 'file.list'].includes(intent)) {
     return [];
   }
@@ -811,10 +851,10 @@ function addResultCards(bubble, resultEntries) {
   list.className = 'message-result-list';
   for (const entry of resultEntries) {
     const item = document.createElement('li');
-    item.className = `message-result ${entry.type === 'folder' ? 'folder-result' : entry.type === 'web' ? 'web-result' : 'file-result'}`;
+    item.className = `message-result ${entry.type === 'folder' ? 'folder-result' : entry.type === 'web' ? 'web-result' : entry.type === 'schedule' ? 'schedule-result' : 'file-result'}`;
     const icon = document.createElement('span');
     icon.className = 'message-result-icon';
-    icon.textContent = entry.type === 'folder' ? 'Folder' : entry.type === 'web' ? 'Web' : 'File';
+    icon.textContent = entry.type === 'folder' ? 'Folder' : entry.type === 'web' ? 'Web' : entry.type === 'schedule' ? 'Time' : 'File';
     const body = document.createElement('span');
     body.className = 'message-result-body';
     const name = document.createElement('strong');
@@ -2081,20 +2121,24 @@ function openPeopleChatFromDesktopEvent() {
 }
 
 function setWorkspaceView(viewName) {
-  activeWorkspaceView = ['activity', 'apps', 'people-chat'].includes(viewName) ? viewName : 'chat';
+  activeWorkspaceView = ['activity', 'apps', 'people-chat', 'reminders'].includes(viewName) ? viewName : 'chat';
   const showingActivity = activeWorkspaceView === 'activity';
   const showingApps = activeWorkspaceView === 'apps';
   const showingPeopleChat = activeWorkspaceView === 'people-chat';
+  const showingReminders = activeWorkspaceView === 'reminders';
   const showingChat = activeWorkspaceView === 'chat';
   const activeSwitcherView = showingActivity ? 'activity' : showingApps ? 'apps' : 'chat';
   if (viewSwitcherEl) viewSwitcherEl.dataset.activeView = activeSwitcherView;
   document.body?.classList.toggle('people-chat-fullscreen', showingPeopleChat);
+  document.body?.classList.toggle('reminders-fullscreen', showingReminders);
   conversationView.classList.toggle('active', showingChat);
   conversationView.hidden = !showingChat;
   peopleChatView.classList.toggle('active', showingPeopleChat);
   peopleChatView.hidden = !showingPeopleChat;
   activityView.classList.toggle('active', showingActivity);
   activityView.hidden = !showingActivity;
+  remindersView?.classList.toggle('active', showingReminders);
+  if (remindersView) remindersView.hidden = !showingReminders;
   appsView.classList.toggle('active', showingApps);
   appsView.hidden = !showingApps;
   chatViewBtn.classList.toggle('active', showingChat);
@@ -2105,6 +2149,8 @@ function setWorkspaceView(viewName) {
   appsViewBtn.setAttribute('aria-pressed', String(showingApps));
   if (showingActivity) {
     renderActivity();
+  } else if (showingReminders) {
+    renderRemindersApp();
   } else if (showingPeopleChat) {
     peopleChatThreadOpen = false;
     activePeopleChatId = null;
@@ -2330,6 +2376,7 @@ function replaceScheduleItemsFromRuntime(items = []) {
     .slice(0, 80);
   saveUiState();
   renderActivity();
+  if (activeWorkspaceView === 'reminders') renderRemindersApp();
 }
 
 async function refreshActivitySchedulesFromRuntime() {
@@ -2469,6 +2516,177 @@ function renderSchedules() {
     card.appendChild(actions);
     scheduleListEl.appendChild(card);
   });
+}
+
+function isRecurringDailySchedule(item = {}) {
+  const recurrence = String(item.recurrence || item.metadata?.recurrence || '').trim().toLowerCase();
+  return recurrence === 'daily' || recurrence === 'every-day' || recurrence.includes('daily');
+}
+
+function isScheduleActiveForManagement(item = {}) {
+  const status = String(item.status || '').toLowerCase();
+  return ['scheduled', 'paused', 'due', 'running'].includes(status);
+}
+
+function scheduleManagementStatus(item = {}) {
+  const status = String(item.status || '').toLowerCase();
+  if (status === 'due') return 'Due now';
+  if (status === 'paused') return 'Paused';
+  if (status === 'running') return 'Running';
+  if (status === 'completed') return 'Completed';
+  return 'Scheduled';
+}
+
+function scheduleRecurrenceLabel(item = {}) {
+  const recurrence = String(item.recurrence || item.metadata?.recurrence || '').trim();
+  return recurrence ? `Repeats ${recurrence.replace(/[:-]/g, ' ')}` : 'One time';
+}
+
+function formatScheduleClock(value) {
+  const dueAt = new Date(value);
+  if (Number.isNaN(dueAt.getTime())) return '--';
+  return dueAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function formatScheduleDay(value) {
+  const dueAt = new Date(value);
+  if (Number.isNaN(dueAt.getTime())) return 'No date';
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  if (isSameLocalDay(dueAt, today)) return 'Today';
+  if (isSameLocalDay(dueAt, tomorrow)) return 'Tomorrow';
+  return dueAt.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function scheduleKindLabel(item = {}) {
+  const kind = String(item.kind || '').toLowerCase();
+  if (kind === 'alarm') return 'Alarm';
+  if (kind === 'timer') return 'Timer';
+  if (kind === 'stopwatch') return 'Stopwatch';
+  return 'Reminder';
+}
+
+function createReminderAppCard(item) {
+  const style = scheduleTone(item.kind, item.category, item.message);
+  const card = document.createElement('article');
+  card.className = 'reminders-item';
+  card.style.setProperty('--schedule-color', style.color);
+  const time = document.createElement('span');
+  time.className = 'reminders-item-time';
+  const clock = document.createElement('strong');
+  clock.textContent = formatScheduleClock(item.dueAt);
+  const day = document.createElement('small');
+  day.textContent = formatScheduleDay(item.dueAt);
+  time.append(clock, day);
+
+  const copy = document.createElement('span');
+  copy.className = 'reminders-item-copy';
+  const title = document.createElement('strong');
+  title.textContent = item.message || item.title || item.kind || 'Schedule';
+  const meta = document.createElement('span');
+  meta.className = 'reminders-item-meta';
+  const type = document.createElement('small');
+  type.textContent = scheduleKindLabel(item);
+  const recurrence = document.createElement('small');
+  recurrence.textContent = scheduleRecurrenceLabel(item);
+  const status = document.createElement('small');
+  status.textContent = scheduleManagementStatus(item);
+  meta.append(type, recurrence, status);
+  copy.append(title, meta);
+
+  const remove = document.createElement('button');
+  remove.className = 'reminders-remove-btn';
+  remove.type = 'button';
+  remove.title = 'Remove';
+  remove.setAttribute('aria-label', `Remove ${title.textContent}`);
+  remove.textContent = '-';
+  remove.addEventListener('click', () => removeReminderAppSchedule(item.id));
+  card.append(time, copy, remove);
+  return card;
+}
+
+function setReminderCounter(counterEl, count) {
+  if (counterEl) counterEl.textContent = String(count);
+}
+
+function renderReminderGroup(listEl, counterEl, items, emptyText) {
+  if (!listEl) return;
+  listEl.replaceChildren();
+  setReminderCounter(counterEl, items.length);
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'reminders-empty';
+    empty.textContent = emptyText;
+    listEl.appendChild(empty);
+    return;
+  }
+  items.forEach(item => listEl.appendChild(createReminderAppCard(item)));
+}
+
+function setRemindersAppTab(tab) {
+  activeRemindersTab = tab === 'alarms' ? 'alarms' : 'reminders';
+  remindersAppTabs.forEach(button => {
+    const isActive = button.dataset.remindersTab === activeRemindersTab;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-selected', String(isActive));
+  });
+  remindersAppPanels.forEach(panel => {
+    const isActive = panel.dataset.remindersPanel === activeRemindersTab;
+    panel.classList.toggle('active', isActive);
+    panel.hidden = !isActive;
+  });
+}
+
+async function removeReminderAppSchedule(id) {
+  const scheduleId = String(id || '').trim();
+  if (!scheduleId) return;
+  try {
+    const result = await window.openx?.handleScheduleAlert?.(scheduleId, 'remove');
+    if (result?.success === false) {
+      showToast('Could not remove item', result.error || 'Scheduler unavailable.', 'error');
+      return;
+    }
+    scheduleItems = scheduleItems.filter(item => item.id !== scheduleId && item.taskName !== scheduleId);
+    saveUiState();
+    showToast('Removed', 'That schedule item was removed.', 'success');
+    await refreshActivitySchedulesFromRuntime();
+    renderRemindersApp();
+  } catch (error) {
+    showToast('Could not remove item', error?.message || 'Scheduler unavailable.', 'error');
+  }
+}
+
+function renderRemindersApp() {
+  const activeItems = scheduleItems
+    .filter(isScheduleActiveForManagement)
+    .sort((left, right) => new Date(left.dueAt) - new Date(right.dueAt));
+  const reminders = activeItems.filter(item => String(item.kind || '').toLowerCase() === 'reminder');
+  const alarms = activeItems.filter(item => String(item.kind || '').toLowerCase() === 'alarm');
+  const dailyReminders = reminders.filter(isRecurringDailySchedule);
+  const normalReminders = reminders.filter(item => !isRecurringDailySchedule(item));
+  const dailyAlarms = alarms.filter(isRecurringDailySchedule);
+  const normalAlarms = alarms.filter(item => !isRecurringDailySchedule(item));
+  if (remindersAppSummaryEl) {
+    remindersAppSummaryEl.textContent = `${reminders.length} reminders, ${alarms.length} alarms`;
+  }
+  if (remindersTotalRemindersEl) remindersTotalRemindersEl.textContent = String(reminders.length);
+  if (remindersTotalAlarmsEl) remindersTotalAlarmsEl.textContent = String(alarms.length);
+  renderReminderGroup(dailyRemindersListEl, dailyRemindersCountEl, dailyReminders, 'No daily reminders.');
+  renderReminderGroup(normalRemindersListEl, normalRemindersCountEl, normalReminders, 'No normal reminders.');
+  renderReminderGroup(dailyAlarmsListEl, dailyAlarmsCountEl, dailyAlarms, 'No daily alarms.');
+  renderReminderGroup(normalAlarmsListEl, normalAlarmsCountEl, normalAlarms, 'No other alarms.');
+}
+
+async function openRemindersApp() {
+  setWorkspaceView('reminders');
+  setRemindersAppTab(activeRemindersTab);
+  await refreshActivitySchedulesFromRuntime();
+  renderRemindersApp();
+}
+
+function closeRemindersApp() {
+  setWorkspaceView('apps');
 }
 
 function renderNotifications() {
@@ -2958,24 +3176,16 @@ function setActiveSystemBlock(blockName) {
 }
 
 function setActivePhonePanel(panelName) {
-  const allowedPanels = new Set(['connect', 'devices']);
+  const allowedPanels = new Set(['connect']);
   activePhonePanel = allowedPanels.has(panelName) ? panelName : 'connect';
-  phoneSectionTabs.forEach(button => {
-    const isActive = button.dataset.phonePanelTarget === activePhonePanel;
-    button.classList.toggle('active', isActive);
-    button.setAttribute('aria-selected', String(isActive));
-  });
   phonePanels.forEach(panel => {
     const isOpen = panel.dataset.phonePanel === activePhonePanel;
     panel.classList.toggle('active', isOpen);
     panel.hidden = !isOpen;
   });
-  if (activePhonePanel === 'devices') {
-    loadPhoneDevices();
-  } else {
-    loadCloudStatus();
-    loadCloudPairingStatus();
-  }
+  loadCloudStatus();
+  loadCloudPairingStatus();
+  loadPhoneDevices();
 }
 
 function setActiveSettingsSection(sectionName) {
@@ -3505,6 +3715,13 @@ function stopCloudPairingCountdown() {
   cloudPairingCountdownHandle = null;
 }
 
+function setCloudGenerateQrLabel(label) {
+  if (!cloudGenerateQrBtn) return;
+  const labelEl = cloudGenerateQrBtn.querySelector('span');
+  if (labelEl) labelEl.textContent = label;
+  else cloudGenerateQrBtn.textContent = label;
+}
+
 function startCloudPairingCountdown(expiresAt) {
   stopCloudPairingCountdown();
   const update = () => {
@@ -3514,7 +3731,7 @@ function startCloudPairingCountdown(expiresAt) {
       if (cloudPairingStatusEl) cloudPairingStatusEl.textContent = 'Cloud pairing QR expired.';
       if (cloudPairingCountdownEl) cloudPairingCountdownEl.textContent = 'Expired';
       if (cloudPairingQrEl) cloudPairingQrEl.classList.add('expired');
-      if (cloudGenerateQrBtn) cloudGenerateQrBtn.textContent = 'Generate New QR';
+      setCloudGenerateQrLabel('Generate New QR');
       return;
     }
     if (cloudPairingCountdownEl) {
@@ -3556,7 +3773,7 @@ async function generateCloudPairingQR() {
     if (cloudPairingExpiryEl) {
       cloudPairingExpiryEl.textContent = `Expires at ${new Date(result.payload.expiresAt).toLocaleTimeString()}.`;
     }
-    cloudGenerateQrBtn.textContent = 'Generate New QR';
+    setCloudGenerateQrLabel('Generate New QR');
     startCloudPairingCountdown(result.payload.expiresAt);
     await loadCloudPairingStatus();
   } catch (_) {
@@ -3599,6 +3816,32 @@ function collectCloudRuntimeSettings() {
   };
 }
 
+function primaryManagedMobileDevice() {
+  return (Array.isArray(latestManagedDevices) ? latestManagedDevices : [])
+    .find(device => device.connected === true || device.connectionStatus === 'connected')
+    || latestManagedDevices.find(device => device.trusted === true)
+    || latestManagedDevices[0]
+    || null;
+}
+
+function updateMobileAppPresentation() {
+  const device = primaryManagedMobileDevice();
+  const hasDevice = Boolean(device);
+  mobileAppPanelEl?.classList.toggle('mobile-connected', hasDevice);
+  if (mobileQrStageEl) mobileQrStageEl.hidden = hasDevice;
+  if (mobileConnectedSummaryEl) mobileConnectedSummaryEl.hidden = !hasDevice;
+  if (mobileConnectedDeviceNameEl) {
+    mobileConnectedDeviceNameEl.textContent = device?.friendlyName || device?.deviceName || 'OpenX Mobile';
+  }
+  if (mobileConnectedDeviceMetaEl) {
+    const status = device?.connected === true || device?.connectionStatus === 'connected' ? 'Connected' : 'Paired';
+    const version = device?.softwareVersion ? ` - v${device.softwareVersion}` : '';
+    mobileConnectedDeviceMetaEl.textContent = hasDevice
+      ? `${status}${version}`
+      : 'Scan a QR code from OpenX Mobile to pair this desktop.';
+  }
+}
+
 function renderCloudStatus(status) {
   const safeStatus = status && typeof status === 'object' ? status : {};
   latestCloudStatus = safeStatus;
@@ -3620,7 +3863,7 @@ function renderCloudStatus(status) {
   if (cloudConnectBtn) {
     const busy = ['Connecting', 'Reconnecting', 'Disconnecting'].includes(state);
     cloudConnectBtn.disabled = busy;
-    cloudConnectBtn.textContent = safeStatus.connected ? 'Disconnect' : 'Connect to Cloud';
+    cloudConnectBtn.textContent = safeStatus.connected ? 'Disconnect Server' : 'Connect Server';
   }
   if (cloudGenerateQrBtn) {
     cloudGenerateQrBtn.disabled = safeStatus.connected !== true;
@@ -3631,9 +3874,17 @@ function renderCloudStatus(status) {
   if (safeStatus.connected !== true && cloudPairingStatusEl) {
     cloudPairingStatusEl.textContent = 'Connect to Relay Server first.';
   }
-  if (activeSettingsSection === 'phone' && activePhonePanel === 'devices') {
+  if (activeSettingsSection === 'phone') {
     loadPhoneDevices();
   }
+  updateMobileAppPresentation();
+}
+
+function toggleMobileServerDetails() {
+  if (!mobileServerDetailsEl) return;
+  const opening = mobileServerDetailsEl.hidden === true;
+  mobileServerDetailsEl.hidden = !opening;
+  mobileSettingsToggle?.setAttribute('aria-expanded', String(opening));
 }
 
 async function loadCloudStatus() {
@@ -3725,6 +3976,7 @@ function renderCloudPairingStatus(status) {
         : 'Connect to Relay Server first.';
     }
     if (cloudPairingCountdownEl) cloudPairingCountdownEl.textContent = '';
+    setCloudGenerateQrLabel('Generate QR');
   }
   renderCloudPairingRequests(pending);
 }
@@ -3982,12 +4234,9 @@ function createManagedPhoneDeviceCard(device) {
 function renderManagedPhoneDevices(devices) {
   latestManagedDevices = Array.isArray(devices) ? devices.slice() : [];
   phoneDeviceListEl.replaceChildren();
+  updateMobileAppPresentation();
   const filteredDevices = getFilteredDevices(latestManagedDevices);
   if (latestManagedDevices.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'phone-device-empty';
-    empty.textContent = 'No paired devices yet. Use Connect Mobile to pair a device.';
-    phoneDeviceListEl.appendChild(empty);
     return;
   }
   if (filteredDevices.length === 0) {
@@ -4151,6 +4400,11 @@ peopleChatAppBtn?.addEventListener('click', () => {
 calendarAppBtn?.addEventListener('click', () => {
   runHeaderApp(calendarAppBtn, () => window.openx?.openPlanner?.('calendar'));
 });
+remindersAppBtn?.addEventListener('click', () => {
+  remindersAppBtn.classList.add('opening');
+  openRemindersApp();
+  window.setTimeout(() => remindersAppBtn.classList.remove('opening'), 180);
+});
 galleryAppBtn?.addEventListener('click', () => {
   runHeaderApp(galleryAppBtn, () => window.openx?.openGallery?.('timeline'));
 });
@@ -4246,15 +4500,18 @@ systemOptionButtons.forEach(button => {
 securityRefreshBtn?.addEventListener('click', refreshSecurityStatus);
 securitySavePasswordBtn?.addEventListener('click', saveSecurityPassword);
 clearChatHistoryBtn?.addEventListener('click', clearConversationHistory);
-phoneSectionTabs.forEach(button => {
+remindersAppCloseBtn?.addEventListener('click', closeRemindersApp);
+remindersAppTabs.forEach(button => {
   button.addEventListener('click', () => {
-    setActivePhonePanel(button.dataset.phonePanelTarget);
+    setRemindersAppTab(button.dataset.remindersTab);
+    renderRemindersApp();
   });
 });
 deviceSearchEl?.addEventListener('input', () => renderPhoneDevices(latestManagedDevices));
 deviceFilterEl?.addEventListener('change', () => renderPhoneDevices(latestManagedDevices));
 deviceSortEl?.addEventListener('change', () => renderPhoneDevices(latestManagedDevices));
 deviceRefreshBtn?.addEventListener('click', () => loadPhoneDevices());
+mobileSettingsToggle?.addEventListener('click', toggleMobileServerDetails);
 document.getElementById('settings-save-btn').addEventListener('click', saveSettings);
 document.getElementById('settings-reset-btn').addEventListener('click', resetSettings);
 modeAddBtn.addEventListener('click', () => {

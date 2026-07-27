@@ -251,6 +251,11 @@
   border-color: color-mix(in srgb, var(--success-color) 34%, transparent);
 }
 
+.message-result.schedule-result .message-result-icon {
+  background: color-mix(in srgb, var(--warning-color) 20%, transparent);
+  border-color: color-mix(in srgb, var(--warning-color) 32%, transparent);
+}
+
 .message-result-body {
   display: flex;
   flex: 1 1 auto;
@@ -3171,6 +3176,367 @@ body {
   position: relative;
 }
 
+#reminders-view {
+  overflow: hidden;
+}
+
+.reminders-app-shell {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-color) 8%, transparent), transparent 42%),
+    color-mix(in srgb, var(--adaptive-surface, rgba(10, 12, 18, 0.96)) 92%, rgba(0, 0, 0, 0.72));
+  backdrop-filter: blur(28px) saturate(150%);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  display: grid;
+  gap: 8px;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  padding: 14px;
+}
+
+.reminders-app-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 4px 4px 2px;
+  -webkit-app-region: drag;
+}
+
+.reminders-app-header strong {
+  color: var(--text-color);
+  display: block;
+  font-size: 17px;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.reminders-app-header small {
+  color: var(--muted-color);
+  display: block;
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.reminders-app-header button {
+  -webkit-app-region: no-drag;
+}
+
+.reminders-overview {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0 6px;
+}
+
+.reminders-stat {
+  background: color-mix(in srgb, var(--adaptive-control, rgba(255, 255, 255, 0.1)) 92%, rgba(0, 0, 0, 0.18));
+  border: 1px solid color-mix(in srgb, var(--adaptive-border, rgba(255, 255, 255, 0.12)) 90%, transparent);
+  border-radius: 8px;
+  display: grid;
+  gap: 2px;
+  min-height: 54px;
+  padding: 9px 10px;
+}
+
+.reminders-stat span {
+  color: var(--muted-color);
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.reminders-stat strong {
+  color: var(--text-color);
+  font-size: 20px;
+  font-weight: 880;
+  line-height: 1;
+}
+
+.reminders-app-tabs {
+  background: color-mix(in srgb, var(--adaptive-control, rgba(255, 255, 255, 0.1)) 90%, rgba(0, 0, 0, 0.22));
+  border: 1px solid color-mix(in srgb, var(--adaptive-border, rgba(255, 255, 255, 0.12)) 92%, transparent);
+  border-radius: 999px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 2px 6px 8px;
+  padding: 4px;
+}
+
+.reminders-app-tab {
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted-color);
+  font-size: 12px;
+  font-weight: 800;
+  min-height: 38px;
+}
+
+.reminders-app-tab.active {
+  background: color-mix(in srgb, var(--adaptive-text, #fff) 92%, transparent);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+  color: #101114;
+}
+
+.reminders-app-body {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.reminders-app-panel {
+  display: none;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 6px 18px;
+  scrollbar-color: color-mix(in srgb, var(--adaptive-text, #fff) 24%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.reminders-app-panel.active {
+  display: grid;
+}
+
+.reminders-app-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.reminders-app-panel::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--adaptive-text, #fff) 18%, transparent);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.reminders-group {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+}
+
+.reminders-group-heading {
+  align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--adaptive-border, rgba(255, 255, 255, 0.12)) 64%, transparent);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  justify-content: space-between;
+  padding: 2px 2px 8px;
+}
+
+.reminders-group-heading div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.reminders-group-heading span {
+  color: color-mix(in srgb, var(--accent-color) 70%, var(--adaptive-text, #fff));
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.reminders-group-heading strong {
+  color: var(--text-color);
+  font-size: 14px;
+  font-weight: 850;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reminders-group-heading em {
+  align-items: center;
+  background: color-mix(in srgb, var(--adaptive-control, rgba(255, 255, 255, 0.08)) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--adaptive-border, rgba(255, 255, 255, 0.12)) 82%, transparent);
+  border-radius: 999px;
+  color: var(--text-color);
+  display: inline-flex;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 850;
+  height: 24px;
+  justify-content: center;
+  min-width: 28px;
+  padding: 0 8px;
+}
+
+.reminders-list {
+  display: grid;
+  gap: 7px;
+}
+
+.reminders-item,
+.reminders-empty {
+  background: color-mix(in srgb, var(--adaptive-control, rgba(255, 255, 255, 0.1)) 92%, rgba(0, 0, 0, 0.16));
+  border: 1px solid color-mix(in srgb, var(--adaptive-border, rgba(255, 255, 255, 0.12)) 88%, transparent);
+  border-radius: 8px;
+}
+
+.reminders-item {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 78px minmax(0, 1fr) 34px;
+  min-height: 66px;
+  padding: 9px 10px;
+}
+
+.reminders-item-time {
+  border-right: 1px solid color-mix(in srgb, var(--schedule-color, var(--accent-color)) 34%, transparent);
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding-right: 10px;
+}
+
+.reminders-item-time strong {
+  color: var(--text-color);
+  font-size: 16px;
+  font-weight: 880;
+  letter-spacing: 0;
+  line-height: 1.05;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reminders-item-time small {
+  color: color-mix(in srgb, var(--schedule-color, var(--accent-color)) 68%, var(--muted-color));
+  font-size: 10px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reminders-item-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.reminders-item-copy strong {
+  color: var(--text-color);
+  font-size: 13px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reminders-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.reminders-item-meta small {
+  background: color-mix(in srgb, var(--schedule-color, var(--accent-color)) 11%, transparent);
+  border: 1px solid color-mix(in srgb, var(--schedule-color, var(--accent-color)) 18%, transparent);
+  border-radius: 999px;
+  color: var(--muted-color);
+  font-size: 9px;
+  font-weight: 780;
+  line-height: 1;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 4px 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reminders-empty {
+  color: var(--muted-color);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.reminders-empty {
+  padding: 13px;
+}
+
+.reminders-remove-btn {
+  align-items: center;
+  background: color-mix(in srgb, var(--danger-color) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger-color) 28%, transparent);
+  border-radius: 50%;
+  color: color-mix(in srgb, var(--danger-color) 76%, white);
+  display: inline-flex;
+  font-size: 18px;
+  font-weight: 850;
+  height: 32px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 32px;
+}
+
+.reminders-remove-btn:hover,
+.reminders-remove-btn:focus-visible {
+  background: color-mix(in srgb, var(--danger-color) 20%, transparent);
+  outline: none;
+}
+
+@media (max-width: 460px) {
+  .reminders-app-shell {
+    padding: 12px;
+  }
+
+  .reminders-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reminders-stat {
+    min-height: 48px;
+    padding: 8px;
+  }
+
+  .reminders-stat strong {
+    font-size: 18px;
+  }
+
+  .reminders-item {
+    grid-template-columns: 68px minmax(0, 1fr) 32px;
+    gap: 9px;
+    padding: 8px;
+  }
+
+  .reminders-item-time strong {
+    font-size: 14px;
+  }
+
+  .reminders-item-meta small {
+    max-width: 112px;
+  }
+}
+
+body.reminders-fullscreen #header,
+body.reminders-fullscreen #input-area {
+  display: none !important;
+}
+
+body.reminders-fullscreen #workspace {
+  flex: 1 1 auto;
+  height: 100vh;
+}
+
+body.reminders-fullscreen #reminders-view {
+  min-height: 0;
+}
+
+body.reminders-fullscreen .reminders-app-shell {
+  border-radius: 0;
+  padding: 16px;
+}
+
 body.people-chat-fullscreen #header {
   display: none !important;
 }
@@ -5449,59 +5815,8 @@ html[data-glass-contrast] #send-btn {
   display: none;
 }
 
-.phone-section-header {
-  align-items: center;
-  display: flex;
-  gap: 10px;
-  justify-content: space-between;
-  min-width: 0;
-}
-
-.phone-section-header .section-heading {
-  flex: 0 0 auto;
-}
-
-.phone-section-tabs {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  justify-content: flex-end;
-  min-width: 0;
-}
-
-.phone-section-tab {
-  background: var(--adaptive-control, rgba(255,255,255,.09));
-  border: 1px solid var(--adaptive-border, rgba(255,255,255,.16));
-  border-radius: 12px;
-  color: var(--adaptive-muted, rgba(255,255,255,.72));
-  cursor: pointer;
-  flex: 0 1 auto;
-  font: inherit;
-  font-size: 10px;
-  font-weight: 750;
-  min-height: 34px;
-  padding: 0 10px;
-  transition: background-color .24s ease, border-color .24s ease, color .24s ease, transform .24s ease;
-  white-space: nowrap;
-}
-
-.phone-section-tab:hover {
-  background: var(--adaptive-control-strong, rgba(255,255,255,.16));
-  color: var(--adaptive-text, #f8f8fa);
-  transform: translateY(-1px);
-}
-
-.phone-section-tab.active {
-  background: var(--adaptive-control-strong, rgba(255,255,255,.16));
-  border-color: color-mix(in srgb, var(--accent-color) 45%, var(--adaptive-border, rgba(255,255,255,.16)));
-  color: var(--adaptive-text, #f8f8fa);
-}
-
 .settings-nav-chip.active,
 .system-option.active,
-.phone-section-tab.active,
-.phone-connect-mode-tab.active,
 .permission-option.active,
 .mode-tab.active,
 .mode-app-tab.active {
@@ -5532,49 +5847,159 @@ html[data-glass-contrast] #send-btn {
   display: flex;
 }
 
-.phone-connect-mode-tabs {
-  align-items: center;
-  background:
-    linear-gradient(145deg, rgba(255,255,255,.09), rgba(255,255,255,.035)),
-    rgba(8, 10, 14, .58);
-  border: 1px solid rgba(255,255,255,.13);
-  border-radius: 18px;
+.mobile-app-panel {
   display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  padding: 6px;
+  gap: 16px;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 100%;
 }
 
-.phone-connect-mode-tab {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 13px;
-  color: var(--adaptive-muted, rgba(255,255,255,.72));
-  cursor: pointer;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 800;
-  min-height: 38px;
-  padding: 0 14px;
-  transition: background-color .22s ease, border-color .22s ease, color .22s ease, transform .22s ease;
+.mobile-app-topbar {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
 }
 
-.phone-connect-mode-tab:hover {
-  background: var(--adaptive-control, rgba(255,255,255,.09));
-  color: var(--adaptive-text, #f8f8fa);
-  transform: translateY(-1px);
-}
-
-.phone-connect-view {
-  display: none;
-  flex-direction: column;
-  gap: 12px;
+.mobile-app-topbar > div {
   min-width: 0;
 }
 
-.phone-connect-view.active {
-  animation: compact-section-in .18s ease;
+.mobile-app-topbar .section-note {
+  margin-top: 4px;
+}
+
+.mobile-app-panel .phone-panel {
+  display: grid;
+  gap: 16px;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  min-height: 0;
+}
+
+.mobile-qr-stage {
+  align-content: center;
+  display: grid;
+  gap: 15px;
+  justify-items: center;
+  min-height: 280px;
+}
+
+.mobile-qr-square {
+  align-items: center;
+  aspect-ratio: 1;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(235, 238, 245, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 24px;
+  color: #111318;
+  display: grid;
+  font-size: 15px;
+  font-weight: 900;
+  justify-items: center;
+  max-width: 310px;
+  min-width: 220px;
+  overflow: hidden;
+  padding: 20px;
+  width: min(58vw, 310px);
+}
+
+.mobile-qr-square:disabled {
+  color: rgba(17, 19, 24, 0.48);
+  cursor: default;
+}
+
+.mobile-qr-square #cloud-pairing-qr {
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
+.mobile-qr-square #cloud-pairing-qr:not([hidden]) + span,
+.mobile-qr-square:has(img:not([hidden])) span {
+  display: none;
+}
+
+.mobile-pairing-copy {
+  color: var(--muted-color);
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  line-height: 1.35;
+  max-width: 330px;
+  text-align: center;
+}
+
+.mobile-pairing-copy strong {
+  color: var(--text-color);
+  font-size: 13px;
+}
+
+.mobile-pairing-copy span {
+  color: var(--muted-color);
+  font-size: 11px;
+}
+
+.mobile-connected-summary {
+  align-items: center;
+  background:
+    radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--success-color) 22%, transparent), transparent 38%),
+    rgba(255, 255, 255, 0.07);
+  border: 1px solid color-mix(in srgb, var(--success-color) 28%, rgba(255, 255, 255, 0.12));
+  border-radius: 20px;
   display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 16px;
+}
+
+.mobile-connected-summary span,
+.mobile-connected-summary small {
+  color: var(--muted-color);
+  display: block;
+  font-size: 11px;
+}
+
+.mobile-connected-summary strong {
+  color: var(--text-color);
+  display: block;
+  font-size: 16px;
+  margin: 2px 0;
+}
+
+.mobile-device-list {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.mobile-device-list::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-app-panel.mobile-connected .mobile-device-list {
+  align-content: start;
+  display: grid;
+}
+
+.mobile-server-details {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 20px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.mobile-server-details[hidden] {
+  display: none;
+}
+
+.mobile-connect-server-btn {
+  bottom: 0;
+  min-height: 46px;
+  position: sticky;
+  width: 100%;
+  z-index: 2;
 }
 
 .phone-panel .phone-pairing-card,
@@ -5845,19 +6270,6 @@ html[data-glass-contrast] #send-btn {
 }
 
 @media (max-width: 460px) {
-  .phone-section-header {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .phone-section-tabs {
-    width: 100%;
-  }
-
-  .phone-section-tab {
-    flex: 1 1 0;
-  }
-
   #about-panel {
     padding: 14px;
   }

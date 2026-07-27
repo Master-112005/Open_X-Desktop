@@ -214,6 +214,27 @@ describe('Scheduler Alert Delivery', function() {
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
+  it('should remove recurring reminders without rescheduling them into active lists', function() {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-remove-recurring-schedule-'));
+    const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
+
+    const result = scheduler.setReminder('mark attendance', {
+      timeExpression: '9:30 pm',
+      recurrence: 'daily'
+    });
+    assert.equal(result.success, true);
+
+    const removed = scheduler.removeSchedule(result.data.id);
+    assert.equal(removed.success, true);
+    assert.equal(removed.data.status, 'dismissed');
+    assert.equal(scheduler.listSchedules('Reminder').data.count, 0);
+    assert.equal(scheduler.listSchedules('Reminder', 'today').data.entries.some(item => item.id === result.data.id), false);
+    assert.equal(scheduler.getScheduleSnapshot().entries.some(item => item.id === result.data.id), false);
+
+    scheduler.destroy();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
   it('should expose timer and stopwatch state for the mini widget', function() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-timer-widget-'));
     const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
