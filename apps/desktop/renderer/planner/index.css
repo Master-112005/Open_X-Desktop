@@ -108,46 +108,11 @@ button {
   padding: 18px 20px;
 }
 
-.view-switch {
-  -webkit-app-region: no-drag;
-  align-items: center;
-  background: var(--adaptive-control);
-  border: 1px solid var(--adaptive-border);
-  border-radius: 14px;
-  display: flex;
-  gap: 5px;
-  padding: 5px;
-}
-
-.view-button,
 .icon-button,
 .window-close,
 .primary-button {
   -webkit-app-region: no-drag;
   border: 0;
-}
-
-.view-button {
-  background: transparent;
-  border-radius: 10px;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
-  min-width: 96px;
-  padding: 9px 14px;
-  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease, transform 0.25s ease;
-}
-
-.view-button:hover {
-  background: var(--adaptive-control-strong);
-  color: var(--text);
-}
-
-.view-button.active {
-  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 48%, transparent), color-mix(in srgb, var(--accent) 25%, transparent));
-  border-color: color-mix(in srgb, var(--accent) 45%, rgba(255, 255, 255, 0.2));
-  color: rgba(255, 255, 255, 0.94);
-  transform: translateY(-1px);
 }
 
 .window-title {
@@ -733,8 +698,7 @@ textarea:focus {
 .primary-button:focus-visible,
 .panel-close-button:focus-visible,
 .floating-add-button:focus-visible,
-.icon-button:focus-visible,
-.view-button:focus-visible {
+.icon-button:focus-visible {
   outline: 0;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
 }
@@ -857,7 +821,6 @@ textarea:focus {
 }
 
 html[data-glass-contrast] .window-title,
-html[data-glass-contrast] .view-button,
 html[data-glass-contrast] .day-cell,
 html[data-glass-contrast] .agenda-card,
 html[data-glass-contrast] .time-slot,

@@ -76,6 +76,7 @@ const appsViewBtn = document.getElementById('apps-view-btn');
 const peopleChatAppBtn = document.getElementById('people-chat-app-btn');
 const calendarAppBtn = document.getElementById('calendar-app-btn');
 const galleryAppBtn = document.getElementById('gallery-app-btn');
+const mobileAppBtn = document.getElementById('mobile-app-btn');
 const settingsAppBtn = document.getElementById('settings-app-btn');
 const conversationView = document.getElementById('conversation-view');
 const peopleChatView = document.getElementById('people-chat-view');
@@ -2979,7 +2980,10 @@ function setActivePhonePanel(panelName) {
 
 function setActiveSettingsSection(sectionName) {
   activeSettingsSection = sectionName || null;
-  if (settingsNavEl) settingsNavEl.dataset.activeSection = activeSettingsSection || 'system';
+  if (settingsNavEl) {
+    settingsNavEl.dataset.activeSection = activeSettingsSection || 'system';
+    settingsNavEl.hidden = activeSettingsSection === 'phone';
+  }
 
   settingsNavButtons.forEach(button => {
     const isActive = button.dataset.sectionTarget === activeSettingsSection;
@@ -3370,10 +3374,14 @@ function applySnapshot(snapshot) {
   }
 }
 
-function openSettingsPanel() {
-  setActiveSettingsSection(activeSettingsSection || 'system');
+function openSettingsPanel(sectionName = null) {
+  const requestedSection = typeof sectionName === 'string' ? sectionName : null;
+  const targetSection = requestedSection || (activeSettingsSection === 'phone' ? 'system' : activeSettingsSection) || 'system';
+  setActiveSettingsSection(targetSection);
   settingsOverlay.classList.add('open');
-  setSettingsStatus('Settings are stored locally on this machine.', 'info');
+  setSettingsStatus(targetSection === 'phone'
+    ? 'Mobile pairing and trusted devices are managed here.'
+    : 'Settings are stored locally on this machine.', 'info');
   refreshSettingsStatus();
   if (!settingsStatusPollHandle) {
     settingsStatusPollHandle = setInterval(refreshSettingsStatus, 5000);
@@ -4146,8 +4154,13 @@ calendarAppBtn?.addEventListener('click', () => {
 galleryAppBtn?.addEventListener('click', () => {
   runHeaderApp(galleryAppBtn, () => window.openx?.openGallery?.('timeline'));
 });
+mobileAppBtn?.addEventListener('click', () => {
+  mobileAppBtn.classList.add('opening');
+  openSettingsPanel('phone');
+  window.setTimeout(() => mobileAppBtn.classList.remove('opening'), 180);
+});
 settingsAppBtn?.addEventListener('click', () => {
-  openSettingsPanel();
+  openSettingsPanel('system');
 });
 peopleChatNewBtn?.addEventListener('click', openPeopleChatAddUser);
 peopleChatCloseBtn?.addEventListener('click', closePeopleChatApp);

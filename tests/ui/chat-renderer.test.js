@@ -11,7 +11,7 @@ describe('Chat Renderer UI', function() {
 
   it('should provide dedicated chat, activity, apps, notification, and info surfaces', function() {
     const headerActions = html.match(/<div id="header-actions">([\s\S]*?)<\/div>/)?.[1] || '';
-    ['conversation-view', 'people-chat-view', 'activity-view', 'apps-view', 'toast-region', 'schedule-list', 'notification-list', 'people-chat-app-btn', 'calendar-app-btn', 'gallery-app-btn', 'settings-app-btn', 'header-about-btn', 'about-btn']
+    ['conversation-view', 'people-chat-view', 'activity-view', 'apps-view', 'toast-region', 'schedule-list', 'notification-list', 'people-chat-app-btn', 'calendar-app-btn', 'gallery-app-btn', 'mobile-app-btn', 'settings-app-btn', 'header-about-btn', 'about-btn']
       .forEach(id => assert.match(html, new RegExp(`id="${id}"`)));
     assert.doesNotMatch(html, /id="alarm-overlay"/);
     assert.doesNotMatch(script, /alarmOverlay|alarm-dismiss-btn|alarm-snooze-btn/);
@@ -295,7 +295,10 @@ describe('Chat Renderer UI', function() {
   });
 
   it('should expose OpenX-lock-protected cloud mobile pairing controls', function() {
-    assert.match(html, /data-section-target="phone"/);
+    assert.match(html, /id="mobile-app-btn"[\s\S]*<strong>Mobile<\/strong>[\s\S]*Pair and devices/);
+    assert.doesNotMatch(html, /data-section-target="phone"/);
+    assert.match(script, /const mobileAppBtn = document\.getElementById\('mobile-app-btn'\)/);
+    assert.match(script, /openSettingsPanel\('phone'\)/);
     assert.match(html, /data-phone-panel-target="connect"/);
     assert.match(html, /data-phone-panel-target="devices"/);
     assert.match(html, /data-phone-panel="connect"/);
@@ -332,8 +335,9 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(script, /disconnectCommunicationProvider/);
   });
 
-  it('should group identity, theme, and security under System while keeping Phone separate', function() {
+  it('should group identity, theme, and security under System while exposing Mobile as an app', function() {
     assert.match(html, /data-section-target="system"/);
+    assert.doesNotMatch(html, /data-section-target="phone"/);
     assert.match(html, /class="settings-nav settings-segmented" id="settings-nav"[\s\S]*data-active-section="system"/);
     assert.match(html, /class="system-options settings-segmented" id="system-options"[\s\S]*data-active-block="identity"/);
     assert.match(html, /data-system-block-target="identity"/);
@@ -360,7 +364,9 @@ describe('Chat Renderer UI', function() {
     assert.match(html, /id="settings-section-phone"[^>]*data-settings-section="phone"|data-settings-section="phone"[^>]*id="settings-section-phone"/);
     assert.doesNotMatch(html, /id="assistant-title"|Assistant Title/);
     assert.doesNotMatch(html, /id="assistant-activation-shortcut"|Chat Shortcut|Alt\+Space to show/);
-    assert.match(script, /setActiveSettingsSection\(activeSettingsSection \|\| 'system'\)/);
+    assert.match(script, /const targetSection = requestedSection \|\| \(activeSettingsSection === 'phone' \? 'system' : activeSettingsSection\) \|\| 'system'/);
+    assert.match(script, /settingsNavEl\.hidden = activeSettingsSection === 'phone'/);
+    assert.match(script, /openSettingsPanel\('system'\)/);
     assert.match(script, /settingsNavEl\.dataset\.activeSection = activeSettingsSection \|\| 'system'/);
     assert.match(script, /function setActiveSystemBlock/);
     assert.match(script, /systemOptionsEl\.dataset\.activeBlock = activeSystemBlock/);
@@ -368,9 +374,11 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /\.settings-segmented::before/);
     assert.match(css, /\.settings-segmented\s*\{[\s\S]*border-radius:\s*999px;/);
     assert.match(css, /\.settings-segmented::before\s*\{[\s\S]*box-sizing:\s*border-box;[\s\S]*left:\s*3px;[\s\S]*width:\s*calc\(\(100% - 6px\) \/ 4\)/);
-    assert.match(css, /\.settings-nav\[data-active-section="profile"\]::before[\s\S]*left:\s*calc\(25% \+ 1\.5px\)/);
-    assert.match(css, /\.settings-nav\[data-active-section="phone"\]::before[\s\S]*left:\s*50%/);
-    assert.match(css, /\.settings-nav\[data-active-section="modes"\]::before[\s\S]*left:\s*calc\(75% - 1\.5px\)/);
+    assert.match(css, /\.settings-nav\.settings-segmented\s*\{[\s\S]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+    assert.match(css, /\.settings-nav\.settings-segmented::before\s*\{[\s\S]*width:\s*calc\(\(100% - 6px\) \/ 3\)/);
+    assert.match(css, /\.settings-nav\[data-active-section="profile"\]::before[\s\S]*left:\s*calc\(33\.333333% \+ 1px\)/);
+    assert.match(css, /\.settings-nav\[data-active-section="modes"\]::before[\s\S]*left:\s*calc\(66\.666667% - 1px\)/);
+    assert.doesNotMatch(css, /\.settings-nav\[data-active-section="phone"\]/);
     assert.match(css, /\.system-options\[data-active-block="theme"\]::before/);
     assert.match(css, /\.system-options\[data-active-block="security"\]::before/);
     assert.match(css, /\.system-options\[data-active-block="storage"\]::before/);
