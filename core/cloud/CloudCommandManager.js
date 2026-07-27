@@ -185,6 +185,13 @@ class CloudCommandManager extends EventEmitter {
           command,
           windowTitle: String(payload.windowTitle || '').trim(),
           tabTitle: String(payload.tabTitle || '').trim(),
+          targetHandle: Number.isSafeInteger(Number(payload.targetHandle || payload.handle)) && Number(payload.targetHandle || payload.handle) > 0
+            ? Number(payload.targetHandle || payload.handle)
+            : null,
+          targetProcessId: Number.isSafeInteger(Number(payload.targetProcessId || payload.processId)) && Number(payload.targetProcessId || payload.processId) > 0
+            ? Number(payload.targetProcessId || payload.processId)
+            : null,
+          processName: String(payload.processName || '').trim().slice(0, 80),
           deviceName: String(payload.deviceName || payload.sourceDeviceName || packet.metadata?.deviceName || '').trim(),
           metadata: {
             ...(packet.metadata || {}),
@@ -384,6 +391,9 @@ class CloudCommandManager extends EventEmitter {
         command: request.command,
         windowTitle: request.windowTitle,
         tabTitle: request.tabTitle,
+        targetHandle: request.targetHandle,
+        targetProcessId: request.targetProcessId,
+        processName: request.processName,
         request
       });
       this.setLifecycle(request.requestId, result?.success === false ? 'failed' : 'completed');

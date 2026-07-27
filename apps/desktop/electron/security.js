@@ -422,6 +422,17 @@ function validateRemoteControl(payload = {}) {
   if (payload.tabTitle !== undefined) {
     normalized.tabTitle = requireString(payload.tabTitle, 'remote.tabTitle', { maxLength: 220, allowEmpty: true });
   }
+  const targetHandle = Number(payload.targetHandle || payload.handle || payload.matchedHandle || 0);
+  if (Number.isSafeInteger(targetHandle) && targetHandle > 0) {
+    normalized.targetHandle = targetHandle;
+  }
+  const targetProcessId = Number(payload.targetProcessId || payload.processId || 0);
+  if (Number.isSafeInteger(targetProcessId) && targetProcessId > 0) {
+    normalized.targetProcessId = targetProcessId;
+  }
+  if (payload.processName !== undefined) {
+    normalized.processName = requireString(payload.processName, 'remote.processName', { maxLength: 80, allowEmpty: true });
+  }
   return normalized;
 }
 

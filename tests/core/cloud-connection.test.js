@@ -324,6 +324,93 @@ describe('CloudConnectionManager', () => {
     await manager.disconnect('test-finished');
   });
 
+  it('waits for relay authentication before listing cloud devices', async () => {
+    const relayUrl = await startRelayStub();
+    let listHadAccessToken = false;
+    server.on('connection', socket => {
+      socket.on('message', data => {
+        const message = JSON.parse(data.toString('utf8'));
+        if (message.type === 'device:register') {
+          setTimeout(() => {
+            socket.send(JSON.stringify({
+              type: 'device:registered',
+              requestId: message.requestId,
+              owner: { id: 'owner-test' },
+              device: { deviceId: message.deviceId, ownerId: 'owner-test', friendlyName: 'Desktop' },
+              auth: {
+                accessToken: createUnsignedAccessToken(message.deviceId),
+                refreshToken: 'refresh-token-test'
+              }
+            }));
+          }, 30);
+        }
+        if (message.type === 'device:list') {
+          listHadAccessToken = Boolean(message.accessToken);
+          socket.send(JSON.stringify({
+            type: 'device:list',
+            requestId: message.requestId,
+            success: true,
+            devices: []
+          }));
+        }
+      });
+    });
+    const manager = new CloudConnectionManager({
+      logger: createSilentLogger(),
+      settings: {
+        deviceId: 'desktop-test',
+        ownerId: 'owner-test',
+        reconnectEnabled: false,
+        heartbeatEnabled: false
+      },
+      version: 'test'
+    });
+
+    await manager.connect({ relayUrl });
+    const listed = await manager.listDevices({ timeoutMs: 2000 });
+
+    expect(listed.success).to.equal(true);
+    expect(listHadAccessToken).to.equal(true);
+    expect(manager.getStatus().authenticated).to.equal(true);
+
+    await manager.disconnect('test-finished');
+  });
+
+  it('rejects pending cloud device requests when the relay reports auth failure', async () => {
+    const relayUrl = await startRelayStub();
+    server.on('connection', socket => {
+      socket.on('message', data => {
+        const message = JSON.parse(data.toString('utf8'));
+        if (message.type === 'device:list') {
+          socket.send(JSON.stringify({
+            type: 'auth:error',
+            requestId: message.requestId,
+            code: 'missing-token',
+            message: 'Authentication token is required.'
+          }));
+        }
+      });
+    });
+    const manager = new CloudConnectionManager({
+      logger: createSilentLogger(),
+      settings: { reconnectEnabled: false, heartbeatEnabled: false },
+      version: 'test'
+    });
+
+    await manager.connect({ relayUrl });
+    let error = null;
+    try {
+      await manager.listDevices({ timeoutMs: 2000 });
+    } catch (requestError) {
+      error = requestError;
+    }
+
+    expect(error).to.be.instanceOf(Error);
+    expect(error.message).to.equal('Authentication token is required.');
+
+    await manager.disconnect('test-finished');
+  });
+
   it('tracks presence and notifications sent by the relay', async () => {
     const relayUrl = await startRelayStub();
     server.on('connection', socket => {

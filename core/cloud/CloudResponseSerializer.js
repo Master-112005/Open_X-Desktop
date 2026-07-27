@@ -43,7 +43,7 @@ class CloudResponseSerializer {
         source: 'desktop',
         destination: 'cloud-phone',
         streaming: false,
-        retryable: true
+        retryable: responseType !== 'remote-control'
       },
       checksum: null,
       encryption: null,
@@ -100,6 +100,8 @@ class CloudResponseSerializer {
           id: this.cleanText(target?.id || '', 40),
           label: this.cleanText(target?.label || target?.name || `Target ${index + 1}`, 80),
           kind: this.cleanText(target?.kind || '', 40),
+          handle: Number.isSafeInteger(Number(target?.handle)) && Number(target.handle) > 0 ? Number(target.handle) : null,
+          processId: Number.isSafeInteger(Number(target?.processId)) && Number(target.processId) > 0 ? Number(target.processId) : null,
           processName: this.cleanText(target?.processName || '', 80),
           windowTitle: this.cleanText(target?.windowTitle || '', MAX_FIELD),
           tabTitle: this.cleanText(target?.tabTitle || '', MAX_FIELD),

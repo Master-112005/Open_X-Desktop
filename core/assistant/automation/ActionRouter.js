@@ -92,6 +92,7 @@ const SCHEDULED_ACTION_INTENTS = new Set([
   'presentation.next',
   'presentation.previous',
   'presentation.goto',
+  'remote.control',
   'media.pause',
   'media.resume',
   'media.stop'
@@ -377,6 +378,7 @@ class ActionRouter {
       ['_resolveExplicitReminderIntent', () => this._resolveExplicitReminderIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitAlarmIntent', () => this._resolveExplicitAlarmIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitTimerIntent', () => this._resolveExplicitTimerIntent(rawCommandText, preparedInput)],
+      ['_resolveRemoteControlIntent', () => this._resolveRemoteControlIntent(rawCommandText, preparedInput)],
       ['_resolvePresentationControlIntent', () => this._resolvePresentationControlIntent(rawCommandText, preparedInput)],
       ['_resolvePresentationFileIntent', () => this._resolvePresentationFileIntent(rawCommandText, preparedInput)],
       ['_resolveSystemPowerIntent', () => this._resolveSystemPowerIntent(rawCommandText, preparedInput)],
@@ -474,6 +476,65 @@ class ActionRouter {
       });
       return null;
     }
+  }
+
+  _resolveRemoteControlIntent(rawText, preparedInput = {}) {
+    const corrected = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
+    const raw = String(rawText || corrected || '').trim().toLowerCase();
+    const input = `${raw} ${corrected}`.replace(/\s+/g, ' ').trim();
+    if (!input) return null;
+
+    const route = (intentId, entities = {}, confidence = 0.98) => {
+      const intent = this.intentRegistry.get(intentId);
+      return intent ? { intent, confidence, entities } : null;
+    };
+
+    if (/\b(?:show|list|scan|refresh|find)\b.*\b(?:remote\s+apps?|remote\s+targets?|controllable\s+apps?)\b/.test(input) ||
+      /\b(?:what|which)\b.*\b(?:remote|control)\b.*\b(?:apps?|targets?)\b/.test(input)) {
+      return route('remote.listTargets', { routeSource: 'remote-command' }, 0.99);
+    }
+
+    const action = this._extractRemoteControlAction(input);
+    if (!action) return null;
+
+    const targetId = this._extractRemoteControlTarget(input);
+    const hasRemoteCue = /\b(?:remote|remote\s+control|controller|dpad|d-pad|control\s+pad)\b/.test(input);
+    const hasPressCue = /\b(?:press|tap|hit|click|select|send)\b/.test(input);
+    const hasTargetCue = Boolean(targetId);
+    if (!hasRemoteCue && !hasPressCue && !hasTargetCue) return null;
+    if (targetId === 'powerpoint' && !hasRemoteCue && !hasPressCue) return null;
+
+    return route('remote.control', {
+      targetId: targetId || 'active',
+      action,
+      command: action,
+      routeSource: 'remote-command'
+    }, hasRemoteCue ? 0.99 : 0.94);
+  }
+
+  _extractRemoteControlAction(input) {
+    const text = String(input || '').toLowerCase();
+    if (/\b(?:full\s*screen|fullscreen|maximize\s+video|presentation\s+full)\b/.test(text)) return 'fullscreen';
+    if (/\b(?:play\s*pause|play\/pause|pause|resume|play)\b/.test(text)) return 'playPause';
+    if (/\b(?:previous|prev|go\s+back\s+one|backward)\b/.test(text)) return 'left';
+    if (/\b(?:next|forward|advance)\b/.test(text)) return 'right';
+    if (/\b(?:left)\b/.test(text)) return 'left';
+    if (/\b(?:right)\b/.test(text)) return 'right';
+    if (/\b(?:up)\b/.test(text)) return 'up';
+    if (/\b(?:down)\b/.test(text)) return 'down';
+    if (/\b(?:ok|okay|enter|select|click|tap|center|middle)\b/.test(text)) return 'center';
+    if (/\b(?:back|escape|esc|close\s+menu)\b/.test(text)) return 'back';
+    return null;
+  }
+
+  _extractRemoteControlTarget(input) {
+    const text = String(input || '').toLowerCase();
+    if (/\b(?:youtube|you\s*tube|yt)\b/.test(text)) return 'youtube';
+    if (/\b(?:powerpoint|power\s*point|ppt|pptx|presentation|slide\s*show)\b/.test(text)) return 'powerpoint';
+    if (/\b(?:instagram|insta)\b/.test(text)) return 'instagram';
+    if (/\bspotify\b/.test(text)) return 'spotify';
+    if (/\b(?:active|current|selected)\b.*\b(?:app|window|target)\b/.test(text)) return 'active';
+    return '';
   }
 
   _resolveNaturalConditionIntent(rawText, preparedInput = {}) {

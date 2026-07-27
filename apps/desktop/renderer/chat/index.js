@@ -2268,13 +2268,15 @@ async function sendRemoteAction(action) {
     return;
   }
   setRemoteStatus(`Sending ${action} to ${target.label || 'target'}...`, 'info');
-  remoteControlButtons.forEach(button => { button.disabled = true; });
   try {
     const result = await window.openx.sendRemoteControl({
       targetId: target.id,
       action,
       windowTitle: target.windowTitle || '',
-      tabTitle: target.tabTitle || ''
+      tabTitle: target.tabTitle || '',
+      targetHandle: target.handle || null,
+      targetProcessId: target.processId || null,
+      processName: target.processName || ''
     });
     if (result?.success === false) {
       setRemoteStatus(result.error || 'Remote command failed.', 'error');
@@ -2284,8 +2286,6 @@ async function sendRemoteAction(action) {
     setRemoteStatus(`${target.label || 'App'} responded.`, 'success');
   } catch (error) {
     setRemoteStatus(error?.message || 'Remote command failed.', 'error');
-  } finally {
-    remoteControlButtons.forEach(button => { button.disabled = remoteTargets.length === 0; });
   }
 }
 
@@ -3943,28 +3943,50 @@ function collectCloudRuntimeSettings() {
   };
 }
 
+function isManagedPhoneDevice(device = {}) {
+  if (device.isCurrentDevice === true) return false;
+  const details = [
+    device.deviceType,
+    device.type,
+    device.platform,
+    device.deviceName,
+    device.friendlyName
+  ].map(value => String(value || '').toLowerCase());
+  return details.some(value =>
+    value.includes('mobile') ||
+    value.includes('phone') ||
+    value.includes('android') ||
+    value.includes('ios')
+  );
+}
+
+function isConfirmedMobileConnection(device = {}) {
+  if (!isManagedPhoneDevice(device)) return false;
+  const status = String(device.connectionStatus || device.state || '').toLowerCase();
+  return device.connected === true || status === 'connected';
+}
+
 function primaryManagedMobileDevice() {
-  return (Array.isArray(latestManagedDevices) ? latestManagedDevices : [])
-    .find(device => device.connected === true || device.connectionStatus === 'connected')
-    || latestManagedDevices.find(device => device.trusted === true)
-    || latestManagedDevices[0]
+  const devices = (Array.isArray(latestManagedDevices) ? latestManagedDevices : []).filter(isManagedPhoneDevice);
+  return devices.find(isConfirmedMobileConnection)
+    || devices.find(device => device.trusted === true)
+    || devices[0]
     || null;
 }
 
 function updateMobileAppPresentation() {
   const device = primaryManagedMobileDevice();
-  const hasDevice = Boolean(device);
-  mobileAppPanelEl?.classList.toggle('mobile-connected', hasDevice);
-  if (mobileQrStageEl) mobileQrStageEl.hidden = hasDevice;
-  if (mobileConnectedSummaryEl) mobileConnectedSummaryEl.hidden = !hasDevice;
+  const connected = isConfirmedMobileConnection(device);
+  mobileAppPanelEl?.classList.toggle('mobile-connected', connected);
+  if (mobileQrStageEl) mobileQrStageEl.hidden = connected;
+  if (mobileConnectedSummaryEl) mobileConnectedSummaryEl.hidden = !connected;
   if (mobileConnectedDeviceNameEl) {
     mobileConnectedDeviceNameEl.textContent = device?.friendlyName || device?.deviceName || 'OpenX Mobile';
   }
   if (mobileConnectedDeviceMetaEl) {
-    const status = device?.connected === true || device?.connectionStatus === 'connected' ? 'Connected' : 'Paired';
     const version = device?.softwareVersion ? ` - v${device.softwareVersion}` : '';
-    mobileConnectedDeviceMetaEl.textContent = hasDevice
-      ? `${status}${version}`
+    mobileConnectedDeviceMetaEl.textContent = connected
+      ? `Connected${version}`
       : 'Scan a QR code from OpenX Mobile to pair this desktop.';
   }
 }
