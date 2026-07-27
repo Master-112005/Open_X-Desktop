@@ -87,7 +87,11 @@ describe('Electron Security Boundary', function() {
       }
     );
     assert.throws(() => IPC_VALIDATORS['chatHistory:save']({ entries: [{ type: 'bad', text: 'No' }] }), /entry type/);
-    assert.throws(() => IPC_VALIDATORS['chatHistory:save']({ entries: new Array(101).fill({ type: 'user', text: 'x' }) }), /too many/);
+    assert.equal(
+      IPC_VALIDATORS['chatHistory:save']({ entries: new Array(300).fill({ type: 'user', text: 'x' }) }).entries.length,
+      300
+    );
+    assert.throws(() => IPC_VALIDATORS['chatHistory:save']({ entries: new Array(301).fill({ type: 'user', text: 'x' }) }), /too many/);
     assert.throws(() => IPC_VALIDATORS['chatHistory:get']({}), /does not accept/);
     assert.throws(() => IPC_VALIDATORS['chatHistory:clear']({}), /does not accept/);
   });

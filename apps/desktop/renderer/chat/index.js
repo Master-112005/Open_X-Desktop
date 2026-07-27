@@ -476,6 +476,14 @@ function persistConversationHistory(entries = conversationHistory) {
   return chatHistorySaveQueue;
 }
 
+function persistConversationHistoryFallback(entries = conversationHistory) {
+  const fallback = normalizeChatHistoryItems(entries).slice(-chatHistoryLimit());
+  if (fallback.length > 0) {
+    saveStoredList(CHAT_HISTORY_STORAGE_KEY, fallback);
+  }
+  return fallback;
+}
+
 function flushConversationHistorySave() {
   if (chatHistorySaveTimer) {
     clearTimeout(chatHistorySaveTimer);
@@ -510,7 +518,15 @@ function rememberConversationMessage(text, type, meta) {
   const item = normalizeChatHistoryItem({ text, type, meta, createdAt: Date.now() });
   if (!item) return;
   conversationHistory.push(item);
-  saveConversationHistory();
+  saveConversationHistory({ immediate: true });
+}
+
+async function closeChatWindow() {
+  persistConversationHistoryFallback();
+  try {
+    await flushConversationHistorySave();
+  } catch (_) {}
+  window.close();
 }
 
 function normalizeUiNotification(item = {}) {
@@ -1085,6 +1101,26 @@ function normalizePeopleChatConversation(entry = {}) {
   };
 }
 
+function mergePeopleChatHistory(existingHistory = [], incomingHistory = []) {
+  const byId = new Map();
+  [...normalizePeopleChatHistory(existingHistory), ...normalizePeopleChatHistory(incomingHistory)].forEach((message) => {
+    const id = String(message.messageId || '').trim();
+    if (!id) return;
+    const previous = byId.get(id) || {};
+    byId.set(id, { ...previous, ...message });
+  });
+  return Array.from(byId.values())
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.timestamp || '');
+      const rightTime = Date.parse(right.timestamp || '');
+      if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) return leftTime - rightTime;
+      if (Number.isFinite(leftTime)) return -1;
+      if (Number.isFinite(rightTime)) return 1;
+      return 0;
+    })
+    .slice(-PEOPLE_CHAT_HISTORY_LIMIT);
+}
+
 function publishPeopleChatUiState() {
   if (!window.openx?.setDesktopChatUiState) return;
   window.openx.setDesktopChatUiState({
@@ -1581,10 +1617,22 @@ function handlePeopleChatRegistrationChanged(payload = {}) {
   if (peopleChatRegistrationState.chatReady) loadPeopleChatRequests({ force: true });
 }
 
-function replacePeopleChatConversation(conversation) {
+function replacePeopleChatConversation(conversation, options = {}) {
   const normalized = normalizePeopleChatConversation(conversation);
   if (!normalized.conversationId) return null;
   const index = peopleChatConversations.findIndex(item => item.conversationId === normalized.conversationId);
+  if (index >= 0 && options.preserveExistingHistory === true) {
+    const existing = peopleChatConversations[index];
+    const mergedHistory = mergePeopleChatHistory(existing.history, normalized.history);
+    if (mergedHistory.length > normalized.history.length) {
+      normalized.history = mergedHistory;
+      const lastMessage = mergedHistory[mergedHistory.length - 1] || null;
+      normalized.preview = normalized.preview && normalized.preview !== 'No messages yet'
+        ? normalized.preview
+        : (lastMessage?.text || existing.preview || normalized.preview);
+      normalized.lastMessageTimestamp = normalized.lastMessageTimestamp || lastMessage?.timestamp || existing.lastMessageTimestamp;
+    }
+  }
   if (index >= 0) {
     peopleChatConversations[index] = normalized;
   } else {
@@ -1940,9 +1988,25 @@ async function loadPeopleChatConversations(options = {}) {
         peopleChatPendingLoad = true;
         return;
       }
+      const existingById = new Map(peopleChatConversations.map(conversation => [conversation.conversationId, conversation]));
       peopleChatConversations = (Array.isArray(result?.conversations) ? result.conversations : [])
         .map(normalizePeopleChatConversation)
-        .filter(conversation => conversation.conversationId);
+        .filter(conversation => conversation.conversationId)
+        .map(conversation => {
+          const existing = existingById.get(conversation.conversationId);
+          if (!existing) return conversation;
+          const mergedHistory = mergePeopleChatHistory(existing.history, conversation.history);
+          if (mergedHistory.length <= conversation.history.length) return conversation;
+          const lastMessage = mergedHistory[mergedHistory.length - 1] || null;
+          return {
+            ...conversation,
+            history: mergedHistory,
+            preview: conversation.preview && conversation.preview !== 'No messages yet'
+              ? conversation.preview
+              : (lastMessage?.text || existing.preview || conversation.preview),
+            lastMessageTimestamp: conversation.lastMessageTimestamp || lastMessage?.timestamp || existing.lastMessageTimestamp
+          };
+        });
     } else {
       peopleChatConversations = PEOPLE_CHAT_FALLBACK_CONVERSATIONS.map(normalizePeopleChatConversation);
     }
@@ -2114,7 +2178,9 @@ function handleDesktopChatChanged(payload = {}) {
   }
 
   if (payload.conversation) {
-    replacePeopleChatConversation(payload.conversation);
+    replacePeopleChatConversation(payload.conversation, {
+      preserveExistingHistory: ['synced', 'trusted', 'updated'].includes(reason)
+    });
     peopleChatLoaded = true;
     if (activeWorkspaceView === 'people-chat') schedulePeopleChatRender();
     return;
@@ -2139,7 +2205,7 @@ function setWorkspaceView(viewName) {
   const showingReminders = activeWorkspaceView === 'reminders';
   const showingRemote = activeWorkspaceView === 'remote';
   const showingChat = activeWorkspaceView === 'chat';
-  const activeSwitcherView = showingActivity ? 'activity' : showingApps ? 'apps' : showingRemote ? 'remote' : 'chat';
+  const activeSwitcherView = showingActivity ? 'activity' : showingApps ? 'apps' : showingChat ? 'chat' : 'none';
   if (viewSwitcherEl) viewSwitcherEl.dataset.activeView = activeSwitcherView;
   document.body?.classList.toggle('people-chat-fullscreen', showingPeopleChat);
   document.body?.classList.toggle('reminders-fullscreen', showingReminders);
@@ -2926,7 +2992,7 @@ async function runHeaderApp(button, operation) {
   button.setAttribute('aria-busy', 'true');
   try {
     await operation();
-    window.setTimeout(() => window.close(), 80);
+    window.setTimeout(closeChatWindow, 80);
   } finally {
     window.setTimeout(() => {
       button.classList.remove('opening');
@@ -4611,7 +4677,7 @@ document.getElementById('clear-notifications-btn').addEventListener('click', () 
   saveUiState();
   renderNotifications();
 });
-closeBtn.addEventListener('click', () => window.close());
+closeBtn.addEventListener('click', closeChatWindow);
 aboutButtons.forEach(button => {
   button.addEventListener('click', () => {
     activeAboutTrigger = button;
@@ -4750,6 +4816,7 @@ function cleanupRendererResources() {
   }
   scheduleTimers.forEach(timer => clearTimeout(timer));
   scheduleTimers.clear();
+  persistConversationHistoryFallback();
   flushConversationHistorySave();
   flushUiStateSave();
 }

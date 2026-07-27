@@ -129,10 +129,12 @@ function validateSettings(payload) {
   return validateStructuredPayload(payload, 'settings', 256 * 1024);
 }
 
+const CHAT_HISTORY_ENTRY_LIMIT = 300;
+
 function validateChatHistorySave(payload) {
   requirePlainObject(payload, 'chatHistory');
   const entries = Array.isArray(payload.entries) ? payload.entries : [];
-  if (entries.length > 100) throw new RangeError('chatHistory contains too many entries');
+  if (entries.length > CHAT_HISTORY_ENTRY_LIMIT) throw new RangeError('chatHistory contains too many entries');
   return {
     entries: entries.map((entry, index) => {
       requirePlainObject(entry, `chatHistory.entries[${index}]`);
