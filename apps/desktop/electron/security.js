@@ -143,7 +143,7 @@ function validateChatHistorySave(payload) {
       return {
         type,
         text: requireString(entry.text || '', `chatHistory.entries[${index}].text`, { maxLength: 4000 }),
-        meta: requireString(entry.meta || '', `chatHistory.entries[${index}].meta`, { maxLength: 120, allowEmpty: true }),
+        meta: requireString(entry.meta === undefined || entry.meta === null ? '' : entry.meta, `chatHistory.entries[${index}].meta`, { maxLength: 120, allowEmpty: true }),
         createdAt: Math.max(0, Number(entry.createdAt) || Date.now())
       };
     })
@@ -646,6 +646,7 @@ const IPC_VALIDATORS = Object.freeze({
   'voiceOverlay:collapse': validateVoiceOverlayCollapse,
   'voiceOverlay:expandLiveSchedule': validateEmpty,
   'window:openChat': validateEmpty,
+  'window:hideChat': validateEmpty,
   'window:openPeopleChat': validateEmpty,
   'window:openSettings': validateEmpty,
   'window:openPlanner': validatePlannerView,

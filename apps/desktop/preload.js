@@ -852,6 +852,9 @@ const openxApi = {
   openChat: () =>
     ipcRenderer.invoke('window:openChat'),
 
+  hideChat: () =>
+    ipcRenderer.invoke('window:hideChat'),
+
   openDesktopChatApp: () =>
     ipcRenderer.invoke('window:openPeopleChat'),
 

@@ -467,6 +467,7 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /function persistConversationHistoryFallback/);
     assert.match(script, /async function closeChatWindow/);
     assert.match(script, /persistConversationHistoryFallback\(\);\s*try\s*\{\s*await flushConversationHistorySave\(\);/s);
+    assert.match(script, /window\.openx\?\.hideChat/);
     assert.match(script, /closeBtn\.addEventListener\('click', closeChatWindow\)/);
     assert.match(html, /Chat History/);
     assert.match(css, /\.storage-action-card/);

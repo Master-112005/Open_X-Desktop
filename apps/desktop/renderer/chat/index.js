@@ -526,6 +526,12 @@ async function closeChatWindow() {
   try {
     await flushConversationHistorySave();
   } catch (_) {}
+  if (window.openx?.hideChat) {
+    try {
+      await window.openx.hideChat();
+      return;
+    } catch (_) {}
+  }
   window.close();
 }
 

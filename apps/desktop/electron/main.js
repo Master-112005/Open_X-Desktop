@@ -422,6 +422,7 @@ const IPC_CHANNELS = [
   'voiceOverlay:collapse',
   'voiceOverlay:expandLiveSchedule',
   'window:openChat',
+  'window:hideChat',
   'window:openPeopleChat',
   'window:openSettings',
   'window:openPlanner',
@@ -1066,6 +1067,20 @@ function normalizeChatHistoryEntries(entries = []) {
     .slice(-CHAT_HISTORY_LIMIT);
 }
 
+function mergeChatHistoryEntries(existingEntries = [], incomingEntries = []) {
+  const merged = [];
+  const seen = new Set();
+  [...normalizeChatHistoryEntries(existingEntries), ...normalizeChatHistoryEntries(incomingEntries)].forEach(entry => {
+    const key = `${entry.createdAt}:${entry.type}:${entry.text}:${entry.meta}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(entry);
+  });
+  return merged
+    .sort((left, right) => Number(left.createdAt) - Number(right.createdAt))
+    .slice(-CHAT_HISTORY_LIMIT);
+}
+
 function readChatHistory() {
   return normalizeChatHistoryEntries(readJsonFile(chatHistoryPath(), [], {
     createIfMissing: true,
@@ -1075,7 +1090,7 @@ function readChatHistory() {
 }
 
 function writeChatHistory(entries = []) {
-  const normalized = normalizeChatHistoryEntries(entries);
+  const normalized = mergeChatHistoryEntries(readChatHistory(), entries);
   writeJsonAtomic(chatHistoryPath(), normalized, { maxBytes: 1024 * 1024 });
   return {
     success: true,
@@ -6385,6 +6400,13 @@ function setupIPC() {
 
   registerIpcHandler('window:openChat', async () => {
     createChatWindow();
+  });
+
+  registerIpcHandler('window:hideChat', async () => {
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.hide();
+    }
+    return { success: true, visible: false };
   });
 
   registerIpcHandler('window:openPeopleChat', async () => {
