@@ -882,6 +882,12 @@ const openxApi = {
   getAssistantChatHistory: () =>
     ipcRenderer.invoke('assistantChatHistory:get'),
 
+  getAssistantChatHistorySync: () => {
+    const result = ipcRenderer.sendSync('assistantChatHistory:getSync');
+    if (!result?.success) throw new Error(result?.error || 'Unable to load chat history');
+    return result;
+  },
+
   saveAssistantChatHistory: (entries = []) =>
     ipcRenderer.invoke('assistantChatHistory:save', { entries }),
 

@@ -460,12 +460,15 @@ describe('Chat Renderer UI', function() {
 
   it('should store assistant chat history through dedicated OpenX_Data-backed IPC', function() {
     assert.match(script, /window\.openx\?\.getAssistantChatHistory/);
+    assert.match(script, /window\.openx\?\.getAssistantChatHistorySync/);
     assert.match(script, /window\.openx\?\.saveAssistantChatHistory/);
     assert.match(script, /window\.openx\?\.saveAssistantChatHistorySync/);
     assert.match(script, /window\.openx\?\.clearAssistantChatHistory/);
     assert.match(preload, /saveAssistantChatHistorySync:\s*\(entries = \[\]\) => \{[\s\S]*ipcRenderer\.sendSync\('assistantChatHistory:saveSync', \{ entries \}\)/);
+    assert.match(preload, /getAssistantChatHistorySync:\s*\(\) => \{[\s\S]*ipcRenderer\.sendSync\('assistantChatHistory:getSync'\)/);
     assert.doesNotMatch(preload, /(?:^|\n)\s*(?:getChatHistory|saveChatHistory|clearChatHistory):|['"]chatHistory:/);
     assert.match(script, /localStorage\.removeItem\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY\)/);
+    assert.match(script, /const result = getAssistantHistorySync\(\)/);
     assert.match(script, /const result = await getAssistantHistory\(\)/);
     assert.match(script, /function chatHistoryLimit\(\) \{\s*return CHAT_HISTORY_LIMIT;\s*\}/);
     assert.match(script, /saveStoredList\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY, merged\.slice\(-chatHistoryLimit\(\)\)\)/);
@@ -476,7 +479,9 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /saveConversationHistory\(\{ immediate: true \}\)/);
     assert.match(script, /let conversationReady = false;/);
     assert.match(script, /let conversationReadyPromise = null;/);
+    assert.match(script, /function repaintConversationIfBlank\(\)/);
     assert.match(script, /async function ensureConversationReady\(\) \{[\s\S]*if \(conversationReadyPromise\) return conversationReadyPromise;[\s\S]*restoreConversationHistory\(\)/);
+    assert.match(script, /if \(conversationReady\) \{[\s\S]*repaintConversationIfBlank\(\);[\s\S]*return conversationHistory\.length;/);
     assert.match(script, /async function sendCommand\(text\) \{[\s\S]*await ensureConversationReady\(\);[\s\S]*addMessage\(text, 'user', 'You - just now'\)/);
     assert.match(script, /if \(conversationReady\) \{[\s\S]*persistConversationHistoryFallback\(\);[\s\S]*flushConversationHistorySave\(\);[\s\S]*\}/);
     assert.match(script, /const snapshot = normalizeChatHistoryItems\(entries\)\.slice\(-chatHistoryLimit\(\)\);[\s\S]*saveStoredList\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY, snapshot\);[\s\S]*saveAssistantHistorySync\(snapshot\);[\s\S]*saveAssistantHistory\(snapshot\)/);
@@ -484,7 +489,10 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /function persistConversationHistoryFallback/);
     assert.match(script, /async function closeChatWindow/);
     assert.match(script, /persistConversationHistoryFallback\(\);\s*try\s*\{\s*await flushConversationHistorySave\(\);/s);
-    assert.match(script, /await ensureConversationReady\(\);[\s\S]*renderActivity\(\);[\s\S]*setWorkspaceView\('chat'\);[\s\S]*refreshActivitySchedulesFromRuntime\(\);/);
+    assert.doesNotMatch(script, /notifyChatReady|chat:ready/);
+    assert.doesNotMatch(preload, /notifyChatReady|chat:ready/);
+    assert.match(script, /const conversationStart = ensureConversationReady\(\);[\s\S]*await loadUiState\(\)/);
+    assert.match(script, /await conversationStart;[\s\S]*renderActivity\(\);[\s\S]*setWorkspaceView\('chat'\);[\s\S]*refreshActivitySchedulesFromRuntime\(\);/);
     assert.match(script, /window\.openx\?\.hideChat/);
     assert.match(script, /closeBtn\.addEventListener\('click', closeChatWindow\)/);
     assert.match(html, /Chat History/);

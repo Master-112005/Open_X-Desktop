@@ -103,6 +103,7 @@ describe('Electron Security Boundary', function() {
     );
     assert.throws(() => IPC_VALIDATORS['assistantChatHistory:save']({ entries: new Array(301).fill({ type: 'user', text: 'x' }) }), /too many/);
     assert.throws(() => IPC_VALIDATORS['assistantChatHistory:get']({}), /does not accept/);
+    assert.throws(() => IPC_VALIDATORS['assistantChatHistory:getSync']({}), /does not accept/);
     assert.throws(() => IPC_VALIDATORS['assistantChatHistory:clear']({}), /does not accept/);
   });
 
@@ -351,7 +352,7 @@ describe('Electron Security Boundary', function() {
       'window:openChat', 'window:hideChat', 'window:openPeopleChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
       'window:openGallery', 'window:closeGallery',
       'config:get', 'settings:get',
-      'assistantChatHistory:get', 'assistantChatHistory:save', 'assistantChatHistory:saveSync', 'assistantChatHistory:clear',
+      'assistantChatHistory:get', 'assistantChatHistory:getSync', 'assistantChatHistory:save', 'assistantChatHistory:saveSync', 'assistantChatHistory:clear',
       'desktopChat:list', 'desktopChat:open', 'desktopChat:create', 'desktopChat:update', 'desktopChat:delete', 'desktopChat:send',
       'desktopChat:quickReply',
       'desktopChat:contacts:list', 'desktopChat:contacts:accept', 'desktopChat:contacts:delete', 'desktopChat:contacts:cancel',
@@ -375,6 +376,7 @@ describe('Electron Security Boundary', function() {
     ];
 
     assert.deepEqual(Object.keys(IPC_VALIDATORS).sort(), expectedChannels.sort());
+    assert.match(mainScript, /registerSyncIpcHandler\('assistantChatHistory:getSync'/);
     assert.match(mainScript, /registerSyncIpcHandler\('assistantChatHistory:saveSync'/);
     assert.match(mainScript, /function assistantChatHistoryPath\(\)/);
     assert.match(mainScript, /dataPaths\.assistantChatHistoryPath/);

@@ -226,9 +226,7 @@ if (!gotLock) {
 
 app.on('second-instance', () => {
   if (chatWindow && !chatWindow.isDestroyed()) {
-    if (chatWindow.isMinimized()) chatWindow.restore();
-    chatWindow.show();
-    chatWindow.focus();
+    revealChatWindow();
   } else {
     createChatWindow();
   }
@@ -432,6 +430,7 @@ const IPC_CHANNELS = [
   'config:get',
   'settings:get',
   'assistantChatHistory:get',
+  'assistantChatHistory:getSync',
   'assistantChatHistory:save',
   'assistantChatHistory:saveSync',
   'assistantChatHistory:clear',
@@ -728,12 +727,19 @@ function secureWindow(browserWindow, options) {
   });
 }
 
+function revealChatWindow() {
+  if (!chatWindow || chatWindow.isDestroyed()) return false;
+  if (chatWindow.isMinimized()) chatWindow.restore();
+  chatWindow.setAlwaysOnTop(true);
+  chatLoweredForPlanner = false;
+  chatWindow.show();
+  chatWindow.focus();
+  return true;
+}
+
 function createChatWindow() {
   if (chatWindow && !chatWindow.isDestroyed()) {
-    chatWindow.setAlwaysOnTop(true);
-    chatLoweredForPlanner = false;
-    chatWindow.show();
-    chatWindow.focus();
+    revealChatWindow();
     return;
   }
 
@@ -6013,8 +6019,7 @@ function initializeCloudPairing() {
   cloudPairingManager.on('request', status => {
     sendCloudPairingStatus(status);
     if (chatWindow && !chatWindow.isDestroyed()) {
-      chatWindow.show();
-      chatWindow.focus();
+      revealChatWindow();
     }
   });
   cloudPairingManager.on('result', result => {
@@ -6448,8 +6453,7 @@ function setupIPC() {
       chatWindow &&
       !chatWindow.isDestroyed()
     ) {
-      chatWindow.show();
-      chatWindow.focus();
+      revealChatWindow();
     }
     return result;
   });
@@ -6540,6 +6544,15 @@ function setupIPC() {
   registerIpcHandler('assistantChatHistory:get', async () => {
     const entries = readAssistantChatHistory();
     mainLogger.info('Assistant chat history loaded', { count: entries.length });
+    return {
+      success: true,
+      count: entries.length,
+      entries
+    };
+  });
+
+  registerSyncIpcHandler('assistantChatHistory:getSync', () => {
+    const entries = readAssistantChatHistory();
     return {
       success: true,
       count: entries.length,
