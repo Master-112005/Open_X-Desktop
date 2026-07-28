@@ -431,9 +431,10 @@ const IPC_CHANNELS = [
   'window:closeGallery',
   'config:get',
   'settings:get',
-  'chatHistory:get',
-  'chatHistory:save',
-  'chatHistory:clear',
+  'assistantChatHistory:get',
+  'assistantChatHistory:save',
+  'assistantChatHistory:saveSync',
+  'assistantChatHistory:clear',
   'desktopChat:list',
   'desktopChat:open',
   'desktopChat:create',
@@ -500,6 +501,7 @@ function ensureDataDir() {
   if (BASE_CONFIG.app?.migrateLegacyData) {
     migrateLegacyData(BASE_CONFIG);
   }
+  migrateAccidentalAssistantChatHistory();
   if (!fs.existsSync(paths.logsDir)) {
     fs.mkdirSync(paths.logsDir, { recursive: true });
   }
@@ -1033,9 +1035,14 @@ const CHAT_HISTORY_LIMIT = 300;
 const UI_STATE_SCHEDULE_LIMIT = 80;
 const UI_STATE_NOTIFICATION_LIMIT = 30;
 
-function chatHistoryPath() {
+function assistantChatHistoryPath() {
   const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG?.app?.dataPaths || {};
-  return dataPaths.chatHistoryPath || path.join(dataPaths.root || BASE_CONFIG.app.dataDir || app.getPath('userData'), 'chat-history.json');
+  return dataPaths.assistantChatHistoryPath || path.join(dataPaths.root || BASE_CONFIG.app.dataDir || app.getPath('userData'), 'assistant-chat-history.json');
+}
+
+function legacyAssistantChatHistoryPath() {
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG?.app?.dataPaths || {};
+  return path.join(dataPaths.root || BASE_CONFIG.app.dataDir || app.getPath('userData'), 'chat-history.json');
 }
 
 function uiStatePath() {
@@ -1081,17 +1088,73 @@ function mergeChatHistoryEntries(existingEntries = [], incomingEntries = []) {
     .slice(-CHAT_HISTORY_LIMIT);
 }
 
-function readChatHistory() {
-  return normalizeChatHistoryEntries(readJsonFile(chatHistoryPath(), [], {
+function migrateAccidentalAssistantChatHistory() {
+  const targetPath = assistantChatHistoryPath();
+  const sourcePath = legacyAssistantChatHistoryPath();
+  if (path.resolve(targetPath) === path.resolve(sourcePath) || fs.existsSync(targetPath) || !fs.existsSync(sourcePath)) {
+    return false;
+  }
+
+  const recovered = normalizeChatHistoryEntries(readJsonFile(sourcePath, [], {
+    createIfMissing: false,
+    validate: value => Array.isArray(value),
+    maxBytes: 1024 * 1024
+  }));
+  if (recovered.length === 0) return false;
+  writeJsonAtomic(targetPath, recovered, { backup: false, maxBytes: 1024 * 1024 });
+  mainLogger.info('Migrated assistant chat history to dedicated storage', {
+    source: path.basename(sourcePath),
+    target: path.basename(targetPath),
+    count: recovered.length
+  });
+  return true;
+}
+
+function readAssistantChatHistory() {
+  migrateAccidentalAssistantChatHistory();
+  const primaryPath = assistantChatHistoryPath();
+  const entries = normalizeChatHistoryEntries(readJsonFile(primaryPath, [], {
     createIfMissing: true,
     validate: value => Array.isArray(value),
     maxBytes: 1024 * 1024
   }));
+  const backupPath = `${primaryPath}.bak`;
+  if (entries.length > 0 && fs.existsSync(backupPath)) {
+    try {
+      const stats = fs.statSync(backupPath);
+      if (!stats.isFile() || stats.size > 1024 * 1024) {
+        throw new Error('Backup file is invalid or exceeds its size limit');
+      }
+      const backup = normalizeChatHistoryEntries(JSON.parse(fs.readFileSync(backupPath, 'utf8')));
+      const recovered = mergeChatHistoryEntries(backup, entries);
+      if (backup.length > entries.length && recovered.length > entries.length) {
+        writeJsonAtomic(primaryPath, recovered, { backup: false, maxBytes: 1024 * 1024 });
+        mainLogger.info('Recovered assistant chat history from larger backup', {
+          primary: entries.length,
+          backup: backup.length,
+          recovered: recovered.length
+        });
+        return recovered;
+      }
+    } catch (error) {
+      mainLogger.warn('Unable to inspect assistant chat history backup', { error: error.message });
+    }
+  }
+  return entries;
 }
 
-function writeChatHistory(entries = []) {
-  const normalized = mergeChatHistoryEntries(readChatHistory(), entries);
-  writeJsonAtomic(chatHistoryPath(), normalized, { maxBytes: 1024 * 1024 });
+function writeAssistantChatHistory(entries = []) {
+  const existing = readAssistantChatHistory();
+  const incoming = normalizeChatHistoryEntries(entries);
+  const normalized = mergeChatHistoryEntries(existing, incoming);
+  if (incoming.length > 0 && existing.length > incoming.length && normalized.length >= existing.length) {
+    mainLogger.info('Preserved existing assistant chat history during snapshot save', {
+      existing: existing.length,
+      incoming: incoming.length,
+      merged: normalized.length
+    });
+  }
+  writeJsonAtomic(assistantChatHistoryPath(), normalized, { maxBytes: 1024 * 1024 });
   return {
     success: true,
     count: normalized.length,
@@ -1099,8 +1162,8 @@ function writeChatHistory(entries = []) {
   };
 }
 
-function clearChatHistory() {
-  writeJsonAtomic(chatHistoryPath(), [], { backup: true, maxBytes: 1024 * 1024 });
+function clearAssistantChatHistory() {
+  writeJsonAtomic(assistantChatHistoryPath(), [], { backup: true, maxBytes: 1024 * 1024 });
   return { success: true, count: 0, entries: [] };
 }
 
@@ -6237,6 +6300,28 @@ function registerIpcHandler(channel, handler) {
   });
 }
 
+function registerSyncIpcHandler(channel, handler) {
+  const validator = IPC_VALIDATORS[channel];
+  if (!validator) throw new Error(`No IPC validator registered for ${channel}`);
+
+  ipcMain.on(channel, (event, payload) => {
+    try {
+      assertTrustedIpcSender(event, RENDERER_ROOT);
+      const validatedPayload = validator(payload);
+      event.returnValue = handler(event, validatedPayload);
+    } catch (error) {
+      mainLogger.warn('Synchronous IPC request rejected', {
+        channel,
+        sender: getIpcSenderUrl(event),
+        senderWebContentsId: event?.sender?.id || null,
+        senderWindowId: event?.sender ? BrowserWindow.fromWebContents(event.sender)?.id || null : null,
+        error: error.message
+      });
+      event.returnValue = { success: false, error: 'Invalid or unauthorized IPC request' };
+    }
+  });
+}
+
 function toIpcSafeValue(value, seen = new WeakMap()) {
   if (value === null) return null;
   const type = typeof value;
@@ -6452,8 +6537,9 @@ function setupIPC() {
     };
   });
 
-  registerIpcHandler('chatHistory:get', async () => {
-    const entries = readChatHistory();
+  registerIpcHandler('assistantChatHistory:get', async () => {
+    const entries = readAssistantChatHistory();
+    mainLogger.info('Assistant chat history loaded', { count: entries.length });
     return {
       success: true,
       count: entries.length,
@@ -6461,12 +6547,16 @@ function setupIPC() {
     };
   });
 
-  registerIpcHandler('chatHistory:save', async (_event, payload) => {
-    return writeChatHistory(payload?.entries || []);
+  registerIpcHandler('assistantChatHistory:save', async (_event, payload) => {
+    return writeAssistantChatHistory(payload?.entries || []);
   });
 
-  registerIpcHandler('chatHistory:clear', async () => {
-    return clearChatHistory();
+  registerSyncIpcHandler('assistantChatHistory:saveSync', (_event, payload) => {
+    return writeAssistantChatHistory(payload?.entries || []);
+  });
+
+  registerIpcHandler('assistantChatHistory:clear', async () => {
+    return clearAssistantChatHistory();
   });
 
   registerIpcHandler('desktopChat:list', async (_event, payload) => {
@@ -6887,6 +6977,7 @@ function teardownIPC() {
     } catch (error) {
       mainLogger.error('Failed to remove IPC handler', { channel, error: error.message });
     }
+    ipcMain.removeAllListeners(channel);
   }
   teardownVoiceCaptureIPC();
   ipcRegistered = false;

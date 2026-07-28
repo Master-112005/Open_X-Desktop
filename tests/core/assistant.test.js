@@ -399,6 +399,41 @@ describe('Assistant Confirmation Flow', function() {
     assert.equal(assistant.pendingScheduleCompletion, null);
   });
 
+  it('should route full recurring reminder commands after a pending reminder clarification', async function() {
+    const EntityExtractor = require('../../core/assistant/entities/EntityExtractor');
+    const entityExtractor = new EntityExtractor({});
+    const routedInputs = [];
+    const router = {
+      entityExtractor,
+      process: async input => {
+        routedInputs.push(input);
+        const parts = entityExtractor.extractReminderParts(input);
+        return {
+          commandId: 'attendance-reminder',
+          success: true,
+          intent: 'reminder.set',
+          entities: parts,
+          response: 'Reminder added.'
+        };
+      }
+    };
+    const assistant = new Assistant({
+      activeLearning: { enabled: false }
+    }, { router, automation: {}, eventBus: { publish() {} } });
+
+    const first = await assistant.processCommand('remind me to mark attendance');
+    const second = await assistant.processCommand('evry day remind me to mark my attendence at 9 30 and 9 55 pm');
+
+    assert.equal(first.needsClarification, true);
+    assert.equal(second.needsClarification, undefined);
+    assert.equal(second.entities.reminderText, 'mark my attendance');
+    assert.deepEqual(second.entities.timeExpressions, ['9:30 pm', '9:55 pm']);
+    assert.deepEqual(routedInputs, [
+      'evry day remind me to mark my attendence at 9:30 and 9 55 pm'
+    ]);
+    assert.equal(assistant.pendingScheduleCompletion, null);
+  });
+
   it('should use the last knowledge topic for explanation follow-up commands', async function() {
     const routedInputs = [];
     const router = {

@@ -879,14 +879,20 @@ const openxApi = {
   getSettings: () =>
     ipcRenderer.invoke('settings:get'),
 
-  getChatHistory: () =>
-    ipcRenderer.invoke('chatHistory:get'),
+  getAssistantChatHistory: () =>
+    ipcRenderer.invoke('assistantChatHistory:get'),
 
-  saveChatHistory: (entries = []) =>
-    ipcRenderer.invoke('chatHistory:save', { entries }),
+  saveAssistantChatHistory: (entries = []) =>
+    ipcRenderer.invoke('assistantChatHistory:save', { entries }),
 
-  clearChatHistory: () =>
-    ipcRenderer.invoke('chatHistory:clear'),
+  saveAssistantChatHistorySync: (entries = []) => {
+    const result = ipcRenderer.sendSync('assistantChatHistory:saveSync', { entries });
+    if (!result?.success) throw new Error(result?.error || 'Unable to save chat history');
+    return result;
+  },
+
+  clearAssistantChatHistory: () =>
+    ipcRenderer.invoke('assistantChatHistory:clear'),
 
   listDesktopChatConversations: (query = {}) =>
     ipcRenderer.invoke('desktopChat:list', query),

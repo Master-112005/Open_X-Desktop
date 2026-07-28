@@ -2601,6 +2601,13 @@ describe('Action Router', function() {
     assert.equal(result.entities.timeExpression, '9:30 pm');
     assert.equal(result.entities.recurrence, 'daily');
 
+    const typoTail = await router.process('evry day remind me to mark my attendence at 9 30 and 9 55 pm', 'chat');
+    assert.equal(typoTail.intent, 'reminder.set');
+    assert.equal(typoTail.entities.reminderText, 'mark my attendance');
+    assert.deepEqual(typoTail.entities.timeExpressions, ['9:30 pm', '9:55 pm']);
+    assert.equal(typoTail.entities.timeExpression, '9:30 pm');
+    assert.equal(typoTail.entities.recurrence, 'daily');
+
     const timeFirst = await router.process('daily remind me at 9 30pm and 9 55 pm to mark attendance', 'chat');
     assert.equal(timeFirst.intent, 'reminder.set');
     assert.equal(timeFirst.entities.reminderText, 'mark attendance');

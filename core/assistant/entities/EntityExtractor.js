@@ -882,7 +882,10 @@ class EntityExtractor {
 
   _normalizeReminderScheduleText(value) {
     return String(value || '')
+      .replace(/\bevry\s+day\b/gi, 'every day')
       .replace(/\b(?:everyday|each\s+day)\b/gi, 'every day')
+      .replace(/\battendence\b/gi, 'attendance')
+      .replace(/\b(\d{1,2})\s+([0-5]\d)(?=\s+(?:and|,|&)\s+\d{1,2}(?::|\s+)?[0-5]\d\s*(?:am|pm)\b)/gi, '$1:$2')
       .replace(/\b(\d{1,2})\s+(\d{1,2})\s*(am|pm)\b/gi, (_match, hour, minute, period) => {
         return `${hour}:${String(minute).padStart(2, '0')} ${String(period).toLowerCase()}`;
       })
@@ -946,6 +949,7 @@ class EntityExtractor {
   _cleanMultiTimeReminderText(value, fallback = '') {
     const cleaned = String(value || fallback || '')
       .replace(/\b(?:every\s+day|daily|each\s+day|every\s+(?:morning|evening|night|weekday|week)|weekly)\b/gi, ' ')
+      .replace(/\bevry\s+day\b/gi, ' ')
       .replace(/^\s*(?:please\s+)?(?:(?:remind|notify|alert)(?:\s+me)?|set\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|create\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|add\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|schedule\s+(?:a\s+)?(?:new\s+|recurring\s+)?reminder|reminder)\s*(?:me\s+)?(?:to|about|that|for|on|at|by)?\s*/i, ' ')
       .replace(/^\s*(?:me|to|about|that|for|on|at|by|say)\b\s*/i, ' ')
       .replace(/\s+(?:me|to|about|that|for|on|at|by|say|and)$/i, ' ')
@@ -998,6 +1002,8 @@ class EntityExtractor {
   extractReminderParts(raw) {
     const source = String(raw || '')
       .replace(/\b((?:set|create|add|schedule)\s+(?:a\s+)?(?:new\s+)?reminder)\s+t\s+(?=\d)/ig, '$1 at ')
+      .replace(/\bevry\s+day\b/ig, 'every day')
+      .replace(/\battendence\b/ig, 'attendance')
       .replace(/\b(?:tommorow|tommrow|tomorow)\b/ig, 'tomorrow')
       .replace(/\bmondy\b/ig, 'monday')
       .replace(/\blcass\b/ig, 'class')
@@ -1221,7 +1227,10 @@ class EntityExtractor {
   }
 
   _extractRecurrenceMatch(raw) {
-    const source = String(raw || '').toLowerCase();
+    const source = String(raw || '')
+      .toLowerCase()
+      .replace(/\bevry\s+day\b/g, 'every day')
+      .replace(/\beveryday\b/g, 'every day');
     const simple = (pattern, recurrence) => {
       const match = source.match(pattern);
       return match ? { recurrence, phrase: match[0], index: match.index || 0 } : null;

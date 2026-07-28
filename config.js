@@ -72,7 +72,7 @@ const CONFIG = {
     activationFallbackShortcuts: [],
     apiBaseUrl: 'https://openx-chat-server.onrender.com',
     defaultCountryCode: '',
-    maxHistory: 250,
+    maxHistory: 300,
     maxDisplayMessages: 250,
     fontSize: 14,
     fontFamily: 'Segoe UI, sans-serif',

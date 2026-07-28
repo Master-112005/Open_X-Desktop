@@ -245,11 +245,16 @@ describe('Entity Extractor', function() {
   it('should extract time-first multi-time recurring reminders without swallowing the message', function() {
     const extractor = new EntityExtractor({});
     const parts = extractor.extractReminderParts('daily remind me at 9 30pm and 9 55 pm to mark attendance');
+    const typoTailParts = extractor.extractReminderParts('evry day remind me to mark attendance at 9 30 and 9 55 pm');
 
     assert.equal(parts.timeExpression, '9:30 pm');
     assert.deepEqual(parts.timeExpressions, ['9:30 pm', '9:55 pm']);
     assert.equal(parts.reminderText, 'mark attendance');
     assert.equal(parts.recurrence, 'daily');
+    assert.equal(typoTailParts.timeExpression, '9:30 pm');
+    assert.deepEqual(typoTailParts.timeExpressions, ['9:30 pm', '9:55 pm']);
+    assert.equal(typoTailParts.reminderText, 'mark attendance');
+    assert.equal(typoTailParts.recurrence, 'daily');
   });
 
   it('should separate a date-only reminder time from missing content', function() {

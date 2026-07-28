@@ -1671,9 +1671,15 @@ class Assistant extends EventEmitter {
 
   _reminderTextContainsSchedule(text) {
     const normalized = Normalizer.normalizeText(String(text || ''))
+      .replace(/\bevry\s+day\b/g, 'every day')
       .replace(/\b(?:tommrow|tommorow|tomorow)\b/g, 'tomorrow')
       .trim();
     if (!normalized) return false;
+
+    const reminderParts = this.router?.entityExtractor?.extractReminderParts?.(`remind me to ${normalized}`);
+    if (reminderParts?.timeExpression || reminderParts?.duration || reminderParts?.timeExpressions?.length > 0) {
+      return true;
+    }
 
     const amount = String.raw`(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty(?:\s*five)?|sixty)`;
     const durationUnit = String.raw`(?:seconds?|secs?|minutes?|mins?|min|hours?|hrs?|hr)`;
@@ -1743,6 +1749,9 @@ class Assistant extends EventEmitter {
     if (options.timeLike || options.durationLike) return false;
     if (pending?.intent === 'reminder.set' && !pending?.entities?.reminderText && /^to\s+.+/i.test(text)) {
       return false;
+    }
+    if (/^(?:daily|everyday|every\s+day|evry\s+day)\s+(?:remind|notify|alert|set|create|add|schedule)\b/.test(text)) {
+      return true;
     }
 
     return /^(?:what|who|when|where|why|how|which|can|could|would|will|do|did|is|are|am|tell|show|open|close|launch|start|run|play|pause|resume|stop|set|turn|increase|decrease|create|delete|remove|move|copy|rename|search|find|look|google|remind|call|message|send|switch|focus|minimize|maximize|lock|shutdown|restart|sleep|take|capture|translate|summarize|explain|check|list|cancel|snooze|mute|unmute)\b/.test(text);

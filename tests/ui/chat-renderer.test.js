@@ -8,6 +8,7 @@ describe('Chat Renderer UI', function() {
   const css = fs.readFileSync(path.join(rendererRoot, 'index.css'), 'utf8');
   const glassCss = fs.readFileSync(path.join(rendererRoot, 'index.css'), 'utf8');
   const script = fs.readFileSync(path.join(rendererRoot, 'index.js'), 'utf8');
+  const preload = fs.readFileSync(path.join(__dirname, '..', '..', 'apps', 'desktop', 'preload.js'), 'utf8');
 
   it('should provide dedicated chat, activity, apps, notification, and info surfaces', function() {
     const headerActions = html.match(/<div id="header-actions">([\s\S]*?)<\/div>/)?.[1] || '';
@@ -457,16 +458,33 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(script, /getActivationShortcut|assistantActivationShortcut/);
   });
 
-  it('should store chat history through OpenX_Data-backed IPC instead of renderer-only localStorage', function() {
-    assert.match(script, /window\.openx\?\.getChatHistory/);
-    assert.match(script, /window\.openx\.saveChatHistory/);
-    assert.match(script, /window\.openx\.clearChatHistory/);
-    assert.match(script, /localStorage\.removeItem\(CHAT_HISTORY_STORAGE_KEY\)/);
-    assert.match(script, /await window\.openx\.getChatHistory\(\)/);
+  it('should store assistant chat history through dedicated OpenX_Data-backed IPC', function() {
+    assert.match(script, /window\.openx\?\.getAssistantChatHistory/);
+    assert.match(script, /window\.openx\?\.saveAssistantChatHistory/);
+    assert.match(script, /window\.openx\?\.saveAssistantChatHistorySync/);
+    assert.match(script, /window\.openx\?\.clearAssistantChatHistory/);
+    assert.match(preload, /saveAssistantChatHistorySync:\s*\(entries = \[\]\) => \{[\s\S]*ipcRenderer\.sendSync\('assistantChatHistory:saveSync', \{ entries \}\)/);
+    assert.doesNotMatch(preload, /(?:^|\n)\s*(?:getChatHistory|saveChatHistory|clearChatHistory):|['"]chatHistory:/);
+    assert.match(script, /localStorage\.removeItem\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY\)/);
+    assert.match(script, /const result = await getAssistantHistory\(\)/);
+    assert.match(script, /function chatHistoryLimit\(\) \{\s*return CHAT_HISTORY_LIMIT;\s*\}/);
+    assert.match(script, /saveStoredList\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY, merged\.slice\(-chatHistoryLimit\(\)\)\)/);
+    assert.match(script, /const saveAssistantHistorySync = window\.openx\?\.saveAssistantChatHistorySync/);
+    assert.doesNotMatch(script, /window\.openx\?\.getChatHistory|window\.openx\?\.saveChatHistorySync|window\.openx\?\.saveChatHistory|window\.openx\?\.clearChatHistory/);
+    assert.match(script, /saveAssistantHistorySync\(merged\);[\s\S]*await saveAssistantHistory\(merged\);/);
+    assert.doesNotMatch(script, /saveChatHistory(?:Sync)?\(merged\);[\s\S]{0,240}localStorage\.removeItem\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY\);/);
     assert.match(script, /saveConversationHistory\(\{ immediate: true \}\)/);
+    assert.match(script, /let conversationReady = false;/);
+    assert.match(script, /let conversationReadyPromise = null;/);
+    assert.match(script, /async function ensureConversationReady\(\) \{[\s\S]*if \(conversationReadyPromise\) return conversationReadyPromise;[\s\S]*restoreConversationHistory\(\)/);
+    assert.match(script, /async function sendCommand\(text\) \{[\s\S]*await ensureConversationReady\(\);[\s\S]*addMessage\(text, 'user', 'You - just now'\)/);
+    assert.match(script, /if \(conversationReady\) \{[\s\S]*persistConversationHistoryFallback\(\);[\s\S]*flushConversationHistorySave\(\);[\s\S]*\}/);
+    assert.match(script, /const snapshot = normalizeChatHistoryItems\(entries\)\.slice\(-chatHistoryLimit\(\)\);[\s\S]*saveStoredList\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY, snapshot\);[\s\S]*saveAssistantHistorySync\(snapshot\);[\s\S]*saveAssistantHistory\(snapshot\)/);
+    assert.match(script, /Math\.min\(300, Number\(document\.getElementById\(fieldIds\.chatMaxHistory\)\.value \|\| 300\)\)/);
     assert.match(script, /function persistConversationHistoryFallback/);
     assert.match(script, /async function closeChatWindow/);
     assert.match(script, /persistConversationHistoryFallback\(\);\s*try\s*\{\s*await flushConversationHistorySave\(\);/s);
+    assert.match(script, /await ensureConversationReady\(\);[\s\S]*renderActivity\(\);[\s\S]*setWorkspaceView\('chat'\);[\s\S]*refreshActivitySchedulesFromRuntime\(\);/);
     assert.match(script, /window\.openx\?\.hideChat/);
     assert.match(script, /closeBtn\.addEventListener\('click', closeChatWindow\)/);
     assert.match(html, /Chat History/);

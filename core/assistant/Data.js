@@ -119,7 +119,7 @@ function buildDataPaths(config = {}) {
   return {
     root,
     settingsPath: path.join(root, 'settings.json'),
-    chatHistoryPath: path.join(root, 'chat-history.json'),
+    assistantChatHistoryPath: path.join(root, 'assistant-chat-history.json'),
     chatAccountPath: path.join(root, 'chat-account.json'),
     chatDevicePath: path.join(root, 'chat-device.json'),
     chatConversationsPath: path.join(root, 'chat-conversations.json'),
@@ -450,7 +450,8 @@ function migrateLegacyData(config = {}) {
   purgeDeprecatedContactStorage(legacyRoot);
 
   copyFileIfMissing(path.join(legacyRoot, 'settings.json'), paths.settingsPath, migrated, skipped);
-  copyFileIfMissing(path.join(legacyRoot, 'chat-history.json'), paths.chatHistoryPath, migrated, skipped);
+  copyFileIfMissing(path.join(legacyRoot, 'assistant-chat-history.json'), paths.assistantChatHistoryPath, migrated, skipped);
+  copyFileIfMissing(path.join(legacyRoot, 'chat-history.json'), paths.assistantChatHistoryPath, migrated, skipped);
   copyFileIfMissing(path.join(legacyRoot, 'ui-state.json'), paths.uiStatePath, migrated, skipped);
   copyFileIfMissing(path.join(legacyRoot, 'learning.json'), paths.learningPath, migrated, skipped);
   copyFileIfMissing(path.join(legacyRoot, 'schedules.json'), paths.schedulesPath, migrated, skipped);

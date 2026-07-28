@@ -175,7 +175,7 @@ const MODE_LIMIT = 5;
 const MODE_APP_LIMIT = 5;
 const SCHEDULE_STORAGE_KEY = 'openx-ui-schedules-v1';
 const NOTIFICATION_STORAGE_KEY = 'openx-ui-notifications-v1';
-const CHAT_HISTORY_STORAGE_KEY = 'openx-ui-chat-history-v2';
+const ASSISTANT_CHAT_HISTORY_STORAGE_KEY = 'openx-ui-chat-history-v2';
 const UI_STATE_STORAGE_KEY = 'openx-ui-state-v1';
 const MAX_NOTIFICATION_HISTORY = 30;
 const CHAT_HISTORY_LIMIT = 300;
@@ -245,6 +245,8 @@ let peopleChatRequestsState = { incoming: [], outgoing: [], relationships: [] };
 let scheduleItems = [];
 let notificationHistory = [];
 let conversationHistory = [];
+let conversationReady = false;
+let conversationReadyPromise = null;
 let isAssistantMuted = false;
 let glassTintAnimationFrame = null;
 let pendingPhoneDeviceRemoval = null;
@@ -381,9 +383,7 @@ function saveStoredObject(key, value) {
 }
 
 function chatHistoryLimit() {
-  const configured = Number(settingsSnapshot?.settings?.chat?.maxHistory);
-  if (!Number.isFinite(configured) || configured <= 0) return CHAT_HISTORY_LIMIT;
-  return Math.max(1, Math.min(CHAT_HISTORY_LIMIT, Math.round(configured)));
+  return CHAT_HISTORY_LIMIT;
 }
 
 function redactSensitiveText(value) {
@@ -435,26 +435,35 @@ function updateChatStorageStatus(count = conversationHistory.length) {
 }
 
 async function loadConversationHistory() {
-  const legacy = normalizeChatHistoryItems(loadStoredList(CHAT_HISTORY_STORAGE_KEY));
-  if (!window.openx?.getChatHistory) {
+  const legacy = normalizeChatHistoryItems(loadStoredList(ASSISTANT_CHAT_HISTORY_STORAGE_KEY));
+  const getAssistantHistory = window.openx?.getAssistantChatHistory;
+  if (!getAssistantHistory) {
     updateChatStorageStatus(legacy.length);
     return legacy;
   }
 
   let stored = [];
   try {
-    const result = await window.openx.getChatHistory();
+    const result = await getAssistantHistory();
     stored = normalizeChatHistoryItems(result?.entries || []);
   } catch (_) {
     stored = [];
   }
 
   const merged = legacy.length > 0 ? mergeChatHistory(stored, legacy) : stored;
+  if (merged.length > 0) {
+    saveStoredList(ASSISTANT_CHAT_HISTORY_STORAGE_KEY, merged.slice(-chatHistoryLimit()));
+  }
   if (legacy.length > 0) {
-    localStorage.removeItem(CHAT_HISTORY_STORAGE_KEY);
-    if (window.openx?.saveChatHistory) {
+    const saveAssistantHistorySync = window.openx?.saveAssistantChatHistorySync;
+    const saveAssistantHistory = window.openx?.saveAssistantChatHistory;
+    if (saveAssistantHistorySync || saveAssistantHistory) {
       try {
-        await window.openx.saveChatHistory(merged);
+        if (saveAssistantHistorySync) {
+          saveAssistantHistorySync(merged);
+        } else {
+          await saveAssistantHistory(merged);
+        }
       } catch (_) {}
     }
   }
@@ -463,15 +472,28 @@ async function loadConversationHistory() {
 }
 
 function persistConversationHistory(entries = conversationHistory) {
-  if (!window.openx?.saveChatHistory) {
-    saveStoredList(CHAT_HISTORY_STORAGE_KEY, entries);
+  const snapshot = normalizeChatHistoryItems(entries).slice(-chatHistoryLimit());
+  if (snapshot.length > 0) {
+    saveStoredList(ASSISTANT_CHAT_HISTORY_STORAGE_KEY, snapshot);
+  }
+  const saveAssistantHistorySync = window.openx?.saveAssistantChatHistorySync;
+  const saveAssistantHistory = window.openx?.saveAssistantChatHistory;
+  if (saveAssistantHistorySync) {
+    try {
+      saveAssistantHistorySync(snapshot);
+      return chatHistorySaveQueue;
+    } catch (_) {}
+  }
+  if (!saveAssistantHistory) {
     return chatHistorySaveQueue;
   }
   chatHistorySaveQueue = chatHistorySaveQueue
     .catch(() => {})
-    .then(() => window.openx.saveChatHistory(entries))
+    .then(() => saveAssistantHistory(snapshot))
     .catch(() => {
-      saveStoredList(CHAT_HISTORY_STORAGE_KEY, entries);
+      if (snapshot.length > 0) {
+        saveStoredList(ASSISTANT_CHAT_HISTORY_STORAGE_KEY, snapshot);
+      }
     });
   return chatHistorySaveQueue;
 }
@@ -479,7 +501,7 @@ function persistConversationHistory(entries = conversationHistory) {
 function persistConversationHistoryFallback(entries = conversationHistory) {
   const fallback = normalizeChatHistoryItems(entries).slice(-chatHistoryLimit());
   if (fallback.length > 0) {
-    saveStoredList(CHAT_HISTORY_STORAGE_KEY, fallback);
+    saveStoredList(ASSISTANT_CHAT_HISTORY_STORAGE_KEY, fallback);
   }
   return fallback;
 }
@@ -522,6 +544,7 @@ function rememberConversationMessage(text, type, meta) {
 }
 
 async function closeChatWindow() {
+  await ensureConversationReady();
   persistConversationHistoryFallback();
   try {
     await flushConversationHistorySave();
@@ -3026,6 +3049,8 @@ async function sendCommand(text) {
     return;
   }
 
+  await ensureConversationReady();
+
   if (pendingConfirmation) {
     addMessage(text, 'user', 'You - just now');
     pendingConfirmation = null;
@@ -3677,7 +3702,7 @@ function collectSettingsPayload() {
     chat: {
       themeId: selectedThemeId,
       glassTint: Number(document.getElementById(fieldIds.glassTint).value || 42),
-      maxHistory: Math.max(50, Math.min(250, Number(document.getElementById(fieldIds.chatMaxHistory).value || 250)))
+      maxHistory: Math.max(50, Math.min(300, Number(document.getElementById(fieldIds.chatMaxHistory).value || 300)))
     },
     userProfile: {
       fullName: document.getElementById(fieldIds.profileFullName).value.trim(),
@@ -3755,8 +3780,19 @@ function ensureWelcomeMessage() {
 }
 
 async function ensureConversationReady() {
-  const restored = await restoreConversationHistory();
-  if (restored === 0) ensureWelcomeMessage();
+  if (conversationReady) return conversationHistory.length;
+  if (conversationReadyPromise) return conversationReadyPromise;
+
+  conversationReadyPromise = (async () => {
+    const restored = await restoreConversationHistory();
+    if (restored === 0) ensureWelcomeMessage();
+    conversationReady = true;
+    return conversationHistory.length;
+  })().finally(() => {
+    conversationReadyPromise = null;
+  });
+
+  return conversationReadyPromise;
 }
 
 function setSettingsStatus(message, tone = 'info') {
@@ -3883,10 +3919,11 @@ async function clearConversationHistory() {
       chatHistorySaveTimer = null;
     }
     pendingChatHistoryEntries = null;
-    if (window.openx?.clearChatHistory) {
-      await window.openx.clearChatHistory();
+    const clearAssistantHistory = window.openx?.clearAssistantChatHistory;
+    if (clearAssistantHistory) {
+      await clearAssistantHistory();
     }
-    localStorage.removeItem(CHAT_HISTORY_STORAGE_KEY);
+    localStorage.removeItem(ASSISTANT_CHAT_HISTORY_STORAGE_KEY);
     conversationHistory = [];
     if (messagesEl) {
       messagesEl.replaceChildren();
@@ -4822,8 +4859,10 @@ function cleanupRendererResources() {
   }
   scheduleTimers.forEach(timer => clearTimeout(timer));
   scheduleTimers.clear();
-  persistConversationHistoryFallback();
-  flushConversationHistorySave();
+  if (conversationReady) {
+    persistConversationHistoryFallback();
+    flushConversationHistorySave();
+  }
   flushUiStateSave();
 }
 
@@ -4858,7 +4897,7 @@ async function initialize() {
     settingsSnapshot = {
       settings: {
         assistant: { displayName: 'Jaanu', title: 'Desktop Assistant', honorific: 'sir' },
-        chat: { activationShortcut: 'Control+Space', themeId: 'graphite', glassTint: 42, maxHistory: 250 },
+        chat: { activationShortcut: 'Control+Space', themeId: 'graphite', glassTint: 42, maxHistory: 300 },
         system: { permissionLevel: 'medium' },
         user: { profile: {} },
         modes: []
@@ -4874,15 +4913,10 @@ async function initialize() {
   }
   const snapshot = await window.openx.getSettings();
   applySnapshot(snapshot);
-  await refreshActivitySchedulesFromRuntime();
-  if (!window.openx) {
-    scheduleItems.forEach(item => {
-      if (item.status === 'scheduled') armSchedule(item);
-    });
-  }
   await ensureConversationReady();
   renderActivity();
   setWorkspaceView('chat');
+  refreshActivitySchedulesFromRuntime();
   if (settingsOnly) {
     document.title = `${getAssistantDisplayName()} Settings`;
     openSettingsPanel();

@@ -1,4 +1,5 @@
 const assert = require('assert');
+const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
@@ -12,6 +13,7 @@ const {
 describe('Electron Security Boundary', function() {
   const rendererRoot = path.resolve(__dirname, '..', '..', 'apps', 'desktop', 'renderer');
   const chatFile = path.join(rendererRoot, 'chat', 'index.html');
+  const mainScript = fs.readFileSync(path.join(__dirname, '..', '..', 'apps', 'desktop', 'electron', 'main.js'), 'utf8');
 
   it('should accept only local files inside the renderer root', function() {
     assert.equal(isTrustedRendererUrl(pathToFileURL(chatFile).href, rendererRoot), true);
@@ -71,9 +73,9 @@ describe('Electron Security Boundary', function() {
     assert.throws(() => IPC_VALIDATORS['security:verifyAccess']({}), /password must be a string/);
   });
 
-  it('should validate disk-backed chat history IPC payloads', function() {
+  it('should validate disk-backed assistant chat history IPC payloads', function() {
     assert.deepEqual(
-      IPC_VALIDATORS['chatHistory:save']({
+      IPC_VALIDATORS['assistantChatHistory:save']({
         entries: [
           { type: 'user', text: ' hello ', meta: 'You - now', createdAt: 123 },
           { type: 'assistant', text: 'Ready', meta: '', createdAt: 124 },
@@ -88,14 +90,20 @@ describe('Electron Security Boundary', function() {
         ]
       }
     );
-    assert.throws(() => IPC_VALIDATORS['chatHistory:save']({ entries: [{ type: 'bad', text: 'No' }] }), /entry type/);
+    assert.deepEqual(
+      IPC_VALIDATORS['assistantChatHistory:saveSync']({
+        entries: [{ type: 'user', text: ' Persist now ', meta: '', createdAt: 126 }]
+      }),
+      { entries: [{ type: 'user', text: 'Persist now', meta: '', createdAt: 126 }] }
+    );
+    assert.throws(() => IPC_VALIDATORS['assistantChatHistory:save']({ entries: [{ type: 'bad', text: 'No' }] }), /entry type/);
     assert.equal(
-      IPC_VALIDATORS['chatHistory:save']({ entries: new Array(300).fill({ type: 'user', text: 'x' }) }).entries.length,
+      IPC_VALIDATORS['assistantChatHistory:save']({ entries: new Array(300).fill({ type: 'user', text: 'x' }) }).entries.length,
       300
     );
-    assert.throws(() => IPC_VALIDATORS['chatHistory:save']({ entries: new Array(301).fill({ type: 'user', text: 'x' }) }), /too many/);
-    assert.throws(() => IPC_VALIDATORS['chatHistory:get']({}), /does not accept/);
-    assert.throws(() => IPC_VALIDATORS['chatHistory:clear']({}), /does not accept/);
+    assert.throws(() => IPC_VALIDATORS['assistantChatHistory:save']({ entries: new Array(301).fill({ type: 'user', text: 'x' }) }), /too many/);
+    assert.throws(() => IPC_VALIDATORS['assistantChatHistory:get']({}), /does not accept/);
+    assert.throws(() => IPC_VALIDATORS['assistantChatHistory:clear']({}), /does not accept/);
   });
 
   it('should validate desktop chat conversation IPC payloads', function() {
@@ -342,7 +350,8 @@ describe('Electron Security Boundary', function() {
       'voiceOverlay:collapse', 'voiceOverlay:expandLiveSchedule',
       'window:openChat', 'window:hideChat', 'window:openPeopleChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
       'window:openGallery', 'window:closeGallery',
-      'config:get', 'settings:get', 'chatHistory:get', 'chatHistory:save', 'chatHistory:clear',
+      'config:get', 'settings:get',
+      'assistantChatHistory:get', 'assistantChatHistory:save', 'assistantChatHistory:saveSync', 'assistantChatHistory:clear',
       'desktopChat:list', 'desktopChat:open', 'desktopChat:create', 'desktopChat:update', 'desktopChat:delete', 'desktopChat:send',
       'desktopChat:quickReply',
       'desktopChat:contacts:list', 'desktopChat:contacts:accept', 'desktopChat:contacts:delete', 'desktopChat:contacts:cancel',
@@ -366,5 +375,14 @@ describe('Electron Security Boundary', function() {
     ];
 
     assert.deepEqual(Object.keys(IPC_VALIDATORS).sort(), expectedChannels.sort());
+    assert.match(mainScript, /registerSyncIpcHandler\('assistantChatHistory:saveSync'/);
+    assert.match(mainScript, /function assistantChatHistoryPath\(\)/);
+    assert.match(mainScript, /dataPaths\.assistantChatHistoryPath/);
+    assert.match(mainScript, /function migrateAccidentalAssistantChatHistory\(\)/);
+    assert.match(mainScript, /function ensureDataDir\(\) \{[\s\S]*migrateAccidentalAssistantChatHistory\(\);/);
+    assert.match(mainScript, /function writeAssistantChatHistory\(entries = \[\]\) \{[\s\S]*const existing = readAssistantChatHistory\(\);[\s\S]*const incoming = normalizeChatHistoryEntries\(entries\);[\s\S]*mergeChatHistoryEntries\(existing, incoming\)/);
+    assert.match(mainScript, /Recovered assistant chat history from larger backup/);
+    assert.match(mainScript, /backup\.length > entries\.length && recovered\.length > entries\.length/);
+    assert.doesNotMatch(mainScript, /function chatHistoryPath\(\)/);
   });
 });
