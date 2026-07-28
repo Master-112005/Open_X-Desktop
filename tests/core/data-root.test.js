@@ -15,7 +15,7 @@ describe('Assistant Data Root', function() {
 
     assert.equal(path.basename(paths.root), 'OpenX_Data');
     assert.equal(paths.settingsPath, path.join(paths.root, 'settings.json'));
-    assert.equal(paths.chatHistoryPath, path.join(paths.root, 'chat-history.json'));
+    assert.equal(paths.assistantChatHistoryPath, path.join(paths.root, 'assistant-chat-history.json'));
     assert.equal(paths.chatAccountPath, path.join(paths.root, 'chat-account.json'));
     assert.equal(paths.chatDevicePath, path.join(paths.root, 'chat-device.json'));
     assert.equal(paths.chatConversationsPath, path.join(paths.root, 'chat-conversations.json'));
@@ -174,7 +174,8 @@ describe('Assistant Data Root', function() {
     assert.equal(result.migrated.filter(entry => entry.reason !== 'legacy-root-quarantined').length, 6);
     assert.equal(result.migrated.some(entry => entry.reason === 'legacy-root-quarantined'), true);
     assert.ok(fs.existsSync(path.join(dataDir, 'settings.json')));
-    assert.ok(fs.existsSync(path.join(dataDir, 'chat-history.json')));
+    assert.ok(fs.existsSync(path.join(dataDir, 'assistant-chat-history.json')));
+    assert.equal(fs.existsSync(path.join(dataDir, 'chat-history.json')), false);
     assert.ok(fs.existsSync(path.join(dataDir, 'ui-state.json')));
     assert.ok(fs.existsSync(path.join(dataDir, 'learning.json')));
     assert.ok(fs.existsSync(path.join(dataDir, 'schedules.json')));

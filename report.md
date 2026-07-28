@@ -418,7 +418,7 @@ Managed data root:
 | Data | Managed location |
 |---|---|
 | Settings | `OpenX_Data/settings.json` |
-| Assistant chat history | `OpenX_Data/chat-history.json` |
+| Assistant chat history | `OpenX_Data/assistant-chat-history.json` |
 | UI state | `OpenX_Data/ui-state.json` |
 | Planner | `OpenX_Data/planner.json` |
 | Schedules, alarms, timers, reminders | `OpenX_Data/schedules.json` |
