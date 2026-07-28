@@ -76,13 +76,15 @@ describe('Electron Security Boundary', function() {
       IPC_VALIDATORS['chatHistory:save']({
         entries: [
           { type: 'user', text: ' hello ', meta: 'You - now', createdAt: 123 },
-          { type: 'assistant', text: 'Ready', meta: '', createdAt: 124 }
+          { type: 'assistant', text: 'Ready', meta: '', createdAt: 124 },
+          { type: 'assistant', text: 'Missing meta is valid', createdAt: 125 }
         ]
       }),
       {
         entries: [
           { type: 'user', text: 'hello', meta: 'You - now', createdAt: 123 },
-          { type: 'assistant', text: 'Ready', meta: '', createdAt: 124 }
+          { type: 'assistant', text: 'Ready', meta: '', createdAt: 124 },
+          { type: 'assistant', text: 'Missing meta is valid', meta: '', createdAt: 125 }
         ]
       }
     );
@@ -338,13 +340,14 @@ describe('Electron Security Boundary', function() {
       'command:process', 'command:confirm', 'assistant:status', 'tts:speak', 'tts:stop', 'voice:start',
       'browser:openExternal',
       'voiceOverlay:collapse', 'voiceOverlay:expandLiveSchedule',
-      'window:openChat', 'window:openPeopleChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
+      'window:openChat', 'window:hideChat', 'window:openPeopleChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
       'window:openGallery', 'window:closeGallery',
       'config:get', 'settings:get', 'chatHistory:get', 'chatHistory:save', 'chatHistory:clear',
       'desktopChat:list', 'desktopChat:open', 'desktopChat:create', 'desktopChat:update', 'desktopChat:delete', 'desktopChat:send',
       'desktopChat:quickReply',
       'desktopChat:contacts:list', 'desktopChat:contacts:accept', 'desktopChat:contacts:delete', 'desktopChat:contacts:cancel',
       'desktopChat:registration:get', 'desktopChat:registration:start', 'desktopChat:profile:password', 'desktopChat:uiState',
+      'remote:listTargets', 'remote:control',
       'uiState:get', 'uiState:save',
       'security:status', 'security:verifyAccess', 'security:setPassword',
       'cloud:status', 'cloud:connect', 'cloud:disconnect',
