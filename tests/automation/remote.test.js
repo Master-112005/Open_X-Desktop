@@ -110,7 +110,7 @@ describe('Remote Controller', function() {
     assert.strictEqual(second.data.targets[0].processId, 110);
   });
 
-  it('sends direct handle details for cached remote targets and normalizes action aliases', function() {
+  it('sends direct handle details for cached remote targets and normalizes app-specific next aliases', function() {
     const calls = [];
     const remote = new RemoteController({}, {
       windows: {
@@ -145,10 +145,43 @@ describe('Remote Controller', function() {
 
     assert.strictEqual(result.success, true);
     assert.strictEqual(calls.length, 1);
-    assert.strictEqual(calls[0].keys, '{RIGHT}');
+    assert.strictEqual(calls[0].keys, '+n');
     assert.strictEqual(calls[0].options.targetHandle, 1234);
     assert.strictEqual(calls[0].options.targetProcessId, 4567);
     assert.strictEqual(result.data.processId, 4567);
+  });
+
+  it('uses presentation-specific controls for PowerPoint slide shows', function() {
+    const calls = [];
+    const remote = new RemoteController({}, {
+      windows: {
+        listWindows: () => [
+          { title: 'Quarterly update - PowerPoint', processName: 'POWERPNT', handle: 77, processId: 700 }
+        ],
+        listBrowserTabs: () => [],
+        sendKeys: (windowName, keys, options) => {
+          calls.push({ windowName, keys, options });
+          return {
+            success: true,
+            data: {
+              matchedWindow: windowName,
+              matchedHandle: options.targetHandle,
+              processId: options.targetProcessId,
+              processName: options.targetProcessName
+            }
+          };
+        }
+      }
+    });
+
+    remote.listTargets();
+    const start = remote.sendControl({ targetId: 'powerpoint', action: 'slideshow' });
+    const next = remote.sendControl({ targetId: 'powerpoint', action: 'next' });
+
+    assert.strictEqual(start.success, true);
+    assert.strictEqual(next.success, true);
+    assert.strictEqual(calls[0].keys, '{F5}');
+    assert.strictEqual(calls[1].keys, '{PGDN}');
   });
 
   it('rejects unsupported remote targets', function() {
