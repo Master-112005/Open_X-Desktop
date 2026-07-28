@@ -23,6 +23,10 @@ describe('Electron Chat Shortcut', function() {
     assert.match(script, /globalShortcut\.register\(shortcut/);
     assert.match(script, /toggleChatFromShortcut\(shortcut\)/);
     assert.match(script, /Chat shortcut closed chat/);
+    assert.match(script, /function revealChatWindow\(\)/);
+    assert.match(script, /revealChatWindow\(\);[\s\S]*mainLogger\.info\('Chat shortcut opened chat'/);
+    assert.doesNotMatch(script, /registerIpcHandler\('chat:ready'|function requestChatWindowShow\(\)|chatWindowReady|chatWindowShowPending/);
+    assert.doesNotMatch(preloadScript, /notifyChatReady|chat:ready/);
     assert.match(script, /startVoiceListeningFromShortcut\(shortcut\)/);
     assert.match(script, /chatWindow\.hide\(\)/);
     assert.match(script, /voiceSessionManager\.startSession/);

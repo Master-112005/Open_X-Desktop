@@ -436,18 +436,31 @@ function updateChatStorageStatus(count = conversationHistory.length) {
 
 async function loadConversationHistory() {
   const legacy = normalizeChatHistoryItems(loadStoredList(ASSISTANT_CHAT_HISTORY_STORAGE_KEY));
+  const getAssistantHistorySync = window.openx?.getAssistantChatHistorySync;
   const getAssistantHistory = window.openx?.getAssistantChatHistory;
-  if (!getAssistantHistory) {
+  if (!getAssistantHistorySync && !getAssistantHistory) {
     updateChatStorageStatus(legacy.length);
     return legacy;
   }
 
   let stored = [];
+  let loadedSync = false;
+  if (getAssistantHistorySync) {
+    try {
+      const result = getAssistantHistorySync();
+      stored = normalizeChatHistoryItems(result?.entries || []);
+      loadedSync = true;
+    } catch (_) {
+      stored = [];
+    }
+  }
   try {
-    const result = await getAssistantHistory();
-    stored = normalizeChatHistoryItems(result?.entries || []);
+    if (!loadedSync && getAssistantHistory) {
+      const result = await getAssistantHistory();
+      stored = mergeChatHistory(stored, normalizeChatHistoryItems(result?.entries || []));
+    }
   } catch (_) {
-    stored = [];
+    // Keep the synchronous snapshot when the async refresh fails.
   }
 
   const merged = legacy.length > 0 ? mergeChatHistory(stored, legacy) : stored;
@@ -694,6 +707,16 @@ async function restoreConversationHistory() {
   });
   hasRenderedWelcome = conversationHistory.length > 0;
   return conversationHistory.length;
+}
+
+function repaintConversationIfBlank() {
+  if (!messagesEl || messagesEl.querySelector('.message') || conversationHistory.length === 0) return;
+  messagesEl.replaceChildren();
+  renderedMessageCount = 0;
+  conversationHistory.slice(-chatHistoryLimit()).forEach(item => {
+    addMessage(item.text, item.type, item.meta, { persist: false });
+  });
+  hasRenderedWelcome = true;
 }
 
 function normalizeResultEntries(result) {
@@ -3780,12 +3803,16 @@ function ensureWelcomeMessage() {
 }
 
 async function ensureConversationReady() {
-  if (conversationReady) return conversationHistory.length;
+  if (conversationReady) {
+    repaintConversationIfBlank();
+    return conversationHistory.length;
+  }
   if (conversationReadyPromise) return conversationReadyPromise;
 
   conversationReadyPromise = (async () => {
     const restored = await restoreConversationHistory();
     if (restored === 0) ensureWelcomeMessage();
+    repaintConversationIfBlank();
     conversationReady = true;
     return conversationHistory.length;
   })().finally(() => {
@@ -4886,6 +4913,7 @@ if (window.openx) {
 async function initialize() {
   setProfileEditorOpen(false);
   initializeCompactSettingsLayout();
+  const conversationStart = ensureConversationReady();
   await loadUiState();
   updateAssistantMuteButton();
   const settingsOnly = new URLSearchParams(window.location.search).get('settings') === '1';
@@ -4905,7 +4933,7 @@ async function initialize() {
       availableThemes: []
     };
     updateBranding();
-    await ensureConversationReady();
+    await conversationStart;
     renderActivity();
     setWorkspaceView('chat');
     if (settingsOnly) openSettingsPanel();
@@ -4913,7 +4941,7 @@ async function initialize() {
   }
   const snapshot = await window.openx.getSettings();
   applySnapshot(snapshot);
-  await ensureConversationReady();
+  await conversationStart;
   renderActivity();
   setWorkspaceView('chat');
   refreshActivitySchedulesFromRuntime();

@@ -656,6 +656,7 @@ const IPC_VALIDATORS = Object.freeze({
   'config:get': validateEmpty,
   'settings:get': validateEmpty,
   'assistantChatHistory:get': validateEmpty,
+  'assistantChatHistory:getSync': validateEmpty,
   'assistantChatHistory:save': validateChatHistorySave,
   'assistantChatHistory:saveSync': validateChatHistorySave,
   'assistantChatHistory:clear': validateEmpty,
