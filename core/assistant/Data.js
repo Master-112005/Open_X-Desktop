@@ -113,6 +113,8 @@ function buildDataPaths(config = {}) {
   const cloudDir = path.join(root, 'cloud');
   const securityDir = path.join(root, 'security');
   const visualMemoryDir = path.join(root, 'visual-memory');
+  const personalDir = path.join(root, 'personal');
+  const homeLearningDir = path.join(root, 'home-learning');
   const configuredReceivedDir = String(config?.app?.cloudReceivedDir || process.env.OPENX_RECEIVED_FILES_DIR || '').trim();
   const cloudReceivedDir = path.resolve(configuredReceivedDir || path.join(resolveDocumentsDirectory(), 'OpenX'));
 
@@ -142,6 +144,17 @@ function buildDataPaths(config = {}) {
     learningCorrectionsPath: path.join(root, 'learning', 'corrections.json'),
     learningWorkflowsPath: path.join(root, 'learning', 'workflows.json'),
     learningUsageStatsPath: path.join(root, 'learning', 'usage_stats.json'),
+    personalDir,
+    personalVaultPath: path.join(personalDir, 'personal-vault.db'),
+    personalVaultKeyPath: path.join(personalDir, 'personal-vault.key'),
+    homeLearningDir,
+    homeLearningDatabasePath: path.join(homeLearningDir, 'home-learning.db'),
+    homeLearningDeviceRegistryPath: path.join(homeLearningDir, 'devices.json'),
+    homeLearningPatternPath: path.join(homeLearningDir, 'patterns.json'),
+    homeLearningSequencePath: path.join(homeLearningDir, 'sequences.json'),
+    routineLearningDir: path.join(root, 'learning', 'routines'),
+    routineObservationPath: path.join(root, 'learning', 'routines', 'observations.jsonl'),
+    routineSummaryPath: path.join(root, 'learning', 'routines', 'summaries.json'),
     logsDir: path.join(root, 'logs'),
     runtimeDir,
     electronProfileDir: path.join(runtimeDir, 'electron-profile'),
@@ -366,6 +379,8 @@ function ensureDataRoot(config = {}) {
     paths.cloudReceivedDir,
     paths.cloudTempDir,
     paths.securityDir,
+    paths.personalDir,
+    paths.homeLearningDir,
     paths.visualMemoryDir,
     paths.visualMemoryThumbnailDir
   ].forEach(ensureDirectory);

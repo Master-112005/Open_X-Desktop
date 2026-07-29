@@ -12,6 +12,7 @@ function pushBounded(list, item, limit) {
 class LearningContext {
   constructor(options = {}) {
     this.assistantResponse = options.assistantResponse || null;
+    this.externalEvent = LearningGuard.sanitizeForLearning(options.externalEvent || null);
     this.configuration = options.configuration || null;
     this.policy = options.policy || null;
     this.validator = options.validator || null;

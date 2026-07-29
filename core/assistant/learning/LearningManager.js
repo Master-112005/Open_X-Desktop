@@ -12,6 +12,11 @@ const ConversationLearning = require('./ConversationLearning');
 const UsageLearning = require('./UsageLearning');
 const PatternLearning = require('./PatternLearning');
 const FeedbackLearning = require('./FeedbackLearning');
+const PersonalPreferenceLearning = require('./PersonalPreferenceLearning');
+const RoutineTimeLearning = require('./RoutineTimeLearning');
+const DevicePreferenceLearning = require('./DevicePreferenceLearning');
+const AppliancePatternLearning = require('./AppliancePatternLearning');
+const ActionSequenceLearning = require('./ActionSequenceLearning');
 
 class LearningManager {
   constructor(options = {}) {
@@ -31,7 +36,12 @@ class LearningManager {
       [CorrectionLearning, 'learning.correction', 10],
       [AliasLearning, 'learning.alias', 20],
       [PreferenceLearning, 'learning.preference', 30],
+      [PersonalPreferenceLearning, 'learning.personal-preference', 35],
       [HabitLearning, 'learning.habit', 40],
+      [RoutineTimeLearning, 'learning.routine-time', 42],
+      [DevicePreferenceLearning, 'learning.device-preference', 44],
+      [AppliancePatternLearning, 'learning.appliance-pattern', 46],
+      [ActionSequenceLearning, 'learning.action-sequence', 48],
       [WorkflowLearning, 'learning.workflow', 50],
       [ConversationLearning, 'learning.conversation', 60],
       [UsageLearning, 'learning.usage', 70],
@@ -60,6 +70,23 @@ class LearningManager {
       });
     }
     return this.pipeline.run(assistantResponse, options);
+  }
+
+  async learnExternalEvent(event, metadata = {}) {
+    if (!this.pipeline) {
+      this.pipeline = new LearningPipeline({
+        registry: this.registry,
+        configuration: this.configuration,
+        storage: this.storage || undefined
+      });
+    }
+    return this.pipeline.run(null, {
+      externalEvent: event,
+      metadata: {
+        source: metadata.source || event?.source || 'external_event',
+        ...metadata
+      }
+    });
   }
 
   getStatus() {

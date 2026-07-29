@@ -39,6 +39,7 @@ class LearningPipeline {
       policy: this.policy,
       validator: this.validator,
       storage: this.storage,
+      externalEvent: options.externalEvent || null,
       metadata: options.metadata || {}
     });
     if (this.configuration.enabled === false) return context.toLearningResult();
