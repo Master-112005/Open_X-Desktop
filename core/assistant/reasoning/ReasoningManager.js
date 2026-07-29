@@ -4,11 +4,13 @@ const ReasoningConfiguration = require('./ReasoningConfiguration');
 const ReasoningRegistry = require('./ReasoningRegistry');
 const ReasoningPipeline = require('./ReasoningPipeline');
 const InferenceEngine = require('./InferenceEngine');
+const CognitiveReasoner = require('./CognitiveReasoner');
 const GoalReasoner = require('./GoalReasoner');
 const IntentReasoner = require('./IntentReasoner');
 const ActionReasoner = require('./ActionReasoner');
 const TaskReasoner = require('./TaskReasoner');
 const ContextReasoner = require('./ContextReasoner');
+const DeliberationReasoner = require('./DeliberationReasoner');
 const ConflictResolver = require('./ConflictResolver');
 const ClarificationEngine = require('./ClarificationEngine');
 const ConfidenceManager = require('./ConfidenceManager');
@@ -28,11 +30,13 @@ class ReasoningManager {
   _registerDefaults() {
     [
       [InferenceEngine, 'reasoning.inferenceEngine', 10],
+      [CognitiveReasoner, 'reasoning.cognitiveReasoner', 15],
       [GoalReasoner, 'reasoning.goalReasoner', 20],
       [IntentReasoner, 'reasoning.intentReasoner', 30],
       [ActionReasoner, 'reasoning.actionReasoner', 40],
       [TaskReasoner, 'reasoning.taskReasoner', 50],
       [ContextReasoner, 'reasoning.contextReasoner', 60],
+      [DeliberationReasoner, 'reasoning.deliberationReasoner', 65],
       [ConflictResolver, 'reasoning.conflictResolver', 70],
       [ClarificationEngine, 'reasoning.clarificationEngine', 80],
       [ConfidenceManager, 'reasoning.confidenceManager', 90],

@@ -1,4 +1,5 @@
 const path = require('path');
+const ResponseStyleManager = require('./ResponseStyleManager');
 
 const MAX_CHAT_VISUAL_RESULTS = 10;
 
@@ -1512,6 +1513,62 @@ const RESPONSE_BUILDERS = {
       const name = valueFromContext(context, 'name', '');
       return name ? `Your name is ${name}.` : 'I do not know your name yet.';
     },
+    'assistant.wellbeing': context => {
+      const kind = valueFromContext(context, 'wellbeingKind', 'general');
+      const variantsByKind = {
+        cold: [
+          'Sorry you are feeling cold. Warm up first: move to a warmer place, add a dry layer, and have a warm non-alcoholic drink if you can. If you are shivering hard, confused, very drowsy, or short of breath, get medical help.',
+          'That sounds uncomfortable. Try getting somewhere warm and dry, add a layer, and warm your chest and neck gradually. If the cold feeling is severe or you feel confused or very weak, get medical help.',
+          'I understand. Get warm first: dry clothes if needed, a blanket or jacket, and a warm drink. If you are shaking badly, confused, or breathing is difficult, seek medical help.'
+        ],
+        hot: [
+          'Sorry you are feeling hot. Move to a cooler place, drink water, and avoid heavy activity for a bit. If you feel faint, confused, have chest pain, or breathing trouble, get medical help.',
+          'Try cooling down gradually: shade or a cooler room, water, and lighter clothing. If symptoms feel severe or suddenly worse, get medical help.',
+          'That sounds uncomfortable. Hydrate and cool down first. If you feel dizzy, confused, or short of breath, treat it as urgent.'
+        ],
+        tired: [
+          'You sound tired. Take a short break if you can, drink some water, and avoid pushing through heavy work. I can set a rest timer or reminder if you want.',
+          'That sounds like your body needs a pause. A short rest, water, and lowering workload for a bit may help. I can help plan the next step when you are ready.',
+          'Understood. Try a short break first. If you want, tell me a time and I can remind you to continue later.'
+        ],
+        stressed: [
+          'That sounds stressful. Take one slow breath first, then we can reduce this to one next step. Tell me what is bothering you most and I will help organize it.',
+          'I hear you. Let us keep it simple: pause for a moment, then tell me the main problem and I will help break it down.',
+          'That is a lot to carry. If you want, I can help turn it into a short priority list.'
+        ],
+        sick: [
+          'Sorry you are feeling unwell. Rest, drink fluids, and avoid pushing yourself. If symptoms are severe, suddenly worse, or include chest pain, confusion, or breathing trouble, get medical help.',
+          'Take it easy for now: rest, fluids, and keep an eye on symptoms. If you feel seriously unwell or symptoms get worse, contact a medical professional.',
+          'I am sorry you are not feeling well. Rest first and watch for warning signs like breathing difficulty, chest pain, confusion, or a high fever.'
+        ],
+        hungry: [
+          'You may need food soon. Have something simple if you can, and drink water too. I can remind you to eat later if now is not a good time.',
+          'Try to eat something light or balanced when you can. If you want, I can set a reminder.',
+          'Understood. A small meal or snack may help. Tell me when to remind you if you want.'
+        ],
+        thirsty: [
+          'You may need water. Drink some water if you can, and take it slowly if you feel unwell. If you are very dizzy, confused, or cannot keep fluids down, get medical help.',
+          'Try drinking water first. If you have been outside or sweating, rest somewhere cooler too. If symptoms feel severe, get medical help.',
+          'Have some water when you can. If the thirst comes with dizziness, confusion, or severe weakness, treat it seriously.'
+        ],
+        emotional: [
+          'I am sorry you are feeling that way. I can stay with the practical side: tell me what happened, or I can help you plan the next small step.',
+          'That sounds hard. You do not have to solve everything at once. Tell me the main thing on your mind and I will help sort it out.',
+          'I hear you. If you want, describe what happened and I will help you think through it one step at a time.'
+        ],
+        confused: [
+          'No problem. Tell me which part is confusing, and I will break it down clearly.',
+          'I can help with that. Send me the part that feels unclear and I will explain it step by step.',
+          'Understood. Let us make it simpler. What exactly are you stuck on?'
+        ],
+        positive: [
+          'Good to hear that. If you want, I can help keep the momentum and plan the next step.',
+          'That is good. Tell me what you want to do next and I will help.',
+          'Nice. I am ready to help with the next thing when you are.'
+        ]
+      };
+      return chooseVariant(responseSeed(context, `assistant.wellbeing:${kind}`), variantsByKind[kind] || variantsByKind.emotional);
+    },
     'assistant.capability': context => {
       const capability = valueFromContext(context, 'capability', 'that');
       return `I understood this as a ${capability} request, but this capability is not connected to an automation controller yet.`;
@@ -1617,7 +1674,11 @@ const RESPONSE_BUILDERS = {
     permissionDenied: () => 'I cannot do that with the current permission setting, but I can still help with other tasks.',
     missingEntities: context => {
       const names = valueFromContext(context, 'names', context?.entities?.names || 'details');
-      return `I need one more detail before I can continue: ${names}.`;
+      const fields = String(names || '')
+        .split(/\s*,\s*/)
+        .map(field => field.trim())
+        .filter(Boolean);
+      return ResponseStyleManager.missingFieldQuestion(fields, context?.intent?.id || context?.intent || '');
     },
     noCommand: () => 'I am ready. What would you like me to do?',
     notFound: () => 'I could not find that. You can ask me to search again with a different name or location.',
@@ -1783,6 +1844,18 @@ class ResponseGenerator {
     }
 
     return clampText(text, 220);
+  }
+
+  refineResponse(response, context = {}) {
+    const result = ResponseStyleManager.refineLegacyResponse(response, context);
+    return {
+      ...result,
+      text: result.changed ? this._polish(result.text) : result.text
+    };
+  }
+
+  polishText(text) {
+    return this._polish(text);
   }
 
   getTemplate(type, templateId) {

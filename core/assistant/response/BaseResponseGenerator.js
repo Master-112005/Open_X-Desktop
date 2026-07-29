@@ -22,6 +22,61 @@ class BaseResponseGenerator {
     return text.length > maxLength ? `${text.slice(0, maxLength - 3).trim()}...` : text;
   }
 
+  ensureSentence(value, maxLength = 500) {
+    const text = this.text(value, maxLength);
+    if (!text) return '';
+    return /[.!?]$/.test(text) ? text : `${text}.`;
+  }
+
+  sentences(value) {
+    return String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .split(/(?<=[.!?])\s+/)
+      .map(sentence => sentence.trim())
+      .filter(Boolean);
+  }
+
+  firstSentence(value, maxLength = 220) {
+    const first = this.sentences(value)[0] || this.text(value, maxLength);
+    return this.text(first, maxLength);
+  }
+
+  formatList(items, { maxItems = 5, empty = '' } = {}) {
+    const values = (Array.isArray(items) ? items : [])
+      .map(item => String(item || '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    if (values.length === 0) return empty;
+    const shown = values.slice(0, Math.max(1, maxItems));
+    const extra = values.length - shown.length;
+    if (shown.length === 1) return extra > 0 ? `${shown[0]}, plus ${extra} more` : shown[0];
+    const joined = shown.length === 2
+      ? `${shown[0]} and ${shown[1]}`
+      : `${shown.slice(0, -1).join(', ')}, and ${shown[shown.length - 1]}`;
+    return extra > 0 ? `${joined}, plus ${extra} more` : joined;
+  }
+
+  stripStatusPrefix(value) {
+    return String(value || '')
+      .replace(/^\s*Status:\s*/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  cleanForChannel(value, { channel = 'chat', maxLength = 500 } = {}) {
+    let text = this.stripStatusPrefix(value);
+    if (channel === 'voice') {
+      text = text
+        .replace(/\bSource:\s*[^.]+\.?/gi, '')
+        .replace(/\bhttps?:\/\/\S+/gi, '')
+        .replace(/\s*;\s*/g, ', ');
+    }
+    if (channel === 'notification') {
+      text = this.firstSentence(text, maxLength);
+    }
+    return this.text(text, maxLength);
+  }
+
   addPart(context, type, text, data = {}) {
     if (!context || typeof context.addPart !== 'function') return null;
     return context.addPart(type, this.text(text), data);

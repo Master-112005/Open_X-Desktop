@@ -114,6 +114,190 @@ describe('Assistant Goal and Intent Reasoning Layer', function() {
     assert.ok(result.candidateTasks.some(task => task.action === 'CREATE_REMINDER'));
   });
 
+  it('deliberates over entity and context support before final action ranking', async function() {
+    const { createDefaultReasoningManager } = require('../../core/assistant/reasoning/index.js');
+    const manager = createDefaultReasoningManager();
+    const structuredEntities = {
+      files: [{ value: 'report.pdf', confidence: 0.9 }],
+      paths: [],
+      folders: [],
+      applications: [],
+      browsers: [],
+      websites: [],
+      contacts: [],
+      media: [],
+      dates: [],
+      times: [],
+      durations: [],
+      reminders: [],
+      alarms: [],
+      timers: [],
+      volumeLevels: [],
+      brightnessLevels: []
+    };
+    const result = await manager.reason(resolved('open report file', {
+      selections: { selectedFiles: ['C:\\Users\\User\\Documents\\report.pdf'] }
+    }), {
+      metadata: { structuredEntities }
+    });
+
+    assert.equal(result.resolvedAction.action, 'OPEN_FILE');
+    assert.equal(result.candidateActions[0].metadata.deliberation.strengths.includes('target-language'), true);
+    assert.ok(result.diagnostics.deliberation.actionEvaluations > 0);
+    assert.equal(result.futureExtensions.deliberation.strategy, 'deterministic-reason-act-entity-context-rerank');
+    assert.ok(result.reasoningGraph.path.includes('reasoning.deliberationReasoner'));
+  });
+
+  it('records deferred command decomposition for scheduled actions', async function() {
+    const { createDefaultReasoningManager } = require('../../core/assistant/reasoning/index.js');
+    const manager = createDefaultReasoningManager();
+    const structuredEntities = {
+      reminders: [{ value: 'drink water', confidence: 0.86 }],
+      durations: [{ value: '10 minutes', confidence: 0.86 }],
+      applications: [],
+      browsers: [],
+      files: [],
+      folders: [],
+      paths: [],
+      contacts: [],
+      media: [],
+      dates: [],
+      times: [],
+      alarms: [],
+      timers: [],
+      volumeLevels: [],
+      brightnessLevels: []
+    };
+    const result = await manager.reason(resolved('after 10 minutes remind me to drink water'), {
+      metadata: { structuredEntities }
+    });
+
+    assert.equal(result.resolvedAction.action, 'CREATE_REMINDER');
+    assert.equal(result.futureExtensions.deliberation.decomposition[0].kind, 'deferred');
+    assert.ok(result.candidateActions[0].metadata.deliberation.strengths.includes('deferred-step'));
+  });
+
+  it('maps assistant reasoning requirements into cognitive dimensions', async function() {
+    const { createDefaultReasoningManager } = require('../../core/assistant/reasoning/index.js');
+    const manager = createDefaultReasoningManager();
+    const input = [
+      'I need help planning my trip tomorrow because I feel tired and stressed.',
+      'Should I send my private photos to mom from home and delete all old files?',
+      'Remember that I usually prefer early mornings; coordinate calendar and messages.',
+      'Are you sure this is safe?'
+    ].join(' ');
+    const result = await manager.reason(resolved(input));
+    const dimensions = new Set(result.futureExtensions.cognitiveReasoning.dimensions.map(item => item.id));
+
+    for (const id of [
+      'intent', 'context', 'personalMemory', 'preference', 'temporal',
+      'causal', 'planning', 'commonSense', 'emotional', 'conversation',
+      'knowledge', 'uncertainty', 'decision', 'privacy', 'learning',
+      'spatial', 'identity', 'multiAgent', 'safety', 'selfReflection'
+    ]) {
+      assert.ok(dimensions.has(id), `missing cognitive dimension: ${id}`);
+    }
+    assert.equal(result.futureExtensions.cognitiveReasoning.safety.requiresConfirmation, true);
+    assert.equal(result.futureExtensions.cognitiveReasoning.privacy.sensitive, true);
+    assert.equal(result.futureExtensions.cognitiveReasoning.learning.shouldLearn, true);
+  });
+
+  it('detects hidden wellbeing intent without inventing an automation action', async function() {
+    const { createDefaultReasoningManager } = require('../../core/assistant/reasoning/index.js');
+    const manager = createDefaultReasoningManager();
+    const result = await manager.reason(resolved('I am feeling tired.'));
+    const cognitive = result.futureExtensions.cognitiveReasoning;
+
+    assert.ok(cognitive.hiddenIntents.some(item => item.id === 'wellbeing.rest'));
+    assert.ok(cognitive.dimensions.some(item => item.id === 'emotional'));
+    assert.equal(result.resolvedAction, null);
+  });
+
+  it('asks for clarification when a reference-dependent command has no target context', async function() {
+    const { createDefaultReasoningManager } = require('../../core/assistant/reasoning/index.js');
+    const manager = createDefaultReasoningManager();
+    const result = await manager.reason(resolved('delete it'));
+
+    assert.equal(result.futureExtensions.cognitiveReasoning.uncertainty.requiresClarification, true);
+    assert.ok(result.clarificationRequirements.some(item => item.field === 'target'));
+  });
+
+  it('propagates cognitive safety and privacy risk to dangerous action metadata', async function() {
+    const { createDefaultReasoningManager } = require('../../core/assistant/reasoning/index.js');
+    const manager = createDefaultReasoningManager();
+    const structuredEntities = {
+      files: [{ value: 'private photos', confidence: 0.88 }],
+      folders: [],
+      paths: [],
+      applications: [],
+      browsers: [],
+      websites: [],
+      contacts: [],
+      people: [],
+      media: [],
+      dates: [],
+      times: [],
+      durations: [],
+      reminders: [],
+      alarms: [],
+      timers: [],
+      volumeLevels: [],
+      brightnessLevels: []
+    };
+    const result = await manager.reason(resolved('delete all private photos'), {
+      metadata: { structuredEntities }
+    });
+    const action = result.candidateActions.find(item => item.action === 'DELETE_FILE');
+
+    assert.equal(result.futureExtensions.cognitiveReasoning.safety.level, 'high');
+    assert.equal(result.futureExtensions.cognitiveReasoning.privacy.sensitive, true);
+    assert.equal(action.metadata.requiresConfirmation, true);
+    assert.equal(action.metadata.dangerous, true);
+    assert.equal(action.metadata.privacySensitive, true);
+  });
+
+  it('builds a bounded cognitive reasoning graph for reviewable commands', async function() {
+    const { createDefaultReasoningManager } = require('../../core/assistant/reasoning/index.js');
+    const manager = createDefaultReasoningManager({
+      configuration: { graphMaxNodes: 120, graphMaxEdges: 180 }
+    });
+    const structuredEntities = {
+      files: [{ value: 'private photos', confidence: 0.88 }],
+      folders: [],
+      paths: [],
+      applications: [],
+      browsers: [],
+      websites: [],
+      contacts: [],
+      people: [],
+      media: [],
+      dates: [],
+      times: [],
+      durations: [],
+      reminders: [],
+      alarms: [],
+      timers: [],
+      volumeLevels: [],
+      brightnessLevels: []
+    };
+    const result = await manager.reason(resolved('delete all private photos'), {
+      metadata: { structuredEntities }
+    });
+    const nodeTypes = new Set(result.reasoningGraph.nodes.map(node => node.type));
+    const edgeTypes = new Set(result.reasoningGraph.edges.map(edge => edge.type));
+
+    assert.ok(nodeTypes.has('cognitive-dimension'));
+    assert.ok(nodeTypes.has('cognitive-safety'));
+    assert.ok(nodeTypes.has('cognitive-privacy'));
+    assert.ok(edgeTypes.has('requires-review'));
+    assert.ok(edgeTypes.has('privacy-review'));
+    assert.ok(result.reasoningGraph.stats.nodes <= 120);
+    assert.ok(result.reasoningGraph.stats.edges <= 180);
+    assert.equal(result.reasoningGraph.cognitiveSummary.safety, 'high');
+    assert.equal(result.cognitiveReasoning.privacy.sensitive, true);
+    assert.equal(result.diagnostics.graphStats.nodes, result.reasoningGraph.stats.nodes);
+  });
+
   it('handles correction-style volume follow ups', async function() {
     const { createDefaultReasoningManager } = require('../../core/assistant/reasoning/index.js');
     const manager = createDefaultReasoningManager();
@@ -157,7 +341,26 @@ describe('Assistant Goal and Intent Reasoning Layer', function() {
 
     assert.equal(ids[0], 'reasoning.inferenceEngine');
     assert.equal(ids[ids.length - 1], 'reasoning.graphBuilder');
+    assert.ok(ids.includes('reasoning.cognitiveReasoner'));
+    assert.ok(ids.includes('reasoning.deliberationReasoner'));
     assert.equal(status.reasoners.find(reasoner => reasoner.id === 'reasoning.taskReasoner').enabled, false);
+  });
+
+  it('redacts nested sensitive reasoning logger metadata', function() {
+    const { ReasoningLogger } = require('../../core/assistant/reasoning/index.js');
+    const calls = [];
+    const logger = new ReasoningLogger({
+      info: (message, data) => calls.push({ message, data })
+    });
+
+    logger.info('reasoning metadata', {
+      account: { email: 'user@example.com', nested: { privateKey: 'secret' } },
+      safe: 'value'
+    });
+
+    assert.equal(calls[0].data.account.email, '[REDACTED]');
+    assert.equal(calls[0].data.account.nested.privateKey, '[REDACTED]');
+    assert.equal(calls[0].data.safe, 'value');
   });
 
   it('runs inside the assistant pipeline without changing routed plain text', async function() {

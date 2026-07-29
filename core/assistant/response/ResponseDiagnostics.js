@@ -16,12 +16,16 @@ class ResponseDiagnostics {
     this.warnings = [];
     this.errors = [];
     this.pipelineOrder = [];
+    this.responsePolicy = null;
+    this.responseQuality = null;
     this.memoryUsage = this._memoryUsage();
   }
 
   time(id, durationMs) { this.responseGenerationTime[String(id || '')] = Math.max(0, Number(durationMs) || 0); }
   formatter(id) { pushBounded(this.formatterExecution, { id: String(id || ''), timestamp: Date.now() }); }
   warn(message, data = {}) { pushBounded(this.warnings, { message: String(message || ''), data: sanitizeDetails(data), timestamp: Date.now() }); }
+  policy(policy) { this.responsePolicy = sanitizeDetails(policy || null); }
+  quality(quality) { this.responseQuality = sanitizeDetails(quality || null); }
   error(error, data = {}) {
     pushBounded(this.errors, {
       name: error?.name || 'Error',
@@ -58,6 +62,8 @@ class ResponseDiagnostics {
       warnings: this.warnings.slice(),
       errors: this.errors.slice(),
       pipelineOrder: this.pipelineOrder.slice(),
+      responsePolicy: sanitizeDetails(this.responsePolicy),
+      responseQuality: sanitizeDetails(this.responseQuality),
       memoryUsage: this.memoryUsage,
       summary: this.summary()
     };

@@ -3,7 +3,8 @@
 const BaseReasoner = require('./BaseReasoner');
 
 const RULES = Object.freeze([
-  { pattern: /\b(?:i'?m|i am|feel|feeling)\s+cold\b|\btoo cold\b/, inference: 'environmental-adjustment', confidence: 0.68 },
+  { pattern: /\b(?:i'?m|im|i am|feel|feeling|fealing)\s+(?:cold|chilly|freezing|hot|overheated|thirsty|thursty|hungry|hungery)\b|\btoo (?:cold|hot)\b/, inference: 'environmental-adjustment', confidence: 0.68 },
+  { pattern: /\b(?:i'?m|im|i am|feel|feeling|fealing)\s+(?:tired|tried|tierd|sleepy|exhausted|drained|stressed|stressd|anxious|anxous|worried|sad|upset|confused|confuzed)\b/, inference: 'wellbeing-support', confidence: 0.7 },
   { pattern: /\btoo loud\b|\bit'?s loud\b|\bvolume is high\b/, inference: 'audio-adjustment', confidence: 0.72 },
   { pattern: /\bfinish my assignment\b|\bwork on my assignment\b|\bneed to work\b/, inference: 'productivity-support', confidence: 0.66 },
   { pattern: /\blisten to music\b|\bplay music\b|\bsong\b/, inference: 'media-playback', confidence: 0.78 },

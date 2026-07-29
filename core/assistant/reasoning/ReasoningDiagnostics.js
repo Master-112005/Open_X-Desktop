@@ -22,6 +22,9 @@ class ReasoningDiagnostics {
     this.pipelineOrder = [];
     this.memoryUsage = this._memoryUsage();
     this.finishedMemoryUsage = null;
+    this.reasonerCount = 0;
+    this.trimmedCandidates = {};
+    this.graphStats = {};
   }
 
   time(id, durationMs) {
@@ -67,6 +70,11 @@ class ReasoningDiagnostics {
       warnings: this.warnings.slice(),
       errors: this.errors.slice(),
       pipelineOrder: this.pipelineOrder.slice(),
+      reasonerCount: this.reasonerCount,
+      trimmedCandidates: { ...this.trimmedCandidates },
+      graphStats: { ...this.graphStats },
+      cognitiveReasoning: this.cognitiveReasoning || null,
+      deliberation: this.deliberation || null,
       memoryUsage: this.memoryUsage,
       finishedMemoryUsage: this.finishedMemoryUsage
     };

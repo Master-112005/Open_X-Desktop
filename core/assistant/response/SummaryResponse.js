@@ -11,7 +11,15 @@ class SummaryResponse extends BaseResponseGenerator {
     const skipped = result.skippedActions?.length || 0;
     context.responseType = 'summary';
     const status = result.executionStatus || 'UNKNOWN';
-    this.addPart(context, 'summary', `Status: ${status}. Completed ${completed}, failed ${failed}, skipped ${skipped}.`, {
+    let text = `Status: ${status}. Completed ${completed}, failed ${failed}, skipped ${skipped}.`;
+    if (completed === 0 && failed === 0 && skipped === 0) {
+      text = result.success === false ? 'I could not complete that request.' : 'Done.';
+    } else if (failed === 0 && skipped === 0) {
+      text = `Completed ${completed} action${completed === 1 ? '' : 's'}.`;
+    } else if (failed > 0 && completed > 0) {
+      text = `Completed ${completed} action${completed === 1 ? '' : 's'}, but ${failed} failed.`;
+    }
+    this.addPart(context, 'summary', text, {
       completed,
       failed,
       skipped

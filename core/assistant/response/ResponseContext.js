@@ -57,6 +57,34 @@ class ResponseContext {
     return this.parts.map(part => part.text).filter(Boolean).join(' ');
   }
 
+  currentText() {
+    return this.futureExtensions.responseText ||
+      this.futureExtensions.naturalLanguage ||
+      this.baseText() ||
+      '';
+  }
+
+  setResponseText(text, maxLength = 2400) {
+    const value = compactText(text, maxLength);
+    if (value) this.futureExtensions.responseText = value;
+    return value;
+  }
+
+  intentId() {
+    const result = this.verificationResult || {};
+    return String(result.intent || result.route || result.action || result.metadata?.intent || '').trim();
+  }
+
+  resultData() {
+    const result = this.verificationResult || {};
+    return sanitizeDetails({
+      ...(result.entities || {}),
+      ...(result.data || {}),
+      ...(result.metadata || {}),
+      ...(result.futureExtensions || {})
+    });
+  }
+
   toAssistantResponse() {
     this.timing.finishedAt = this.timing.finishedAt || Date.now();
     this.timing.durationMs = Math.max(0, this.timing.finishedAt - this.timing.startedAt);

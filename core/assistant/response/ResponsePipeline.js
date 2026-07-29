@@ -38,7 +38,15 @@ class ResponsePipeline {
         this.logger?.error?.('Response generator failed', { generatorId: generator.id, error: wrapped.message });
         if (this.configuration.strict) throw wrapped;
       } finally {
-        context.diagnostics.time(generator.id, Date.now() - started);
+        const durationMs = Date.now() - started;
+        context.diagnostics.time(generator.id, durationMs);
+        if (durationMs > Number(this.configuration.maxGeneratorMs || 75)) {
+          context.diagnostics.warn('Response generator exceeded timing budget.', {
+            generatorId: generator.id,
+            durationMs,
+            maxGeneratorMs: this.configuration.maxGeneratorMs
+          });
+        }
         if (typeof generator.cleanup === 'function') {
           try {
             await generator.cleanup(context);

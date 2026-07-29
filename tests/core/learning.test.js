@@ -205,6 +205,25 @@ describe('Active Learning Store', function() {
     assert.equal(answer.response, 'Your favorite color is blue, sir.');
   });
 
+  it('should not remember temporary wellbeing states as user facts', function() {
+    const { store } = createStore();
+
+    const cold = store.learnFromText('i am fealing cold');
+    const tired = store.learnFromText('I am fealing tried');
+    const anxious = store.learnFromText('I feel anxous');
+    const thirsty = store.learnFromText('I am thursty');
+    const positive = store.learnFromText('I am happy today');
+    const profession = store.learnFromText('I am a software engineer');
+
+    assert.equal(cold, null);
+    assert.equal(tired, null);
+    assert.equal(anxious, null);
+    assert.equal(thirsty, null);
+    assert.equal(positive, null);
+    assert.equal(profession.type, 'user-fact');
+    assert.equal(store.getUserFact('profession').value, 'software engineer');
+  });
+
   it('should normalize and answer broader personal context aliases', function() {
     const { tempDir, store } = createStore();
 

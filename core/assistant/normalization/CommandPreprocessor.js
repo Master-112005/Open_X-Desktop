@@ -1,6 +1,12 @@
 const Normalizer = require('../Data').Normalizer;
 const BaseNormalizer = require('./BaseNormalizer');
 const {
+  ASSISTANT_DOMAIN_WORDS,
+  ASSISTANT_SEQUENCE_CORRECTIONS,
+  ASSISTANT_TOKEN_CORRECTIONS,
+  splitJoinedTokens
+} = require('./AssistantLexicon');
+const {
   DOMAIN_VOCABULARY,
   FILLER_WORDS,
   LEAD_IN_PATTERNS,
@@ -170,6 +176,7 @@ const PHRASE_REPLACEMENTS = [
 ];
 
 const TOKEN_CORRECTIONS = {
+  ...ASSISTANT_TOKEN_CORRECTIONS,
   activte: 'activate',
   alram: 'alarm',
   alaram: 'alarm',
@@ -319,10 +326,12 @@ const TOKEN_CORRECTIONS = {
   chrmoe: 'chrome',
   chmo: 'chrome',
   chrm: 'chrome',
-  chrom: 'chrome'
+  chrom: 'chrome',
+  ...ASSISTANT_TOKEN_CORRECTIONS
 };
 
 const TOKEN_SEQUENCE_REPLACEMENTS = [
+  ...ASSISTANT_SEQUENCE_CORRECTIONS,
   { from: ['whare', 'i'], to: ['where', 'is'] },
   { from: ['where', 'i'], to: ['where', 'is'] },
   { from: ['whre', 'i'], to: ['where', 'is'] },
@@ -336,6 +345,7 @@ const TOKEN_SEQUENCE_REPLACEMENTS = [
 ];
 
 const DOMAIN_VOCABULARY = [
+  ...ASSISTANT_DOMAIN_WORDS,
   'alarm',
   'application',
   'app',
@@ -686,7 +696,8 @@ function preprocessCommand(text) {
   const normalized = Normalizer.normalizeText(spaced);
   const stripped = stripLeadIns(normalized);
   const replaced = applyPhraseReplacements(stripped);
-  const sequenceRepaired = applyTokenSequenceReplacements(Normalizer.tokenize(replaced));
+  const splitTokens = splitJoinedTokens(Normalizer.tokenize(replaced));
+  const sequenceRepaired = applyTokenSequenceReplacements(splitTokens);
   const corrected = applyTokenCorrections(sequenceRepaired);
   const tokens = collapseRepeatedTokens(corrected);
   const hints = extractCommandHints(tokens);

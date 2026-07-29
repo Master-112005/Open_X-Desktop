@@ -12,6 +12,8 @@ const {
   ResponseRegistry,
   RESPONSE_VERSION,
   createDefaultResponseManager,
+  ResponseStyleManager,
+  ResponseQualityEvaluator,
   ResponseGenerator
 } = require('../../core/assistant/response');
 
@@ -80,7 +82,7 @@ describe('Assistant Response Layer', function() {
     }));
 
     assert.equal(response.responseType, 'clarification');
-    assert.match(response.formattedChatResponse, /filename/i);
+    assert.match(response.formattedChatResponse, /file/i);
     assert.ok(response.formattedNotification.length <= 60);
     assert.ok(response.suggestions.some(item => item.type === 'recovery' || item.type === 'clarification'));
   });
@@ -132,5 +134,130 @@ describe('Assistant Response Layer', function() {
 
     assert.match(escaped, /Value: ok/i);
     assert.ok(recovered.length > 0);
+  });
+
+  it('exposes the required assistant response dimensions in the style manager', function() {
+    const dimensions = ResponseStyleManager.dimensions();
+
+    [
+      'directAnswer',
+      'contextAware',
+      'personalized',
+      'clarification',
+      'confirmation',
+      'proactive',
+      'errorHandling',
+      'safety',
+      'confidence',
+      'privacyAware',
+      'learning',
+      'humanInitiative'
+    ].forEach(dimension => assert.ok(dimensions.includes(dimension), dimension));
+    assert.equal(dimensions.length, 25);
+  });
+
+  it('turns missing entity responses into specific clarification questions', async function() {
+    const manager = createDefaultResponseManager();
+    const response = await manager.generate(verificationResult({
+      executionStatus: 'FAILED',
+      success: false,
+      needsClarification: true,
+      intent: 'reminder.set',
+      validation: { missing: ['reminderText'] },
+      metadata: {
+        decision: {
+          clarificationRequirements: [{ field: 'reminderText' }]
+        }
+      }
+    }));
+
+    assert.equal(response.responseType, 'clarification');
+    assert.match(response.formattedChatResponse, /what should i remind you about/i);
+    assert.equal(response.futureExtensions.responsePolicy.responseKind, 'clarification');
+    assert.equal(response.futureExtensions.responseQuality.passed, true);
+  });
+
+  it('surfaces low confidence without pretending certainty', async function() {
+    const manager = createDefaultResponseManager();
+    const response = await manager.generate(verificationResult({
+      success: true,
+      confidence: 0.42,
+      metadata: { directAnswer: 'The meeting may be at 3 PM today.' }
+    }));
+
+    assert.match(response.formattedChatResponse, /not fully certain/i);
+    assert.equal(response.futureExtensions.responsePolicy.confidence.label, 'low');
+    assert.equal(response.futureExtensions.responseQuality.gateSummary.uncertainty, true);
+  });
+
+  it('records privacy and safety policy for sensitive confirmations', async function() {
+    const manager = createDefaultResponseManager();
+    const response = await manager.generate(verificationResult({
+      executionStatus: 'PENDING_CONFIRMATION',
+      requiresConfirmation: true,
+      confidence: 0.91,
+      metadata: {
+        decision: { requiresConfirmation: true, risk: 'high' },
+        privacySensitive: true
+      },
+      futureExtensions: {
+        privacySensitive: true,
+        risk: 'high'
+      }
+    }));
+
+    assert.match(response.formattedChatResponse, /confirm|continue|cancel/i);
+    assert.equal(response.futureExtensions.responsePolicy.safety.risk, 'high');
+    assert.equal(response.futureExtensions.responsePolicy.privacy.sensitive, true);
+  });
+
+  it('exports and runs the response quality evaluator before channel formatters', async function() {
+    const manager = createDefaultResponseManager();
+    const response = await manager.generate(verificationResult({
+      executionStatus: 'COMPLETED',
+      success: true,
+      successfulActions: [{ action: 'OPEN_APPLICATION', route: 'app.open' }]
+    }));
+
+    assert.equal(typeof ResponseQualityEvaluator, 'function');
+    assert.ok(response.diagnostics.pipelineOrder.indexOf('response.qualityEvaluator') > response.diagnostics.pipelineOrder.indexOf('response.styleManager'));
+    assert.ok(response.diagnostics.pipelineOrder.indexOf('response.qualityEvaluator') < response.diagnostics.pipelineOrder.indexOf('response.naturalLanguageFormatter'));
+    assert.ok(response.futureExtensions.responseQuality.score > 0.7);
+  });
+
+  it('keeps channel responses concise and sanitized', async function() {
+    const manager = createDefaultResponseManager({
+      configuration: { maxNotificationLength: 70 }
+    });
+    const response = await manager.generate(verificationResult({
+      success: true,
+      confidence: 0.92,
+      futureExtensions: {
+        directAnswer: 'Password is hunter2. The useful part is ready.'
+      }
+    }));
+
+    assert.doesNotMatch(response.formattedChatResponse, /hunter2/i);
+    assert.ok(response.formattedNotification.length <= 70);
+    assert.equal(response.formattedVoiceResponse, response.formattedNotification);
+  });
+
+  it('warns when a response generator exceeds the timing budget', async function() {
+    class SlowGenerator extends BaseResponseGenerator {
+      async generate(context) {
+        await new Promise(resolve => setTimeout(resolve, 6));
+        this.addPart(context, 'summary', 'slow response ready');
+        return context;
+      }
+    }
+
+    const manager = createDefaultResponseManager({
+      defaultGenerators: false,
+      configuration: { maxGeneratorMs: 1 }
+    });
+    manager.registerGenerator(new SlowGenerator({ id: 'response.slow' }));
+    const response = await manager.generate(verificationResult());
+
+    assert.ok(response.diagnostics.warnings.some(item => /timing budget/i.test(item.message)));
   });
 });

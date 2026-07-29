@@ -1,6 +1,7 @@
 const Logger = require('../Data').Logger;
 const Normalizer = require('../Data').Normalizer;
 const Validator = require('../Data').Validator;
+const { repairKnownTokenText } = require('../normalization/AssistantLexicon');
 const { cleanEntityName } = require('../../automation/common/path-utils');
 
 const APP_ALIASES = {
@@ -881,7 +882,7 @@ class EntityExtractor {
   }
 
   _normalizeReminderScheduleText(value) {
-    return String(value || '')
+    return repairKnownTokenText(String(value || ''))
       .replace(/\bevry\s+day\b/gi, 'every day')
       .replace(/\b(?:everyday|each\s+day)\b/gi, 'every day')
       .replace(/\battendence\b/gi, 'attendance')
@@ -1000,7 +1001,7 @@ class EntityExtractor {
   }
 
   extractReminderParts(raw) {
-    const source = String(raw || '')
+    const source = repairKnownTokenText(String(raw || ''))
       .replace(/\b((?:set|create|add|schedule)\s+(?:a\s+)?(?:new\s+)?reminder)\s+t\s+(?=\d)/ig, '$1 at ')
       .replace(/\bevry\s+day\b/ig, 'every day')
       .replace(/\battendence\b/ig, 'attendance')

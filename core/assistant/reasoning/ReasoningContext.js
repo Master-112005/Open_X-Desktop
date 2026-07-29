@@ -36,15 +36,17 @@ class ReasoningContext {
     return pattern.test(this.normalizedInput);
   }
 
-  addEvidence(type, value, confidence = 0.6, source = '') {
+  addEvidence(type, value, confidence = 0.6, source = '', metadata = {}) {
     const evidence = {
       type: String(type || 'evidence'),
       value: String(value || ''),
       confidence: Math.max(0, Math.min(1, Number(confidence) || 0)),
       source: String(source || ''),
-      metadata: {}
+      metadata: { ...(metadata || {}) }
     };
     this.evidence.push(evidence);
+    const limit = this.configuration?.maxEvidence || 160;
+    if (this.evidence.length > limit) this.evidence.splice(0, this.evidence.length - limit);
     return evidence;
   }
 
@@ -91,11 +93,13 @@ class ReasoningContext {
   compact() {
     for (const listName of ['candidateGoals', 'candidateIntents', 'candidateActions', 'candidateTasks', 'missingInformation', 'clarificationRequirements', 'detectedConflicts']) {
       const next = [];
+      const byKey = new Map();
       for (const item of this[listName]) {
         const key = this._candidateKey(item);
-        const existing = next.find(candidate => this._candidateKey(candidate) === key);
+        const existing = byKey.get(key);
         if (!existing) {
           next.push(item);
+          byKey.set(key, item);
           continue;
         }
         existing.confidence = Math.max(existing.confidence || 0, item.confidence || 0);
@@ -140,6 +144,7 @@ class ReasoningContext {
       entitySummary: this.entitySummary,
       timing: this.timing,
       version: this.configuration?.version || '8.0.0',
+      cognitiveReasoning: this.futureExtensions.cognitiveReasoning || null,
       futureExtensions: this.futureExtensions
     });
   }

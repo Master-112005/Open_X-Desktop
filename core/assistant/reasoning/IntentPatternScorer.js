@@ -1,4 +1,16 @@
 const Normalizer = require('../Data').Normalizer;
+const { correctTokenWithLexicon } = require('../normalization/AssistantLexicon');
+
+function comparableToken(token) {
+  return correctTokenWithLexicon(token, { explicitOnly: true }) || token;
+}
+
+function tokensMatch(left, right, minSimilarity = 0.84) {
+  const normalizedLeft = comparableToken(left);
+  const normalizedRight = comparableToken(right);
+  return normalizedLeft === normalizedRight ||
+    Normalizer.similarity(normalizedLeft, normalizedRight) >= minSimilarity;
+}
 
 function countOrderedMatches(inputTokens, patternTokens) {
   let matches = 0;
@@ -7,10 +19,7 @@ function countOrderedMatches(inputTokens, patternTokens) {
   for (const token of inputTokens) {
     if (
       cursor < patternTokens.length &&
-      (
-        token === patternTokens[cursor] ||
-        Normalizer.similarity(token, patternTokens[cursor]) >= 0.84
-      )
+      tokensMatch(token, patternTokens[cursor], 0.84)
     ) {
       matches += 1;
       cursor += 1;
@@ -24,12 +33,12 @@ function countOverlap(inputTokens, patternTokens) {
   let overlap = 0;
 
   for (const token of patternTokens) {
-    if (inputTokens.includes(token)) {
+    if (inputTokens.includes(token) || inputTokens.some(candidate => tokensMatch(candidate, token, 0.86))) {
       overlap += 1;
       continue;
     }
 
-    const fuzzyMatch = inputTokens.some(candidate => Normalizer.similarity(candidate, token) >= 0.82);
+    const fuzzyMatch = inputTokens.some(candidate => tokensMatch(candidate, token, 0.82));
     if (fuzzyMatch) {
       overlap += 1;
     }
@@ -45,7 +54,7 @@ function ratioMatch(left, right) {
 
   const overlap = right.filter(item => (
     left.includes(item) ||
-    left.some(candidate => Normalizer.similarity(candidate, item) >= 0.86)
+    left.some(candidate => tokensMatch(candidate, item, 0.86))
   )).length;
   return overlap / right.length;
 }
@@ -72,8 +81,7 @@ function scorePreparedPattern(preparedInput, patternPrepared) {
   const patternBigrams = patternPrepared.intentBigrams || patternPrepared.bigrams || [];
   const bigramScore = ratioMatch(inputBigrams, patternBigrams);
   const leadingVerbMatch = inputTokens[0] && patternTokens[0] && (
-    inputTokens[0] === patternTokens[0] ||
-    Normalizer.similarity(inputTokens[0], patternTokens[0]) >= 0.84
+    tokensMatch(inputTokens[0], patternTokens[0], 0.84)
   ) ? 1 : 0;
   const contiguousPhraseBonus = patternTokens.length > 1 && inputText.includes(patternTokens.join(' ')) ? 0.05 : 0;
 
