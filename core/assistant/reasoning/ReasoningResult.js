@@ -23,6 +23,7 @@ class ReasoningResult {
     this.ready = Boolean(this.resolvedGoal && this.resolvedIntent && this.resolvedAction && this.clarificationRequirements.length === 0);
     this.timing = { ...(input.timing || {}) };
     this.version = String(input.version || '8.0.0');
+    this.cognitiveReasoning = input.cognitiveReasoning || input.futureExtensions?.cognitiveReasoning || null;
     this.futureExtensions = { ...(input.futureExtensions || {}) };
     deepFreeze(this);
   }

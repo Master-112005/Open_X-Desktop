@@ -8,6 +8,8 @@ const SummaryResponse = require('./SummaryResponse');
 const ErrorResponse = require('./ErrorResponse');
 const ClarificationResponse = require('./ClarificationResponse');
 const SuggestionResponse = require('./SuggestionResponse');
+const ResponseStyleManager = require('./ResponseStyleManager');
+const ResponseQualityEvaluator = require('./ResponseQualityEvaluator');
 const NaturalLanguageFormatter = require('./NaturalLanguageFormatter');
 const VoiceFormatter = require('./VoiceFormatter');
 const ChatFormatter = require('./ChatFormatter');
@@ -31,6 +33,8 @@ class ResponseManager {
       [ErrorResponse, 'response.error', 30],
       [ClarificationResponse, 'response.clarification', 40],
       [SuggestionResponse, 'response.suggestion', 50],
+      [ResponseStyleManager, 'response.styleManager', 55],
+      [ResponseQualityEvaluator, 'response.qualityEvaluator', 57],
       [NaturalLanguageFormatter, 'response.naturalLanguageFormatter', 60],
       [VoiceFormatter, 'response.voiceFormatter', 70],
       [ChatFormatter, 'response.chatFormatter', 80],

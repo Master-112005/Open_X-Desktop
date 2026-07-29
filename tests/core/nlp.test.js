@@ -33,6 +33,46 @@ describe('NLP Processor', function() {
     assert.equal(prepared.query.type, 'knowledge-question');
   });
 
+  it('should repair assistant UI and command spelling mistakes from the shared lexicon', function() {
+    const nlp = new NlpProcessor(new IntentRegistry());
+    const prepared = nlp.prepare('plese open settngs and show server detials');
+
+    assert.equal(prepared.correctedText, 'please open settings and show server details');
+    assert.deepEqual(prepared.tokens, ['please', 'open', 'settings', 'and', 'show', 'server', 'details']);
+  });
+
+  it('should protect names, media titles, and local search targets while correcting command typos', function() {
+    const nlp = new NlpProcessor(new IntentRegistry());
+
+    assert.equal(
+      nlp.prepare('play eymakoo song with 50 vol').correctedText,
+      'play eymakoo song with 50 volume'
+    );
+    assert.equal(
+      nlp.prepare('find photes of rishi and charan').correctedText,
+      'find photos of rishi and charan'
+    );
+    assert.equal(
+      nlp.prepare('serch for my quaterly reprt file').correctedText,
+      'search for my quaterly reprt file'
+    );
+    assert.equal(
+      nlp.prepare('cancle the remindee').correctedText,
+      'cancel the reminder'
+    );
+  });
+
+  it('should recover common missing-space speech and chat commands', function() {
+    const nlp = new NlpProcessor(new IntentRegistry());
+
+    assert.equal(nlp.prepare('hi howare you ok').correctedText, 'hi how are you ok');
+    assert.equal(nlp.prepare('openchrome').correctedText, 'open chrome');
+    assert.equal(nlp.prepare('openyoutub').correctedText, 'open youtube');
+    assert.equal(nlp.prepare('setalarm for 10 am').correctedText, 'set alarm for 10 am');
+    assert.equal(nlp.prepare('remindmeat 9 pm to call mom').correctedText, 'remind me at 9 pm to call mom');
+    assert.equal(nlp.prepare('whatsthe time').correctedText, 'what is the time');
+  });
+
   it('should build semantic frames for web, local, search, and knowledge requests', function() {
     const nlp = new NlpProcessor(new IntentRegistry());
 

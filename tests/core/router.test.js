@@ -1037,6 +1037,35 @@ describe('Action Router', function() {
     assert.equal(noisyMisspelled.entities.appName, 'chrome');
   });
 
+  it('should route common missing-space assistant commands', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const stubEngine = {
+      execute(actionId, entities) {
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const app = await router.process('openchrome', 'chat');
+    const website = await router.process('openyoutub', 'chat');
+    const alarm = await router.process('setalarm for 10 am', 'chat');
+    const reminder = await router.process('remindmeat 9 pm to call mom', 'chat');
+    const greeting = await router.process('hi howare you ok', 'chat');
+
+    assert.equal(app.intent, 'app.open');
+    assert.equal(app.entities.appName, 'chrome');
+    assert.equal(website.intent, 'app.open');
+    assert.equal(website.entities.appName, 'youtube');
+    assert.equal(alarm.intent, 'alarm.set');
+    assert.equal(alarm.entities.timeExpression, '10 am');
+    assert.equal(reminder.intent, 'reminder.set');
+    assert.equal(reminder.entities.timeExpression, '9 pm');
+    assert.equal(reminder.entities.reminderText, 'call mom');
+    assert.equal(greeting.intent, 'greeting');
+  });
+
   it('should salvage utility commands from noisy STT tokens', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }

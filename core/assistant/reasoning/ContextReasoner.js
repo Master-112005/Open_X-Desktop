@@ -19,6 +19,15 @@ class ContextReasoner extends BaseReasoner {
     }
     const recent = resolved.workingMemory?.lastAction || resolved.conversationMemory?.lastAction || resolved.metadata?.lastAction || null;
     if (recent) context.addEvidence('context.recent-action', String(recent), 0.66, this.id);
+    if (/\b(?:it|that|them|this|same|again)\b/.test(context.normalizedInput)) {
+      context.addEvidence('context.follow-up', 'reference-dependent-command', 0.68, this.id);
+    }
+    if (
+      /\b(?:next|previous|prev|back|forward|pause|resume|play|stop)\b/.test(context.normalizedInput) &&
+      (resolved.media?.active || resolved.application?.focusedApplication || resolved.browserState?.currentBrowser || recent)
+    ) {
+      context.addEvidence('context.active-surface', 'active-control-target', 0.7, this.id);
+    }
     if (/\b(?:no no|actually|instead|set it to|change it to)\b/.test(context.normalizedInput)) {
       context.metadata.isCorrection = true;
       context.addEvidence('context.correction', 'correction-or-revision', 0.72, this.id);

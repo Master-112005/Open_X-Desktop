@@ -38,6 +38,12 @@ class GoalIntentReasoningStage extends PipelineStage {
       action: reasoningResult.resolvedAction?.action || null,
       ready: reasoningResult.ready,
       entitySummary: reasoningResult.entitySummary,
+      cognitive: reasoningResult.cognitiveReasoning ? {
+        dimensions: (reasoningResult.cognitiveReasoning.dimensions || []).slice(0, 6).map(item => item.id),
+        uncertainty: reasoningResult.cognitiveReasoning.uncertainty?.level || 'none',
+        safety: reasoningResult.cognitiveReasoning.safety?.level || 'none',
+        privacy: reasoningResult.cognitiveReasoning.privacy?.level || 'none'
+      } : null,
       confidence: reasoningResult.confidenceScores.overall || 0,
       version: reasoningResult.version
     });

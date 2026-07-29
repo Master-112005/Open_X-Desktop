@@ -1,7 +1,7 @@
 'use strict';
 
 const { ResponseManager, createDefaultResponseManager } = require('./ResponseManager');
-const RESPONSE_VERSION = '11.1.0';
+const RESPONSE_VERSION = '11.3.0';
 
 module.exports = {
   RESPONSE_VERSION,
@@ -16,6 +16,8 @@ module.exports = {
   ErrorResponse: require('./ErrorResponse'),
   ClarificationResponse: require('./ClarificationResponse'),
   SuggestionResponse: require('./SuggestionResponse'),
+  ResponseStyleManager: require('./ResponseStyleManager'),
+  ResponseQualityEvaluator: require('./ResponseQualityEvaluator'),
   VoiceFormatter: require('./VoiceFormatter'),
   ChatFormatter: require('./ChatFormatter'),
   NotificationFormatter: require('./NotificationFormatter'),

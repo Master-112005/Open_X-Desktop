@@ -10,6 +10,11 @@ const {
   preprocessCommand
 } = require('../normalization/CommandPreprocessor');
 const {
+  buildAssistantVocabulary,
+  correctTokenWithLexicon,
+  shouldProtectToken
+} = require('../normalization/AssistantLexicon');
+const {
   scorePreparedPattern
 } = require('../reasoning/IntentPatternScorer');
 const { normalizeWebTarget } = require('../semantic/WebTargets');
@@ -95,15 +100,20 @@ class NlpProcessor {
     Object.keys(TOKEN_CORRECTIONS).forEach(token => tokens.add(token));
     Object.values(TOKEN_CORRECTIONS).forEach(token => tokens.add(token));
 
-    return Array.from(tokens);
+    return buildAssistantVocabulary(Array.from(tokens));
   }
 
-  _correctToken(token) {
-    if (TOKEN_CORRECTIONS[token]) {
-      return TOKEN_CORRECTIONS[token];
+  _correctToken(token, index = -1, tokens = []) {
+    const lexiconCorrection = correctTokenWithLexicon(token, { index, tokens });
+    if (lexiconCorrection) {
+      return lexiconCorrection;
     }
 
     if (!token || token.length <= 2 || /^\d+$/.test(token)) {
+      return token;
+    }
+
+    if (this.vocabularySet.has(token) || shouldProtectToken(token, { index, tokens })) {
       return token;
     }
 
@@ -167,7 +177,7 @@ class NlpProcessor {
     const preprocessed = preprocessCommand(text || '');
     const normalized = preprocessed.normalizedText;
     const normalizedTokens = preprocessed.tokens;
-    const correctedTokens = normalizedTokens.map(token => this._correctToken(token));
+    const correctedTokens = normalizedTokens.map((token, index) => this._correctToken(token, index, normalizedTokens));
     const correctedText = correctedTokens.join(' ').trim();
     const intentTokens = correctedTokens.filter(token => !FILLER_WORDS.has(token));
     const intentText = intentTokens.join(' ').trim();

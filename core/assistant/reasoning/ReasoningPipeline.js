@@ -22,7 +22,10 @@ class ReasoningPipeline {
     });
     if (this.configuration.enabled === false) return context.toReasoningResult();
 
-    for (const reasoner of this.registry.list({ includeDisabled: false })) {
+    const reasoners = this.registry.list({ includeDisabled: false });
+    context.diagnostics.reasonerCount = reasoners.length;
+
+    for (const reasoner of reasoners) {
       const started = Date.now();
       context.diagnostics.pipelineOrder.push(reasoner.id);
       try {
@@ -35,7 +38,14 @@ class ReasoningPipeline {
         context.diagnostics.error(wrapped);
         if (this.configuration.strict) throw wrapped;
       } finally {
-        context.diagnostics.time(reasoner.id, Date.now() - started);
+        const durationMs = Date.now() - started;
+        context.diagnostics.time(reasoner.id, durationMs);
+        if (durationMs > (this.configuration.reasonerWarningMs || 75)) {
+          context.diagnostics.warn('Reasoner exceeded expected duration.', {
+            reasonerId: reasoner.id,
+            durationMs
+          });
+        }
         if (typeof reasoner.cleanup === 'function') await reasoner.cleanup(context);
       }
     }
@@ -46,7 +56,9 @@ class ReasoningPipeline {
   _trimCandidates(context) {
     const limit = context.configuration?.maxCandidates || 25;
     for (const listName of ['candidateGoals', 'candidateIntents', 'candidateActions', 'candidateTasks']) {
-      if (context[listName].length > limit) context[listName] = context.ranked(listName).slice(0, limit);
+      if (context[listName].length <= limit) continue;
+      context.diagnostics.trimmedCandidates[listName] = (context.diagnostics.trimmedCandidates[listName] || 0) + (context[listName].length - limit);
+      context[listName] = context.ranked(listName).slice(0, limit);
     }
   }
 }

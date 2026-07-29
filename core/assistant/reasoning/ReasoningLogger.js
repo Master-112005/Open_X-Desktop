@@ -5,11 +5,15 @@ class ReasoningLogger {
     this.logger = logger || null;
   }
 
-  _safeData(data) {
+  _safeData(data, depth = 0) {
     if (!data || typeof data !== 'object') return data;
-    const copy = { ...data };
-    for (const key of Object.keys(copy)) {
-      if (/(password|token|secret|key|email|phone)/i.test(key)) copy[key] = '[REDACTED]';
+    if (depth > 3) return '[Object]';
+    if (Array.isArray(data)) return data.slice(0, 30).map(item => this._safeData(item, depth + 1));
+    const copy = {};
+    for (const [key, value] of Object.entries(data)) {
+      copy[key] = /(password|token|secret|private|key|email|phone|otp|pin|session)/i.test(key)
+        ? '[REDACTED]'
+        : this._safeData(value, depth + 1);
     }
     return copy;
   }

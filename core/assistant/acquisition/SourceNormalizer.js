@@ -11,14 +11,18 @@ const SOURCE_ALIASES = Object.freeze({
   'image-text': 'ocr',
   ios: 'phone',
   mobile: 'phone',
+  moblie: 'phone',
+  mobiel: 'phone',
   'mobile-cloud': 'cloud',
   paste: 'clipboard',
   relay: 'cloud',
   rest: 'api',
   screen: 'ocr',
   'screen-text': 'ocr',
+  speach: 'voice',
   speech: 'voice',
-  text: 'chat'
+  text: 'chat',
+  voce: 'voice'
 });
 
 class SourceNormalizer {

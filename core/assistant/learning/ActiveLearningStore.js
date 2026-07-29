@@ -3,6 +3,7 @@ const path = require('path');
 const { Normalizer } = require('../Data');
 const { buildDataPaths, readJsonFile, writeJsonAtomic } = require('../Data');
 const LearningGuard = require('./LearningGuard');
+const { isTransientHumanState } = require('../semantic/HumanStateLanguage');
 
 const MAX_EVENTS = 200;
 const MAX_REWRITES = 100;
@@ -1180,6 +1181,9 @@ class ActiveLearningStore {
 
     if (identityMatch && identityMatch[1]) {
       const profession = identityMatch[1].replace(/[.!?]+$/g, '').trim();
+      if (isTransientHumanState(profession)) {
+        return null;
+      }
       if (profession && profession.length > 1 && profession.length < 50 && !/^(?:a|an|the|student|going|doing|here|ready|available)\b/i.test(profession)) {
         const fact = this.rememberUserFact('profession', profession, {
           source: /^remember\b/i.test(text) ? 'explicit-memory' : 'user-stated-fact'

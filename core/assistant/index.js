@@ -16,6 +16,7 @@ const {
   extractReplacement,
   parseLearningDirective
 } = require('./learning/LearningLanguage');
+const { classifyHumanState } = require('./semantic/HumanStateLanguage');
 const AssistantEngine = require('./AssistantEngine');
 const { PipelineManager } = require('./pipeline');
 const { createDefaultInputSourceManager } = require('./acquisition');
@@ -223,6 +224,12 @@ class Assistant extends EventEmitter {
       const scheduleCompletion = await this._handlePendingScheduleCompletion(input, source);
       if (scheduleCompletion) {
         return this._finalizeAssistantResult(scheduleCompletion, { input, source });
+      }
+
+      const wellbeingResult = this._answerWellbeingStatus(input, source);
+      if (wellbeingResult) {
+        this.context.record(input, {}, wellbeingResult);
+        return this._finalizeAssistantResult(wellbeingResult, { input, source });
       }
 
       const learningResult = await this._handleLearningInput(input, source);
@@ -689,6 +696,38 @@ class Assistant extends EventEmitter {
     }
 
     return null;
+  }
+
+  _answerWellbeingStatus(input, source) {
+    const state = classifyHumanState(input, {
+      requireStarter: true,
+      ignoreActionCommands: true
+    });
+    if (!state) return null;
+
+    const response = this.responses.generate('success', 'assistant.wellbeing', {
+      entities: { wellbeingKind: state.kind, humanStateLabel: state.label, input },
+      result: { data: { wellbeingKind: state.kind, humanStateLabel: state.label, input } },
+      input
+    });
+
+    return {
+      commandId: null,
+      success: true,
+      learned: false,
+      intent: 'assistant.wellbeing',
+      confidence: state.confidence,
+      entities: { wellbeingKind: state.kind, humanStateLabel: state.label },
+      data: {
+        stored: false,
+        responseMode: 'supportive',
+        normalizedHumanState: state.normalized,
+        safety: state.healthAdjacent ? 'health-adjacent' : 'low',
+        emotional: state.emotional === true
+      },
+      response,
+      source
+    };
   }
 
   _directContextResult(source, response) {
@@ -2590,10 +2629,19 @@ class Assistant extends EventEmitter {
   }
 
   _finalizeAssistantResult(result = {}, context = {}) {
-    const response = String(result.response || result.message || '').trim();
+    const rawResponse = String(result.response || result.message || '').trim();
     const source = result.source || context.source || 'chat';
     const responseStyle = this.learning?.getPreference?.('responseStyle')?.value || '';
     const spokenStyle = this.learning?.getPreference?.('spokenResponseStyle')?.value || responseStyle || '';
+    const refined = this.responses.refineResponse(rawResponse, {
+      ...context,
+      result,
+      input: context.input || result.input || '',
+      source,
+      responseStyle,
+      spokenStyle
+    });
+    const response = refined.text || rawResponse;
     const spokenResponse = result.spokenResponse || this.responses.createSpokenResponse(response, {
       ...context,
       source,
@@ -2603,7 +2651,10 @@ class Assistant extends EventEmitter {
     });
     return {
       ...result,
+      response,
       source,
+      ...(refined.policy ? { responsePolicy: refined.policy } : {}),
+      ...(refined.suggestions?.length ? { responseSuggestions: refined.suggestions } : {}),
       ...(spokenResponse ? { spokenResponse } : {})
     };
   }

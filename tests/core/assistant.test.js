@@ -2521,6 +2521,42 @@ describe('Assistant Confirmation Flow', function() {
     assert.match(mixedWellbeing.response, /doing|fine|ready/i);
   });
 
+  it('should answer temporary wellbeing states instead of memorizing them', async function() {
+    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-wellbeing-learning-'));
+    const learning = new ActiveLearningStore({
+      app: { dataDir: tempDir },
+      activeLearning: { enabled: true }
+    });
+    const assistant = new Assistant({}, {
+      learning,
+      automation: {
+        execute: async () => ({ success: true, data: {} })
+      },
+      eventBus: { publish() {} }
+    });
+
+    const examples = [
+      ['i am fealing cold', /cold|warm|shivering|medical/i],
+      ['i am fealing tried', /tired|rest|break|water|continue/i],
+      ['i feel anxous', /stress|breath|problem|organize|step|priority|sort/i],
+      ['i am very sad', /sorry|hard|mind|next|step/i],
+      ['i am thursty', /water|thirst|dizzy|fluids/i],
+      ['i am confuzed', /confusing|unclear|step|stuck/i],
+      ['i am happy today', /good|momentum|next|help/i]
+    ];
+
+    for (const [input, expected] of examples) {
+      const result = await assistant.processCommand(input);
+      assert.equal(result.success, true, input);
+      assert.equal(result.intent, 'assistant.wellbeing', input);
+      assert.equal(result.learned, false, input);
+      assert.doesNotMatch(result.response, /remember/i, input);
+      assert.match(result.response, expected, input);
+    }
+    assert.equal(learning.getUserFact('profession'), null);
+  });
+
   it('should keep validation and verification evidence in command context', async function() {
     const router = {
       process: async () => ({

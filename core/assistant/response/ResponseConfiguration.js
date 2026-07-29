@@ -11,6 +11,14 @@ class ResponseConfiguration {
     this.voiceVerbosity = String(input.voiceVerbosity || 'concise');
     this.chatVerbosity = String(input.chatVerbosity || 'concise');
     this.suggestions = input.suggestions !== false;
+    this.responsePolicy = input.responsePolicy !== false;
+    this.responseQuality = input.responseQuality !== false;
+    this.confidenceDisclosureThreshold = Math.max(0, Math.min(1, Number(input.confidenceDisclosureThreshold ?? 0.6)));
+    this.defaultDetailMode = String(input.defaultDetailMode || 'adaptive');
+    this.proactiveSuggestions = input.proactiveSuggestions !== false;
+    this.maxGeneratorMs = Math.max(1, Number(input.maxGeneratorMs || 75));
+    this.personalityStyle = String(input.personalityStyle || input.tone || 'professional');
+    this.preserveChatLineBreaks = input.preserveChatLineBreaks === true;
     this.maxVoiceLength = Number(input.maxVoiceLength || 900);
     this.maxChatLength = Number(input.maxChatLength || 2400);
     this.maxNotificationLength = Number(input.maxNotificationLength || 120);
@@ -35,6 +43,14 @@ class ResponseConfiguration {
       voiceVerbosity: this.voiceVerbosity,
       chatVerbosity: this.chatVerbosity,
       suggestions: this.suggestions,
+      responsePolicy: this.responsePolicy,
+      responseQuality: this.responseQuality,
+      confidenceDisclosureThreshold: this.confidenceDisclosureThreshold,
+      defaultDetailMode: this.defaultDetailMode,
+      proactiveSuggestions: this.proactiveSuggestions,
+      maxGeneratorMs: this.maxGeneratorMs,
+      personalityStyle: this.personalityStyle,
+      preserveChatLineBreaks: this.preserveChatLineBreaks,
       maxVoiceLength: this.maxVoiceLength,
       maxChatLength: this.maxChatLength,
       maxNotificationLength: this.maxNotificationLength,

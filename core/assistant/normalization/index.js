@@ -10,6 +10,7 @@ module.exports = {
   BaseNormalizer: require('./BaseNormalizer'),
   ContractionResolver: require('./ContractionResolver'),
   CommandPreprocessor: require('./CommandPreprocessor'),
+  AssistantLexicon: require('./AssistantLexicon'),
   DateNormalizer: require('./DateNormalizer'),
   EmojiInterpreter: require('./EmojiInterpreter'),
   InputCleaner: require('./InputCleaner'),

@@ -1,6 +1,7 @@
 'use strict';
 
 const BaseResponseGenerator = require('./BaseResponseGenerator');
+const ResponseStyleManager = require('./ResponseStyleManager');
 
 class ClarificationResponse extends BaseResponseGenerator {
   generate(context) {
@@ -11,10 +12,10 @@ class ClarificationResponse extends BaseResponseGenerator {
     const fields = requirements
       .map(item => item.field || item.requirement || item.reason)
       .filter(Boolean)
-      .slice(0, 4)
-      .join(', ');
-    this.addPart(context, 'clarification', fields
-      ? `I need clarification for ${fields}.`
+      .slice(0, 4);
+    const question = ResponseStyleManager.missingFieldQuestion(fields, context.verificationResult?.intent || '');
+    this.addPart(context, 'clarification', fields.length > 0
+      ? question
       : 'I need one more detail before I can continue.');
     return context;
   }

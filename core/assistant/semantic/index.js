@@ -6,6 +6,7 @@ module.exports = {
   BaseSemanticAnalyzer: require('./BaseSemanticAnalyzer'),
   ConfidenceEngine: require('./ConfidenceEngine'),
   ConversationClassifier: require('./ConversationClassifier'),
+  HumanStateLanguage: require('./HumanStateLanguage'),
   MeaningResolver: require('./MeaningResolver'),
   NaturalLanguageRouter: require('./NaturalLanguageRouter'),
   RelationshipAnalyzer: require('./RelationshipAnalyzer'),

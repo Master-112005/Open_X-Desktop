@@ -27,6 +27,31 @@ describe('Response Generator', function() {
     assert.ok(result.toLowerCase().includes('confirm'));
   });
 
+  it('should ask specific missing-detail questions for reminder text', function() {
+    const gen = new ResponseGenerator();
+    const result = gen.generate('error', 'missingEntities', {
+      entities: { names: 'reminderText' },
+      intent: { id: 'reminder.set' }
+    });
+
+    assert.match(result, /what should i remind you about/i);
+  });
+
+  it('should refine legacy low-confidence responses without hiding uncertainty', function() {
+    const gen = new ResponseGenerator();
+    const refined = gen.refineResponse('Done.', {
+      input: 'do the thing',
+      result: {
+        success: true,
+        intent: 'app.open',
+        confidence: 0.4
+      }
+    });
+
+    assert.match(refined.text, /not fully certain/i);
+    assert.equal(refined.policy.confidence.label, 'low');
+  });
+
   it('should include risk context in high-impact confirmation responses', function() {
     const gen = new ResponseGenerator();
     const result = gen.generate('confirmation', 'confirmAction', {
@@ -516,6 +541,15 @@ describe('Response Generator', function() {
     const gen = new ResponseGenerator({ assistant: { honorific: 'master' } });
     const result = gen.generate('success', 'app.open', { entities: { appName: 'chrome' } });
     assert.ok(result.toLowerCase().includes('master'));
+  });
+
+  it('should expose configurable personality response style', function() {
+    const Personality = require('../../core/assistant/response/Personality');
+    const personality = new Personality({ assistant: { responseStyle: 'concise', addressing: { useHonorific: false } } });
+    const response = personality.applyToResponse('Done, sir. I also checked the next step.');
+
+    assert.equal(personality.describeStyle().style, 'concise');
+    assert.equal(response, 'Done.');
   });
 
   it('should explain when an existing app window was focused', function() {

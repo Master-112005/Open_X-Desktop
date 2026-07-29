@@ -1,6 +1,7 @@
 'use strict';
 
 const BaseSemanticAnalyzer = require('./BaseSemanticAnalyzer');
+const { ASSISTANT_TOKEN_CORRECTIONS, repairKnownTokenText } = require('../normalization/AssistantLexicon');
 
 const DEFAULT_CONCEPTS = Object.freeze({
   OPEN: ['open', 'launch', 'fire up', 'start', 'bring up'],
@@ -32,6 +33,23 @@ class SemanticDictionary extends BaseSemanticAnalyzer {
 
   _buildConcepts(custom = {}) {
     const merged = { ...DEFAULT_CONCEPTS };
+    const typoConcepts = {
+      OPEN: ['opne', 'ope', 'lauch', 'lnauch'],
+      CLOSE: ['cloe', 'clsoe', 'cancle'],
+      FIND: ['seach', 'serch', 'saerch', 'photes', 'phots'],
+      DELETE: ['dlete', 'delte'],
+      TIMER: ['alram', 'alaram', 'remindee', 'remider', 'remeinder'],
+      APPLICATION: ['crome', 'chrom', 'chrmoe', 'youtub', 'yotube', 'settngs'],
+      MEDIA: ['musc', 'musci', 'sony'],
+      SEND: ['transver', 'sende']
+    };
+    Object.entries(typoConcepts).forEach(([concept, values]) => {
+      merged[concept] = Array.from(new Set([
+        ...(merged[concept] || []),
+        ...values,
+        ...values.map(value => ASSISTANT_TOKEN_CORRECTIONS[value]).filter(Boolean)
+      ]));
+    });
     Object.entries(custom || {}).forEach(([concept, values]) => {
       merged[String(concept).toUpperCase()] = Array.from(new Set([
         ...(merged[String(concept).toUpperCase()] || []),
@@ -42,7 +60,7 @@ class SemanticDictionary extends BaseSemanticAnalyzer {
   }
 
   lookup(value) {
-    const text = String(value || '').toLowerCase();
+    const text = repairKnownTokenText(String(value || '').toLowerCase());
     const matches = [];
     Object.entries(this.concepts).forEach(([concept, terms]) => {
       terms.forEach(term => {

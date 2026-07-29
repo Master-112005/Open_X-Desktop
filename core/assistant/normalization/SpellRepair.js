@@ -2,6 +2,11 @@
 
 const BaseNormalizer = require('./BaseNormalizer');
 const { TOKEN_CORRECTIONS } = require('./CommandPreprocessor');
+const {
+  ASSISTANT_TOKEN_CORRECTIONS,
+  correctTokenWithLexicon,
+  repairRepeatedLetters
+} = require('./AssistantLexicon');
 
 const DEFAULT_REPAIRS = Object.freeze({
   alram: 'alarm',
@@ -44,14 +49,14 @@ class SpellRepair extends BaseNormalizer {
     super(options);
     this.dictionary = {
       ...DEFAULT_REPAIRS,
+      ...ASSISTANT_TOKEN_CORRECTIONS,
       ...TOKEN_CORRECTIONS,
       ...(options.dictionaries?.spellings || options.spellings || {})
     };
   }
 
   _repairRepeatedLetters(token) {
-    if (token.length < 5) return token;
-    return token.replace(/([a-z])\1{2,}/gi, '$1$1');
+    return repairRepeatedLetters(token);
   }
 
   normalize(context) {
@@ -59,7 +64,10 @@ class SpellRepair extends BaseNormalizer {
     const next = String(context.workingText || '').replace(/\b[a-zA-Z]{2,}\b/g, token => {
       const lower = token.toLowerCase();
       const compact = this._repairRepeatedLetters(lower);
-      const replacement = this.dictionary[lower] || this.dictionary[compact] || (compact !== lower ? compact : token);
+      const replacement = this.dictionary[lower] ||
+        this.dictionary[compact] ||
+        correctTokenWithLexicon(lower, { explicitOnly: false }) ||
+        token;
       if (replacement !== token && replacement !== lower) repairs.push({ from: token, to: replacement });
       return replacement;
     });

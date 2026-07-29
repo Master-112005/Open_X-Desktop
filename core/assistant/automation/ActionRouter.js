@@ -6261,6 +6261,7 @@ const newTabMatch = input.match(
     const entities = this.entityExtractor.extract(intent, raw);
     const correctedEntities = this.entityExtractor.extract(intent, corrected);
     entities.recurrence = entities.recurrence || correctedEntities.recurrence || this._extractScheduleRecurrence(combined);
+    entities.timeExpression = entities.timeExpression || correctedEntities.timeExpression;
     entities.timeExpression = this._stripScheduleRecurrenceFromTimeExpression(entities.timeExpression);
     if (entities.timeExpression) {
       return { intent, confidence: 1, entities };

@@ -11,9 +11,10 @@ class ErrorResponse extends BaseResponseGenerator {
     const first = failedActions[0];
     const target = first.action || first.route || first.taskId || 'action';
     const reason = first.error || first.reason || first.message || '';
+    const targetText = String(target || 'action').replace(/[._-]+/g, ' ').trim() || 'action';
     this.addPart(context, 'error', reason
-      ? `Failed: ${target}. ${reason}`
-      : `Failed: ${target}.`, { failed: failedActions.length });
+      ? `I could not complete ${targetText} because ${reason}`
+      : `I could not complete ${targetText}.`, { failed: failedActions.length });
     return context;
   }
 }

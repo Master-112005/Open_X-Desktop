@@ -1,5 +1,7 @@
 'use strict';
 
+const { repairKnownTokenText } = require('../normalization/AssistantLexicon');
+
 const CANONICAL = Object.freeze({
   application: {
     chrome: 'Google Chrome',
@@ -84,7 +86,14 @@ class EntityNormalizer {
     for (const entity of context.allEntities()) {
       const key = String(entity.value || '').toLowerCase().trim();
       const rawKey = String(entity.rawValue || '').toLowerCase().trim();
-      entity.canonical = this.maps[entity.type]?.[key] || this.maps[entity.type]?.[rawKey] || entity.canonical || entity.value;
+      const repairedKey = repairKnownTokenText(key);
+      const repairedRawKey = repairKnownTokenText(rawKey);
+      entity.canonical = this.maps[entity.type]?.[key] ||
+        this.maps[entity.type]?.[rawKey] ||
+        this.maps[entity.type]?.[repairedKey] ||
+        this.maps[entity.type]?.[repairedRawKey] ||
+        entity.canonical ||
+        entity.value;
       if (entity.type === 'duration') entity.metadata.durationSeconds = this._durationSeconds(entity.value);
       if (entity.type === 'volumeLevel' || entity.type === 'brightnessLevel') {
         entity.value = String(Math.max(0, Math.min(100, Number(entity.value) || 0)));
