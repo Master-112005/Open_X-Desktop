@@ -751,11 +751,16 @@ class Assistant extends EventEmitter {
   }
 
   _buildRoutedInput(input) {
-    const normalizedInput = this._normalizeCompactCommandText(this._normalizeClockExpressionsForRouting(input));
+    const clockNormalizedInput = this._normalizeClockExpressionsForRouting(input);
+    const normalizedInput = this._normalizeCompactCommandText(clockNormalizedInput);
     const contextual = this._resolveContextualFollowUp(normalizedInput);
     const contextualChanged = contextual && contextual !== normalizedInput;
-    const personalSource = contextualChanged ? '' : this._resolvePersonalSourceRouting(normalizedInput);
-    const routedInput = contextualChanged ? contextual : (personalSource || contextual || normalizedInput);
+    const unresolvedPronounRewrite = !contextualChanged &&
+      normalizedInput !== clockNormalizedInput &&
+      this._looksLikeUnresolvedPronounAction(normalizedInput);
+    const routingInput = unresolvedPronounRewrite ? clockNormalizedInput : normalizedInput;
+    const personalSource = contextualChanged ? '' : this._resolvePersonalSourceRouting(routingInput);
+    const routedInput = contextualChanged ? contextual : (personalSource || contextual || routingInput);
     const contextualForLearning = routedInput;
     const learned = this.learning?.findCorrection?.(contextualForLearning);
     this._lastRoutingLearning = learned || null;
@@ -782,9 +787,17 @@ class Assistant extends EventEmitter {
     }
 
     return raw
+      .replace(/^(?:can|could|would)\s+(?:you\s+)?(?:please\s+)?((?:open|reopen|close|quit|exit|minimi[sz]e|maximi[sz]e|show|list|find|play|pause|resume|stop|set|turn|increase|decrease|start|launch|run|switch|focus)\b)/i, '$1')
+      .replace(/^please\s+((?:open|reopen|close|quit|exit|minimi[sz]e|maximi[sz]e|show|list|find|play|pause|resume|stop|set|turn|increase|decrease|start|launch|run|switch|focus)\b)/i, '$1')
       .replace(/\b(open|reopen|close|quit|exit|minimi[sz]e|maximi[sz]e|show|list|find|play|pause|resume|stop)(it|that|this|them|those)\b/gi, '$1 $2')
+      .replace(/\bvol\b/gi, 'volume')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  _looksLikeUnresolvedPronounAction(input) {
+    return /^(?:open|reopen|close|quit|exit|minimi[sz]e|maximi[sz]e|show|list|find|play|pause|resume|stop|set|turn|increase|decrease|start|launch|run|switch|focus)\s+(?:it|that|this|them|those|current\s+one|current\s+app)$/i
+      .test(String(input || '').trim());
   }
 
   _resolvePersonalSourceRouting(input) {
@@ -2198,15 +2211,31 @@ class Assistant extends EventEmitter {
     const recentTasks = this.context.getRecentTasks?.() || [];
     const lastTask = recentTasks[recentTasks.length - 1];
     if (!lastTask) return '';
+    const text = Normalizer.normalizeText(String(normalized || ''))
+      .replace(/\b(?:cancle|cancl|canel)\b/g, 'cancel')
+      .replace(/\b(?:clane|cleane)\b/g, 'clear')
+      .replace(/\b(?:remindee|remider|remideres|reminderss)\b/g, 'reminder')
+      .replace(/\b(?:alram|alaram|alarmsm)\b/g, 'alarm')
+      .replace(/\s+/g, ' ')
+      .trim();
 
-    const duration = String(normalized || '').match(
+    if (/^(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:cancel|clear|delete|remove|stop|dismiss)\s+(?:it|that|this|the\s+one)$/i.test(text)) {
+      const lastIntent = String(this.context.getLastIntent?.() || '').toLowerCase();
+      const targetType = /^(alarm|reminder|timer)\./.exec(lastIntent)?.[1] || '';
+      if (!targetType) return '';
+      if (targetType === 'alarm') return 'cancel the alarm';
+      if (targetType === 'reminder') return 'cancel the reminder';
+      if (targetType === 'timer') return 'cancel the timer';
+    }
+
+    const duration = text.match(
       /^(?:add|give\s+me|set|start|make\s+it|another(?:\s+one)?(?:\s+for)?)\s+(?:a\s+)?(\d+|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty(?:\s*five)?|sixty)\s*(seconds?|minutes?|hours?)$/i
     );
     if (lastTask.type === 'timer' && duration?.[1] && duration?.[2]) {
       return `set timer for ${duration[1]} ${duration[2]}`;
     }
 
-    const reminder = String(normalized || '').match(/^(?:and\s+)?remind\s+me\s+(?:then|at\s+the\s+same\s+time)\s+to\s+(.+)$/i);
+    const reminder = text.match(/^(?:and\s+)?remind\s+me\s+(?:then|at\s+the\s+same\s+time)\s+to\s+(.+)$/i);
     if (reminder?.[1]) {
       if (lastTask.duration) {
         return `remind me in ${lastTask.duration} minutes to ${reminder[1]}`;

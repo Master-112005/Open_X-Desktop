@@ -415,7 +415,22 @@ function validateRemoteControl(payload = {}) {
   requirePlainObject(payload, 'remote');
   const targetId = requireString(payload.targetId || payload.target || '', 'remote.targetId', { maxLength: 40 });
   const action = requireString(payload.action || payload.command || '', 'remote.action', { maxLength: 40 });
-  const allowedActions = new Set(['up', 'down', 'left', 'right', 'center', 'playPause', 'back', 'fullscreen']);
+  const allowedActions = new Set([
+    'up',
+    'down',
+    'left',
+    'right',
+    'center',
+    'playPause',
+    'back',
+    'fullscreen',
+    'previous',
+    'next',
+    'seekBack',
+    'seekForward',
+    'slideshow',
+    'exit'
+  ]);
   if (!allowedActions.has(action)) throw new TypeError('remote action is not supported');
   const normalized = { targetId, action };
   if (payload.windowTitle !== undefined) {

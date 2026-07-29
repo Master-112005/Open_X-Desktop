@@ -70,6 +70,7 @@ describe('Remote Controller', function() {
     assert.strictEqual(calls[1].windowName, 'Dulander song - YouTube');
     assert.strictEqual(calls[1].keys, 'k');
     assert.strictEqual(calls[1].options.requireTitleTokenMatch, true);
+    assert.strictEqual(calls[1].options.settleDelayMs, 80);
   });
 
   it('reuses a short target cache so repeated remote refreshes do not rescan windows', function() {
@@ -148,6 +149,7 @@ describe('Remote Controller', function() {
     assert.strictEqual(calls[0].keys, '+n');
     assert.strictEqual(calls[0].options.targetHandle, 1234);
     assert.strictEqual(calls[0].options.targetProcessId, 4567);
+    assert.strictEqual(calls[0].options.settleDelayMs, 80);
     assert.strictEqual(result.data.processId, 4567);
   });
 
@@ -182,6 +184,7 @@ describe('Remote Controller', function() {
     assert.strictEqual(next.success, true);
     assert.strictEqual(calls[0].keys, '{F5}');
     assert.strictEqual(calls[1].keys, '{PGDN}');
+    assert.strictEqual(calls[0].options.settleDelayMs, 80);
   });
 
   it('rejects unsupported remote targets', function() {

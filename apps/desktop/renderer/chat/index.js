@@ -45,7 +45,10 @@ const cloudPairingExpiryEl = document.getElementById('cloud-pairing-expiry');
 const cloudPairingCountdownEl = document.getElementById('cloud-pairing-countdown');
 const cloudPairingRequestsEl = document.getElementById('cloud-pairing-requests');
 const mobileSettingsToggle = document.getElementById('mobile-settings-toggle');
-const mobileServerDetailsEl = document.getElementById('mobile-server-details');
+const mobileServerDetailsOverlay = document.getElementById('mobile-server-info-overlay');
+const mobileServerDetailsCloseBtn = document.getElementById('mobile-server-details-close');
+const mobileView = document.getElementById('mobile-view');
+const mobileAppCloseBtn = document.getElementById('mobile-app-close-btn');
 const mobileAppPanelEl = document.getElementById('mobile-app-panel');
 const mobileQrStageEl = document.getElementById('mobile-qr-stage');
 const mobileConnectedSummaryEl = document.getElementById('mobile-connected-summary');
@@ -184,6 +187,19 @@ const MAX_CHAT_VISUAL_RESULTS = 10;
 const PEOPLE_CHAT_LIMIT = 30;
 const PEOPLE_CHAT_HISTORY_LIMIT = 300;
 const PEOPLE_CHAT_SEARCH_DEBOUNCE_MS = 220;
+const REMOTE_TARGET_REFRESH_TTL_MS = 2500;
+const SCHEDULE_SYNC_FAILURE_TOAST_COOLDOWN_MS = 60000;
+const REMOTE_DIRECTION_ACTIONS = Object.freeze(['up', 'down', 'left', 'right', 'center']);
+const REMOTE_ACTIONS_BY_PROFILE = Object.freeze({
+  youtube: Object.freeze(['previous', 'playPause', 'next', 'seekBack', 'seekForward', 'fullscreen', 'back']),
+  spotify: Object.freeze(['previous', 'playPause', 'next', 'back']),
+  powerpoint: Object.freeze(['slideshow', 'previous', 'next', 'exit']),
+  instagram: Object.freeze(['back', 'center', 'left', 'right']),
+  media: Object.freeze(['previous', 'playPause', 'next', 'fullscreen', 'back']),
+  presentation: Object.freeze(['slideshow', 'previous', 'next', 'exit']),
+  social: Object.freeze(['back', 'center', 'left', 'right']),
+  default: Object.freeze(['back', 'center', 'fullscreen'])
+});
 const ASSISTANT_MUTED_STORAGE_KEY = 'openx-assistant-voice-muted-v1';
 const STORAGE_SAVE_DEBOUNCE_MS = 180;
 
@@ -224,6 +240,8 @@ let activeAboutTrigger = null;
 let remoteTargets = [];
 let selectedRemoteTargetKey = '';
 let remoteTargetsLoading = false;
+let remoteTargetsRenderFrame = null;
+let remoteTargetsLastLoadedAt = 0;
 let peopleChatConversations = [];
 let activePeopleChatId = null;
 let peopleChatFilter = 'all';
@@ -247,6 +265,7 @@ let notificationHistory = [];
 let conversationHistory = [];
 let conversationReady = false;
 let conversationReadyPromise = null;
+let scheduleSyncFailureToastAt = 0;
 let isAssistantMuted = false;
 let glassTintAnimationFrame = null;
 let pendingPhoneDeviceRemoval = null;
@@ -260,6 +279,7 @@ let settingsStatusPollHandle = null;
 let settingsStatusPollInFlight = false;
 let latestCloudStatus = null;
 let imagePreviewOverlay = null;
+let imagePreviewKeydownHandler = null;
 let imagePreviewState = null;
 let chatHistorySaveQueue = Promise.resolve();
 let uiStateSaveQueue = Promise.resolve();
@@ -553,7 +573,7 @@ function rememberConversationMessage(text, type, meta) {
   const item = normalizeChatHistoryItem({ text, type, meta, createdAt: Date.now() });
   if (!item) return;
   conversationHistory.push(item);
-  saveConversationHistory({ immediate: true });
+  saveConversationHistory();
 }
 
 async function closeChatWindow() {
@@ -805,38 +825,68 @@ function ensureImagePreviewOverlay() {
   const overlay = document.createElement('div');
   overlay.id = 'chat-image-preview-overlay';
   overlay.hidden = true;
-  overlay.innerHTML = `
-    <section class="chat-image-preview-panel" role="dialog" aria-modal="true" aria-labelledby="chat-image-preview-title" tabindex="-1">
-      <button class="chat-image-preview-close" type="button" aria-label="Close image preview">&times;</button>
-      <div class="chat-image-preview-media">
-        <img alt="" decoding="async">
-        <div class="chat-image-preview-empty">Preview unavailable</div>
-      </div>
-      <div class="chat-image-preview-copy">
-        <strong id="chat-image-preview-title">Photo Memory</strong>
-        <span id="chat-image-preview-meta"></span>
-      </div>
-      <div class="chat-image-preview-actions">
-        <button class="chat-image-preview-secondary" type="button">Close</button>
-        <button class="chat-image-preview-primary" type="button">Open in Gallery</button>
-      </div>
-    </section>
-  `;
+  const panel = document.createElement('section');
+  panel.className = 'chat-image-preview-panel';
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+  panel.setAttribute('aria-labelledby', 'chat-image-preview-title');
+  panel.tabIndex = -1;
+
+  const closeButton = document.createElement('button');
+  closeButton.className = 'chat-image-preview-close';
+  closeButton.type = 'button';
+  closeButton.setAttribute('aria-label', 'Close image preview');
+  closeButton.textContent = 'x';
+
+  const media = document.createElement('div');
+  media.className = 'chat-image-preview-media';
+  const image = document.createElement('img');
+  image.alt = '';
+  image.decoding = 'async';
+  const empty = document.createElement('div');
+  empty.className = 'chat-image-preview-empty';
+  empty.textContent = 'Preview unavailable';
+  media.append(image, empty);
+
+  const copy = document.createElement('div');
+  copy.className = 'chat-image-preview-copy';
+  const title = document.createElement('strong');
+  title.id = 'chat-image-preview-title';
+  title.textContent = 'Photo Memory';
+  const meta = document.createElement('span');
+  meta.id = 'chat-image-preview-meta';
+  copy.append(title, meta);
+
+  const actions = document.createElement('div');
+  actions.className = 'chat-image-preview-actions';
+  const secondaryButton = document.createElement('button');
+  secondaryButton.className = 'chat-image-preview-secondary';
+  secondaryButton.type = 'button';
+  secondaryButton.textContent = 'Close';
+  const primaryButton = document.createElement('button');
+  primaryButton.className = 'chat-image-preview-primary';
+  primaryButton.type = 'button';
+  primaryButton.textContent = 'Open in Gallery';
+  actions.append(secondaryButton, primaryButton);
+
+  panel.append(closeButton, media, copy, actions);
+  overlay.appendChild(panel);
   const close = () => closeChatImagePreview();
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) close();
   });
-  overlay.querySelector('.chat-image-preview-close')?.addEventListener('click', close);
-  overlay.querySelector('.chat-image-preview-secondary')?.addEventListener('click', close);
-  overlay.querySelector('.chat-image-preview-primary')?.addEventListener('click', () => {
+  closeButton.addEventListener('click', close);
+  secondaryButton.addEventListener('click', close);
+  primaryButton.addEventListener('click', () => {
     const photoId = imagePreviewState?.photoId;
     if (photoId) {
       window.openx?.showGalleryPhoto?.(photoId);
     }
   });
-  document.addEventListener('keydown', (event) => {
+  imagePreviewKeydownHandler = (event) => {
     if (event.key === 'Escape' && !overlay.hidden) close();
-  });
+  };
+  document.addEventListener('keydown', imagePreviewKeydownHandler);
   document.body.appendChild(overlay);
   imagePreviewOverlay = overlay;
   return overlay;
@@ -2250,18 +2300,20 @@ function openPeopleChatFromDesktopEvent() {
 }
 
 function setWorkspaceView(viewName) {
-  activeWorkspaceView = ['activity', 'apps', 'people-chat', 'reminders', 'remote'].includes(viewName) ? viewName : 'chat';
+  activeWorkspaceView = ['activity', 'apps', 'people-chat', 'reminders', 'remote', 'mobile'].includes(viewName) ? viewName : 'chat';
   const showingActivity = activeWorkspaceView === 'activity';
   const showingApps = activeWorkspaceView === 'apps';
   const showingPeopleChat = activeWorkspaceView === 'people-chat';
   const showingReminders = activeWorkspaceView === 'reminders';
   const showingRemote = activeWorkspaceView === 'remote';
+  const showingMobile = activeWorkspaceView === 'mobile';
   const showingChat = activeWorkspaceView === 'chat';
   const activeSwitcherView = showingActivity ? 'activity' : showingApps ? 'apps' : showingChat ? 'chat' : 'none';
   if (viewSwitcherEl) viewSwitcherEl.dataset.activeView = activeSwitcherView;
   document.body?.classList.toggle('people-chat-fullscreen', showingPeopleChat);
   document.body?.classList.toggle('reminders-fullscreen', showingReminders);
   document.body?.classList.toggle('remote-fullscreen', showingRemote);
+  document.body?.classList.toggle('mobile-fullscreen', showingMobile);
   conversationView.classList.toggle('active', showingChat);
   conversationView.hidden = !showingChat;
   peopleChatView.classList.toggle('active', showingPeopleChat);
@@ -2272,6 +2324,8 @@ function setWorkspaceView(viewName) {
   if (remindersView) remindersView.hidden = !showingReminders;
   remoteView?.classList.toggle('active', showingRemote);
   if (remoteView) remoteView.hidden = !showingRemote;
+  mobileView?.classList.toggle('active', showingMobile);
+  if (mobileView) mobileView.hidden = !showingMobile;
   appsView.classList.toggle('active', showingApps);
   appsView.hidden = !showingApps;
   chatViewBtn.classList.toggle('active', showingChat);
@@ -2288,6 +2342,8 @@ function setWorkspaceView(viewName) {
     renderRemindersApp();
   } else if (showingRemote) {
     refreshRemoteTargets({ quiet: remoteTargets.length > 0 });
+  } else if (showingMobile) {
+    setActivePhonePanel(activePhonePanel);
   } else if (showingPeopleChat) {
     peopleChatThreadOpen = false;
     activePeopleChatId = null;
@@ -2314,10 +2370,44 @@ function selectedRemoteTarget() {
   return remoteTargets.find(target => remoteTargetKey(target) === selectedKey) || remoteTargets[0] || null;
 }
 
+function remoteTargetProfile(target = {}) {
+  const id = String(target.id || '').toLowerCase();
+  if (REMOTE_ACTIONS_BY_PROFILE[id]) return id;
+  const kind = String(target.kind || '').toLowerCase();
+  if (REMOTE_ACTIONS_BY_PROFILE[kind]) return kind;
+  return 'default';
+}
+
+function supportedRemoteActions(target = {}) {
+  return new Set([
+    ...REMOTE_DIRECTION_ACTIONS,
+    ...(REMOTE_ACTIONS_BY_PROFILE[remoteTargetProfile(target)] || REMOTE_ACTIONS_BY_PROFILE.default)
+  ]);
+}
+
 function setRemoteStatus(message, tone = 'info') {
   if (!remoteStatusEl) return;
   remoteStatusEl.textContent = message;
   remoteStatusEl.dataset.tone = tone;
+}
+
+function renderRemoteControlButtons() {
+  const target = selectedRemoteTarget();
+  const supported = target ? supportedRemoteActions(target) : new Set();
+  remoteControlButtons.forEach(button => {
+    const action = button.dataset.remoteAction || '';
+    const allowed = supported.has(action);
+    button.hidden = Boolean(target) && !allowed;
+    button.disabled = !target || remoteTargetsLoading || !allowed;
+  });
+}
+
+function scheduleRemoteTargetsRender() {
+  if (remoteTargetsRenderFrame !== null) return;
+  remoteTargetsRenderFrame = requestAnimationFrame(() => {
+    remoteTargetsRenderFrame = null;
+    renderRemoteTargets();
+  });
 }
 
 function renderRemoteTargets() {
@@ -2330,13 +2420,12 @@ function renderRemoteTargets() {
     option.textContent = remoteTargetsLoading ? 'Scanning active apps...' : 'No active remote apps';
     remoteTargetSelectEl.appendChild(option);
     remoteTargetSelectEl.disabled = true;
-    remoteControlButtons.forEach(button => { button.disabled = true; });
+    renderRemoteControlButtons();
     if (remoteAppSummaryEl) remoteAppSummaryEl.textContent = 'Open YouTube, PowerPoint, Instagram, or another supported target first.';
     return;
   }
 
   remoteTargetSelectEl.disabled = false;
-  remoteControlButtons.forEach(button => { button.disabled = false; });
   remoteTargets.forEach(target => {
     const option = document.createElement('option');
     option.value = remoteTargetKey(target);
@@ -2347,6 +2436,7 @@ function renderRemoteTargets() {
     ? previous
     : remoteTargetKey(remoteTargets[0]);
   remoteTargetSelectEl.value = selectedRemoteTargetKey;
+  renderRemoteControlButtons();
   if (remoteAppSummaryEl) {
     remoteAppSummaryEl.textContent = `${remoteTargets.length} active remote ${remoteTargets.length === 1 ? 'target' : 'targets'}`;
   }
@@ -2355,27 +2445,36 @@ function renderRemoteTargets() {
 async function refreshRemoteTargets(options = {}) {
   if (!window.openx?.listRemoteTargets) {
     remoteTargets = [];
-    renderRemoteTargets();
+    scheduleRemoteTargetsRender();
     setRemoteStatus('Remote control is unavailable in this build.', 'error');
     return;
   }
+  const now = Date.now();
+  if (
+    options.quiet &&
+    remoteTargets.length &&
+    now - remoteTargetsLastLoadedAt < REMOTE_TARGET_REFRESH_TTL_MS
+  ) {
+    scheduleRemoteTargetsRender();
+    return;
+  }
   remoteTargetsLoading = true;
-  renderRemoteTargets();
+  scheduleRemoteTargetsRender();
   if (!options.quiet) setRemoteStatus('Scanning active remote apps...', 'info');
   try {
     const result = await window.openx.listRemoteTargets();
     remoteTargets = Array.isArray(result?.data?.targets) ? result.data.targets : [];
-    renderRemoteTargets();
+    remoteTargetsLastLoadedAt = Date.now();
     setRemoteStatus(remoteTargets.length
       ? 'Remote is ready.'
       : 'Open a supported app like YouTube, PowerPoint, Instagram, or Spotify.', remoteTargets.length ? 'success' : 'info');
   } catch (error) {
     remoteTargets = [];
-    renderRemoteTargets();
+    remoteTargetsLastLoadedAt = 0;
     setRemoteStatus(error?.message || 'Could not scan remote targets.', 'error');
   } finally {
     remoteTargetsLoading = false;
-    renderRemoteTargets();
+    scheduleRemoteTargetsRender();
   }
 }
 
@@ -2408,6 +2507,17 @@ async function sendRemoteAction(action) {
 }
 
 function closeRemoteApp() {
+  setWorkspaceView('apps');
+}
+
+function openMobileApp() {
+  settingsOverlay?.classList.remove('open');
+  stopSettingsStatusPolling();
+  setWorkspaceView('mobile');
+}
+
+function closeMobileApp() {
+  closeMobileServerDetails({ restoreFocus: false });
   setWorkspaceView('apps');
 }
 
@@ -2630,7 +2740,12 @@ async function refreshActivitySchedulesFromRuntime() {
     const snapshot = await window.openx.getScheduleSnapshot();
     replaceScheduleItemsFromRuntime(snapshot?.entries || snapshot?.data?.entries || []);
   } catch (error) {
-    console.warn(`Schedule activity sync failed | error=${error?.message || String(error)}`);
+    const now = Date.now();
+    const visibleScheduleView = activeWorkspaceView === 'activity' || activeWorkspaceView === 'reminders';
+    if (visibleScheduleView && now - scheduleSyncFailureToastAt > SCHEDULE_SYNC_FAILURE_TOAST_COOLDOWN_MS) {
+      scheduleSyncFailureToastAt = now;
+      showToast('Schedule sync unavailable', error?.message || 'Using the latest saved schedule data.', 'warning');
+    }
   }
 }
 
@@ -3439,7 +3554,7 @@ function setActiveSettingsSection(sectionName) {
   activeSettingsSection = sectionName || null;
   if (settingsNavEl) {
     settingsNavEl.dataset.activeSection = activeSettingsSection || 'system';
-    settingsNavEl.hidden = activeSettingsSection === 'phone';
+    settingsNavEl.hidden = false;
   }
 
   settingsNavButtons.forEach(button => {
@@ -3460,7 +3575,6 @@ function setActiveSettingsSection(sectionName) {
   });
 
   setActiveSystemBlock(activeSystemBlock);
-  if (activeSettingsSection === 'phone') setActivePhonePanel(activePhonePanel);
   if (activeSettingsSection === 'system' && activeSystemBlock === 'storage') {
     updateChatStorageStatus();
   }
@@ -3848,12 +3962,14 @@ function applySnapshot(snapshot) {
 
 function openSettingsPanel(sectionName = null) {
   const requestedSection = typeof sectionName === 'string' ? sectionName : null;
-  const targetSection = requestedSection || (activeSettingsSection === 'phone' ? 'system' : activeSettingsSection) || 'system';
+  if (requestedSection === 'phone' || requestedSection === 'mobile') {
+    openMobileApp();
+    return;
+  }
+  const targetSection = requestedSection || activeSettingsSection || 'system';
   setActiveSettingsSection(targetSection);
   settingsOverlay.classList.add('open');
-  setSettingsStatus(targetSection === 'phone'
-    ? 'Mobile pairing and trusted devices are managed here.'
-    : 'Settings are stored locally on this machine.', 'info');
+  setSettingsStatus('Settings are stored locally on this machine.', 'info');
   refreshSettingsStatus();
   if (!settingsStatusPollHandle) {
     settingsStatusPollHandle = setInterval(refreshSettingsStatus, 5000);
@@ -3866,13 +3982,6 @@ async function refreshSettingsStatus() {
   settingsStatusPollInFlight = true;
   try {
     const tasks = [];
-    if (activeSettingsSection === 'phone') {
-      if (activePhonePanel === 'devices') {
-        tasks.push(loadPhoneDevices());
-      } else {
-        tasks.push(loadCloudStatus(), loadCloudPairingStatus());
-      }
-    }
     if (activeSettingsSection === 'system' && activeSystemBlock === 'security') {
       tasks.push(refreshSecurityStatus());
     }
@@ -4159,17 +4268,29 @@ function renderCloudStatus(status) {
   if (safeStatus.connected !== true && cloudPairingStatusEl) {
     cloudPairingStatusEl.textContent = 'Connect to Relay Server first.';
   }
-  if (activeSettingsSection === 'phone') {
+  if (activeWorkspaceView === 'mobile') {
     loadPhoneDevices();
   }
   updateMobileAppPresentation();
 }
 
 function toggleMobileServerDetails() {
-  if (!mobileServerDetailsEl) return;
-  const opening = mobileServerDetailsEl.hidden === true;
-  mobileServerDetailsEl.hidden = !opening;
+  if (!mobileServerDetailsOverlay) return;
+  const opening = mobileServerDetailsOverlay.hidden === true;
+  mobileServerDetailsOverlay.hidden = !opening;
   mobileSettingsToggle?.setAttribute('aria-expanded', String(opening));
+  if (opening) {
+    loadCloudStatus();
+    window.setTimeout(() => mobileServerDetailsCloseBtn?.focus?.(), 0);
+  }
+}
+
+function closeMobileServerDetails(options = {}) {
+  if (mobileServerDetailsOverlay) mobileServerDetailsOverlay.hidden = true;
+  mobileSettingsToggle?.setAttribute('aria-expanded', 'false');
+  if (options.restoreFocus !== false) {
+    window.setTimeout(() => mobileSettingsToggle?.focus?.(), 0);
+  }
 }
 
 async function loadCloudStatus() {
@@ -4696,7 +4817,7 @@ galleryAppBtn?.addEventListener('click', () => {
 });
 mobileAppBtn?.addEventListener('click', () => {
   mobileAppBtn.classList.add('opening');
-  openSettingsPanel('phone');
+  openMobileApp();
   window.setTimeout(() => mobileAppBtn.classList.remove('opening'), 180);
 });
 settingsAppBtn?.addEventListener('click', () => {
@@ -4794,9 +4915,11 @@ remindersAppTabs.forEach(button => {
   });
 });
 remoteAppCloseBtn?.addEventListener('click', closeRemoteApp);
+mobileAppCloseBtn?.addEventListener('click', closeMobileApp);
 remoteRefreshBtn?.addEventListener('click', () => refreshRemoteTargets());
 remoteTargetSelectEl?.addEventListener('change', () => {
   selectedRemoteTargetKey = remoteTargetSelectEl.value;
+  renderRemoteControlButtons();
 });
 remoteControlButtons.forEach(button => {
   button.addEventListener('click', () => sendRemoteAction(button.dataset.remoteAction));
@@ -4806,6 +4929,10 @@ deviceFilterEl?.addEventListener('change', () => renderPhoneDevices(latestManage
 deviceSortEl?.addEventListener('change', () => renderPhoneDevices(latestManagedDevices));
 deviceRefreshBtn?.addEventListener('click', () => loadPhoneDevices());
 mobileSettingsToggle?.addEventListener('click', toggleMobileServerDetails);
+mobileServerDetailsCloseBtn?.addEventListener('click', () => closeMobileServerDetails());
+mobileServerDetailsOverlay?.addEventListener('click', (event) => {
+  if (event.target === mobileServerDetailsOverlay) closeMobileServerDetails();
+});
 document.getElementById('settings-save-btn').addEventListener('click', saveSettings);
 document.getElementById('settings-reset-btn').addEventListener('click', resetSettings);
 modeAddBtn.addEventListener('click', () => {
@@ -4876,6 +5003,10 @@ function cleanupRendererResources() {
     cancelAnimationFrame(peopleChatRenderFrame);
     peopleChatRenderFrame = null;
   }
+  if (remoteTargetsRenderFrame !== null) {
+    cancelAnimationFrame(remoteTargetsRenderFrame);
+    remoteTargetsRenderFrame = null;
+  }
   if (messageScrollAnimationFrame !== null) {
     cancelAnimationFrame(messageScrollAnimationFrame);
     messageScrollAnimationFrame = null;
@@ -4886,6 +5017,10 @@ function cleanupRendererResources() {
   }
   scheduleTimers.forEach(timer => clearTimeout(timer));
   scheduleTimers.clear();
+  if (imagePreviewKeydownHandler) {
+    document.removeEventListener('keydown', imagePreviewKeydownHandler);
+    imagePreviewKeydownHandler = null;
+  }
   if (conversationReady) {
     persistConversationHistoryFallback();
     flushConversationHistorySave();

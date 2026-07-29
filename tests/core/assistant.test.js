@@ -279,6 +279,47 @@ describe('Assistant Confirmation Flow', function() {
     ]);
   });
 
+  it('should cancel the last alarm from a pronoun follow-up', async function() {
+    const routedInputs = [];
+    const router = {
+      process: async input => {
+        routedInputs.push(input);
+        if (/^cancel\s+the\s+alarm$/i.test(input)) {
+          return {
+            commandId: `cmd-alarm-${routedInputs.length}`,
+            success: true,
+            intent: 'alarm.cancel',
+            entities: {},
+            data: { status: 'dismissed', kind: 'Alarm' },
+            response: 'Stopped the active alarm.'
+          };
+        }
+        return {
+          commandId: `cmd-alarm-${routedInputs.length}`,
+          success: true,
+          intent: 'alarm.set',
+          entities: { timeExpression: '10 am' },
+          data: { dueAt: new Date(Date.now() + 60000).toISOString(), kind: 'Alarm' },
+          response: 'Scheduled.'
+        };
+      }
+    };
+    const assistant = new Assistant({}, {
+      router,
+      automation: {},
+      eventBus: { publish() {} }
+    });
+
+    await assistant.processCommand('set alarm for 10 am');
+    const cancelled = await assistant.processCommand('cancle it');
+
+    assert.equal(cancelled.intent, 'alarm.cancel');
+    assert.deepEqual(routedInputs, [
+      'set alarm for 10 am',
+      'cancel the alarm'
+    ]);
+  });
+
   it('should collect missing schedule details across chat turns', async function() {
     const routedInputs = [];
     const router = {

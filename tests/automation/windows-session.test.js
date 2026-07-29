@@ -114,6 +114,26 @@ describe('Windows Session Controller', function() {
     assert.equal(calls[0].options.encoding, 'utf8');
   });
 
+  it('should allow remote callers to use a shorter foreground settle delay for key sends', function() {
+    const controller = new WindowsSessionController({});
+    let script = '';
+    controller.listWindows = () => ([{
+      handle: 100,
+      title: 'Dulander song - YouTube',
+      processName: 'chrome',
+      id: 10
+    }]);
+    controller._getForegroundWindowHandle = () => 0;
+    controller._runScript = value => {
+      script = value;
+    };
+
+    const result = controller.sendKeys('youtube', 'k', { settleDelayMs: 80 });
+
+    assert.equal(result.success, true);
+    assert.match(script, /Start-Sleep -Milliseconds 80/);
+  });
+
   it('should reject unsafe window handles before building control scripts', function() {
     const controller = new WindowsSessionController({});
     controller.listWindows = () => ([{

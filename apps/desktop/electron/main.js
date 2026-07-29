@@ -5364,16 +5364,30 @@ function expandLiveScheduleInDynamicIsland() {
   return { success: true };
 }
 
-function clearLiveScheduleActivity(schedule = null) {
+function clearLiveScheduleActivity(schedule = null, options = {}) {
   clearLiveScheduleCollapseTimer();
+  const shouldDismissOverlay = options.dismissOverlay === true;
+  const dismissOverlay = () => {
+    if (!shouldDismissOverlay) return;
+    if (typeof voiceOverlay?.windowController?.collapseAssistantResult !== 'function') return;
+    voiceOverlay.windowController.collapseAssistantResult({
+      statusText: 'OpenX',
+      icon: 'OX',
+      hideAfterMs: 1
+    });
+  };
   if (!schedule || !activeLiveSchedulePayload) {
     activeLiveSchedulePayload = null;
+    dismissOverlay();
     return;
   }
   const active = activeLiveSchedulePayload.data?.schedule || {};
   const activeId = String(active.id || active.taskName || '');
   const scheduleId = String(schedule.id || schedule.taskName || '');
-  if (!scheduleId || activeId === scheduleId) activeLiveSchedulePayload = null;
+  if (!scheduleId || activeId === scheduleId) {
+    activeLiveSchedulePayload = null;
+    dismissOverlay();
+  }
 }
 
 function latestActiveLiveSchedule() {
@@ -5954,7 +5968,7 @@ function handleLiveScheduleCommand(payload) {
   if (!payload?.success || !payload.intent) return;
   const intent = String(payload.intent);
   if (/^(?:timer|alarm)\.(?:cancel|clear)$/.test(intent)) {
-    clearLiveScheduleActivity(payload.data || null);
+    clearLiveScheduleActivity(payload.data || null, { dismissOverlay: true });
     return;
   }
   if (/^(?:timer|alarm)\.(?:set|reset|snooze)$/.test(intent)) {
@@ -6818,7 +6832,7 @@ function setupIPC() {
         : scheduler?.complete(id));
     if (result?.success && String(result.data?.kind || '').toLowerCase() === 'timer') {
       if (action === 'snooze') presentLiveScheduleInDynamicIsland(result.data, { expandMs: 0 });
-      if (action === 'stop' || action === 'remove') clearLiveScheduleActivity(result.data);
+      if (action === 'stop' || action === 'remove') clearLiveScheduleActivity(result.data, { dismissOverlay: true });
     }
     return result || { success: false, error: 'Scheduler unavailable' };
   });

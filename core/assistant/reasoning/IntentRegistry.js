@@ -634,11 +634,11 @@ const INTENT_DEFINITIONS = [
     action: 'reminder.list', entities: [{ name: 'scope', type: 'string', required: false }], description: 'Show reminders'
   },
   {
-    id: 'reminder.cancel', patterns: ['delete this reminder', 'cancel reminder'], permissionLevel: 'low',
+    id: 'reminder.cancel', patterns: ['delete this reminder', 'cancel reminder', 'cancel the reminder', 'clear the reminder', 'remove reminder'], permissionLevel: 'low',
     action: 'reminder.cancel', entities: [], description: 'Cancel the latest reminder'
   },
   {
-    id: 'reminder.clear', patterns: ['delete all reminders', 'clear reminders'], permissionLevel: 'low',
+    id: 'reminder.clear', patterns: ['delete all reminders', 'clear reminders', 'cancel all reminders', 'remove all reminders'], permissionLevel: 'low',
     action: 'reminder.clear', entities: [], description: 'Cancel all reminders'
   },
   {
@@ -650,7 +650,7 @@ const INTENT_DEFINITIONS = [
     action: 'alarm.snooze', entities: [{ name: 'duration', type: 'number', required: false }], description: 'Snooze the active alarm'
   },
   {
-    id: 'alarm.cancel', patterns: ['stop alarm', 'delete this alarm'], permissionLevel: 'low',
+    id: 'alarm.cancel', patterns: ['stop alarm', 'delete this alarm', 'cancel the alarm', 'clear the alarm', 'remove alarm'], permissionLevel: 'low',
     action: 'alarm.cancel', entities: [], description: 'Stop the active alarm'
   },
   {
@@ -658,7 +658,7 @@ const INTENT_DEFINITIONS = [
     action: 'alarm.list', entities: [{ name: 'scope', type: 'string', required: false }], description: 'Show active alarms'
   },
   {
-    id: 'alarm.clear', patterns: ['delete all alarms', 'clear alarms'], permissionLevel: 'low',
+    id: 'alarm.clear', patterns: ['delete all alarms', 'clear alarms', 'cancel all alarms', 'remove all alarms'], permissionLevel: 'low',
     action: 'alarm.clear', entities: [], description: 'Cancel all alarms'
   },
   {

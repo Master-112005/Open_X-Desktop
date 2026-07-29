@@ -60,6 +60,8 @@ describe('Electron Chat Shortcut', function() {
     assert.match(script, /new VoiceTheme\(\{ settings: settingsService\?\.getSnapshot\?\.\(\) \|\| \{\} \}\)/);
     assert.match(script, /function presentScheduleInDynamicIsland\(schedule = \{\}\)/);
     assert.match(script, /function presentLiveScheduleInDynamicIsland\(schedule = \{\}, options = \{\}\)/);
+    assert.match(script, /function clearLiveScheduleActivity\(schedule = null, options = \{\}\)/);
+    assert.match(script, /options\.dismissOverlay === true/);
     assert.match(script, /presentScheduleInDynamicIsland\(envelope\.payload\)/);
     assert.match(script, /handleLiveScheduleCommand\(envelope\.payload\)/);
     assert.match(script, /voiceOverlay:expandLiveSchedule/);
@@ -156,6 +158,7 @@ describe('Electron Chat Shortcut', function() {
     assert.match(script, /showTimerWidget\(preferredId, \{ includeStopwatch: intent\.startsWith\('stopwatch\.'\) \}\)/);
     assert.match(script, /restoreLiveScheduleInDynamicIsland\(\)/);
     assert.match(script, /presentLiveScheduleInDynamicIsland\(payload\.data \|\| \{\}, \{ expandMs: LIVE_SCHEDULE_INITIAL_EXPAND_MS \}\)/);
+    assert.match(script, /clearLiveScheduleActivity\(payload\.data \|\| null, \{ dismissOverlay: true \}\)/);
     assert.match(script, /setTimeout\(\(\) => collapseLiveScheduleToCompact\(schedule\), LIVE_SCHEDULE_INITIAL_EXPAND_MS\)/);
     assert.match(script, /function liveScheduleIcon\(schedule = \{\}\)/);
     assert.match(script, /'\\u23F0' : '\\u23F1'/);

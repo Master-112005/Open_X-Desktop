@@ -202,11 +202,15 @@ describe('Scheduler Alert Delivery', function() {
     assert.equal(scheduler.getRemainingTimer().data.remainingMinutes, 5);
     assert.equal(scheduler.listSchedules('Timer').data.count, 1);
     assert.equal(scheduler.resetActiveTimer().success, true);
-    assert.equal(scheduler.cancelLatest('Timer').success, true);
+    const cancelledTimer = scheduler.cancelLatest('Timer');
+    assert.equal(cancelledTimer.success, true);
+    assert.equal(cancelledTimer.data.status, 'dismissed');
     scheduler.setAlarm('noon', 'Lunch');
     assert.equal(scheduler.listSchedules('Alarm').data.entries[0].alarmLabel, 'Lunch');
     assert.equal(scheduler.snoozeLatestAlarm().success, true);
-    assert.equal(scheduler.clearSchedules('Alarm').data.count, 1);
+    const clearedAlarms = scheduler.clearSchedules('Alarm');
+    assert.equal(clearedAlarms.data.count, 1);
+    assert.equal(scheduler.listSchedules('Alarm').data.count, 0);
     scheduler.setReminder('drink water', { duration: 15 });
     assert.equal(scheduler.snoozeLatestReminder(10).success, true);
 
@@ -230,6 +234,27 @@ describe('Scheduler Alert Delivery', function() {
     assert.equal(scheduler.listSchedules('Reminder').data.count, 0);
     assert.equal(scheduler.listSchedules('Reminder', 'today').data.entries.some(item => item.id === result.data.id), false);
     assert.equal(scheduler.getScheduleSnapshot().entries.some(item => item.id === result.data.id), false);
+
+    scheduler.destroy();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('should cancel recurring reminders and alarms without rescheduling them', function() {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-cancel-recurring-schedule-'));
+    const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
+
+    const reminder = scheduler.setReminder('mark attendance', {
+      timeExpression: '9:30 pm',
+      recurrence: 'daily'
+    });
+    const alarm = scheduler.setAlarm('10 am', 'Standup', { recurrence: 'daily' });
+
+    assert.equal(reminder.success, true);
+    assert.equal(alarm.success, true);
+    assert.equal(scheduler.cancelLatest('Reminder').data.status, 'dismissed');
+    assert.equal(scheduler.cancelLatest('Alarm').data.status, 'dismissed');
+    assert.equal(scheduler.listSchedules('Reminder').data.count, 0);
+    assert.equal(scheduler.listSchedules('Alarm').data.count, 0);
 
     scheduler.destroy();
     fs.rmSync(dataDir, { recursive: true, force: true });

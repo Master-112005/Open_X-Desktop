@@ -292,6 +292,24 @@ function clearVoiceHoverAutoHideTimers() {
   voiceHoverAutoHidePayload = null;
 }
 
+function cleanupVoiceOverlayResources() {
+  if (voiceAssistantResultClearTimer) {
+    clearTimeout(voiceAssistantResultClearTimer);
+    voiceAssistantResultClearTimer = null;
+  }
+  clearVoiceActionCollapseTimer();
+  clearVoiceHoverAutoHideTimers();
+  stopVoiceLiveScheduleTicker();
+  stopVoiceAlertSound();
+  if (voiceAlertAudioContext && typeof voiceAlertAudioContext.close === 'function') {
+    voiceAlertAudioContext.close().catch(() => {});
+  }
+  voiceAlertAudioContext = null;
+  voiceHoverPointerInside = false;
+  voiceHoverPointerPosition = null;
+  voiceHoverTrackingAttached = false;
+}
+
 function refreshVoiceHoverPointerState(root = document.getElementById('voice-overlay')) {
   if (!root) {
     voiceHoverPointerInside = false;
@@ -829,6 +847,8 @@ window.addEventListener('DOMContentLoaded', () => {
     expandLiveSchedule();
   });
 });
+
+window.addEventListener('beforeunload', cleanupVoiceOverlayResources);
 
 const openxApi = {
   processCommand: (input, source) =>

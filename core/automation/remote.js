@@ -3,7 +3,8 @@ const Normalizer = require('../assistant/Data').Normalizer;
 
 const BROWSER_PROCESSES = Object.freeze(['chrome', 'msedge', 'firefox', 'brave', 'opera']);
 const MAX_TARGETS = 8;
-const DEFAULT_TARGET_CACHE_TTL_MS = 1200;
+const DEFAULT_TARGET_CACHE_TTL_MS = 3000;
+const DEFAULT_CONTROL_SETTLE_DELAY_MS = 80;
 const REMOTE_ACTION_ALIASES = Object.freeze({
   ok: 'center',
   enter: 'center',
@@ -144,6 +145,12 @@ function cleanNumber(value) {
   return Number.isSafeInteger(number) && number > 0 ? number : null;
 }
 
+function boundedNumber(value, fallback, min, max) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number)) return fallback;
+  return Math.max(min, Math.min(max, number));
+}
+
 function cloneResult(result) {
   return {
     ...result,
@@ -169,7 +176,13 @@ class RemoteController {
   constructor(config = {}, dependencies = {}) {
     this.logger = new Logger(config?.logging || { level: 'info' });
     this.windows = dependencies.windows;
-    this.targetCacheTtlMs = Number(config?.remote?.targetCacheTtlMs || DEFAULT_TARGET_CACHE_TTL_MS);
+    this.targetCacheTtlMs = boundedNumber(config?.remote?.targetCacheTtlMs, DEFAULT_TARGET_CACHE_TTL_MS, 500, 10000);
+    this.controlSettleDelayMs = boundedNumber(
+      config?.remote?.controlSettleDelayMs,
+      DEFAULT_CONTROL_SETTLE_DELAY_MS,
+      40,
+      220
+    );
     this.targetCache = { expiresAt: 0, result: null };
   }
 
@@ -268,7 +281,8 @@ class RemoteController {
       targetProcessName: cleanText(input.processName || target?.processName || '', 80),
       preferredProcessNames: definition.preferredProcessNames,
       preferredTitleTokens: definition.preferredTitleTokens,
-      requireTitleTokenMatch: definition.requireTitleTokenMatch === true
+      requireTitleTokenMatch: definition.requireTitleTokenMatch === true,
+      settleDelayMs: this.controlSettleDelayMs
     });
 
     if (!result?.success) {
