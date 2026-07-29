@@ -3548,7 +3548,21 @@ body.remote-fullscreen #workspace {
   height: 100vh;
 }
 
+body.mobile-fullscreen #header,
+body.mobile-fullscreen #input-area {
+  display: none !important;
+}
+
+body.mobile-fullscreen #workspace {
+  flex: 1 1 auto;
+  height: 100vh;
+}
+
 #remote-view {
+  overflow: hidden;
+}
+
+#mobile-view {
   overflow: hidden;
 }
 
@@ -3652,6 +3666,7 @@ body.remote-fullscreen #workspace {
 
 .remote-control-stage {
   align-content: center;
+  contain: layout paint;
   display: grid;
   gap: 18px;
   justify-items: center;
@@ -3735,6 +3750,7 @@ body.remote-fullscreen #workspace {
 .remote-dpad-center { grid-area: center; }
 
 .remote-action-row {
+  contain: layout paint;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -3743,6 +3759,11 @@ body.remote-fullscreen #workspace {
 
 .remote-action-pill {
   min-height: 38px;
+  white-space: nowrap;
+}
+
+.remote-action-pill[hidden] {
+  display: none !important;
 }
 
 .remote-status {
@@ -5670,7 +5691,8 @@ html[data-glass-contrast] #send-btn {
   -webkit-backdrop-filter: none !important;
 }
 #workspace,#messages,.settings-content,#schedule-list,#notification-list,#input-area,.composer-field,
-.people-chat-list,.people-chat-thread,.people-chat-registration,.people-chat-requests { contain: layout paint style; }
+.people-chat-list,.people-chat-thread,.people-chat-registration,.people-chat-requests,
+.remote-app-shell,.remote-target-row,.remote-control-stage { contain: layout paint style; }
 #messages { scroll-behavior: auto; }
 .composer-field,
 .composer-field:focus-within {
@@ -6088,10 +6110,63 @@ html[data-glass-contrast] #send-btn {
   display: flex;
 }
 
+.mobile-app-shell {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-color) 9%, transparent), transparent 42%),
+    color-mix(in srgb, var(--adaptive-surface, rgba(8, 10, 15, 0.96)) 94%, rgba(0, 0, 0, 0.74));
+  backdrop-filter: blur(30px) saturate(150%);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
+  display: grid;
+  gap: 14px;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  padding: 16px;
+  position: relative;
+}
+
+.mobile-app-window-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 4px 4px 2px;
+}
+
+.mobile-app-window-header > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mobile-app-window-header strong {
+  color: var(--adaptive-text, var(--text-color));
+  font-size: 24px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.mobile-app-window-header small {
+  color: var(--adaptive-muted, var(--muted-color));
+  font-size: 12px;
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-app-window-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
 .mobile-app-panel {
   display: grid;
   gap: 16px;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   min-height: 100%;
 }
 
@@ -6114,7 +6189,16 @@ html[data-glass-contrast] #send-btn {
   display: grid;
   gap: 16px;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
+  height: 100%;
   min-height: 0;
+}
+
+.mobile-app-panel:not(.mobile-connected) .phone-panel {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.mobile-app-panel:not(.mobile-connected) .mobile-device-list:empty {
+  display: none;
 }
 
 .mobile-qr-stage {
@@ -6222,13 +6306,100 @@ html[data-glass-contrast] #send-btn {
   display: grid;
 }
 
+.mobile-server-info-overlay {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.64);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  display: grid;
+  inset: 0;
+  justify-items: center;
+  padding: 16px;
+  position: absolute;
+  z-index: 8;
+}
+
+.mobile-server-info-overlay[hidden] {
+  display: none;
+}
+
+.mobile-server-info-card {
+  background:
+    linear-gradient(180deg, rgba(74, 78, 88, 0.98), rgba(36, 39, 47, 0.98)),
+    #272a32;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 26px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.44);
+  color: #f8f8fa;
+  display: grid;
+  gap: 12px;
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  padding: 14px;
+  scrollbar-width: none;
+  width: min(430px, 100%);
+}
+
+.mobile-server-info-card::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-server-info-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 2px 2px 4px;
+}
+
+.mobile-server-info-header div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mobile-server-info-header span {
+  color: rgba(248, 248, 250, 0.66);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mobile-server-info-header strong {
+  color: #f8f8fa;
+  font-size: 18px;
+  font-weight: 950;
+}
+
 .mobile-server-details {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.11);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.035)),
+    rgba(18, 20, 27, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 20px;
   display: grid;
   gap: 12px;
   padding: 14px;
+}
+
+.mobile-server-info-card .field,
+.mobile-server-info-card .phone-permission-toggle,
+.mobile-server-info-card .phone-server-item {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #f8f8fa;
+}
+
+.mobile-server-info-card .field-label,
+.mobile-server-info-card .phone-permission-toggle span,
+.mobile-server-info-card .phone-server-item span {
+  color: rgba(248, 248, 250, 0.66);
+}
+
+.mobile-server-info-card .phone-server-item strong,
+.mobile-server-info-card .phone-server-heading strong {
+  color: #f8f8fa;
 }
 
 .mobile-server-details[hidden] {
@@ -6241,6 +6412,29 @@ html[data-glass-contrast] #send-btn {
   position: sticky;
   width: 100%;
   z-index: 2;
+}
+
+@media (max-width: 460px) {
+  .mobile-app-shell {
+    padding: 12px;
+  }
+
+  .mobile-app-window-header {
+    align-items: flex-start;
+  }
+
+  .mobile-app-window-header strong {
+    font-size: 22px;
+  }
+
+  .mobile-app-window-actions {
+    gap: 6px;
+  }
+
+  .mobile-app-window-actions .secondary-btn {
+    min-height: 40px;
+    padding-inline: 12px;
+  }
 }
 
 .phone-panel .phone-pairing-card,

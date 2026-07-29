@@ -138,6 +138,36 @@ describe('CloudCommandManager', () => {
     assert.equal(packet.payload.payload.data.rawScan, undefined);
   });
 
+  it('drains burst commands in order while yielding between batches', async () => {
+    const connection = createConnection();
+    const routed = [];
+    const manager = new CloudCommandManager({
+      connectionManager: connection,
+      executionTimeoutMs: 1000,
+      processBatchSize: 2,
+      commandRouter: {
+        async route(command) {
+          routed.push(command);
+          return { success: true, response: `Done ${command}` };
+        }
+      },
+      logger: { info() {}, warn() {}, error() {} }
+    });
+
+    for (let index = 0; index < 5; index += 1) {
+      const packet = createPacket({ command: `command ${index + 1}` });
+      packet.packet.packetId = `packet_${index + 1}`;
+      packet.packet.requestId = `request_${index + 1}`;
+      manager.handleRelayPacket(packet);
+    }
+    await new Promise(resolve => setTimeout(resolve, 40));
+
+    assert.deepEqual(routed, ['command 1', 'command 2', 'command 3', 'command 4', 'command 5']);
+    assert.equal(connection.sent.length, 5);
+    assert.equal(manager.getStatus().queue.queued, 0);
+    assert.equal(manager.getStatus().queue.completed, 5);
+  });
+
   it('rejects invalid owner packets before assistant execution', async () => {
     const connection = createConnection();
     let executed = false;

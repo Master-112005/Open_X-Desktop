@@ -13,7 +13,7 @@ describe('Chat Renderer UI', function() {
   it('should provide dedicated chat, activity, apps, notification, and info surfaces', function() {
     const headerActions = html.match(/<div id="header-actions">([\s\S]*?)<\/div>/)?.[1] || '';
     const viewSwitcher = html.match(/<nav class="view-switcher" id="view-switcher"[\s\S]*?<\/nav>/)?.[0] || '';
-    ['conversation-view', 'people-chat-view', 'activity-view', 'apps-view', 'reminders-view', 'remote-view', 'toast-region', 'schedule-list', 'notification-list', 'people-chat-app-btn', 'calendar-app-btn', 'reminders-app-btn', 'gallery-app-btn', 'mobile-app-btn', 'settings-app-btn', 'header-about-btn', 'about-btn']
+    ['conversation-view', 'people-chat-view', 'activity-view', 'apps-view', 'reminders-view', 'remote-view', 'mobile-view', 'toast-region', 'schedule-list', 'notification-list', 'people-chat-app-btn', 'calendar-app-btn', 'reminders-app-btn', 'gallery-app-btn', 'mobile-app-btn', 'settings-app-btn', 'header-about-btn', 'about-btn']
       .forEach(id => assert.match(html, new RegExp(`id="${id}"`)));
     assert.doesNotMatch(html, /id="alarm-overlay"/);
     assert.doesNotMatch(script, /alarmOverlay|alarm-dismiss-btn|alarm-snooze-btn/);
@@ -304,13 +304,39 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /\.message-result\.schedule-result \.message-result-icon/);
   });
 
+  it('should expose app-specific remote controls without repeated renderer work', function() {
+    assert.match(html, /data-remote-action="previous"/);
+    assert.match(html, /data-remote-action="next"/);
+    assert.match(html, /data-remote-action="seekBack"/);
+    assert.match(html, /data-remote-action="seekForward"/);
+    assert.match(html, /data-remote-action="slideshow"/);
+    assert.match(html, /data-remote-action="exit"/);
+    assert.match(script, /const REMOTE_DIRECTION_ACTIONS = Object\.freeze\(\['up', 'down', 'left', 'right', 'center'\]\)/);
+    assert.match(script, /const REMOTE_ACTIONS_BY_PROFILE = Object\.freeze/);
+    assert.match(script, /function remoteTargetProfile\(target = \{\}\)/);
+    assert.match(script, /function renderRemoteControlButtons\(\)/);
+    assert.match(script, /function scheduleRemoteTargetsRender\(\)/);
+    assert.match(script, /const REMOTE_TARGET_REFRESH_TTL_MS = 2500/);
+    assert.match(script, /const SCHEDULE_SYNC_FAILURE_TOAST_COOLDOWN_MS = 60000/);
+    assert.match(script, /let remoteTargetsLastLoadedAt = 0/);
+    assert.match(script, /now - remoteTargetsLastLoadedAt < REMOTE_TARGET_REFRESH_TTL_MS/);
+    assert.match(script, /remoteTargetsLastLoadedAt = Date\.now\(\)/);
+    assert.match(script, /remoteTargetsRenderFrame = requestAnimationFrame/);
+    assert.match(script, /cancelAnimationFrame\(remoteTargetsRenderFrame\)/);
+    assert.match(script, /document\.removeEventListener\('keydown', imagePreviewKeydownHandler\)/);
+    assert.match(css, /\.remote-action-pill\[hidden\]/);
+    assert.match(css, /\.remote-control-stage\s*\{[\s\S]*contain:\s*layout paint;/);
+  });
+
   it('should keep recurring scheduler reminders synced into Activity', function() {
+    assert.doesNotMatch(script, /console\.warn/);
     assert.match(script, /recurrence: entry\.recurrence \|\| ''/);
     assert.match(script, /function isActivityScheduleKind\(item = \{\}\)/);
     assert.match(script, /return kind === 'alarm' \|\| kind === 'reminder'/);
     assert.match(script, /return isSameLocalDay\(item\.dueAt, now\)/);
     assert.match(script, /repeats \$\{recurrence\.replace/);
     assert.match(script, /replaceScheduleItemsFromRuntime\(payload\?\.snapshot\?\.entries \|\| payload\?\.entries \|\| \[\]\)/);
+    assert.match(script, /showToast\('Schedule sync unavailable'/);
   });
 
   it('should provide a dedicated assistant-only voice mute control', function() {
@@ -347,14 +373,20 @@ describe('Chat Renderer UI', function() {
     assert.match(html, /id="mobile-app-btn"[\s\S]*<strong>Mobile<\/strong>[\s\S]*Pair and devices/);
     assert.doesNotMatch(html, /data-section-target="phone"/);
     assert.match(script, /const mobileAppBtn = document\.getElementById\('mobile-app-btn'\)/);
-    assert.match(script, /openSettingsPanel\('phone'\)/);
+    assert.match(script, /const mobileView = document\.getElementById\('mobile-view'\)/);
+    assert.match(script, /const mobileAppCloseBtn = document\.getElementById\('mobile-app-close-btn'\)/);
+    assert.match(html, /id="mobile-view"[\s\S]*id="mobile-app-panel"/);
+    assert.match(html, /class="mobile-app-window-header"[\s\S]*Mobile[\s\S]*id="mobile-app-close-btn"/);
+    assert.match(script, /setWorkspaceView\('mobile'\)/);
+    assert.doesNotMatch(script, /openSettingsPanel\('phone'\)/);
     assert.match(html, /data-phone-panel="connect"/);
     assert.doesNotMatch(html, /data-phone-panel-target="connect"/);
     assert.doesNotMatch(html, /data-phone-panel-target="devices"/);
     assert.doesNotMatch(html, /data-phone-panel="devices"/);
     assert.match(html, /id="mobile-app-panel"/);
-    assert.match(html, /id="mobile-settings-toggle"[\s\S]*Server details/);
-    assert.match(html, /id="mobile-server-details"[^>]*hidden/);
+    assert.match(html, /id="mobile-settings-toggle"[\s\S]*aria-controls="mobile-server-info-overlay"[\s\S]*Server details/);
+    assert.match(html, /id="mobile-server-info-overlay"[^>]*hidden[\s\S]*role="dialog"[\s\S]*id="mobile-server-details-close"/);
+    assert.match(html, /id="mobile-server-details"/);
     assert.match(html, /id="mobile-qr-stage"/);
     assert.match(html, /id="mobile-connected-summary"[^>]*hidden/);
     assert.match(html, /id="mobile-connected-device-name"/);
@@ -384,6 +416,10 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /mobileConnectedSummaryEl\) mobileConnectedSummaryEl\.hidden = !connected/);
     assert.doesNotMatch(script, /mobileQrStageEl\) mobileQrStageEl\.hidden = hasDevice/);
     assert.match(script, /function toggleMobileServerDetails\(/);
+    assert.match(script, /const mobileServerDetailsOverlay = document\.getElementById\('mobile-server-info-overlay'\)/);
+    assert.match(script, /const mobileServerDetailsCloseBtn = document\.getElementById\('mobile-server-details-close'\)/);
+    assert.match(script, /mobileServerDetailsOverlay\.hidden = !opening/);
+    assert.match(script, /function closeMobileServerDetails\(/);
     assert.match(script, /Disconnect Server/);
     assert.match(script, /function formatPairingCountdown\(/);
     assert.match(script, /Expires in \$\{formatPairingCountdown\(remaining\)\}/);
@@ -391,6 +427,12 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /Cloud pairing QR expired\./);
     assert.match(script, /function setActivePhonePanel/);
     assert.match(script, /loadPhoneDevices\(\)/);
+    assert.match(script, /classList\.toggle\('mobile-fullscreen', showingMobile\)/);
+    assert.match(css, /body\.mobile-fullscreen #header,\s*body\.mobile-fullscreen #input-area\s*\{[\s\S]*display:\s*none !important;/);
+    assert.match(css, /\.mobile-app-shell/);
+    assert.match(css, /\.mobile-app-window-header/);
+    assert.match(css, /\.mobile-server-info-overlay/);
+    assert.match(css, /\.mobile-server-info-card/);
     assert.doesNotMatch(css, /\.phone-section-tabs/);
     assert.match(css, /\.mobile-app-panel/);
     assert.match(css, /\.mobile-qr-square/);
@@ -434,11 +476,12 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /setSecurityPassword/);
     assert.match(script, /function clearConversationHistory/);
     assert.match(script, /clearChatHistory/);
-    assert.match(html, /id="settings-section-phone"[^>]*data-settings-section="phone"|data-settings-section="phone"[^>]*id="settings-section-phone"/);
+    assert.doesNotMatch(html, /id="settings-section-phone"|data-settings-section="phone"/);
     assert.doesNotMatch(html, /id="assistant-title"|Assistant Title/);
     assert.doesNotMatch(html, /id="assistant-activation-shortcut"|Chat Shortcut|Alt\+Space to show/);
-    assert.match(script, /const targetSection = requestedSection \|\| \(activeSettingsSection === 'phone' \? 'system' : activeSettingsSection\) \|\| 'system'/);
-    assert.match(script, /settingsNavEl\.hidden = activeSettingsSection === 'phone'/);
+    assert.match(script, /if \(requestedSection === 'phone' \|\| requestedSection === 'mobile'\) \{[\s\S]*openMobileApp\(\);[\s\S]*return;/);
+    assert.match(script, /const targetSection = requestedSection \|\| activeSettingsSection \|\| 'system'/);
+    assert.match(script, /settingsNavEl\.hidden = false/);
     assert.match(script, /openSettingsPanel\('system'\)/);
     assert.match(script, /settingsNavEl\.dataset\.activeSection = activeSettingsSection \|\| 'system'/);
     assert.match(script, /function setActiveSystemBlock/);
@@ -476,7 +519,8 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(script, /window\.openx\?\.getChatHistory|window\.openx\?\.saveChatHistorySync|window\.openx\?\.saveChatHistory|window\.openx\?\.clearChatHistory/);
     assert.match(script, /saveAssistantHistorySync\(merged\);[\s\S]*await saveAssistantHistory\(merged\);/);
     assert.doesNotMatch(script, /saveChatHistory(?:Sync)?\(merged\);[\s\S]{0,240}localStorage\.removeItem\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY\);/);
-    assert.match(script, /saveConversationHistory\(\{ immediate: true \}\)/);
+    assert.match(script, /if \(options\.immediate === true\) \{\s*return flushConversationHistorySave\(\);/);
+    assert.match(script, /function rememberConversationMessage\(text, type, meta\) \{[\s\S]*conversationHistory\.push\(item\);[\s\S]*saveConversationHistory\(\);[\s\S]*\}/);
     assert.match(script, /let conversationReady = false;/);
     assert.match(script, /let conversationReadyPromise = null;/);
     assert.match(script, /function repaintConversationIfBlank\(\)/);

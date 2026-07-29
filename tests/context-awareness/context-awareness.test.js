@@ -315,6 +315,32 @@ describe('Context Awareness', function() {
     assert.ok(signalRecorder.events.some(item => item.event === signalRecorder.SIGNAL_EVENTS.PROCESS_STOPPED && item.payload.name === 'Code.exe'));
   });
 
+  it('should isolate process monitor subscriber failures', async function() {
+    const processMonitor = require('../../core/context-awareness/process-monitor');
+    const warnings = [];
+    const received = [];
+    const monitor = processMonitor.createMonitor({
+      logger: {
+        ...silentLogger(),
+        warn(...args) {
+          warnings.push(args.join(' '));
+        }
+      },
+      signals: createSignalRecorder(),
+      runner: async () => JSON.stringify([{ ProcessId: 7, Name: 'PowerPoint.exe', ExecutablePath: 'C:\\PowerPoint.exe' }])
+    });
+
+    monitor.subscribe(() => {
+      throw new Error('process listener failed');
+    });
+    monitor.subscribe(event => received.push(event.process.name));
+
+    await monitor.pollOnce();
+
+    assert.deepEqual(received, ['PowerPoint.exe']);
+    assert.ok(warnings.some(message => message.includes('Subscriber failed')));
+  });
+
   it('should update microphone activity in context snapshots', function() {
     const { ContextEngine } = require('../../core/context-awareness/context-engine');
     const signalRecorder = createSignalRecorder();

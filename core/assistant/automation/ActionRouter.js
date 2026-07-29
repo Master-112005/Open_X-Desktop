@@ -497,14 +497,24 @@ class ActionRouter {
       return route('remote.listTargets', { routeSource: 'remote-command' }, 0.99);
     }
 
-    const action = this._extractRemoteControlAction(input);
-    if (!action) return null;
+    const hasRemoteCue = /\b(?:remote|remote\s+control|controller|dpad|d-pad|control\s+pad)\b/.test(input);
+    if (!hasRemoteCue) {
+      if (/\b(?:link|links|result|results|search\s+result)\b/.test(input) &&
+        /\b(?:click|open|select|first|second|third|next|previous)\b/.test(input)) {
+        return null;
+      }
+      if (/\b(?:file|files|folder|folders|document|documents|docx|pdf|pptx|xlsx|image|images|photo|photos|picture|pictures)\b/.test(input) &&
+        /\b(?:send|open|find|get|copy|move|delete)\b/.test(input)) {
+        return null;
+      }
+    }
 
     const targetId = this._extractRemoteControlTarget(input);
-    const hasRemoteCue = /\b(?:remote|remote\s+control|controller|dpad|d-pad|control\s+pad)\b/.test(input);
-    const hasPressCue = /\b(?:press|tap|hit|click|select|send)\b/.test(input);
-    const hasTargetCue = Boolean(targetId);
-    if (!hasRemoteCue && !hasPressCue && !hasTargetCue) return null;
+    const action = this._extractRemoteControlAction(input, targetId);
+    if (!action) return null;
+
+    const hasPressCue = /\b(?:press|tap|hit|click|select)\b/.test(input);
+    if (!hasRemoteCue && !hasPressCue) return null;
     if (action === 'playPause' && !hasRemoteCue && !hasPressCue) return null;
     if (targetId === 'powerpoint' && !hasRemoteCue && !hasPressCue) return null;
 
@@ -516,12 +526,19 @@ class ActionRouter {
     }, hasRemoteCue ? 0.99 : 0.94);
   }
 
-  _extractRemoteControlAction(input) {
+  _extractRemoteControlAction(input, targetId = '') {
     const text = String(input || '').toLowerCase();
+    const target = String(targetId || '').toLowerCase();
+    const actionTargetsContent = /^(?:youtube|spotify|powerpoint|active)$/.test(target);
+    const hasContentCue = /\b(?:song|track|video|slide|slideshow|presentation)\b/.test(text);
+    if (/\b(?:start|begin|open|run)\s+(?:the\s+)?(?:slide\s*show|slideshow|presentation)\b/.test(text)) return 'slideshow';
+    if (/\b(?:exit|end|stop)\s+(?:the\s+)?(?:slide\s*show|slideshow|presentation)\b/.test(text)) return 'exit';
+    if (/\b(?:seek|jump|go)\s+back\b|\b(?:back|rewind)\s+(?:10|ten)\s*(?:sec|second|seconds|s)?\b/.test(text)) return 'seekBack';
+    if (/\b(?:seek|jump|go)\s+forward\b|\b(?:forward)\s+(?:10|ten)\s*(?:sec|second|seconds|s)?\b/.test(text)) return 'seekForward';
     if (/\b(?:full\s*screen|fullscreen|maximize\s+video|presentation\s+full)\b/.test(text)) return 'fullscreen';
     if (/\b(?:play\s*pause|play\/pause|pause|resume|play)\b/.test(text)) return 'playPause';
-    if (/\b(?:previous|prev|go\s+back\s+one|backward)\b/.test(text)) return 'left';
-    if (/\b(?:next|forward|advance)\b/.test(text)) return 'right';
+    if (/\b(?:previous|prev|go\s+back\s+one|backward)\b/.test(text)) return (actionTargetsContent || hasContentCue) ? 'previous' : 'left';
+    if (/\b(?:next|skip|advance)\b/.test(text)) return (actionTargetsContent || hasContentCue) ? 'next' : 'right';
     if (/\b(?:left)\b/.test(text)) return 'left';
     if (/\b(?:right)\b/.test(text)) return 'right';
     if (/\b(?:up)\b/.test(text)) return 'up';
@@ -3616,7 +3633,7 @@ class ActionRouter {
     }
 
     try {
-      const result = remote.listTargets({ force: true });
+      const result = remote.listTargets();
       const targets = Array.isArray(result?.data?.targets) ? result.data.targets : [];
       const presentation = targets.find(target => (
         target?.id === 'powerpoint' ||
@@ -6164,7 +6181,13 @@ const newTabMatch = input.match(
   }
 
   _resolveScheduleManagementIntent(rawText, preparedInput) {
-    const input = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
+    const input = String(preparedInput?.correctedText || rawText || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\b(?:cancle|cancl|canel)\b/g, 'cancel')
+      .replace(/\b(?:clane|cleane)\b/g, 'clear')
+      .replace(/\b(?:remindee|remider|remideres|reminderss)\b/g, 'reminder')
+      .replace(/\b(?:alram|alaram|alarmsm)\b/g, 'alarm');
     if (!input) return null;
     const routes = [
       ['timer.clear', /^(?:delete|clear|cancel|stop)\s+all\s+(?:active\s+)?timers?$/],
@@ -6174,14 +6197,14 @@ const newTabMatch = input.match(
       ['timer.remaining', /^(?:how\s+much\s+time\s+(?:is\s+)?left|show\s+(?:the\s+)?remaining\s+time|time\s+left)$/],
       ['timer.list', /^(?:(?:show|list|what|tell|check)\b.*\b(?:active\s+)?timers?\b|(?:how\s+many|count|do\s+i\s+have|are\s+there|any)\b.*\b(?:active\s+)?timers?\b)/],
       ['timer.cancel', /^(?:stop|cancel|delete)\s+(?:the\s+|my\s+)?(?:active\s+)?timer$/],
-      ['reminder.clear', /^(?:delete|clear|cancel)\s+all\s+(?:my\s+)?reminders?$/],
+      ['reminder.clear', /^(?:delete|clear|cancel|remove)\s+all\s+(?:my\s+)?reminders?$/],
       ['reminder.list', /^(?:(?:show|list|tell|check|what(?:'s|\s+is|\s+are)?)\b.*\breminders?\b|(?:how\s+many|count|do\s+i\s+have|are\s+there|any)\b.*\breminders?\b|reminders?\b.*\b(?:today|tomorrow|active|upcoming|scheduled)\b)/],
       ['reminder.snooze', /^snooze\s+(?:this\s+|the\s+|my\s+)?reminder(?:\s+for\s+.+)?$/],
-      ['reminder.cancel', /^(?:delete|cancel|stop)\s+(?:this\s+|the\s+|my\s+)?reminder$/],
-      ['alarm.clear', /^(?:delete|clear|cancel|stop)\s+all\s+(?:my\s+)?alarms?$/],
+      ['reminder.cancel', /^(?:delete|clear|cancel|stop|remove|dismiss)\s+(?:this\s+|the\s+|my\s+)?reminder$/],
+      ['alarm.clear', /^(?:delete|clear|cancel|stop|remove)\s+all\s+(?:my\s+)?alarms?$/],
       ['alarm.snooze', /^snooze\s+(?:the\s+|my\s+)?alarm(?:\s+for\s+.+)?$/],
       ['alarm.list', /^(?:(?:show|list|tell|check|what(?:'s|\s+is|\s+are)?)\b.*\b(?:active\s+)?alarms?\b|(?:how\s+many|count|do\s+i\s+have|are\s+there|any)\b.*\b(?:active\s+)?alarms?\b)/],
-      ['alarm.cancel', /^(?:delete|cancel|stop|dismiss)\s+(?:this\s+|the\s+|my\s+)?alarm$/]
+      ['alarm.cancel', /^(?:delete|clear|cancel|stop|remove|dismiss)\s+(?:this\s+|the\s+|my\s+)?alarm$/]
     ];
     for (const [intentId, pattern] of routes) {
       if (!pattern.test(input)) continue;

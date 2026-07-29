@@ -10,6 +10,7 @@ const PROCESS_WINDOW_TIMEOUT_MS = 3000;
 const FOREGROUND_TIMEOUT_MS = 5000;
 const MAX_WINDOW_QUERY_LENGTH = 240;
 const MAX_SEND_KEYS_LENGTH = 512;
+const DEFAULT_SEND_KEYS_SETTLE_DELAY_MS = 220;
 const MAX_URL_LENGTH = 4096;
 const PROCESS_NAME_PATTERN = /^[a-z0-9._-]+$/;
 const URI_PATTERN = /^[a-z][a-z0-9+.-]*:/i;
@@ -59,6 +60,12 @@ function toSafeInteger(value, label) {
 function toSafeOptionalInteger(value) {
   const number = Number(value);
   return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
+function boundedInteger(value, fallback, min, max) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number)) return fallback;
+  return Math.max(min, Math.min(max, number));
 }
 
 const USER32_BOOTSTRAP = `
@@ -450,6 +457,12 @@ $wshell.SendKeys('{ENTER}')
 
     let safeTarget;
     let safeKeys;
+    const settleDelayMs = boundedInteger(
+      options.settleDelayMs,
+      DEFAULT_SEND_KEYS_SETTLE_DELAY_MS,
+      40,
+      DEFAULT_SEND_KEYS_SETTLE_DELAY_MS
+    );
     try {
       safeTarget = this._coerceWindowTarget(target);
       safeKeys = normalizeLimitedText(keys, 'Keys', MAX_SEND_KEYS_LENGTH);
@@ -472,7 +485,7 @@ if ([Win32WindowApi]::IsIconic($hwnd)) {
 [Win32WindowApi]::SetForegroundWindow($hwnd) | Out-Null
 $wshell = New-Object -ComObject WScript.Shell
 $null = $wshell.AppActivate(${safeTarget.id})
-Start-Sleep -Milliseconds 220
+Start-Sleep -Milliseconds ${settleDelayMs}
 $wshell.SendKeys('${escapePowerShell(safeKeys)}')
 `;
 

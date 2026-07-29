@@ -296,6 +296,7 @@ class NlpProcessor {
     target = target
       .replace(/^(?:the|a|an|my|this|that|current)\s+/i, '')
       .replace(/\b(?:app|application|program|window|tab|level|percent|percentage|only|itself)\b/gi, ' ')
+      .replace(/\s+(?:in|on|via|using)\s+(?:chrome|browser|edge|firefox)\s*$/i, ' ')
       .replace(/\b(?:to|at|as|on)\s+\d{1,3}\s*$/i, ' ')
       .replace(/\s+/g, ' ')
       .trim();

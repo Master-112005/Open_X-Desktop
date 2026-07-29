@@ -360,11 +360,119 @@
               <button class="remote-dpad-btn remote-down" type="button" data-remote-action="down" title="Down" aria-label="Down">&#8595;</button>
             </div>
             <div class="remote-action-row" aria-label="Remote shortcuts">
-              <button class="remote-action-pill" type="button" data-remote-action="back">Back</button>
+              <button class="remote-action-pill" type="button" data-remote-action="previous">Prev</button>
               <button class="remote-action-pill" type="button" data-remote-action="playPause">Play</button>
+              <button class="remote-action-pill" type="button" data-remote-action="next">Next</button>
+              <button class="remote-action-pill" type="button" data-remote-action="seekBack">-10s</button>
+              <button class="remote-action-pill" type="button" data-remote-action="seekForward">+10s</button>
+              <button class="remote-action-pill" type="button" data-remote-action="slideshow">Slide show</button>
               <button class="remote-action-pill" type="button" data-remote-action="fullscreen">Full</button>
+              <button class="remote-action-pill" type="button" data-remote-action="back">Back</button>
+              <button class="remote-action-pill" type="button" data-remote-action="exit">Exit</button>
             </div>
             <p class="remote-status" id="remote-status" aria-live="polite">Remote is ready when a supported app is active.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace-view" id="mobile-view" aria-label="OpenX Mobile" hidden>
+        <div class="mobile-app-shell">
+          <header class="mobile-app-window-header">
+            <div>
+              <strong>Mobile</strong>
+              <small id="cloud-friendly-status">Cloud mode is disconnected.</small>
+            </div>
+            <div class="mobile-app-window-actions">
+              <button class="secondary-btn" id="mobile-settings-toggle" type="button" aria-expanded="false" aria-controls="mobile-server-info-overlay">Server details</button>
+              <button class="people-chat-icon-btn" id="mobile-app-close-btn" type="button" title="Close mobile" aria-label="Close mobile">&#10005;</button>
+            </div>
+          </header>
+          <div class="mobile-app-panel" id="mobile-app-panel">
+            <div class="phone-panel active" data-phone-panel="connect">
+              <div class="mobile-connected-summary" id="mobile-connected-summary" hidden>
+                <div>
+                  <span>Connected device</span>
+                  <strong id="mobile-connected-device-name">OpenX Mobile</strong>
+                  <small id="mobile-connected-device-meta">Ready for pairing, commands, and file transfer.</small>
+                </div>
+                <button class="secondary-btn" id="device-refresh-btn" type="button">Refresh</button>
+              </div>
+              <div class="mobile-qr-stage" id="mobile-qr-stage">
+                <button class="mobile-qr-square" id="cloud-generate-qr-btn" type="button" disabled>
+                  <span>Generate QR</span>
+                  <img id="cloud-pairing-qr" alt="OpenX cloud pairing QR code" hidden>
+                </button>
+                <div class="mobile-pairing-copy">
+                  <strong id="cloud-pairing-status">Connect to Relay Server first.</strong>
+                  <span id="cloud-pairing-expiry"></span>
+                  <span class="phone-pairing-countdown" id="cloud-pairing-countdown" aria-live="polite"></span>
+                </div>
+                <div class="cloud-pairing-requests" id="cloud-pairing-requests"></div>
+              </div>
+              <div class="phone-device-list mobile-device-list" id="phone-device-list"></div>
+              <button class="primary-btn mobile-connect-server-btn" id="cloud-connect-btn" type="button">Connect Server</button>
+            </div>
+          </div>
+          <div class="mobile-server-info-overlay" id="mobile-server-info-overlay" hidden>
+            <section class="mobile-server-info-card" role="dialog" aria-modal="true" aria-labelledby="mobile-server-info-title">
+              <header class="mobile-server-info-header">
+                <div>
+                  <span>Relay server</span>
+                  <strong id="mobile-server-info-title">Server Details</strong>
+                </div>
+                <button class="people-chat-icon-btn" id="mobile-server-details-close" type="button" title="Close server details" aria-label="Close server details">&#10005;</button>
+              </header>
+              <div class="mobile-server-details" id="mobile-server-details">
+                <div class="phone-server-heading">
+                  <strong>Connection</strong>
+                  <span id="cloud-connection-state">Disconnected</span>
+                </div>
+                <label class="field-wrap cloud-url-field">
+                  <span class="field-label">Relay Server</span>
+                  <input class="field" id="cloud-relay-url" type="url" spellcheck="false" placeholder="wss://openx-server.onrender.com/ws">
+                </label>
+                <div class="cloud-toggle-grid">
+                  <label class="phone-permission-toggle">
+                    <input id="cloud-auto-connect" type="checkbox">
+                    <span>Auto Connect on Startup</span>
+                  </label>
+                  <label class="phone-permission-toggle">
+                    <input id="cloud-reconnect-enabled" type="checkbox">
+                    <span>Reconnect Automatically</span>
+                  </label>
+                  <label class="phone-permission-toggle">
+                    <input id="cloud-heartbeat-enabled" type="checkbox">
+                    <span>Heartbeat Health Check</span>
+                  </label>
+                  <label class="field-wrap cloud-timeout-field">
+                    <span class="field-label">Connection Timeout</span>
+                    <input class="field" id="cloud-connection-timeout" type="number" min="1000" max="60000" step="1000">
+                  </label>
+                </div>
+                <div class="phone-server-grid cloud-status-grid">
+                  <div class="phone-server-item">
+                    <span>Last Connected</span>
+                    <strong id="cloud-last-connected">--</strong>
+                  </div>
+                  <div class="phone-server-item">
+                    <span>Duration</span>
+                    <strong id="cloud-duration">--</strong>
+                  </div>
+                  <div class="phone-server-item">
+                    <span>Ping</span>
+                    <strong id="cloud-ping">--</strong>
+                  </div>
+                  <div class="phone-server-item">
+                    <span>Reconnect Attempts</span>
+                    <strong id="cloud-reconnect-attempts">0</strong>
+                  </div>
+                  <div class="phone-server-item">
+                    <span>Server Version</span>
+                    <strong id="cloud-version">--</strong>
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
         </div>
       </section>
@@ -686,92 +794,6 @@
                 <span id="chat-storage-status">Stored locally in OpenX_Data.</span>
               </div>
               <button class="danger-btn" id="clear-chat-history-btn" type="button">Clear Chat</button>
-            </div>
-          </section>
-
-          <section class="settings-section" data-settings-section="phone" id="settings-section-phone">
-            <div class="mobile-app-panel" id="mobile-app-panel">
-              <div class="mobile-app-topbar">
-                <div>
-                  <div class="section-heading">Mobile</div>
-                  <div class="section-note" id="cloud-friendly-status">Cloud mode is disconnected.</div>
-                </div>
-                <button class="secondary-btn" id="mobile-settings-toggle" type="button" aria-expanded="false" aria-controls="mobile-server-details">Server details</button>
-              </div>
-              <div class="phone-panel active" data-phone-panel="connect">
-                <div class="mobile-connected-summary" id="mobile-connected-summary" hidden>
-                  <div>
-                    <span>Connected device</span>
-                    <strong id="mobile-connected-device-name">OpenX Mobile</strong>
-                    <small id="mobile-connected-device-meta">Ready for pairing, commands, and file transfer.</small>
-                  </div>
-                  <button class="secondary-btn" id="device-refresh-btn" type="button">Refresh</button>
-                </div>
-                <div class="mobile-qr-stage" id="mobile-qr-stage">
-                  <button class="mobile-qr-square" id="cloud-generate-qr-btn" type="button" disabled>
-                    <span>Generate QR</span>
-                    <img id="cloud-pairing-qr" alt="OpenX cloud pairing QR code" hidden>
-                  </button>
-                  <div class="mobile-pairing-copy">
-                    <strong id="cloud-pairing-status">Connect to Relay Server first.</strong>
-                    <span id="cloud-pairing-expiry"></span>
-                    <span class="phone-pairing-countdown" id="cloud-pairing-countdown" aria-live="polite"></span>
-                  </div>
-                  <div class="cloud-pairing-requests" id="cloud-pairing-requests"></div>
-                </div>
-                <div class="phone-device-list mobile-device-list" id="phone-device-list"></div>
-                <div class="mobile-server-details" id="mobile-server-details" hidden>
-                  <div class="phone-server-heading">
-                    <strong>Server Details</strong>
-                    <span id="cloud-connection-state">Disconnected</span>
-                  </div>
-                  <label class="field-wrap cloud-url-field">
-                    <span class="field-label">Relay Server</span>
-                    <input class="field" id="cloud-relay-url" type="url" spellcheck="false" placeholder="wss://openx-server.onrender.com/ws">
-                  </label>
-                  <div class="cloud-toggle-grid">
-                    <label class="phone-permission-toggle">
-                      <input id="cloud-auto-connect" type="checkbox">
-                      <span>Auto Connect on Startup</span>
-                    </label>
-                    <label class="phone-permission-toggle">
-                      <input id="cloud-reconnect-enabled" type="checkbox">
-                      <span>Reconnect Automatically</span>
-                    </label>
-                    <label class="phone-permission-toggle">
-                      <input id="cloud-heartbeat-enabled" type="checkbox">
-                      <span>Heartbeat Health Check</span>
-                    </label>
-                    <label class="field-wrap cloud-timeout-field">
-                      <span class="field-label">Connection Timeout</span>
-                      <input class="field" id="cloud-connection-timeout" type="number" min="1000" max="60000" step="1000">
-                    </label>
-                  </div>
-                  <div class="phone-server-grid cloud-status-grid">
-                    <div class="phone-server-item">
-                      <span>Last Connected</span>
-                      <strong id="cloud-last-connected">--</strong>
-                    </div>
-                    <div class="phone-server-item">
-                      <span>Duration</span>
-                      <strong id="cloud-duration">--</strong>
-                    </div>
-                    <div class="phone-server-item">
-                      <span>Ping</span>
-                      <strong id="cloud-ping">--</strong>
-                    </div>
-                    <div class="phone-server-item">
-                      <span>Reconnect Attempts</span>
-                      <strong id="cloud-reconnect-attempts">0</strong>
-                    </div>
-                    <div class="phone-server-item">
-                      <span>Server Version</span>
-                      <strong id="cloud-version">--</strong>
-                    </div>
-                  </div>
-                </div>
-                <button class="primary-btn mobile-connect-server-btn" id="cloud-connect-btn" type="button">Connect Server</button>
-              </div>
             </div>
           </section>
 

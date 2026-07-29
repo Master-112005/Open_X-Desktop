@@ -344,6 +344,35 @@ describe('Electron Security Boundary', function() {
     );
   });
 
+  it('should validate app-specific remote control actions', function() {
+    assert.deepEqual(
+      IPC_VALIDATORS['remote:control']({
+        targetId: 'youtube',
+        action: 'next',
+        tabTitle: 'Music - YouTube',
+        targetHandle: 123,
+        targetProcessId: 456,
+        processName: 'chrome'
+      }),
+      {
+        targetId: 'youtube',
+        action: 'next',
+        tabTitle: 'Music - YouTube',
+        targetHandle: 123,
+        targetProcessId: 456,
+        processName: 'chrome'
+      }
+    );
+    assert.equal(
+      IPC_VALIDATORS['remote:control']({ targetId: 'powerpoint', action: 'slideshow' }).action,
+      'slideshow'
+    );
+    assert.throws(
+      () => IPC_VALIDATORS['remote:control']({ targetId: 'youtube', action: 'delete' }),
+      /remote action is not supported/
+    );
+  });
+
   it('should provide a validator for every registered IPC channel', function() {
     const expectedChannels = [
       'command:process', 'command:confirm', 'assistant:status', 'tts:speak', 'tts:stop', 'voice:start',

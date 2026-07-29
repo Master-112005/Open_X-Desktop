@@ -28,6 +28,9 @@ describe('Timer Widget Renderer', function() {
     assert.match(script, /strokeDashoffset/);
     assert.match(script, /AudioContext/);
     assert.match(script, /playWidgetTone\(state\.mode\)/);
+    assert.match(script, /function cleanupWidgetResources\(\)/);
+    assert.match(script, /audioContext\.close\(\)\.catch\(\(\) => \{\}\)/);
+    assert.match(script, /window\.addEventListener\('beforeunload', cleanupWidgetResources\)/);
     assert.match(css, /\.stopwatch-face:active\s*\{/);
     assert.match(css, /\.widget\[data-mode="stopwatch"\] \.reset-btn/);
     assert.match(css, /-webkit-app-region:\s*no-drag/);

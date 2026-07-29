@@ -160,7 +160,19 @@ refresh();
 pollHandle = setInterval(refresh, 1000);
 tickHandle = setInterval(tick, 500);
 
-window.addEventListener('beforeunload', () => {
-  if (pollHandle) clearInterval(pollHandle);
-  if (tickHandle) clearInterval(tickHandle);
-});
+function cleanupWidgetResources() {
+  if (pollHandle) {
+    clearInterval(pollHandle);
+    pollHandle = null;
+  }
+  if (tickHandle) {
+    clearInterval(tickHandle);
+    tickHandle = null;
+  }
+  if (audioContext && typeof audioContext.close === 'function' && audioContext.state !== 'closed') {
+    audioContext.close().catch(() => {});
+  }
+  audioContext = null;
+}
+
+window.addEventListener('beforeunload', cleanupWidgetResources);

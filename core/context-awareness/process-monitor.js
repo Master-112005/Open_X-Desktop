@@ -78,8 +78,18 @@ class ProcessMonitor {
   }
 
   _publish(event, processInfo) {
-    this.signals.emit(event, processInfo);
-    this.subscribers.forEach(callback => callback({ event, process: processInfo }));
+    try {
+      this.signals.emit(event, processInfo);
+    } catch (error) {
+      this.logger.warn('[Process] Signal publish failed', error.message);
+    }
+    this.subscribers.forEach(callback => {
+      try {
+        callback({ event, process: processInfo });
+      } catch (error) {
+        this.logger.warn('[Process] Subscriber failed', error.message);
+      }
+    });
   }
 
   async pollOnce() {

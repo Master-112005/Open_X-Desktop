@@ -4,7 +4,18 @@ const CloudRequestQueue = require('./CloudRequestQueue');
 const CloudResponseSerializer = require('./CloudResponseSerializer');
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 60000;
+const DEFAULT_PROCESS_BATCH_SIZE = 8;
 const MAX_COMMAND_LENGTH = 4000;
+
+function yieldToEventLoop() {
+  return new Promise(resolve => {
+    if (typeof setImmediate === 'function') {
+      setImmediate(resolve);
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+}
 
 class CloudCommandManager extends EventEmitter {
   constructor(options = {}) {
@@ -22,6 +33,9 @@ class CloudCommandManager extends EventEmitter {
     this.executionTimeoutMs = Number.isFinite(options.executionTimeoutMs)
       ? Math.max(1000, Math.round(options.executionTimeoutMs))
       : DEFAULT_EXECUTION_TIMEOUT_MS;
+    this.processBatchSize = Number.isFinite(options.processBatchSize)
+      ? Math.max(1, Math.min(25, Math.round(options.processBatchSize)))
+      : DEFAULT_PROCESS_BATCH_SIZE;
     this.logger = options.logger || console;
     this.lifecycle = new Map();
     this.started = false;
@@ -244,11 +258,17 @@ class CloudCommandManager extends EventEmitter {
   async processQueue() {
     if (this.processing) return;
     this.processing = true;
+    let processedInBatch = 0;
     try {
       for (;;) {
         const request = this.queue.next();
         if (!request) break;
         await this.executeRequest(request);
+        processedInBatch += 1;
+        if (processedInBatch >= this.processBatchSize && this.queue.getStatistics().queued > 0) {
+          processedInBatch = 0;
+          await yieldToEventLoop();
+        }
       }
     } finally {
       this.processing = false;

@@ -78,6 +78,9 @@ describe('Dynamic Island Schedule Alerts', function() {
     assert.match(preload, /function scheduleVoiceHoverAutoHide\(payload = \{\}\)/);
     assert.match(preload, /function refreshVoiceHoverPointerState\(root = document\.getElementById\('voice-overlay'\)\)/);
     assert.match(preload, /function watchVoiceHoverExit\(root = document\.getElementById\('voice-overlay'\)\)/);
+    assert.match(preload, /function cleanupVoiceOverlayResources\(\)/);
+    assert.match(preload, /window\.addEventListener\('beforeunload', cleanupVoiceOverlayResources\)/);
+    assert.match(preload, /voiceAlertAudioContext\.close\(\)\.catch\(\(\) => \{\}\)/);
     assert.match(preload, /payload\.hoverHoldAutoHide !== true/);
     assert.match(preload, /root\.matches\?\.\(':hover'\)/);
     assert.match(preload, /document\.elementFromPoint\(voiceHoverPointerPosition\.x, voiceHoverPointerPosition\.y\)/);

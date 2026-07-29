@@ -147,6 +147,16 @@ class ContextManager {
       });
     }
 
+    if (intent === 'alarm.set' && (entities?.timeExpression || result?.data?.dueAt)) {
+      this._upsertPendingTask({
+        type: 'alarm',
+        text: compactSentence(entities.alarmLabel || result?.data?.alarmLabel || result?.data?.message || '', 160),
+        timeExpression: entities.timeExpression || null,
+        dueAt: result?.data?.dueAt || null,
+        timestamp: Date.now()
+      });
+    }
+
     this.pendingTasks = this.pendingTasks.filter(t => Date.now() - t.timestamp < 3600000);
   }
 

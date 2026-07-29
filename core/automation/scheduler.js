@@ -1342,7 +1342,7 @@ class SchedulerController {
   cancelLatest(kind) {
     const item = this._latestSchedule(kind, ['scheduled', 'paused', 'due']);
     if (!item) return { success: false, error: `No active ${String(kind || 'schedule').toLowerCase()} found` };
-    return this.complete(item.id);
+    return this.removeSchedule(item.id);
   }
 
   clearSchedules(kind) {
@@ -1353,7 +1353,7 @@ class SchedulerController {
       const timer = this.timers.get(item.id);
       if (timer) clearTimeout(timer);
       this.timers.delete(item.id);
-      item.status = 'completed';
+      item.status = 'dismissed';
       item.updatedAt = new Date().toISOString();
     }
     this._saveScheduledItems();
