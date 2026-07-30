@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const DiagnosticsConfiguration = require('./DiagnosticsConfiguration');
 const { sanitizeMetadata } = require('./privacy');
+const { appendSecureJsonLine } = require('../../../../core/assistant/Data');
 
 /**
  * Purpose: Writes local structured Voice diagnostics logs.
@@ -103,7 +104,7 @@ class VoiceLogger {
     try {
       fs.mkdirSync(path.dirname(this.logPath), { recursive: true });
       this.rotateIfNeeded();
-      fs.appendFileSync(this.logPath, `${line}\n`, 'utf8');
+      appendSecureJsonLine(this.logPath, { ...entry, line });
       return { logged: true, line, ...entry };
     } catch (error) {
       return { logged: false, line, ...entry, error: error.message };

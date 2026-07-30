@@ -66,9 +66,7 @@ New pipeline modules:
 |---|---:|---|
 | `PersonalPreferenceLearning` | `35` | Favorite contacts, songs, artists, playlists, foods, restaurants, TV channels, streaming services, rooms, and preferred routine times. |
 | `RoutineTimeLearning` | `42` | Wake, bedtime, meal, media, and device routine observations from external events. |
-| `DevicePreferenceLearning` | `44` | Fan speed, light brightness, light color, and TV-channel preferences from device events. |
-| `AppliancePatternLearning` | `46` | Room, day-type, time-window, appliance, and action patterns. |
-| `ActionSequenceLearning` | `48` | Bounded N-gram style home action sequences and average action gaps. |
+| `HomeEventLearning` | `44` | Fan speed, light brightness, TV-channel preferences, room/time appliance patterns, home routines, event deduplication, and bounded N-gram action sequences from device events. |
 
 New storage paths under `OpenX_Data`:
 
@@ -898,8 +896,8 @@ core/assistant/learning/
 |-- CorrectionStore.js
 |-- FeedbackLearning.js
 |-- HabitLearning.js
+|-- HomeEventLearning.js
 |-- index.js
-|-- LearningAnalytics.js
 |-- LearningConfiguration.js
 |-- LearningConstitution.js
 |-- LearningContext.js
@@ -907,7 +905,6 @@ core/assistant/learning/
 |-- LearningErrors.js
 |-- LearningGuard.js
 |-- LearningLanguage.js
-|-- LearningLogger.js
 |-- LearningManager.js
 |-- LearningPipeline.js
 |-- LearningPolicy.js

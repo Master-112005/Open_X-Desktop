@@ -17,6 +17,7 @@ const HealthMonitor = require('./HealthMonitor');
 const EventTimeline = require('./EventTimeline');
 const DiagnosticsReport = require('./DiagnosticsReport');
 const { ReportGenerationFailed } = require('./DiagnosticsErrors');
+const { writeSecureJsonAtomic } = require('../../../../core/assistant/Data');
 
 /**
  * Purpose: Coordinates local passive Voice diagnostics.
@@ -165,7 +166,7 @@ class DiagnosticsManager extends EventEmitter {
       const reportsDir = this.configuration.pathFor('reports');
       fs.mkdirSync(reportsDir, { recursive: true });
       const reportPath = path.join(reportsDir, `${kind}-${Date.now()}.json`);
-      fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+      writeSecureJsonAtomic(reportPath, report);
       this.emit(DIAGNOSTICS_EVENTS.REPORT_GENERATED, Object.freeze({ path: reportPath, report }));
       return { generated: true, path: reportPath, report };
     } catch (error) {

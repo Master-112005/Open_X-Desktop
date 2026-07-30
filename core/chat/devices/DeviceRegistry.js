@@ -1,6 +1,5 @@
 const crypto = require('crypto');
-const fs = require('fs/promises');
-const path = require('path');
+const { readSecureJsonFile, writeSecureJsonAtomic } = require('../../assistant/Data');
 
 /**
  * Persists local desktop device registration state.
@@ -21,18 +20,15 @@ class DeviceRegistry {
    */
   async load() {
     if (this.state) return this.state;
-    try {
-      this.state = JSON.parse(await fs.readFile(this.statePath, 'utf8'));
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-      this.state = {
-        clientDeviceKey: crypto.randomBytes(24).toString('hex'),
-        device: null,
-        approvals: [],
-        updatedAt: new Date().toISOString()
-      };
-      await this.save();
-    }
+    this.state = readSecureJsonFile(this.statePath, () => ({
+      clientDeviceKey: crypto.randomBytes(24).toString('hex'),
+      device: null,
+      approvals: [],
+      updatedAt: new Date().toISOString()
+    }), {
+      createIfMissing: true,
+      validate: value => value && typeof value === 'object'
+    });
     return this.state;
   }
 
@@ -40,8 +36,7 @@ class DeviceRegistry {
    * Saves local state.
    */
   async save() {
-    await fs.mkdir(path.dirname(this.statePath), { recursive: true });
-    await fs.writeFile(this.statePath, `${JSON.stringify(this.state, null, 2)}\n`, 'utf8');
+    writeSecureJsonAtomic(this.statePath, this.state, { backup: true });
   }
 
   /**

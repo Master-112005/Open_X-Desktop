@@ -2,7 +2,11 @@
 
 const crypto = require('crypto');
 const path = require('path');
-const { ensureDataRoot, readJsonFile, writeJsonAtomic } = require('../Data');
+const {
+  ensureDataRoot,
+  readSecureJsonFile: readJsonFile,
+  writeSecureJsonAtomic: writeJsonAtomic
+} = require('../Data');
 const { LearningStorageError } = require('./LearningErrors');
 const LearningGuard = require('./LearningGuard');
 
@@ -26,6 +30,7 @@ class LearningStorage {
   constructor(options = {}) {
     this.config = options.config || {};
     this.baseDir = path.resolve(options.baseDir || path.join(ensureDataRoot(this.config).learningDir, 'v3'));
+    this.keyPath = options.keyPath || path.join(this.baseDir, '.security', 'openx-data.key');
     this.maxRecords = Number.isFinite(options.maxRecords) ? Number(options.maxRecords) : 500;
     this.files = Object.fromEntries(CATEGORIES.map(category => [category, path.join(this.baseDir, `${category}.json`)]));
   }
@@ -116,12 +121,14 @@ class LearningStorage {
       metadata: { createdAt: new Date(0).toISOString(), updatedAt: null, totalEvents: 0 }
     }), {
       createIfMissing: true,
+      config: this.config,
+      keyPath: this.keyPath,
       validate: value => value && value.version === 1 && value.records && typeof value.records === 'object'
     });
   }
 
   _write(category, data) {
-    writeJsonAtomic(this.files[category], data, { backup: true });
+    writeJsonAtomic(this.files[category], data, { backup: true, config: this.config, keyPath: this.keyPath });
   }
 
   _key(event) {

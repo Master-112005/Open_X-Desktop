@@ -2637,6 +2637,7 @@ describe('Voice Subsystem Architecture', function() {
     manager.beginExecution();
     manager.finishSession();
     const report = diagnostics.generateReport('summary');
+    const { readSecureJsonFile } = require('../../core/assistant/Data');
     const snapshot = diagnostics.getSnapshot();
 
     assert.equal(snapshot.metrics.totals['audio.queue.depth'], 3);
@@ -2645,6 +2646,8 @@ describe('Voice Subsystem Architecture', function() {
     assert.equal(snapshot.sessions.recognitionCycles.started, 1);
     assert.equal(snapshot.health.status, 'healthy');
     assert.equal(fs.existsSync(report.path), true);
+    assert.match(fs.readFileSync(report.path, 'utf8'), /OPENX_SECURE_JSON_V1/);
+    assert.equal(readSecureJsonFile(report.path, {}).kind, 'summary');
     assert.equal(JSON.stringify(snapshot).includes('open secret file'), false);
     diagnostics.stop();
   });
@@ -2654,6 +2657,7 @@ describe('Voice Subsystem Architecture', function() {
     const os = require('os');
     const path = require('path');
     const { VoiceLogger } = require('../../apps/desktop/voice');
+    const { readSecureJsonLines } = require('../../core/assistant/Data');
     const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-voice-log-'));
     const logger = new VoiceLogger({
       enabled: true,
@@ -2671,14 +2675,17 @@ describe('Voice Subsystem Architecture', function() {
         partialTranscripts: 3
       }
     });
-    const content = fs.readFileSync(path.join(storageRoot, 'logs', 'voice.log'), 'utf8');
+    const logPath = path.join(storageRoot, 'logs', 'voice.log');
+    const content = fs.readFileSync(logPath, 'utf8');
+    const [stored] = readSecureJsonLines(logPath);
 
     assert.equal(result.logged, true);
     assert.match(result.line, /INFO\s+Voice\s+Runtime pipeline: partial transcript updated/);
-    assert.match(content, /state=LISTENING/);
-    assert.match(content, /recognition-cycle-id=cycle-1/);
-    assert.match(content, /transcript-length=22 chars/);
-    assert.match(content, /pipeline=audio:100,processed:98,stt:97,partial:3/);
+    assert.match(content, /OPENX_SECURE_JSON_V1/);
+    assert.match(stored.line, /state=LISTENING/);
+    assert.match(stored.line, /recognition-cycle-id=cycle-1/);
+    assert.match(stored.line, /transcript-length=22 chars/);
+    assert.match(stored.line, /pipeline=audio:100,processed:98,stt:97,partial:3/);
     assert.doesNotMatch(content, /open my private folder/);
   });
 

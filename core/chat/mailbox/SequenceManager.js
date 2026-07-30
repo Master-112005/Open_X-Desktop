@@ -1,6 +1,5 @@
-const fs = require('fs/promises');
-const path = require('path');
 const MailboxEvents = require('./MailboxEvents');
+const { readSecureJsonFile, writeSecureJsonAtomic } = require('../../assistant/Data');
 
 /**
  * Persists local highest acknowledged mailbox sequence per device.
@@ -22,13 +21,11 @@ class SequenceManager {
    */
   async load() {
     if (this.loaded) return;
-    try {
-      const raw = await fs.readFile(this.config.sequenceStatePath, 'utf8');
-      const parsed = JSON.parse(raw);
-      for (const [deviceId, sequence] of Object.entries(parsed?.sequences || {})) this.sequences.set(deviceId, Number(sequence || 0));
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-    }
+    const parsed = readSecureJsonFile(this.config.sequenceStatePath, () => ({ schemaVersion: 1, sequences: {} }), {
+      createIfMissing: true,
+      validate: value => value && typeof value === 'object'
+    });
+    for (const [deviceId, sequence] of Object.entries(parsed?.sequences || {})) this.sequences.set(deviceId, Number(sequence || 0));
     this.loaded = true;
   }
 
@@ -61,8 +58,10 @@ class SequenceManager {
    * Persists sequence state.
    */
   async persist() {
-    await fs.mkdir(path.dirname(this.config.sequenceStatePath), { recursive: true });
-    await fs.writeFile(this.config.sequenceStatePath, `${JSON.stringify({ schemaVersion: 1, sequences: Object.fromEntries(this.sequences) }, null, 2)}\n`, 'utf8');
+    writeSecureJsonAtomic(this.config.sequenceStatePath, {
+      schemaVersion: 1,
+      sequences: Object.fromEntries(this.sequences)
+    }, { backup: true });
   }
 }
 

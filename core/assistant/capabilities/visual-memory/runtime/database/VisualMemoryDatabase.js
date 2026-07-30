@@ -2,7 +2,11 @@
 
 const path = require('path');
 const { VISUAL_MEMORY_SCHEMA_VERSION, DEFAULT_VISUAL_MEMORY_SETTINGS } = require('../utils/constants');
-const { ensureDir, readJson, writeJsonAtomic } = require('../utils/FileSystemUtils');
+const { ensureDir } = require('../utils/FileSystemUtils');
+const {
+  readSecureJsonFile,
+  writeSecureJsonAtomic
+} = require('../../../../Data');
 
 function emptySchema() {
   return {
@@ -33,7 +37,10 @@ class VisualMemoryDatabase {
     if (this.opened) return this;
     if (!this.filePath) throw new Error('Visual Memory database file path is required');
     await ensureDir(path.dirname(this.filePath));
-    const loaded = await readJson(this.filePath, null);
+    const loaded = readSecureJsonFile(this.filePath, null, {
+      createIfMissing: false,
+      validate: value => !value || typeof value === 'object'
+    });
     this.data = this._migrate(loaded || emptySchema());
     await this._persist();
     this.opened = true;
@@ -103,7 +110,7 @@ class VisualMemoryDatabase {
   async _persist() {
     if (!this.data) return;
     this.data.updatedAt = new Date().toISOString();
-    await writeJsonAtomic(this.filePath, this.data);
+    writeSecureJsonAtomic(this.filePath, this.data, { backup: true });
   }
 
   _assertOpen() {

@@ -1,5 +1,4 @@
-const fs = require('fs/promises');
-const path = require('path');
+const { readSecureJsonFile, writeSecureJsonAtomic } = require('../../assistant/Data');
 
 /**
  * Desktop local synchronization-copy metadata store.
@@ -23,13 +22,10 @@ class SynchronizationCopyManager {
    */
   async initialize() {
     if (this.started) return;
-    await fs.mkdir(path.dirname(this.config.storagePath), { recursive: true });
-    try {
-      this.state = this.normalize(JSON.parse(await fs.readFile(this.config.storagePath, 'utf8')));
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-      await this.persist();
-    }
+    this.state = this.normalize(readSecureJsonFile(this.config.storagePath, () => this.state, {
+      createIfMissing: true,
+      validate: value => value && typeof value === 'object'
+    }));
     this.started = true;
   }
 
@@ -73,9 +69,7 @@ class SynchronizationCopyManager {
    */
   async persist() {
     this.writeQueue = this.writeQueue.then(async () => {
-      const tempPath = `${this.config.storagePath}.tmp`;
-      await fs.writeFile(tempPath, `${JSON.stringify(this.state, null, 2)}\n`, 'utf8');
-      await fs.rename(tempPath, this.config.storagePath);
+      writeSecureJsonAtomic(this.config.storagePath, this.state, { backup: true });
     });
     await this.writeQueue;
   }

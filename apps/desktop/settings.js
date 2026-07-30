@@ -1,7 +1,12 @@
 const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
-const { ensureDataRoot, migrateLegacyData, readJsonFile, writeJsonAtomic } = require('../../core/assistant/Data');
+const {
+  ensureDataRoot,
+  migrateLegacyData,
+  readSecureJsonFile: readJsonFile,
+  writeSecureJsonAtomic: writeJsonAtomic
+} = require('../../core/assistant/Data');
 
 const DEFAULT_CLOUD_RELAY_URL = 'wss://openx-server.onrender.com/ws';
 const LEGACY_DEFAULT_CLOUD_RELAY_URLS = new Set([

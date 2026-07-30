@@ -1,5 +1,4 @@
-const fs = require('fs/promises');
-const path = require('path');
+const { readSecureJsonFile, writeSecureJsonAtomic } = require('../../assistant/Data');
 
 /**
  * Stores local history-sync coordination state inside OpenX_Data.
@@ -21,14 +20,10 @@ class HistorySynchronizationStorage {
    */
   async initialize() {
     if (this.started) return;
-    await fs.mkdir(path.dirname(this.config.storagePath), { recursive: true });
-    try {
-      this.state = this.normalize(JSON.parse(await fs.readFile(this.config.storagePath, 'utf8')));
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-      this.state = this.empty();
-      await this.persist();
-    }
+    this.state = this.normalize(readSecureJsonFile(this.config.storagePath, () => this.empty(), {
+      createIfMissing: true,
+      validate: value => value && typeof value === 'object'
+    }));
     this.started = true;
   }
 
@@ -138,8 +133,9 @@ class HistorySynchronizationStorage {
    * Persists local metadata.
    */
   async persist() {
-    const payload = JSON.stringify(this.state, null, 2);
-    this.writeQueue = this.writeQueue.then(() => fs.writeFile(this.config.storagePath, payload));
+    this.writeQueue = this.writeQueue.then(() => {
+      writeSecureJsonAtomic(this.config.storagePath, this.state, { backup: true });
+    });
     await this.writeQueue;
   }
 }

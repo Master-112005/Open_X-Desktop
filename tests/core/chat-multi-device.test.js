@@ -5,6 +5,7 @@ const EventEmitter = require('events');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { readSecureJsonFile } = require('../../core/assistant/Data');
 
 const {
   MultiDeviceConfiguration,
@@ -118,7 +119,7 @@ describe('OpenX Chat Multi-Device Desktop Manager', function() {
     const sync = await manager.synchronizeDevice({ deviceId: 'dev_desktop', afterSequence: 1 });
     const consistency = await manager.validateConsistency({ accountId: 'acc_1' });
     const status = await manager.status('dev_desktop');
-    const stored = JSON.parse(fs.readFileSync(storagePath, 'utf8'));
+    const stored = readSecureJsonFile(storagePath, {}, { createIfMissing: false });
 
     assert.equal(devices.multiDeviceAccount.deviceCount, 2);
     assert.equal(sync.highestContiguousSequence, 2);

@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 
 const CrashRecoveryPolicy = require('../../apps/desktop/electron/crash-recovery');
+const { readSecureJsonFile } = require('../../core/assistant/Data');
 
 describe('Crash Recovery Policy', function() {
   let directory;
@@ -25,6 +26,16 @@ describe('Crash Recovery Policy', function() {
     assert.equal(policy.requestRestart(1100), true);
     assert.equal(policy.requestRestart(1200), true);
     assert.equal(policy.requestRestart(1300), false);
+  });
+
+  it('should harden invalid policy limits to safe positive defaults', function() {
+    const policy = new CrashRecoveryPolicy({ statePath, maxRestarts: 0, windowMs: -1, maxRendererRecords: 0 });
+    const diagnostics = policy.getDiagnostics(1000);
+
+    assert.equal(diagnostics.maxRestarts, 3);
+    assert.equal(diagnostics.windowMs, 5 * 60 * 1000);
+    assert.equal(diagnostics.maxRendererRecords, 12);
+    assert.equal(diagnostics.blocked, false);
   });
 
   it('should permit recovery after the crash window expires', function() {
@@ -59,12 +70,63 @@ describe('Crash Recovery Policy', function() {
     assert.equal(diagnostics.stableAt, 1200);
   });
 
+  it('should persist bounded renderer recovery diagnostics without consuming the main restart budget', function() {
+    const policy = new CrashRecoveryPolicy({
+      statePath,
+      maxRestarts: 1,
+      windowMs: 1000,
+      maxRendererRecords: 2
+    });
+
+    policy.recordRendererFailure(1000, {
+      windowType: 'chat',
+      reason: 'renderer exited: crashed',
+      eventType: 'render-process-gone',
+      recoveryAction: 'recreate-window',
+      details: { type: 'renderer', reason: 'crashed', exitCode: 9 }
+    });
+    policy.recordRendererFailure(1100, {
+      windowType: 'gallery',
+      reason: 'renderer remained unresponsive',
+      eventType: 'unresponsive',
+      recoveryAction: 'reloadIgnoringCache'
+    });
+    policy.recordRendererFailure(1200, {
+      windowType: 'planner',
+      reason: 'preload failed',
+      eventType: 'preload-error',
+      recoveryAction: 'recreate-window'
+    });
+
+    const diagnostics = policy.getDiagnostics(1300);
+    assert.equal(diagnostics.crashCount, 0);
+    assert.equal(diagnostics.remainingRestarts, 1);
+    assert.equal(diagnostics.rendererCrashRecords.length, 2);
+    assert.equal(diagnostics.rendererCrashRecords[0].windowType, 'gallery');
+    assert.equal(diagnostics.lastRendererCrash.windowType, 'planner');
+    assert.equal(diagnostics.lastRendererCrash.recoveryAction, 'recreate-window');
+  });
+
+  it('should preserve renderer recovery diagnostics across restart and stable-state writes', function() {
+    const policy = new CrashRecoveryPolicy({ statePath, maxRestarts: 2, windowMs: 1000 });
+
+    policy.recordRendererFailure(1000, { windowType: 'chat', reason: 'renderer crashed' });
+    assert.equal(policy.requestRestart(1100, { origin: 'startup', reason: 'main crashed' }), true);
+    policy.markStable(1200);
+
+    const diagnostics = policy.getDiagnostics(1300);
+    assert.equal(diagnostics.rendererCrashRecords.length, 1);
+    assert.equal(diagnostics.lastRendererCrash.windowType, 'chat');
+    assert.equal(diagnostics.recoveredCrashRecords.length, 1);
+    assert.equal(diagnostics.crashCount, 0);
+  });
+
   it('should recover safely from corrupt state data', function() {
     fs.writeFileSync(statePath, '{bad json', 'utf8');
     const policy = new CrashRecoveryPolicy({ statePath, maxRestarts: 1, windowMs: 1000 });
 
     assert.equal(policy.requestRestart(1000), true);
-    assert.deepEqual(JSON.parse(fs.readFileSync(statePath, 'utf8')).crashTimestamps, [1000]);
+    assert.deepEqual(readSecureJsonFile(statePath, {}, { createIfMissing: false }).crashTimestamps, [1000]);
   });
 
   it('should ignore future timestamps when reading restart history', function() {
@@ -72,7 +134,7 @@ describe('Crash Recovery Policy', function() {
     const policy = new CrashRecoveryPolicy({ statePath, maxRestarts: 2, windowMs: 1000 });
 
     assert.equal(policy.requestRestart(1100), true);
-    assert.deepEqual(JSON.parse(fs.readFileSync(statePath, 'utf8')).crashTimestamps, [1000, 1100]);
+    assert.deepEqual(readSecureJsonFile(statePath, {}, { createIfMissing: false }).crashTimestamps, [1000, 1100]);
   });
 
   it('should expose bounded recovery state for diagnostics', function() {
@@ -102,7 +164,8 @@ describe('Crash Recovery Policy', function() {
       memory: { rss: 10, heapUsed: 20, external: 30 }
     }), true);
 
-    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    const state = readSecureJsonFile(statePath, {}, { createIfMissing: false });
+    assert.equal(state.schemaVersion, 2);
     assert.equal(state.lastCrash.origin, 'startup');
     assert.equal(state.lastCrash.component, 'main-process');
     assert.equal(state.lastCrash.reason.length, 180);
@@ -126,5 +189,6 @@ describe('Crash Recovery Policy', function() {
     assert.equal(diagnostics.lastCrash.component, 'assistant');
     assert.equal(diagnostics.windowMs, 1000);
     assert.equal(diagnostics.maxRestarts, 2);
+    assert.equal(diagnostics.schemaVersion, 2);
   });
 });

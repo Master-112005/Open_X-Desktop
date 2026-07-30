@@ -381,9 +381,9 @@ function loadStoredList(key) {
   }
 }
 
-function saveStoredList(key, value) {
+function removeStoredValue(key) {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.removeItem(key);
   } catch (error) {}
 }
 
@@ -394,12 +394,6 @@ function loadStoredObject(key) {
   } catch (error) {
     return {};
   }
-}
-
-function saveStoredObject(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (error) {}
 }
 
 function chatHistoryLimit() {
@@ -484,9 +478,6 @@ async function loadConversationHistory() {
   }
 
   const merged = legacy.length > 0 ? mergeChatHistory(stored, legacy) : stored;
-  if (merged.length > 0) {
-    saveStoredList(ASSISTANT_CHAT_HISTORY_STORAGE_KEY, merged.slice(-chatHistoryLimit()));
-  }
   if (legacy.length > 0) {
     const saveAssistantHistorySync = window.openx?.saveAssistantChatHistorySync;
     const saveAssistantHistory = window.openx?.saveAssistantChatHistory;
@@ -499,6 +490,7 @@ async function loadConversationHistory() {
         }
       } catch (_) {}
     }
+    removeStoredValue(ASSISTANT_CHAT_HISTORY_STORAGE_KEY);
   }
   updateChatStorageStatus(merged.length);
   return merged.slice(-CHAT_HISTORY_LIMIT);
@@ -506,9 +498,6 @@ async function loadConversationHistory() {
 
 function persistConversationHistory(entries = conversationHistory) {
   const snapshot = normalizeChatHistoryItems(entries).slice(-chatHistoryLimit());
-  if (snapshot.length > 0) {
-    saveStoredList(ASSISTANT_CHAT_HISTORY_STORAGE_KEY, snapshot);
-  }
   const saveAssistantHistorySync = window.openx?.saveAssistantChatHistorySync;
   const saveAssistantHistory = window.openx?.saveAssistantChatHistory;
   if (saveAssistantHistorySync) {
@@ -523,20 +512,12 @@ function persistConversationHistory(entries = conversationHistory) {
   chatHistorySaveQueue = chatHistorySaveQueue
     .catch(() => {})
     .then(() => saveAssistantHistory(snapshot))
-    .catch(() => {
-      if (snapshot.length > 0) {
-        saveStoredList(ASSISTANT_CHAT_HISTORY_STORAGE_KEY, snapshot);
-      }
-    });
+    .catch(() => {});
   return chatHistorySaveQueue;
 }
 
 function persistConversationHistoryFallback(entries = conversationHistory) {
-  const fallback = normalizeChatHistoryItems(entries).slice(-chatHistoryLimit());
-  if (fallback.length > 0) {
-    saveStoredList(ASSISTANT_CHAT_HISTORY_STORAGE_KEY, fallback);
-  }
-  return fallback;
+  return normalizeChatHistoryItems(entries).slice(-chatHistoryLimit());
 }
 
 function flushConversationHistorySave() {
@@ -653,15 +634,12 @@ function clearLegacyUiStateStorage() {
 
 function persistUiState(state = currentUiState()) {
   if (!window.openx?.saveUiState) {
-    saveStoredObject(UI_STATE_STORAGE_KEY, state);
     return uiStateSaveQueue;
   }
   uiStateSaveQueue = uiStateSaveQueue
     .catch(() => {})
     .then(() => window.openx.saveUiState(state))
-    .catch(() => {
-      saveStoredObject(UI_STATE_STORAGE_KEY, state);
-    });
+    .catch(() => {});
   return uiStateSaveQueue;
 }
 
@@ -4059,7 +4037,7 @@ async function clearConversationHistory() {
     if (clearAssistantHistory) {
       await clearAssistantHistory();
     }
-    localStorage.removeItem(ASSISTANT_CHAT_HISTORY_STORAGE_KEY);
+    removeStoredValue(ASSISTANT_CHAT_HISTORY_STORAGE_KEY);
     conversationHistory = [];
     if (messagesEl) {
       messagesEl.replaceChildren();

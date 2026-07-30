@@ -2,17 +2,14 @@
 
 const fs = require('fs');
 const path = require('path');
-const { ensureDataRoot } = require('../Data');
-
-function line(value) {
-  return `${JSON.stringify(value).replace(/\r?\n/g, ' ')}\n`;
-}
+const { appendSecureJsonLine, ensureDataRoot, readSecureJsonLines } = require('../Data');
 
 class HomeEventRepository {
   constructor(options = {}) {
     this.config = options.config || {};
     const paths = ensureDataRoot(this.config);
     this.filePath = path.resolve(options.filePath || paths.homeLearningDatabasePath);
+    this.keyPath = options.keyPath || paths.dataEncryptionKeyPath;
     this.duplicateWindowMs = Math.max(1000, Number(options.duplicateWindowMs || 5000));
     this.maxRecentRead = Math.max(50, Number(options.maxRecentRead || 1000));
   }
@@ -21,8 +18,10 @@ class HomeEventRepository {
     if (this.isDuplicate(event)) {
       return { stored: false, duplicate: true, event };
     }
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
-    fs.appendFileSync(this.filePath, line(event), { mode: 0o600 });
+    appendSecureJsonLine(this.filePath, event, {
+      config: this.config,
+      keyPath: this.keyPath
+    });
     return { stored: true, duplicate: false, event };
   }
 
@@ -38,14 +37,11 @@ class HomeEventRepository {
 
   readRecent(limit = this.maxRecentRead) {
     if (!fs.existsSync(this.filePath)) return [];
-    return fs.readFileSync(this.filePath, 'utf8')
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .slice(-Math.max(1, limit))
-      .map(item => {
-        try { return JSON.parse(item); } catch (_) { return null; }
-      })
-      .filter(Boolean);
+    return readSecureJsonLines(this.filePath, {
+      config: this.config,
+      keyPath: this.keyPath,
+      validate: value => Boolean(value) && typeof value === 'object'
+    }).slice(-Math.max(1, limit));
   }
 }
 

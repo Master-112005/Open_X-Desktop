@@ -510,15 +510,15 @@ describe('Chat Renderer UI', function() {
     assert.match(preload, /saveAssistantChatHistorySync:\s*\(entries = \[\]\) => \{[\s\S]*ipcRenderer\.sendSync\('assistantChatHistory:saveSync', \{ entries \}\)/);
     assert.match(preload, /getAssistantChatHistorySync:\s*\(\) => \{[\s\S]*ipcRenderer\.sendSync\('assistantChatHistory:getSync'\)/);
     assert.doesNotMatch(preload, /(?:^|\n)\s*(?:getChatHistory|saveChatHistory|clearChatHistory):|['"]chatHistory:/);
-    assert.match(script, /localStorage\.removeItem\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY\)/);
+    assert.match(script, /removeStoredValue\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY\)/);
     assert.match(script, /const result = getAssistantHistorySync\(\)/);
     assert.match(script, /const result = await getAssistantHistory\(\)/);
     assert.match(script, /function chatHistoryLimit\(\) \{\s*return CHAT_HISTORY_LIMIT;\s*\}/);
-    assert.match(script, /saveStoredList\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY, merged\.slice\(-chatHistoryLimit\(\)\)\)/);
+    assert.doesNotMatch(script, /saveStoredList\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY/);
     assert.match(script, /const saveAssistantHistorySync = window\.openx\?\.saveAssistantChatHistorySync/);
     assert.doesNotMatch(script, /window\.openx\?\.getChatHistory|window\.openx\?\.saveChatHistorySync|window\.openx\?\.saveChatHistory|window\.openx\?\.clearChatHistory/);
     assert.match(script, /saveAssistantHistorySync\(merged\);[\s\S]*await saveAssistantHistory\(merged\);/);
-    assert.doesNotMatch(script, /saveChatHistory(?:Sync)?\(merged\);[\s\S]{0,240}localStorage\.removeItem\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY\);/);
+    assert.match(script, /removeStoredValue\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY\);/);
     assert.match(script, /if \(options\.immediate === true\) \{\s*return flushConversationHistorySave\(\);/);
     assert.match(script, /function rememberConversationMessage\(text, type, meta\) \{[\s\S]*conversationHistory\.push\(item\);[\s\S]*saveConversationHistory\(\);[\s\S]*\}/);
     assert.match(script, /let conversationReady = false;/);
@@ -528,7 +528,7 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /if \(conversationReady\) \{[\s\S]*repaintConversationIfBlank\(\);[\s\S]*return conversationHistory\.length;/);
     assert.match(script, /async function sendCommand\(text\) \{[\s\S]*await ensureConversationReady\(\);[\s\S]*addMessage\(text, 'user', 'You - just now'\)/);
     assert.match(script, /if \(conversationReady\) \{[\s\S]*persistConversationHistoryFallback\(\);[\s\S]*flushConversationHistorySave\(\);[\s\S]*\}/);
-    assert.match(script, /const snapshot = normalizeChatHistoryItems\(entries\)\.slice\(-chatHistoryLimit\(\)\);[\s\S]*saveStoredList\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY, snapshot\);[\s\S]*saveAssistantHistorySync\(snapshot\);[\s\S]*saveAssistantHistory\(snapshot\)/);
+    assert.match(script, /const snapshot = normalizeChatHistoryItems\(entries\)\.slice\(-chatHistoryLimit\(\)\);[\s\S]*saveAssistantHistorySync\(snapshot\);[\s\S]*saveAssistantHistory\(snapshot\)/);
     assert.match(script, /Math\.min\(300, Number\(document\.getElementById\(fieldIds\.chatMaxHistory\)\.value \|\| 300\)\)/);
     assert.match(script, /function persistConversationHistoryFallback/);
     assert.match(script, /async function closeChatWindow/);

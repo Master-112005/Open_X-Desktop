@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 
 const ActiveLearningManager = require('../../core/assistant/learning/ActiveLearningManager');
+const { readSecureJsonFile } = require('../../core/assistant/Data');
 
 describe('Active Learning v2', function() {
   function createManager() {
@@ -31,6 +32,7 @@ describe('Active Learning v2', function() {
       'usage_stats.json',
       'workflows.json'
     ]);
+    assert.ok(fs.existsSync(path.join(dataDir, 'security', 'openx-data.key')));
   });
 
   it('asks on the third alias occurrence but persists only after approval', function() {
@@ -40,10 +42,14 @@ describe('Active Learning v2', function() {
     assert.equal(manager.learnAlias('code', 'Code.exe').stage, 'observing');
     assert.equal(manager.learnAlias('code', 'Code.exe').stage, 'ready_to_learn');
 
-    const beforeApproval = JSON.parse(
-      fs.readFileSync(path.join(dataDir, 'learning', 'aliases.json'), 'utf8')
-    );
+    const beforeApprovalPath = path.join(dataDir, 'learning', 'aliases.json');
+    const beforeApproval = readSecureJsonFile(beforeApprovalPath, {}, {
+      createIfMissing: false,
+      validate: value => value && value.version === 1
+    });
     assert.deepEqual(beforeApproval.aliases, {});
+    assert.match(fs.readFileSync(beforeApprovalPath, 'utf8'), /OPENX_SECURE_JSON_V1/);
+    assert.doesNotMatch(fs.readFileSync(beforeApprovalPath, 'utf8'), /Code\.exe/);
     assert.equal(manager.getPendingSuggestions().aliases.length, 1);
 
     assert.equal(manager.approveAlias('code', 'Code.exe').success, true);
@@ -87,7 +93,11 @@ describe('Active Learning v2', function() {
     assert.ok(fs.readdirSync(path.dirname(aliasPath)).some(name =>
       /^aliases\.json\.corrupt-/.test(name)
     ));
-    assert.equal(JSON.parse(fs.readFileSync(aliasPath, 'utf8')).version, 1);
+    assert.equal(readSecureJsonFile(aliasPath, {}, {
+      createIfMissing: false,
+      validate: value => value && value.version === 1
+    }).version, 1);
+    assert.match(fs.readFileSync(aliasPath, 'utf8'), /OPENX_SECURE_JSON_V1/);
   });
 
   it('recovers the prior valid state when the primary JSON is corrupted', function() {

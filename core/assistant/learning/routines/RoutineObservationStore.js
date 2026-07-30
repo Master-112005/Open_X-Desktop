@@ -2,11 +2,13 @@
 
 const fs = require('fs');
 const path = require('path');
-const { ensureDataRoot, readJsonFile, writeJsonAtomic } = require('../../Data');
-
-function safeJsonLine(value) {
-  return `${JSON.stringify(value).replace(/\r?\n/g, ' ')}\n`;
-}
+const {
+  appendSecureJsonLine,
+  ensureDataRoot,
+  readSecureJsonFile: readJsonFile,
+  readSecureJsonLines,
+  writeSecureJsonAtomic: writeJsonAtomic
+} = require('../../Data');
 
 class RoutineObservationStore {
   constructor(options = {}) {
@@ -14,23 +16,26 @@ class RoutineObservationStore {
     const paths = ensureDataRoot(this.config);
     this.observationPath = path.resolve(options.observationPath || paths.routineObservationPath);
     this.summaryPath = path.resolve(options.summaryPath || paths.routineSummaryPath);
+    this.keyPath = options.keyPath || paths.dataEncryptionKeyPath;
     this.maxReadLines = Math.max(50, Number(options.maxReadLines || 5000));
   }
 
   append(observation) {
-    fs.mkdirSync(path.dirname(this.observationPath), { recursive: true, mode: 0o700 });
-    fs.appendFileSync(this.observationPath, safeJsonLine(observation), { mode: 0o600 });
+    appendSecureJsonLine(this.observationPath, observation, {
+      config: this.config,
+      keyPath: this.keyPath
+    });
     return observation;
   }
 
   readRecent(filter = {}) {
     if (!fs.existsSync(this.observationPath)) return [];
-    const lines = fs.readFileSync(this.observationPath, 'utf8').split(/\r?\n/).filter(Boolean);
-    return lines
+    return readSecureJsonLines(this.observationPath, {
+      config: this.config,
+      keyPath: this.keyPath,
+      validate: value => Boolean(value) && typeof value === 'object'
+    })
       .slice(-this.maxReadLines)
-      .map(line => {
-        try { return JSON.parse(line); } catch (_) { return null; }
-      })
       .filter(Boolean)
       .filter(item => !filter.routineType || item.routineType === filter.routineType)
       .filter(item => !filter.dayType || item.dayType === filter.dayType);
@@ -43,6 +48,8 @@ class RoutineObservationStore {
       metadata: { updatedAt: null }
     }), {
       createIfMissing: true,
+      config: this.config,
+      keyPath: this.keyPath,
       validate: value => value && value.version === 1 && value.summaries && typeof value.summaries === 'object'
     });
   }
@@ -51,7 +58,7 @@ class RoutineObservationStore {
     const data = this.readSummaries();
     data.summaries[key] = summary;
     data.metadata.updatedAt = summary.lastUpdatedAt || new Date().toISOString();
-    writeJsonAtomic(this.summaryPath, data, { backup: true });
+    writeJsonAtomic(this.summaryPath, data, { backup: true, config: this.config, keyPath: this.keyPath });
     return summary;
   }
 }

@@ -1,7 +1,11 @@
 'use strict';
 
 const path = require('path');
-const { ensureDataRoot, readJsonFile, writeJsonAtomic } = require('../Data');
+const {
+  ensureDataRoot,
+  readSecureJsonFile: readJsonFile,
+  writeSecureJsonAtomic: writeJsonAtomic
+} = require('../Data');
 const LearningGuard = require('./LearningGuard');
 const {
   createDefaultLearningConstitution,
@@ -76,6 +80,7 @@ class PersonalizationProfileStore {
       ? path.resolve(options.baseDir)
       : path.join(ensureDataRoot(this.config).learningDir, 'v3');
     this.filePath = path.resolve(options.filePath || path.join(baseDir, 'personalization_profile.json'));
+    this.keyPath = options.keyPath || path.join(baseDir, '.security', 'openx-data.key');
     this.constitution = options.constitution || createDefaultLearningConstitution(options.constitutionOptions || {});
     this.data = this._read();
   }
@@ -306,6 +311,8 @@ class PersonalizationProfileStore {
   _read() {
     return readJsonFile(this.filePath, () => defaultProfile(this.clock), {
       createIfMissing: true,
+      config: this.config,
+      keyPath: this.keyPath,
       validate: value => {
         if (!value || value.version !== PROFILE_VERSION || !value.profile || !value.metadata) return false;
         return PROFILE_CATEGORIES.every(category => value.profile[category] && typeof value.profile[category] === 'object');
@@ -314,7 +321,7 @@ class PersonalizationProfileStore {
   }
 
   _write() {
-    writeJsonAtomic(this.filePath, this.data, { backup: true });
+    writeJsonAtomic(this.filePath, this.data, { backup: true, config: this.config, keyPath: this.keyPath });
   }
 }
 

@@ -1,7 +1,11 @@
 const fs = require('fs');
 const path = require('path');
-const { Normalizer } = require('../Data');
-const { buildDataPaths, readJsonFile, writeJsonAtomic } = require('../Data');
+const {
+  Normalizer,
+  buildDataPaths,
+  readSecureJsonFile: readJsonFile,
+  writeSecureJsonAtomic: writeJsonAtomic
+} = require('../Data');
 const LearningGuard = require('./LearningGuard');
 const { isTransientHumanState } = require('../semantic/HumanStateLanguage');
 
@@ -175,6 +179,7 @@ function normalizeAccountService(value) {
 
 class ActiveLearningStore {
   constructor(config = {}) {
+    this.config = config || {};
     this.enabled = config?.activeLearning?.enabled !== false;
     this.askForFeedback = config?.activeLearning?.askForFeedback !== false;
     this.saveDelayMs = Number(config?.activeLearning?.saveDelayMs || 250);
@@ -1390,7 +1395,8 @@ class ActiveLearningStore {
   _load() {
     return readJsonFile(this.storePath, {}, {
       createIfMissing: false,
-      maxBytes: 5 * 1024 * 1024
+      maxBytes: 5 * 1024 * 1024,
+      config: this.config
     });
   }
 
@@ -1460,7 +1466,7 @@ class ActiveLearningStore {
     if (!fs.existsSync(directory)) {
       fs.mkdirSync(directory, { recursive: true });
     }
-    writeJsonAtomic(this.storePath, this.data);
+    writeJsonAtomic(this.storePath, this.data, { config: this.config });
   }
 
   _rejectSensitiveCredential(serviceName = 'general') {

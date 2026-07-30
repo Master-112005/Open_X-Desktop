@@ -25,6 +25,7 @@ describe('Advanced User Learning Model', function() {
     assert.equal(people[0].relationships[0].relationshipType, 'father');
     assert.ok(people[0].contactMethods.some(method => method.type === 'phone' && method.value === '9876543210'));
     assert.ok(people[0].contactMethods.some(method => method.type === 'gmail' && method.value === 'ravi@gmail.com'));
+    assert.match(rawVault, /OPENX_SECURE_JSON_V1/);
     assert.doesNotMatch(rawVault, /9876543210/);
     assert.doesNotMatch(rawVault, /ravi@gmail\.com/);
   });
@@ -113,7 +114,9 @@ describe('Advanced User Learning Model', function() {
     assert.equal(first.duplicate, false);
     assert.ok(first.learningEvents.some(event => event.key === 'preferredFanSpeed.bedroom_2'));
     assert.equal(duplicate.duplicate, true);
-    assert.ok(fs.existsSync(path.join(dataDir, 'home-learning', 'home-learning.db')));
+    const rawEvents = fs.readFileSync(path.join(dataDir, 'home-learning', 'home-learning.db'), 'utf8');
+    assert.match(rawEvents, /OPENX_SECURE_JSON_V1/);
+    assert.doesNotMatch(rawEvents, /bedroom_fan_01|Bedroom Fan/);
   });
 
   it('learns home action sequences through the external event pipeline', async function() {

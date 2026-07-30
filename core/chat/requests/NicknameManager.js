@@ -1,9 +1,8 @@
-const fs = require('fs/promises');
-const path = require('path');
 const RequestConfiguration = require('./RequestConfiguration');
 const RequestEvents = require('./RequestEvents');
 const RequestLogger = require('./RequestLogger');
 const RequestValidation = require('./RequestValidation');
+const { readSecureJsonFile, writeSecureJsonAtomic } = require('../../assistant/Data');
 
 /**
  * Desktop private nickname manager. Nicknames stay local to this installation.
@@ -27,14 +26,12 @@ class NicknameManager {
    */
   async load() {
     if (this.loaded) return;
-    try {
-      const raw = await fs.readFile(this.config.nicknameStatePath, 'utf8');
-      const parsed = JSON.parse(raw);
-      for (const record of Array.isArray(parsed?.nicknames) ? parsed.nicknames : []) {
-        if (record?.ownerAccountId && record?.targetAccountId) this.nicknames.set(this.key(record.ownerAccountId, record.targetAccountId), record);
-      }
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
+    const parsed = readSecureJsonFile(this.config.nicknameStatePath, () => ({ schemaVersion: 1, nicknames: [] }), {
+      createIfMissing: true,
+      validate: value => value && typeof value === 'object'
+    });
+    for (const record of Array.isArray(parsed?.nicknames) ? parsed.nicknames : []) {
+      if (record?.ownerAccountId && record?.targetAccountId) this.nicknames.set(this.key(record.ownerAccountId, record.targetAccountId), record);
     }
     this.loaded = true;
   }
@@ -106,9 +103,8 @@ class NicknameManager {
    * Persists local nickname state.
    */
   async persist() {
-    await fs.mkdir(path.dirname(this.config.nicknameStatePath), { recursive: true });
     const data = { schemaVersion: 1, nicknames: Array.from(this.nicknames.values()) };
-    await fs.writeFile(this.config.nicknameStatePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+    writeSecureJsonAtomic(this.config.nicknameStatePath, data, { backup: true });
   }
 
   /**

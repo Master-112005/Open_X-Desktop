@@ -5,6 +5,7 @@ const path = require('path');
 
 const SchedulerController = require('../../core/automation/scheduler');
 const ActionVerifier = require('../../core/automation/common/action-verification');
+const { readSecureJsonFile } = require('../../core/assistant/Data');
 
 describe('Scheduler Alert Delivery', function() {
   it('should persist schedules and publish due events without terminal scripts', async function() {
@@ -131,7 +132,10 @@ describe('Scheduler Alert Delivery', function() {
         app: { cleanupLegacySchedules: false, migrateCwdSchedules: true }
       });
       const result = scheduler.setReminder('call mummy', { duration: 30 });
-      const entries = JSON.parse(fs.readFileSync(path.join(dataDir, 'schedules.json'), 'utf8'));
+      const entries = readSecureJsonFile(path.join(dataDir, 'schedules.json'), [], {
+        createIfMissing: false,
+        validate: value => Array.isArray(value)
+      });
 
       assert.equal(result.success, true);
       assert.equal(fs.existsSync(path.join(cwdDir, 'schedules.json')), false);
@@ -172,8 +176,13 @@ describe('Scheduler Alert Delivery', function() {
     assert.equal(water.data.symbol, '💧');
     assert.equal(exercise.data.category, 'exercise');
     assert.equal(exercise.data.symbol, '🏃');
-    const persisted = JSON.parse(fs.readFileSync(path.join(dataDir, 'schedules.json'), 'utf8'));
+    const schedulePath = path.join(dataDir, 'schedules.json');
+    const persisted = readSecureJsonFile(schedulePath, [], {
+      createIfMissing: false,
+      validate: value => Array.isArray(value)
+    });
     assert.deepEqual(persisted.map(item => item.category), ['education', 'water', 'exercise']);
+    assert.match(fs.readFileSync(schedulePath, 'utf8'), /OPENX_SECURE_JSON_V1/);
     scheduler.destroy();
     fs.rmSync(dataDir, { recursive: true, force: true });
   });

@@ -28,25 +28,6 @@ async function safeStat(targetPath) {
   }
 }
 
-async function readJson(filePath, fallback = null) {
-  try {
-    const content = await fsp.readFile(filePath, 'utf8');
-    return JSON.parse(content);
-  } catch (error) {
-    if (error.code === 'ENOENT') return fallback;
-    error.code = error.code || 'json_read_failed';
-    throw error;
-  }
-}
-
-async function writeJsonAtomic(filePath, value) {
-  await ensureDir(path.dirname(filePath));
-  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  await fsp.writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-  await fsp.rename(tempPath, filePath);
-  return filePath;
-}
-
 async function resolvePath(targetPath) {
   return path.resolve(String(targetPath || '').trim());
 }
@@ -119,9 +100,7 @@ module.exports = {
   listFilesRecursive,
   listFilesShallow,
   pathExists,
-  readJson,
   resolvePath,
   safeStat,
-  writeJsonAtomic,
   fs
 };

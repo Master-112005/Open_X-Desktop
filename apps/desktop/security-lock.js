@@ -1,7 +1,11 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { buildDataPaths, readJsonFile, writeJsonAtomic } = require('../../core/assistant/Data');
+const {
+  buildDataPaths,
+  readSecureJsonFile: readJsonFile,
+  writeSecureJsonAtomic: writeJsonAtomic
+} = require('../../core/assistant/Data');
 
 const CURRENT_VERSION = 1;
 const KEY_BYTES = 32;

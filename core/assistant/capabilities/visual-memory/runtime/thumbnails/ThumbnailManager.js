@@ -1,7 +1,8 @@
 'use strict';
 
 const path = require('path');
-const { ensureDir, hashPath, writeJsonAtomic } = require('../utils/FileSystemUtils');
+const { ensureDir, hashPath } = require('../utils/FileSystemUtils');
+const { writeSecureJsonAtomic } = require('../../../../Data');
 
 class ThumbnailManager {
   constructor({ database, settings, events, thumbnailDir, adapter, logger } = {}) {
@@ -38,7 +39,7 @@ class ThumbnailManager {
       generator: adapterResult?.generator || 'metadata-placeholder'
     };
     if (!adapterResult?.thumbnailPath) {
-      await writeJsonAtomic(cachePath, { type: 'visual-memory-thumbnail-placeholder', photoId, sourcePath: photo.filePath, size: safeSize });
+      writeSecureJsonAtomic(cachePath, { type: 'visual-memory-thumbnail-placeholder', photoId, sourcePath: photo.filePath, size: safeSize });
     }
     await this.database.upsert('thumbnails', id, record);
     this.events?.emit?.(this.events.VISUAL_MEMORY_EVENTS?.THUMBNAIL_GENERATED || 'visual-memory.thumbnail.generated', record);

@@ -1,13 +1,18 @@
 'use strict';
 
 const path = require('path');
-const { ensureDataRoot, readJsonFile, writeJsonAtomic } = require('../Data');
+const {
+  ensureDataRoot,
+  readSecureJsonFile: readJsonFile,
+  writeSecureJsonAtomic: writeJsonAtomic
+} = require('../Data');
 
 class DeviceRegistry {
   constructor(options = {}) {
     this.config = options.config || {};
     const paths = ensureDataRoot(this.config);
     this.filePath = path.resolve(options.filePath || paths.homeLearningDeviceRegistryPath);
+    this.keyPath = options.keyPath || paths.dataEncryptionKeyPath;
   }
 
   upsert(device = {}) {
@@ -30,7 +35,7 @@ class DeviceRegistry {
     };
     data.devices[deviceId] = record;
     data.metadata.updatedAt = now;
-    writeJsonAtomic(this.filePath, data, { backup: true });
+    writeJsonAtomic(this.filePath, data, { backup: true, config: this.config, keyPath: this.keyPath });
     return record;
   }
 
@@ -49,6 +54,8 @@ class DeviceRegistry {
       metadata: { updatedAt: null }
     }), {
       createIfMissing: true,
+      config: this.config,
+      keyPath: this.keyPath,
       validate: value => value && value.version === 1 && value.devices && typeof value.devices === 'object'
     });
   }

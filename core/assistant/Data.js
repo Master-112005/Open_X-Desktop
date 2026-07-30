@@ -8,15 +8,21 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const DATA_ROOT_NAME = 'OpenX_Data';
-const LEGACY_DATA_ROOT_NAME = '.jarvis';
+const LEGACY_DATA_ROOT_NAME = '.OpenX';
 const JSON_BACKUP_SUFFIX = '.bak';
 const DEFAULT_JSON_MAX_BYTES = 5 * 1024 * 1024;
 const PRIVATE_FILE_MODE = 0o600;
 const PRIVATE_DIRECTORY_MODE = 0o700;
+const SECURE_JSON_FORMAT = 'OPENX_SECURE_JSON_V1';
+const SECURE_JSON_ALGORITHM = 'aes-256-gcm';
+const DATA_KEY_BYTES = 32;
+const DATA_IV_BYTES = 12;
+const DATA_TAG_BYTES = 16;
 const securedDirectories = new Set();
 const OS_HOME_DIRECTORY = os.homedir();
 let documentsDirectoryCacheKey = null;
 let documentsDirectoryCache = null;
+const dataEncryptionKeys = new Map();
 
 function pathEquals(left, right) {
   if (!left || !right) return false;
@@ -167,6 +173,7 @@ function buildDataPaths(config = {}) {
     cloudReceivedDir,
     cloudTempDir: path.join(runtimeDir, 'cloud-transfer'),
     securityDir,
+    dataEncryptionKeyPath: path.join(securityDir, 'openx-data.key'),
     visualMemoryDir,
     visualMemoryDatabasePath: path.join(visualMemoryDir, 'visual-memory-db.json'),
     visualMemoryThumbnailDir: path.join(visualMemoryDir, 'thumbnails')
@@ -188,6 +195,163 @@ function timestampForFilename(date = new Date()) {
 
 function safeBackupPath(filePath) {
   return `${filePath}${JSON_BACKUP_SUFFIX}`;
+}
+
+function cloneJsonValue(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function isSecureJsonEnvelope(value) {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    value.format === SECURE_JSON_FORMAT &&
+    value.algorithm === SECURE_JSON_ALGORITHM &&
+    typeof value.iv === 'string' &&
+    typeof value.tag === 'string' &&
+    typeof value.ciphertext === 'string'
+  );
+}
+
+function inferManagedRootFromPath(filePath) {
+  const basename = path.basename(filePath).toLowerCase();
+  if ([
+    'learning.json',
+    'assistant-chat-history.json',
+    'settings.json',
+    'schedules.json',
+    'planner.json',
+    'chat-account.json',
+    'chat-device.json',
+    'chat-conversations.json',
+    'chat-messages.json',
+    'chat-mailbox-sequences.json',
+    'chat-sync-cursors.json',
+    'chat-history-sync.json',
+    'chat-multi-device.json',
+    'chat-file-transfers.json',
+    'chat-crypto-secrets.json',
+    'chat-request-nicknames.json',
+    'ui-state.json',
+    'crash-recovery.json'
+  ].includes(basename)) {
+    return path.dirname(path.resolve(filePath));
+  }
+
+  let current = path.resolve(path.dirname(filePath));
+  while (current && current !== path.dirname(current)) {
+    const name = path.basename(current).toLowerCase();
+    if (['learning', 'home-learning', 'personal', 'runtime', 'cloud', 'voice', 'security', 'visual-memory'].includes(name)) {
+      return path.dirname(current);
+    }
+    current = path.dirname(current);
+  }
+  return null;
+}
+
+function resolveDataEncryptionKeyPath(config = {}, options = {}) {
+  const configured = String(
+    options.keyPath ||
+    config?.security?.dataEncryptionKeyPath ||
+    process.env.OPENX_DATA_ENCRYPTION_KEY_PATH ||
+    ''
+  ).trim();
+  if (configured) return path.resolve(configured);
+
+  const inferredRoot = options.filePath ? inferManagedRootFromPath(options.filePath) : null;
+  if (inferredRoot) return path.join(inferredRoot, 'security', 'openx-data.key');
+
+  return buildDataPaths(config).dataEncryptionKeyPath;
+}
+
+function readOrCreateDataEncryptionKey(config = {}, options = {}) {
+  const keyPath = resolveDataEncryptionKeyPath(config, options);
+  const cacheKey = path.resolve(keyPath).toLowerCase();
+  if (dataEncryptionKeys.has(cacheKey)) return dataEncryptionKeys.get(cacheKey);
+
+  ensureDirectory(path.dirname(keyPath));
+  if (fs.existsSync(keyPath)) {
+    const existing = Buffer.from(fs.readFileSync(keyPath, 'utf8').trim(), 'base64');
+    if (existing.length === DATA_KEY_BYTES) {
+      dataEncryptionKeys.set(cacheKey, existing);
+      try { fs.chmodSync(keyPath, PRIVATE_FILE_MODE); } catch (_) {}
+      return existing;
+    }
+  }
+
+  const generated = crypto.randomBytes(DATA_KEY_BYTES);
+  writeFileAtomic(keyPath, `${generated.toString('base64')}\n`);
+  dataEncryptionKeys.set(cacheKey, generated);
+  return generated;
+}
+
+function secureJsonAad() {
+  return Buffer.from(SECURE_JSON_FORMAT, 'utf8');
+}
+
+function encryptDataPayload(value, options = {}) {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new TypeError('Value is not JSON serializable');
+  const key = readOrCreateDataEncryptionKey(options.config || {}, options);
+  const iv = crypto.randomBytes(DATA_IV_BYTES);
+  const cipher = crypto.createCipheriv(SECURE_JSON_ALGORITHM, key, iv);
+  cipher.setAAD(secureJsonAad());
+  const ciphertext = Buffer.concat([
+    cipher.update(Buffer.from(serialized, 'utf8')),
+    cipher.final()
+  ]);
+  const tag = cipher.getAuthTag();
+  return {
+    format: SECURE_JSON_FORMAT,
+    version: 1,
+    protected: true,
+    algorithm: SECURE_JSON_ALGORITHM,
+    iv: iv.toString('base64'),
+    tag: tag.toString('base64'),
+    ciphertext: ciphertext.toString('base64'),
+    createdAt: new Date().toISOString()
+  };
+}
+
+function decryptDataPayload(payload, options = {}) {
+  if (!isSecureJsonEnvelope(payload)) {
+    throw new Error('Unsupported secure JSON payload');
+  }
+  const key = readOrCreateDataEncryptionKey(options.config || {}, options);
+  const iv = Buffer.from(payload.iv, 'base64');
+  const tag = Buffer.from(payload.tag, 'base64');
+  const ciphertext = Buffer.from(payload.ciphertext, 'base64');
+  if (iv.length !== DATA_IV_BYTES || tag.length !== DATA_TAG_BYTES) {
+    throw new Error('Invalid secure JSON payload');
+  }
+  const decipher = crypto.createDecipheriv(SECURE_JSON_ALGORITHM, key, iv);
+  decipher.setAAD(secureJsonAad());
+  decipher.setAuthTag(tag);
+  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+  return JSON.parse(plaintext);
+}
+
+function parseJsonPath(sourcePath, options = {}) {
+  const maxBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : DEFAULT_JSON_MAX_BYTES;
+  const stats = fs.statSync(sourcePath);
+  const maxStoredBytes = Math.max(maxBytes * 2, maxBytes + 4096);
+  if (!stats.isFile() || stats.size > maxStoredBytes) {
+    throw new Error('JSON file is invalid or exceeds its size limit');
+  }
+  const source = fs.readFileSync(sourcePath, 'utf8').trim();
+  if (!source) throw new Error('JSON file is empty');
+  const parsed = JSON.parse(source);
+  if (isSecureJsonEnvelope(parsed)) {
+    return {
+      value: decryptDataPayload(parsed, {
+        config: options.config || {},
+        keyPath: options.keyPath,
+        filePath: sourcePath
+      }),
+      protected: true
+    };
+  }
+  return { value: parsed, protected: false };
 }
 
 function writeFileAtomic(filePath, content) {
@@ -301,6 +465,212 @@ function readJsonFile(filePath, fallbackValue = {}, options = {}) {
   }
 }
 
+function quarantineSecureFile(sourcePath, corruptPath, options = {}) {
+  try {
+    const raw = fs.readFileSync(sourcePath, 'utf8');
+    writeSecureJsonAtomic(corruptPath, {
+      format: 'OPENX_CORRUPT_DATA_V1',
+      capturedAt: new Date().toISOString(),
+      originalName: path.basename(sourcePath),
+      raw
+    }, {
+      backup: false,
+      spacing: options.spacing,
+      maxBytes: Math.max(Number(options.maxBytes) || DEFAULT_JSON_MAX_BYTES, Buffer.byteLength(raw, 'utf8') + 4096),
+      config: options.config || {},
+      keyPath: options.keyPath
+    });
+    fs.unlinkSync(sourcePath);
+    return true;
+  } catch (_) {
+    try {
+      fs.renameSync(sourcePath, corruptPath);
+      try { fs.chmodSync(corruptPath, PRIVATE_FILE_MODE); } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+function writeSecureJsonAtomic(filePath, value, options = {}) {
+  const spacing = Number.isInteger(options.spacing) ? options.spacing : 2;
+  const backup = options.backup !== false;
+  const maxBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : DEFAULT_JSON_MAX_BYTES;
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new TypeError('Value is not JSON serializable');
+  if (Buffer.byteLength(serialized, 'utf8') > maxBytes) {
+    throw new Error(`JSON data exceeds the ${maxBytes} byte limit`);
+  }
+  ensureDirectory(path.dirname(filePath));
+
+  if (backup && fs.existsSync(filePath)) {
+    const backupPath = safeBackupPath(filePath);
+    fs.copyFileSync(filePath, backupPath);
+    try { fs.chmodSync(backupPath, PRIVATE_FILE_MODE); } catch (_) {}
+  }
+
+  const envelope = encryptDataPayload(value, {
+    config: options.config || {},
+    keyPath: options.keyPath,
+    filePath
+  });
+  const content = `${JSON.stringify(envelope, null, spacing)}\n`;
+  writeFileAtomic(filePath, content);
+}
+
+function readSecureJsonFile(filePath, fallbackValue = {}, options = {}) {
+  const makeFallback = () => cloneJsonValue(
+    typeof fallbackValue === 'function' ? fallbackValue() : fallbackValue
+  );
+  const backupPath = safeBackupPath(filePath);
+  const preserveCorrupt = options.preserveCorrupt !== false;
+  const maxBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : DEFAULT_JSON_MAX_BYTES;
+  const validate = typeof options.validate === 'function' ? options.validate : () => true;
+  const keyPath = options.keyPath || resolveDataEncryptionKeyPath(options.config || {}, { filePath });
+
+  const parseAndValidate = sourcePath => {
+    const parsed = parseJsonPath(sourcePath, {
+      config: options.config || {},
+      keyPath,
+      filePath,
+      maxBytes
+    });
+    if (!validate(parsed.value)) throw new Error('JSON schema validation failed');
+    return parsed;
+  };
+
+  if (!fs.existsSync(filePath)) {
+    const fallback = makeFallback();
+    if (options.createIfMissing !== false) {
+      writeSecureJsonAtomic(filePath, fallback, {
+        backup: false,
+        spacing: options.spacing,
+        maxBytes,
+        config: options.config || {},
+        keyPath
+      });
+    }
+    return fallback;
+  }
+
+  try {
+    const parsed = parseAndValidate(filePath);
+    if (!parsed.protected && options.migratePlaintext !== false) {
+      writeSecureJsonAtomic(filePath, parsed.value, {
+        backup: false,
+        spacing: options.spacing,
+        maxBytes,
+        config: options.config || {},
+        keyPath
+      });
+    }
+    return parsed.value;
+  } catch (_) {
+    if (preserveCorrupt) {
+      const corruptPath = `${filePath}.corrupt-${timestampForFilename()}`;
+      quarantineSecureFile(filePath, corruptPath, {
+        spacing: options.spacing,
+        maxBytes,
+        config: options.config || {},
+        keyPath
+      });
+    }
+
+    if (fs.existsSync(backupPath)) {
+      try {
+        const recoveredParsed = parseAndValidate(backupPath);
+        const recovered = recoveredParsed.value;
+        writeSecureJsonAtomic(filePath, recovered, {
+          backup: false,
+          spacing: options.spacing,
+          maxBytes,
+          config: options.config || {},
+          keyPath
+        });
+        if (!recoveredParsed.protected) {
+          writeSecureJsonAtomic(backupPath, recovered, {
+            backup: false,
+            spacing: options.spacing,
+            maxBytes,
+            config: options.config || {},
+            keyPath
+          });
+        }
+        return recovered;
+      } catch (_) {
+        // Fall through to a clean encrypted fallback file.
+      }
+    }
+
+    const fallback = makeFallback();
+    writeSecureJsonAtomic(filePath, fallback, {
+      backup: false,
+      spacing: options.spacing,
+      maxBytes,
+      config: options.config || {},
+      keyPath
+    });
+    return fallback;
+  }
+}
+
+function appendSecureJsonLine(filePath, value, options = {}) {
+  ensureDirectory(path.dirname(filePath));
+  const envelope = encryptDataPayload(value, {
+    config: options.config || {},
+    keyPath: options.keyPath,
+    filePath
+  });
+  const content = `${JSON.stringify(envelope).replace(/\r?\n/g, ' ')}\n`;
+  const maxBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : DEFAULT_JSON_MAX_BYTES;
+  if (Buffer.byteLength(content, 'utf8') > Math.max(maxBytes * 2, maxBytes + 4096)) {
+    throw new Error(`JSON line exceeds the ${maxBytes} byte limit`);
+  }
+  fs.appendFileSync(filePath, content, { mode: PRIVATE_FILE_MODE });
+  try { fs.chmodSync(filePath, PRIVATE_FILE_MODE); } catch (_) {}
+}
+
+function readSecureJsonLines(filePath, options = {}) {
+  if (!fs.existsSync(filePath)) return [];
+  const maxBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : DEFAULT_JSON_MAX_BYTES * 20;
+  const stats = fs.statSync(filePath);
+  if (!stats.isFile() || stats.size > maxBytes) {
+    throw new Error('JSONL file is invalid or exceeds its size limit');
+  }
+  const validate = typeof options.validate === 'function' ? options.validate : () => true;
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/).filter(Boolean);
+  const values = [];
+  let sawPlaintext = false;
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      const value = isSecureJsonEnvelope(parsed)
+        ? decryptDataPayload(parsed, {
+            config: options.config || {},
+            keyPath: options.keyPath,
+            filePath
+          })
+        : parsed;
+      if (!isSecureJsonEnvelope(parsed)) sawPlaintext = true;
+      if (validate(value)) values.push(value);
+    } catch (_) {
+      // Ignore bad event lines; callers handle missing observations as no-op.
+    }
+  }
+  if (sawPlaintext && options.migratePlaintext !== false) {
+    const content = values
+      .map(value => JSON.stringify(encryptDataPayload(value, {
+        config: options.config || {},
+        keyPath: options.keyPath,
+        filePath
+      })))
+      .join('\n');
+    writeFileAtomic(filePath, content ? `${content}\n` : '');
+  }
+  return values;
+}
+
 function purgeDeprecatedContactStorage(root) {
   const sourceRoot = String(root || '').trim();
   if (!sourceRoot) return [];
@@ -401,7 +771,11 @@ function copyFileIfMissing(sourcePath, targetPath, migrated, skipped) {
 
   ensureDirectory(path.dirname(targetPath));
   const content = fs.readFileSync(sourcePath, 'utf8');
-  writeFileAtomic(targetPath, content);
+  try {
+    writeSecureJsonAtomic(targetPath, JSON.parse(content), { backup: false });
+  } catch (_) {
+    writeFileAtomic(targetPath, content);
+  }
   migrated.push({ sourcePath, targetPath });
 }
 
@@ -428,7 +802,7 @@ function migrateJsonArrayFile(sourcePath, targetPath, options = {}) {
     createIfMissing: false,
     validate: value => Array.isArray(value)
   });
-  const targetItems = readJsonFile(resolvedTarget, [], {
+  const targetItems = readSecureJsonFile(resolvedTarget, [], {
     createIfMissing: false,
     validate: value => Array.isArray(value)
   });
@@ -436,7 +810,7 @@ function migrateJsonArrayFile(sourcePath, targetPath, options = {}) {
     .map(normalizeItem)
     .filter(Boolean)
     .slice(-limit);
-  writeJsonAtomic(resolvedTarget, merged, { backup: true });
+  writeSecureJsonAtomic(resolvedTarget, merged, { backup: true });
   if (removeSource) {
     try {
       fs.unlinkSync(resolvedSource);
@@ -497,8 +871,14 @@ return {
   legacyQuarantinePath,
   moveDirectoryIntoManagedData,
   readJsonFile,
+  readSecureJsonFile,
   writeFileAtomic,
   writeJsonAtomic,
+  writeSecureJsonAtomic,
+  appendSecureJsonLine,
+  readSecureJsonLines,
+  encryptDataPayload,
+  decryptDataPayload,
   migrateJsonArrayFile,
   migrateLegacyData
 };
@@ -851,7 +1231,7 @@ class Logger {
       ensureDirectory(this.directory);
       const logPath = path.join(this.directory, `${type}-${dateStamp()}.log`);
       const rotated = this._rotateIfNeeded(logPath, type);
-      fs.appendFileSync(logPath, `${JSON.stringify(entry)}\n`, 'utf8');
+      dataRootModule.appendSecureJsonLine(logPath, entry);
       this._cleanupOldLogs(type, rotated);
     } catch (_) {
       // Logging must never break assistant execution.
@@ -917,7 +1297,7 @@ class Logger {
       };
       const logPath = path.join(logger.directory, `crash-${dateStamp()}.log`);
       const rotated = logger._rotateIfNeeded(logPath, 'crash');
-      fs.appendFileSync(logPath, `${JSON.stringify(payload)}\n`, 'utf8');
+      dataRootModule.appendSecureJsonLine(logPath, payload);
       logger._cleanupOldLogs('crash', rotated);
     } catch (_) {
       // Last-resort crash logging cannot throw.

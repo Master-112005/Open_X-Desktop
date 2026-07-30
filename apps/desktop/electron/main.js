@@ -31,8 +31,8 @@ const {
   legacyQuarantinePath,
   migrateLegacyData,
   moveDirectoryIntoManagedData,
-  readJsonFile,
-  writeJsonAtomic
+  readSecureJsonFile: readJsonFile,
+  writeSecureJsonAtomic: writeJsonAtomic
 } = require('../../../core/assistant/Data');
 const { VisualMemoryEngine } = require('../../../core/assistant/capabilities/visual-memory');
 const { ConversationManager } = require('../../../core/chat/conversations');
@@ -606,7 +606,23 @@ function consumeRendererRestartBudget(windowType) {
   return { allowed: true, crashCount: recent.length };
 }
 
-function scheduleRendererRecovery(windowType, createWindow) {
+function recordRendererRecoveryEvent(windowType, metadata = {}) {
+  try {
+    return crashRecoveryPolicy.recordRendererFailure(Date.now(), {
+      windowType,
+      component: `renderer:${windowType}`,
+      ...metadata
+    });
+  } catch (error) {
+    mainLogger.warn('Failed to persist renderer recovery diagnostics', {
+      windowType,
+      error: error.message
+    });
+    return null;
+  }
+}
+
+function scheduleRendererRecovery(windowType, createWindow, metadata = {}) {
   if (cleanupFinished || cleanupPromise) {
     mainLogger.info('Skipped renderer recovery during shutdown', { windowType });
     return;
@@ -615,6 +631,12 @@ function scheduleRendererRecovery(windowType, createWindow) {
   const budget = consumeRendererRestartBudget(windowType);
   if (!budget.allowed) {
     mainLogger.error('Renderer recovery budget exhausted', { windowType });
+    recordRendererRecoveryEvent(windowType, {
+      ...metadata,
+      reason: metadata.reason || 'renderer recovery budget exhausted',
+      recoveryAction: 'blocked',
+      allowed: false
+    });
     return;
   }
 
@@ -622,11 +644,19 @@ function scheduleRendererRecovery(windowType, createWindow) {
     MAX_RENDERER_RECOVERY_DELAY_MS,
     RENDERER_RESTART_DELAY_MS * Math.max(1, budget.crashCount)
   );
+  recordRendererRecoveryEvent(windowType, {
+    ...metadata,
+    reason: metadata.reason || 'renderer recovery scheduled',
+    recoveryAction: 'recreate-window',
+    delayMs,
+    allowed: true
+  });
   const timeout = setTimeout(() => {
     recoveryTimeouts.delete(timeout);
     if (!cleanupFinished && !cleanupPromise) createWindow();
   }, delayMs);
   recoveryTimeouts.add(timeout);
+  if (typeof timeout.unref === 'function') timeout.unref();
 }
 
 function secureWindow(browserWindow, options) {
@@ -651,7 +681,11 @@ function secureWindow(browserWindow, options) {
     });
     if (createWindow && isLoadFailureRecoverable(errorCode, validatedUrl, expectedPath)) {
       if (!browserWindow.isDestroyed()) browserWindow.destroy();
-      scheduleRendererRecovery(`${windowType}:load`, createWindow);
+      scheduleRendererRecovery(`${windowType}:load`, createWindow, {
+        reason: errorDescription || 'renderer load failed',
+        eventType: 'did-fail-load',
+        errorCode: Number(errorCode) || null
+      });
     }
   });
 
@@ -663,7 +697,10 @@ function secureWindow(browserWindow, options) {
     });
     if (createWindow) {
       if (!browserWindow.isDestroyed()) browserWindow.destroy();
-      scheduleRendererRecovery(`${windowType}:preload`, createWindow);
+      scheduleRendererRecovery(`${windowType}:preload`, createWindow, {
+        reason: error.message,
+        eventType: 'preload-error'
+      });
     }
   });
 
@@ -696,7 +733,11 @@ function secureWindow(browserWindow, options) {
     Logger.writeCrashSync(error, { type: 'renderer', windowType, details }, BASE_CONFIG.logging);
     mainLogger.error('Renderer process exited unexpectedly', { windowType, details });
     if (!browserWindow.isDestroyed()) browserWindow.destroy();
-    scheduleRendererRecovery(windowType, createWindow);
+    scheduleRendererRecovery(windowType, createWindow, {
+      reason: `renderer exited: ${details.reason}`,
+      eventType: 'render-process-gone',
+      details
+    });
   });
 
   browserWindow.on('unresponsive', () => {
@@ -711,11 +752,29 @@ function secureWindow(browserWindow, options) {
       ) {
         const error = new Error(`${windowType} renderer remained unresponsive`);
         Logger.writeCrashSync(error, { type: 'renderer-unresponsive', windowType }, BASE_CONFIG.logging);
+        const budget = consumeRendererRestartBudget(`${windowType}:unresponsive`);
+        if (!budget.allowed) {
+          mainLogger.error('Renderer unresponsive recovery budget exhausted', { windowType });
+          recordRendererRecoveryEvent(`${windowType}:unresponsive`, {
+            reason: 'renderer remained unresponsive',
+            eventType: 'unresponsive',
+            recoveryAction: 'blocked',
+            allowed: false
+          });
+          return;
+        }
+        recordRendererRecoveryEvent(`${windowType}:unresponsive`, {
+          reason: 'renderer remained unresponsive',
+          eventType: 'unresponsive',
+          recoveryAction: 'reloadIgnoringCache',
+          allowed: true
+        });
         mainLogger.warn('Reloading unresponsive renderer', { windowType });
         browserWindow.webContents.reloadIgnoringCache();
       }
     }, UNRESPONSIVE_RELOAD_DELAY_MS);
     unresponsiveTimeouts.set(browserWindow, timeout);
+    if (typeof timeout.unref === 'function') timeout.unref();
   });
 
   browserWindow.on('responsive', () => {
@@ -1131,7 +1190,11 @@ function readAssistantChatHistory() {
       if (!stats.isFile() || stats.size > 1024 * 1024) {
         throw new Error('Backup file is invalid or exceeds its size limit');
       }
-      const backup = normalizeChatHistoryEntries(JSON.parse(fs.readFileSync(backupPath, 'utf8')));
+      const backup = normalizeChatHistoryEntries(readJsonFile(backupPath, [], {
+        createIfMissing: false,
+        validate: value => Array.isArray(value),
+        maxBytes: 1024 * 1024
+      }));
       const recovered = mergeChatHistoryEntries(backup, entries);
       if (backup.length > entries.length && recovered.length > entries.length) {
         writeJsonAtomic(primaryPath, recovered, { backup: false, maxBytes: 1024 * 1024 });

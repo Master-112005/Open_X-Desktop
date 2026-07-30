@@ -5,9 +5,11 @@ const path = require('path');
 
 describe('Active Learning Store', function() {
   let ActiveLearningStore;
+  let readSecureJsonFile;
 
   before(function() {
     ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
+    ({ readSecureJsonFile } = require('../../core/assistant/Data'));
   });
 
   function createStore() {
@@ -332,9 +334,13 @@ describe('Active Learning Store', function() {
     ), null);
 
     store.flush();
-    const persisted = JSON.parse(fs.readFileSync(path.join(tempDir, 'learning.json'), 'utf8'));
+    const learningPath = path.join(tempDir, 'learning.json');
+    const rawLearning = fs.readFileSync(learningPath, 'utf8');
+    const persisted = readSecureJsonFile(learningPath, {}, { createIfMissing: false });
     assert.deepEqual(persisted.routingEvidence, []);
     assert.deepEqual(persisted.feedback, []);
     assert.deepEqual(persisted.commandSequences, {});
+    assert.match(rawLearning, /OPENX_SECURE_JSON_V1/);
+    assert.doesNotMatch(rawLearning, /daddy|rakesh@example\.com/i);
   });
 });

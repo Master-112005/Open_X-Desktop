@@ -2,7 +2,11 @@
 
 const crypto = require('crypto');
 const path = require('path');
-const { ensureDataRoot, readJsonFile, writeJsonAtomic } = require('../Data');
+const {
+  ensureDataRoot,
+  readSecureJsonFile: readJsonFile,
+  writeSecureJsonAtomic: writeJsonAtomic
+} = require('../Data');
 const PersonalMemoryEncryption = require('./PersonalMemoryEncryption');
 
 const VAULT_VERSION = 1;
@@ -46,6 +50,7 @@ class PersonalDataVault {
     this.clock = typeof options.clock === 'function' ? options.clock : () => new Date().toISOString();
     const paths = ensureDataRoot(this.config);
     this.filePath = path.resolve(options.filePath || paths.personalVaultPath);
+    this.vaultKeyPath = options.vaultKeyPath || paths.dataEncryptionKeyPath;
     this.encryption = options.encryption || new PersonalMemoryEncryption({
       config: this.config,
       keyPath: options.keyPath || paths.personalVaultKeyPath
@@ -229,12 +234,14 @@ class PersonalDataVault {
   _read() {
     return readJsonFile(this.filePath, () => defaultVault(this.clock), {
       createIfMissing: true,
+      config: this.config,
+      keyPath: this.vaultKeyPath,
       validate: value => value && value.version === VAULT_VERSION && value.people && value.contactMethods && value.relationships
     });
   }
 
   _write() {
-    writeJsonAtomic(this.filePath, this.data, { backup: true });
+    writeJsonAtomic(this.filePath, this.data, { backup: true, config: this.config, keyPath: this.vaultKeyPath });
   }
 }
 

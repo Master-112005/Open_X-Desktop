@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { appendSecureJsonLine } = require('../assistant/Data');
 const { formatLogLine } = require('../chat/LogFormatter');
 
 class CloudLogger {
@@ -43,7 +44,7 @@ class CloudLogger {
     if (!this.logPath) return;
     try {
       fs.mkdirSync(path.dirname(this.logPath), { recursive: true });
-      fs.appendFileSync(this.logPath, `${JSON.stringify(entry)}\n`, 'utf8');
+      appendSecureJsonLine(this.logPath, entry);
     } catch (_) {
       // Cloud logging must never affect local assistant behavior.
     }

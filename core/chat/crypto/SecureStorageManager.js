@@ -1,6 +1,5 @@
 const crypto = require('crypto');
-const fs = require('fs/promises');
-const path = require('path');
+const { readSecureJsonFile, writeSecureJsonAtomic } = require('../../assistant/Data');
 const CryptoError = require('./CryptoErrors');
 
 /**
@@ -28,10 +27,12 @@ class SecureStorageManager {
   async initialize() {
     if (this.backend) return;
     try {
-      this.state = JSON.parse(await fs.readFile(this.config.storagePath, 'utf8'));
+      this.state = readSecureJsonFile(this.config.storagePath, () => this.state, {
+        createIfMissing: true,
+        validate: value => value && typeof value === 'object' && value.entries && typeof value.entries === 'object'
+      });
     } catch (error) {
-      if (error.code !== 'ENOENT') throw new CryptoError('crypto.storage_failed', 'Secure storage could not be read.');
-      await this.persist();
+      throw new CryptoError('crypto.storage_failed', 'Secure storage could not be read.');
     }
   }
 
@@ -93,8 +94,7 @@ class SecureStorageManager {
    * Persists encrypted state.
    */
   async persist() {
-    await fs.mkdir(path.dirname(this.config.storagePath), { recursive: true });
-    await fs.writeFile(this.config.storagePath, `${JSON.stringify(this.state, null, 2)}\n`, 'utf8');
+    writeSecureJsonAtomic(this.config.storagePath, this.state, { backup: true });
   }
 }
 

@@ -1,7 +1,11 @@
 'use strict';
 
 const path = require('path');
-const { ensureDataRoot, readJsonFile, writeJsonAtomic } = require('../Data');
+const {
+  ensureDataRoot,
+  readSecureJsonFile: readJsonFile,
+  writeSecureJsonAtomic: writeJsonAtomic
+} = require('../Data');
 
 function actionKey(event) {
   return `${event.room}.${event.deviceType}.${event.action}${event.value === null ? '' : `_${String(event.value).toLowerCase().replace(/[^a-z0-9]+/g, '_')}`}`;
@@ -12,6 +16,7 @@ class ActionSequenceLearner {
     this.config = options.config || {};
     const paths = ensureDataRoot(this.config);
     this.filePath = path.resolve(options.filePath || paths.homeLearningSequencePath);
+    this.keyPath = options.keyPath || paths.dataEncryptionKeyPath;
     this.maxGapMs = Math.max(1000, Number(options.maxGapMs || 120000));
     this.maxSequenceLength = Math.max(2, Math.min(6, Number(options.maxSequenceLength || 4)));
     this.recent = [];
@@ -60,7 +65,7 @@ class ActionSequenceLearner {
     existing.lastObservedAt = event.timestamp;
     data.sequences[key] = existing;
     data.metadata.updatedAt = event.timestamp;
-    writeJsonAtomic(this.filePath, data, { backup: true });
+    writeJsonAtomic(this.filePath, data, { backup: true, config: this.config, keyPath: this.keyPath });
 
     return [{
       category: 'workflow',
@@ -79,6 +84,8 @@ class ActionSequenceLearner {
       metadata: { updatedAt: null }
     }), {
       createIfMissing: true,
+      config: this.config,
+      keyPath: this.keyPath,
       validate: value => value && value.version === 1 && value.sequences && typeof value.sequences === 'object'
     });
   }

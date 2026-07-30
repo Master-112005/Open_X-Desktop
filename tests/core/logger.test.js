@@ -3,9 +3,15 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { Logger } = require('../../core/assistant/Data');
+const { Logger, readSecureJsonLines } = require('../../core/assistant/Data');
 const { formatLogLine } = require('../../core/chat/LogFormatter');
 const CloudLogger = require('../../core/cloud/CloudLogger');
+
+function readFirstSecureLogLine(filePath) {
+  const entries = readSecureJsonLines(filePath);
+  assert.ok(entries.length > 0);
+  return entries[0];
+}
 
 describe('Structured Logger', function() {
   let directory;
@@ -30,8 +36,9 @@ describe('Structured Logger', function() {
 
     const appFile = fs.readdirSync(directory).find(name => name.startsWith('app-'));
     const errorFile = fs.readdirSync(directory).find(name => name.startsWith('error-'));
-    const appEntry = JSON.parse(fs.readFileSync(path.join(directory, appFile), 'utf8').trim());
-    const errorEntry = JSON.parse(fs.readFileSync(path.join(directory, errorFile), 'utf8').trim());
+    const rawAppLog = fs.readFileSync(path.join(directory, appFile), 'utf8');
+    const appEntry = readFirstSecureLogLine(path.join(directory, appFile));
+    const errorEntry = readFirstSecureLogLine(path.join(directory, errorFile));
 
     assert.equal(appEntry.message, 'Started');
     assert.match(appEntry.summary, /user=local/);
@@ -41,6 +48,9 @@ describe('Structured Logger', function() {
     assert.equal(appEntry.data.nested.apiKey, '[REDACTED]');
     assert.equal(appEntry.data.nested.transcript, '[10 chars]');
     assert.equal(errorEntry.data.token, '[REDACTED]');
+    assert.match(rawAppLog, /OPENX_SECURE_JSON_V1/);
+    assert.equal(rawAppLog.includes('open private folder'), false);
+    assert.equal(rawAppLog.includes('call mummy'), false);
     assert.equal(JSON.stringify(appEntry).includes('open private folder'), false);
     assert.equal(JSON.stringify(appEntry).includes('call mummy'), false);
   });
@@ -160,6 +170,23 @@ describe('Structured Logger', function() {
     }]);
   });
 
+  it('should encrypt optional cloud file logs', function() {
+    const logPath = path.join(directory, 'cloud.log');
+    const logger = new CloudLogger({ logger: { info() {} }, logPath });
+
+    logger.info('Connected', {
+      relayUrl: 'ws://localhost:8090',
+      authToken: 'unsafe'
+    });
+
+    const raw = fs.readFileSync(logPath, 'utf8');
+    const [entry] = readSecureJsonLines(logPath);
+    assert.match(raw, /OPENX_SECURE_JSON_V1/);
+    assert.doesNotMatch(raw, /authToken|unsafe/);
+    assert.equal(entry.message, 'Connected');
+    assert.equal(entry.data.authToken, '[REDACTED]');
+  });
+
   it('should rotate logs and enforce the retention limit', function() {
     const logger = new Logger({
       directory,
@@ -185,7 +212,7 @@ describe('Structured Logger', function() {
     );
 
     const crashFile = fs.readdirSync(directory).find(name => name.startsWith('crash-'));
-    const crashEntry = JSON.parse(fs.readFileSync(path.join(directory, crashFile), 'utf8').trim());
+    const crashEntry = readFirstSecureLogLine(path.join(directory, crashFile));
     assert.equal(crashEntry.message, 'renderer failed');
     assert.match(crashEntry.stack, /renderer failed/);
     assert.equal(crashEntry.context.authorization, '[REDACTED]');
@@ -196,7 +223,7 @@ describe('Structured Logger', function() {
     logger.error('Launch failed', new Error('executable missing'));
 
     const errorFile = fs.readdirSync(directory).find(name => name.startsWith('error-'));
-    const errorEntry = JSON.parse(fs.readFileSync(path.join(directory, errorFile), 'utf8').trim());
+    const errorEntry = readFirstSecureLogLine(path.join(directory, errorFile));
     assert.equal(errorEntry.data.name, 'Error');
     assert.equal(errorEntry.data.message, 'executable missing');
     assert.match(errorEntry.data.stack, /executable missing/);

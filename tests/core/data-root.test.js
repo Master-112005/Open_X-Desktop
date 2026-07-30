@@ -195,7 +195,10 @@ describe('Assistant Data Root', function() {
 
     assert.equal(second.migrated.some(entry => entry.reason === 'legacy-root-quarantined'), true);
     assert.equal(fs.existsSync(legacyDir), false);
-    assert.match(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8'), /Old/);
+    assert.equal(dataRoot.readSecureJsonFile(path.join(dataDir, 'settings.json'), {}, {
+      createIfMissing: false
+    }).assistant.displayName, 'Old');
+    assert.doesNotMatch(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8'), /Old/);
   });
 
   it('should move legacy data directories under OpenX_Data so deleting the data root deletes old chat state too', function() {
@@ -228,10 +231,14 @@ describe('Assistant Data Root', function() {
 
     assert.equal(result.migrated.length, 1);
     assert.equal(fs.existsSync(sourcePath), false);
-    assert.deepEqual(JSON.parse(fs.readFileSync(targetPath, 'utf8')), [
+    assert.deepEqual(dataRoot.readSecureJsonFile(targetPath, [], {
+      createIfMissing: false,
+      validate: value => Array.isArray(value)
+    }), [
       { id: 'existing' },
       { id: 'legacy' }
     ]);
+    assert.match(fs.readFileSync(targetPath, 'utf8'), /OPENX_SECURE_JSON_V1/);
   });
 
   it('should recover JSON files from backup when the primary file is corrupt', function() {

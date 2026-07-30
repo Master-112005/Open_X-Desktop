@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { ensureDataRoot } = require('../Data');
+const { ensureDataRoot, writeFileAtomic } = require('../Data');
 
 const KEY_BYTES = 32;
 const IV_BYTES = 12;
@@ -67,7 +67,7 @@ class PersonalMemoryEncryption {
       if (key.length === KEY_BYTES) return key;
     }
     const key = crypto.randomBytes(KEY_BYTES);
-    fs.writeFileSync(this.keyPath, key.toString('base64'), { mode: 0o600 });
+    writeFileAtomic(this.keyPath, `${key.toString('base64')}\n`);
     try { fs.chmodSync(this.keyPath, 0o600); } catch (_) {}
     return key;
   }

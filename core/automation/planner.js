@@ -2,8 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const {
   buildDataPaths,
-  readJsonFile,
-  writeJsonAtomic,
+  readSecureJsonFile: readJsonFile,
+  writeSecureJsonAtomic: writeJsonAtomic,
   migrateJsonArrayFile
 } = require('../assistant/Data');
 

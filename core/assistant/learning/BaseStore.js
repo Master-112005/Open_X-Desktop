@@ -1,37 +1,21 @@
 'use strict';
 
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const {
+  ensureDirectory,
+  readSecureJsonFile,
+  writeFileAtomic,
+  writeSecureJsonAtomic
+} = require('../Data');
 
-const JSON_BACKUP_SUFFIX = '.bak';
-const JSON_CORRUPT_PREFIX = '.corrupt-';
 const DEFAULT_MAX_BYTES = 1024 * 1024;
-const FILE_MODE = 0o600;
-const DIRECTORY_MODE = 0o700;
-
-function timestampForFilename(date = new Date()) {
-  return date.toISOString().replace(/[:.]/g, '-');
-}
-
-function safeBackupPath(filePath) {
-  return `${filePath}${JSON_BACKUP_SUFFIX}`;
-}
 
 function clone(value) {
   try {
     return JSON.parse(JSON.stringify(value));
   } catch (_) {
     return {};
-  }
-}
-
-function ensureDirectory(dir) {
-  fs.mkdirSync(dir, { recursive: true, mode: DIRECTORY_MODE });
-  try {
-    fs.chmodSync(dir, DIRECTORY_MODE);
-  } catch (_) {
-    // Windows may not implement POSIX modes; ACLs still apply.
   }
 }
 
@@ -44,113 +28,28 @@ function assertSafeDestination(filePath) {
   }
 }
 
-function writeFileAtomic(filePath, content) {
-  assertSafeDestination(filePath);
-  ensureDirectory(path.dirname(filePath));
-  const tempPath = path.join(
-    path.dirname(filePath),
-    `.${path.basename(filePath)}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`
-  );
-
-  let fd = null;
-  try {
-    fd = fs.openSync(tempPath, 'wx', FILE_MODE);
-    fs.writeFileSync(fd, content, 'utf8');
-    fs.fsyncSync(fd);
-    fs.closeSync(fd);
-    fd = null;
-    fs.renameSync(tempPath, filePath);
-    try {
-      fs.chmodSync(filePath, FILE_MODE);
-    } catch (_) {
-      // Best effort on platforms without POSIX mode support.
-    }
-  } catch (err) {
-    if (fd !== null) {
-      try { fs.closeSync(fd); } catch (_) {}
-    }
-    try { fs.unlinkSync(tempPath); } catch (_) {}
-    throw err;
-  }
-}
-
-function serializeJson(value, spacing) {
-  const serialized = JSON.stringify(value, null, spacing);
-  if (serialized === undefined) {
-    throw new TypeError('Learning data is not JSON serializable');
-  }
-  return `${serialized}\n`;
-}
-
 function writeJsonAtomic(filePath, value, options = {}) {
-  const spacing = Number.isInteger(options.spacing) ? options.spacing : 2;
-  const backup = options.backup !== false;
-  const content = serializeJson(value, spacing);
-  const maxBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : DEFAULT_MAX_BYTES;
-  if (Buffer.byteLength(content, 'utf8') > maxBytes) {
-    throw new Error(`Learning data exceeds the ${maxBytes} byte limit`);
-  }
-
-  ensureDirectory(path.dirname(filePath));
-  if (backup && fs.existsSync(filePath)) {
-    const existing = fs.readFileSync(filePath, 'utf8');
-    // Only valid JSON becomes a recovery backup.
-    JSON.parse(existing);
-    writeFileAtomic(safeBackupPath(filePath), existing);
-  }
-  writeFileAtomic(filePath, content);
+  assertSafeDestination(filePath);
+  writeSecureJsonAtomic(filePath, value, {
+    spacing: options.spacing,
+    backup: options.backup,
+    maxBytes: options.maxBytes,
+    config: options.config,
+    keyPath: options.keyPath
+  });
 }
 
 function readJsonFile(filePath, fallbackValue = {}, options = {}) {
-  const makeFallback = () => clone(
-    typeof fallbackValue === 'function' ? fallbackValue() : fallbackValue
-  );
-  const backupPath = safeBackupPath(filePath);
-  const preserveCorrupt = options.preserveCorrupt !== false;
-  const maxBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : DEFAULT_MAX_BYTES;
-  const validate = typeof options.validate === 'function' ? options.validate : () => true;
-
-  const parsePath = sourcePath => {
-    const stats = fs.statSync(sourcePath);
-    if (!stats.isFile() || stats.size > maxBytes) {
-      throw new Error('Learning file is invalid or exceeds its size limit');
-    }
-    const content = fs.readFileSync(sourcePath, 'utf8').trim();
-    if (!content) throw new Error('Learning file is empty');
-    const parsed = JSON.parse(content);
-    if (!validate(parsed)) {
-      throw new Error('Learning file failed schema validation');
-    }
-    return parsed;
-  };
-
-  if (!fs.existsSync(filePath)) {
-    const fallback = makeFallback();
-    if (options.createIfMissing !== false) {
-      writeJsonAtomic(filePath, fallback, { backup: false, spacing: options.spacing, maxBytes });
-    }
-    return fallback;
-  }
-
-  try {
-    return parsePath(filePath);
-  } catch (_) {
-    if (preserveCorrupt) {
-      try {
-        fs.renameSync(filePath, `${filePath}${JSON_CORRUPT_PREFIX}${timestampForFilename()}`);
-      } catch (_) {}
-    }
-    if (fs.existsSync(backupPath)) {
-      try {
-        const recovered = parsePath(backupPath);
-        writeJsonAtomic(filePath, recovered, { backup: false, spacing: options.spacing, maxBytes });
-        return recovered;
-      } catch (_) {}
-    }
-    const fallback = makeFallback();
-    writeJsonAtomic(filePath, fallback, { backup: false, spacing: options.spacing, maxBytes });
-    return fallback;
-  }
+  assertSafeDestination(filePath);
+  return readSecureJsonFile(filePath, fallbackValue, {
+    spacing: options.spacing,
+    preserveCorrupt: options.preserveCorrupt,
+    createIfMissing: options.createIfMissing,
+    maxBytes: options.maxBytes,
+    validate: options.validate,
+    config: options.config,
+    keyPath: options.keyPath
+  });
 }
 
 class BaseStore {
@@ -159,6 +58,8 @@ class BaseStore {
     this.spacing = Number.isInteger(options.spacing) ? options.spacing : 2;
     this.autoCreate = options.autoCreate !== false;
     this.maxBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : DEFAULT_MAX_BYTES;
+    this.config = options.config || {};
+    this.keyPath = options.keyPath || null;
     this.lastError = null;
     this.data = this._load();
     this.lastPersistedData = clone(this.data);
@@ -170,7 +71,9 @@ class BaseStore {
       preserveCorrupt: true,
       createIfMissing: this.autoCreate,
       maxBytes: this.maxBytes,
-      validate: value => this.validateData(value)
+      validate: value => this.validateData(value),
+      config: this.config,
+      keyPath: this.keyPath
     });
   }
 
@@ -182,7 +85,9 @@ class BaseStore {
       writeJsonAtomic(this.filePath, data, {
         spacing: this.spacing,
         backup: true,
-        maxBytes: this.maxBytes
+        maxBytes: this.maxBytes,
+        config: this.config,
+        keyPath: this.keyPath
       });
       this.data = data;
       this.lastPersistedData = clone(data);

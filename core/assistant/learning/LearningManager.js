@@ -14,9 +14,7 @@ const PatternLearning = require('./PatternLearning');
 const FeedbackLearning = require('./FeedbackLearning');
 const PersonalPreferenceLearning = require('./PersonalPreferenceLearning');
 const RoutineTimeLearning = require('./RoutineTimeLearning');
-const DevicePreferenceLearning = require('./DevicePreferenceLearning');
-const AppliancePatternLearning = require('./AppliancePatternLearning');
-const ActionSequenceLearning = require('./ActionSequenceLearning');
+const HomeEventLearning = require('./HomeEventLearning');
 
 class LearningManager {
   constructor(options = {}) {
@@ -39,9 +37,7 @@ class LearningManager {
       [PersonalPreferenceLearning, 'learning.personal-preference', 35],
       [HabitLearning, 'learning.habit', 40],
       [RoutineTimeLearning, 'learning.routine-time', 42],
-      [DevicePreferenceLearning, 'learning.device-preference', 44],
-      [AppliancePatternLearning, 'learning.appliance-pattern', 46],
-      [ActionSequenceLearning, 'learning.action-sequence', 48],
+      [HomeEventLearning, 'learning.home-event', 44],
       [WorkflowLearning, 'learning.workflow', 50],
       [ConversationLearning, 'learning.conversation', 60],
       [UsageLearning, 'learning.usage', 70],

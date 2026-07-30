@@ -6,8 +6,8 @@ const {
   IdGenerator,
   EVENTS,
   buildDataPaths,
-  readJsonFile,
-  writeJsonAtomic,
+  readSecureJsonFile: readJsonFile,
+  writeSecureJsonAtomic: writeJsonAtomic,
   migrateJsonArrayFile
 } = require('../assistant/Data');
 
