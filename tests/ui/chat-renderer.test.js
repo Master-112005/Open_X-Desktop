@@ -183,6 +183,33 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /\.people-chat-composer\s*\{/);
   });
 
+  it('should expose Home Automation as a desktop onboarding app', function() {
+    assert.match(html, /id="home-automation-app-btn"[\s\S]*<strong>Home<\/strong>[\s\S]*Devices and setup/);
+    assert.match(html, /id="home-automation-view"[\s\S]*id="home-discovery-status"[\s\S]*id="home-discovery-refresh-btn"/);
+    assert.match(html, /id="home-discovery-banner"[\s\S]*id="home-discovery-configure-btn"/);
+    assert.match(html, /id="home-device-list"/);
+    assert.match(html, /id="home-wizard-device"[\s\S]*id="home-wizard-wifi"[\s\S]*id="home-wizard-server"/);
+    assert.match(html, /id="home-wizard-connecting"[\s\S]*id="home-wizard-approval"[\s\S]*id="home-wizard-complete"/);
+    assert.match(html, /id="home-wifi-password"[\s\S]*id="home-wifi-password-toggle"/);
+    assert.match(html, /id="home-send-config-btn"[\s\S]*Send Configuration/);
+    assert.match(script, /const HOME_ONBOARDING_UI_STEPS = Object\.freeze/);
+    assert.match(script, /function loadHomeOnboardingSnapshot/);
+    assert.match(script, /function startHomeOnboarding/);
+    assert.match(script, /function sendHomeConfiguration/);
+    assert.match(script, /clearHomeSensitiveFields\(\)/);
+    assert.match(script, /window\.openx\.onHomeOnboardingChanged\?\./);
+    assert.match(script, /classList\.toggle\('home-automation-fullscreen', showingHomeAutomation\)/);
+    assert.match(preload, /getHomeOnboardingSnapshot/);
+    assert.match(preload, /startHomeOnboarding/);
+    assert.match(preload, /configureHomeDevice/);
+    assert.match(preload, /approveHomeDevicePairing/);
+    assert.match(css, /\.home-automation-layout/);
+    assert.match(css, /\.home-discovery-banner/);
+    assert.match(css, /\.home-device-card/);
+    assert.match(css, /\.home-progress-track/);
+    assert.match(css, /\.home-pulse/);
+  });
+
   it('should keep assistant messages inside their bubbles at narrow widths', function() {
     assert.match(css, /\.message-bubble\s*\{[^}]*overflow-wrap:\s*anywhere;/s);
     assert.match(css, /\.message-stack\s*\{[^}]*min-width:\s*0;/s);

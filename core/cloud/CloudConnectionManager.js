@@ -980,6 +980,7 @@ class CloudConnectionManager extends EventEmitter {
         }
         this.pendingPingAt = this.now();
         this.socket.ping();
+        this.sendDeviceHeartbeat();
       } catch (error) {
         this.lastError = error.message;
         this.logger.warn('Heartbeat failed', { error: error.message });
@@ -997,6 +998,21 @@ class CloudConnectionManager extends EventEmitter {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = null;
     this.pendingPingAt = 0;
+  }
+
+  sendDeviceHeartbeat() {
+    if (!this.device?.deviceId) return false;
+    const deviceType = String(this.device.deviceType || this.settings.deviceType || '').toLowerCase();
+    const type = deviceType === 'mobile' || deviceType === 'phone' ? 'mobile-heartbeat' : 'desktop-heartbeat';
+    return this.send({
+      type,
+      requestId: `${type}-${this.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: nowIso(),
+      deviceId: this.device.deviceId,
+      ownerId: this.device.ownerId || this.owner?.id || this.settings.ownerId || '',
+      state: 'online',
+      version: this.version
+    });
   }
 
   clearConnectionTimer() {

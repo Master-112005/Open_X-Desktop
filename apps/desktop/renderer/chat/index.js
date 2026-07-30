@@ -88,12 +88,48 @@ const calendarAppBtn = document.getElementById('calendar-app-btn');
 const remindersAppBtn = document.getElementById('reminders-app-btn');
 const galleryAppBtn = document.getElementById('gallery-app-btn');
 const mobileAppBtn = document.getElementById('mobile-app-btn');
+const homeAutomationAppBtn = document.getElementById('home-automation-app-btn');
 const settingsAppBtn = document.getElementById('settings-app-btn');
 const conversationView = document.getElementById('conversation-view');
 const peopleChatView = document.getElementById('people-chat-view');
 const activityView = document.getElementById('activity-view');
 const remindersView = document.getElementById('reminders-view');
 const remoteView = document.getElementById('remote-view');
+const homeAutomationView = document.getElementById('home-automation-view');
+const homeAutomationCloseBtn = document.getElementById('home-automation-close-btn');
+const homeDiscoveryStatusEl = document.getElementById('home-discovery-status');
+const homeDiscoveryRefreshBtn = document.getElementById('home-discovery-refresh-btn');
+const homeFoundCountEl = document.getElementById('home-found-count');
+const homeOnlineCountEl = document.getElementById('home-online-count');
+const homePairedCountEl = document.getElementById('home-paired-count');
+const homeDiscoveryBannerEl = document.getElementById('home-discovery-banner');
+const homeDiscoveryBannerDetailEl = document.getElementById('home-discovery-banner-detail');
+const homeDiscoveryConfigureBtn = document.getElementById('home-discovery-configure-btn');
+const homeDeviceListEl = document.getElementById('home-device-list');
+const homeOnboardingProgressEl = document.getElementById('home-onboarding-progress');
+const homeWizardEmptyEl = document.getElementById('home-wizard-empty');
+const homeWizardSteps = document.querySelectorAll('[data-home-step]');
+const homeWizardDeviceNameEl = document.getElementById('home-wizard-device-name');
+const homeWizardDeviceIdEl = document.getElementById('home-wizard-device-id');
+const homeWizardDeviceFirmwareEl = document.getElementById('home-wizard-device-firmware');
+const homeWizardDeviceStatusEl = document.getElementById('home-wizard-device-status');
+const homeDeviceNextBtn = document.getElementById('home-device-next-btn');
+const homeOnboardingCancelBtn = document.getElementById('home-onboarding-cancel-btn');
+const homeWifiSsidEl = document.getElementById('home-wifi-ssid');
+const homeWifiPasswordEl = document.getElementById('home-wifi-password');
+const homeWifiPasswordToggleBtn = document.getElementById('home-wifi-password-toggle');
+const homeWifiBackBtn = document.getElementById('home-wifi-back-btn');
+const homeWifiNextBtn = document.getElementById('home-wifi-next-btn');
+const homeServerAddressEl = document.getElementById('home-server-address');
+const homeServerBackBtn = document.getElementById('home-server-back-btn');
+const homeSendConfigBtn = document.getElementById('home-send-config-btn');
+const homeConnectingTitleEl = document.getElementById('home-connecting-title');
+const homeConnectingDetailEl = document.getElementById('home-connecting-detail');
+const homeApprovalDeviceNameEl = document.getElementById('home-approval-device-name');
+const homeApprovePairingBtn = document.getElementById('home-approve-pairing-btn');
+const homeRejectPairingBtn = document.getElementById('home-reject-pairing-btn');
+const homeFinishBtn = document.getElementById('home-finish-btn');
+const homeOnboardingStatusEl = document.getElementById('home-onboarding-status');
 const appsView = document.getElementById('apps-view');
 const remoteAppSummaryEl = document.getElementById('remote-app-summary');
 const remoteAppCloseBtn = document.getElementById('remote-app-close-btn');
@@ -188,6 +224,21 @@ const PEOPLE_CHAT_LIMIT = 30;
 const PEOPLE_CHAT_HISTORY_LIMIT = 300;
 const PEOPLE_CHAT_SEARCH_DEBOUNCE_MS = 220;
 const REMOTE_TARGET_REFRESH_TTL_MS = 2500;
+const HOME_CONNECTION_WAIT_DELAY_MS = 700;
+const HOME_BLE_SERVICE_UUID = '6f18c610-7a95-4a5d-9f7a-5f1fd7f3a201';
+const HOME_BLE_DEVICE_INFO_UUID = '6f18c611-7a95-4a5d-9f7a-5f1fd7f3a201';
+const HOME_BLE_CONFIGURATION_UUID = '6f18c612-7a95-4a5d-9f7a-5f1fd7f3a201';
+const HOME_BLE_STATUS_UUID = '6f18c613-7a95-4a5d-9f7a-5f1fd7f3a201';
+const HOME_BLE_CONFIG_MAX_BYTES = 768;
+const HOME_ONBOARDING_UI_STEPS = Object.freeze(['device', 'wifi', 'server', 'connecting', 'approval', 'complete']);
+const HOME_ONBOARDING_STEP_PROGRESS = Object.freeze({
+  device: 12,
+  wifi: 28,
+  server: 44,
+  connecting: 68,
+  approval: 84,
+  complete: 100
+});
 const SCHEDULE_SYNC_FAILURE_TOAST_COOLDOWN_MS = 60000;
 const REMOTE_DIRECTION_ACTIONS = Object.freeze(['up', 'down', 'left', 'right', 'center']);
 const REMOTE_ACTIONS_BY_PROFILE = Object.freeze({
@@ -242,6 +293,13 @@ let selectedRemoteTargetKey = '';
 let remoteTargetsLoading = false;
 let remoteTargetsRenderFrame = null;
 let remoteTargetsLastLoadedAt = 0;
+let homeOnboardingSnapshot = null;
+let homeActiveSession = null;
+let homeSelectedDeviceId = '';
+let homeManualStep = '';
+let homeAutoConnectionTimer = null;
+let homeKnownDeviceIds = new Set();
+const homeBluetoothDevices = new Map();
 let peopleChatConversations = [];
 let activePeopleChatId = null;
 let peopleChatFilter = 'all';
@@ -2278,13 +2336,14 @@ function openPeopleChatFromDesktopEvent() {
 }
 
 function setWorkspaceView(viewName) {
-  activeWorkspaceView = ['activity', 'apps', 'people-chat', 'reminders', 'remote', 'mobile'].includes(viewName) ? viewName : 'chat';
+  activeWorkspaceView = ['activity', 'apps', 'people-chat', 'reminders', 'remote', 'mobile', 'home-automation'].includes(viewName) ? viewName : 'chat';
   const showingActivity = activeWorkspaceView === 'activity';
   const showingApps = activeWorkspaceView === 'apps';
   const showingPeopleChat = activeWorkspaceView === 'people-chat';
   const showingReminders = activeWorkspaceView === 'reminders';
   const showingRemote = activeWorkspaceView === 'remote';
   const showingMobile = activeWorkspaceView === 'mobile';
+  const showingHomeAutomation = activeWorkspaceView === 'home-automation';
   const showingChat = activeWorkspaceView === 'chat';
   const activeSwitcherView = showingActivity ? 'activity' : showingApps ? 'apps' : showingChat ? 'chat' : 'none';
   if (viewSwitcherEl) viewSwitcherEl.dataset.activeView = activeSwitcherView;
@@ -2292,6 +2351,7 @@ function setWorkspaceView(viewName) {
   document.body?.classList.toggle('reminders-fullscreen', showingReminders);
   document.body?.classList.toggle('remote-fullscreen', showingRemote);
   document.body?.classList.toggle('mobile-fullscreen', showingMobile);
+  document.body?.classList.toggle('home-automation-fullscreen', showingHomeAutomation);
   conversationView.classList.toggle('active', showingChat);
   conversationView.hidden = !showingChat;
   peopleChatView.classList.toggle('active', showingPeopleChat);
@@ -2304,6 +2364,8 @@ function setWorkspaceView(viewName) {
   if (remoteView) remoteView.hidden = !showingRemote;
   mobileView?.classList.toggle('active', showingMobile);
   if (mobileView) mobileView.hidden = !showingMobile;
+  homeAutomationView?.classList.toggle('active', showingHomeAutomation);
+  if (homeAutomationView) homeAutomationView.hidden = !showingHomeAutomation;
   appsView.classList.toggle('active', showingApps);
   appsView.hidden = !showingApps;
   chatViewBtn.classList.toggle('active', showingChat);
@@ -2322,6 +2384,8 @@ function setWorkspaceView(viewName) {
     refreshRemoteTargets({ quiet: remoteTargets.length > 0 });
   } else if (showingMobile) {
     setActivePhonePanel(activePhonePanel);
+  } else if (showingHomeAutomation) {
+    loadHomeOnboardingSnapshot({ startDiscovery: true });
   } else if (showingPeopleChat) {
     peopleChatThreadOpen = false;
     activePeopleChatId = null;
@@ -2497,6 +2561,635 @@ function openMobileApp() {
 function closeMobileApp() {
   closeMobileServerDetails({ restoreFocus: false });
   setWorkspaceView('apps');
+}
+
+function closeHomeAutomationApp() {
+  setWorkspaceView('apps');
+}
+
+function homeServerAddressFallback() {
+  return homeOnboardingSnapshot?.serverAddress ||
+    cloudRelayUrlEl?.value?.trim() ||
+    settingsSnapshot?.settings?.cloud?.relayUrl ||
+    'wss://openx-server.onrender.com/ws';
+}
+
+function decodeHomeBluetoothValue(value) {
+  if (!value) return '';
+  if (value instanceof DataView) {
+    return new TextDecoder().decode(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+  }
+  if (value.buffer) return new TextDecoder().decode(value);
+  return String(value || '');
+}
+
+function parseHomeBluetoothJson(value, fallback = {}) {
+  const text = typeof value === 'string' ? value : decodeHomeBluetoothValue(value);
+  if (!text) return fallback;
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function normalizeHomeBluetoothDevice(bluetoothDevice, info = {}) {
+  const deviceId = String(info.deviceId || bluetoothDevice?.id || '').trim();
+  return {
+    deviceId,
+    deviceName: String(info.deviceName || bluetoothDevice?.name || 'OpenX Home Device').trim(),
+    firmwareVersion: String(info.firmwareVersion || 'unknown').trim(),
+    hardwareModel: String(info.hardwareModel || '').trim(),
+    protocolVersion: String(info.protocolVersion || 'openx-home-v1').trim(),
+    deviceStatus: info.provisioningRequired === false ? 'ready' : 'ready_for_setup',
+    connectionStatus: 'ble_advertising',
+    pairingStatus: 'unpaired',
+    discoverySource: 'bluetooth',
+    transport: 'ble',
+    bluetoothDeviceId: String(bluetoothDevice?.id || '').trim(),
+    capabilities: Array.isArray(info.capabilities) ? info.capabilities : ['relay']
+  };
+}
+
+async function getHomeBluetoothService(cached) {
+  const bluetoothDevice = cached?.device;
+  if (!bluetoothDevice?.gatt) {
+    return { success: false, code: 'bluetooth-device-unavailable', message: 'The Bluetooth Home Device is unavailable. Press Refresh and select it again.' };
+  }
+  const server = bluetoothDevice.gatt.connected
+    ? bluetoothDevice.gatt
+    : await bluetoothDevice.gatt.connect();
+  const service = await server.getPrimaryService(HOME_BLE_SERVICE_UUID);
+  return { success: true, server, service };
+}
+
+async function discoverHomeBluetoothDevice() {
+  if (!navigator.bluetooth?.requestDevice) {
+    return {
+      success: false,
+      code: 'bluetooth-unavailable',
+      message: 'Bluetooth provisioning is unavailable in this OpenX build.'
+    };
+  }
+  try {
+    const bluetoothDevice = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [HOME_BLE_SERVICE_UUID] }],
+      optionalServices: [HOME_BLE_SERVICE_UUID]
+    });
+    const serviceResult = await getHomeBluetoothService({ device: bluetoothDevice });
+    if (!serviceResult.success) return serviceResult;
+    const infoCharacteristic = await serviceResult.service.getCharacteristic(HOME_BLE_DEVICE_INFO_UUID);
+    const info = parseHomeBluetoothJson(await infoCharacteristic.readValue(), {});
+    const discovered = normalizeHomeBluetoothDevice(bluetoothDevice, info);
+    if (!discovered.deviceId) {
+      return { success: false, code: 'home-device-id-missing', message: 'The Bluetooth Home Device did not report a device ID.' };
+    }
+    homeBluetoothDevices.set(discovered.deviceId, {
+      device: bluetoothDevice,
+      discoveredAt: Date.now()
+    });
+    bluetoothDevice.addEventListener?.('gattserverdisconnected', () => {
+      const cached = homeBluetoothDevices.get(discovered.deviceId);
+      if (cached?.device === bluetoothDevice) {
+        homeBluetoothDevices.set(discovered.deviceId, { ...cached, disconnectedAt: Date.now() });
+      }
+    }, { once: true });
+    const result = await window.openx?.addDiscoveredHomeDevice?.(discovered);
+    return {
+      success: result?.success !== false,
+      device: discovered,
+      message: `${discovered.deviceName || 'OpenX Home Device'} is ready for setup.`
+    };
+  } catch (error) {
+    const name = String(error?.name || '').toLowerCase();
+    if (name === 'notfounderror') {
+      return { success: false, code: 'bluetooth-selection-cancelled', message: 'Bluetooth Home Device selection was cancelled.' };
+    }
+    return {
+      success: false,
+      code: 'bluetooth-scan-failed',
+      message: error?.message || 'Bluetooth Home Device scan failed.'
+    };
+  }
+}
+
+async function writeHomeConfigurationByBluetooth(deviceId, configuration = {}) {
+  const normalizedDeviceId = String(deviceId || '').trim();
+  const cached = homeBluetoothDevices.get(normalizedDeviceId);
+  if (!cached) {
+    return {
+      success: false,
+      code: 'bluetooth-device-not-selected',
+      message: 'Press Refresh, select the OpenX Home Device over Bluetooth, then send configuration again.'
+    };
+  }
+  try {
+    const payload = JSON.stringify({
+      wifiSsid: configuration.ssid || configuration.wifiSsid || '',
+      wifiPassword: configuration.password || configuration.wifiPassword || '',
+      serverAddress: configuration.serverAddress || ''
+    });
+    const bytes = new TextEncoder().encode(payload);
+    if (bytes.byteLength > HOME_BLE_CONFIG_MAX_BYTES) {
+      return {
+        success: false,
+        code: 'configuration-too-large',
+        message: 'The Home Device configuration is too large to send over Bluetooth.'
+      };
+    }
+    const serviceResult = await getHomeBluetoothService(cached);
+    if (!serviceResult.success) return serviceResult;
+    const configurationCharacteristic = await serviceResult.service.getCharacteristic(HOME_BLE_CONFIGURATION_UUID);
+    if (typeof configurationCharacteristic.writeValueWithResponse === 'function') {
+      await configurationCharacteristic.writeValueWithResponse(bytes);
+    } else {
+      await configurationCharacteristic.writeValue(bytes);
+    }
+    try {
+      const statusCharacteristic = await serviceResult.service.getCharacteristic(HOME_BLE_STATUS_UUID);
+      const status = parseHomeBluetoothJson(await statusCharacteristic.readValue(), {});
+      if (status.success === false) {
+        return {
+          success: false,
+          code: status.statusCode || 'device-rejected-configuration',
+          message: status.message || 'The Home Device rejected the configuration.'
+        };
+      }
+    } catch (_) {}
+    return { success: true, message: 'Configuration sent over Bluetooth.' };
+  } catch (error) {
+    return {
+      success: false,
+      code: 'bluetooth-configuration-failed',
+      message: error?.message || 'Could not send configuration over Bluetooth.'
+    };
+  }
+}
+
+function getHomeDevices() {
+  return Array.isArray(homeOnboardingSnapshot?.discovery?.devices)
+    ? homeOnboardingSnapshot.discovery.devices
+    : [];
+}
+
+function getActiveHomeSession() {
+  const sessions = Array.isArray(homeOnboardingSnapshot?.activeSessions)
+    ? homeOnboardingSnapshot.activeSessions
+    : [];
+  if (homeActiveSession?.sessionId) {
+    const refreshed = sessions.find(session => session.sessionId === homeActiveSession.sessionId);
+    if (refreshed) homeActiveSession = refreshed;
+  }
+  if (!homeActiveSession && sessions.length) homeActiveSession = sessions[sessions.length - 1];
+  return homeActiveSession;
+}
+
+function getSelectedHomeDevice() {
+  const devices = getHomeDevices();
+  const session = getActiveHomeSession();
+  const selectedId = homeSelectedDeviceId || session?.deviceId || '';
+  return devices.find(device => device.deviceId === selectedId) || session?.device || devices[0] || null;
+}
+
+function humanizeHomeState(value = '') {
+  const normalized = String(value || '').trim().toLowerCase();
+  const labels = {
+    ble_advertising: 'Ready to set up',
+    ready_for_setup: 'Ready to set up',
+    configuration_sent: 'Connecting',
+    waiting_approval: 'Needs approval',
+    pair_requested: 'Needs approval',
+    unpaired: 'Not paired',
+    paired: 'Paired',
+    online: 'Online',
+    offline: 'Offline',
+    registered: 'Registered',
+    ready: 'Ready',
+    connected: 'Connected',
+    server: 'Server',
+    ble: 'Bluetooth'
+  };
+  return labels[normalized] || String(value || 'Unknown').replace(/_/g, ' ');
+}
+
+function summarizeHomeDevice(device = {}) {
+  const source = humanizeHomeState(device.transport || device.discoverySource || 'scan');
+  const connection = humanizeHomeState(device.connectionStatus || 'offline');
+  const pairing = humanizeHomeState(device.pairingStatus || device.pairStatus || 'unpaired');
+  if (device.pairingStatus === 'paired' || device.pairStatus === 'paired') return `${connection} - ${source}`;
+  if (device.transport === 'ble' || device.discoverySource === 'bluetooth') return 'Bluetooth setup available';
+  return `${pairing} - ${connection}`;
+}
+
+function normalizeHomeStep(step) {
+  const normalized = String(step || '').toLowerCase();
+  if (normalized === 'welcome') return 'device';
+  if (normalized === 'transfer') return 'connecting';
+  return HOME_ONBOARDING_UI_STEPS.includes(normalized) ? normalized : 'device';
+}
+
+function setHomeOnboardingStatus(message = '', tone = 'info') {
+  if (!homeOnboardingStatusEl) return;
+  homeOnboardingStatusEl.textContent = message;
+  homeOnboardingStatusEl.dataset.tone = tone;
+}
+
+function clearHomeSensitiveFields() {
+  if (homeWifiPasswordEl) homeWifiPasswordEl.value = '';
+}
+
+function setHomeWizardStep(step) {
+  homeManualStep = normalizeHomeStep(step);
+  renderHomeWizard();
+}
+
+function renderHomeDiscoveryBanner() {
+  if (!homeDiscoveryBannerEl) return;
+  const session = getActiveHomeSession();
+  const device = getHomeDevices().find(item => item.pairingStatus !== 'paired' && item.deviceStatus !== 'ready');
+  const visible = Boolean(device && !session);
+  homeDiscoveryBannerEl.hidden = !visible;
+  if (!visible) return;
+  if (homeDiscoveryBannerDetailEl) {
+    homeDiscoveryBannerDetailEl.textContent = `${device.deviceName || 'OpenX Home Device'} is nearby. Set it up with Wi-Fi and OpenX_Server.`;
+  }
+  if (homeDiscoveryConfigureBtn) {
+    homeDiscoveryConfigureBtn.dataset.deviceId = device.deviceId || '';
+  }
+}
+
+function renderHomeDeviceList() {
+  if (!homeDeviceListEl) return;
+  const devices = getHomeDevices();
+  const activeDeviceId = homeSelectedDeviceId || getActiveHomeSession()?.deviceId || '';
+  homeDeviceListEl.replaceChildren();
+  if (!devices.length) {
+    const empty = document.createElement('div');
+    empty.className = 'home-automation-empty';
+    const title = document.createElement('strong');
+    title.textContent = 'No Home Devices yet';
+    const detail = document.createElement('span');
+    detail.textContent = 'Power on the ESP32, keep it near this PC, then press Scan.';
+    empty.append(title, detail);
+    homeDeviceListEl.appendChild(empty);
+    return;
+  }
+
+  devices.forEach(device => {
+    const card = document.createElement('article');
+    card.className = 'home-device-card';
+    card.classList.toggle('active', device.deviceId === activeDeviceId);
+
+    const main = document.createElement('div');
+    main.className = 'home-device-main';
+    const name = document.createElement('strong');
+    name.textContent = device.deviceName || 'OpenX Home Device';
+    const meta = document.createElement('small');
+    meta.textContent = summarizeHomeDevice(device);
+    main.append(name, meta);
+
+    const status = document.createElement('div');
+    status.className = 'home-device-status-row';
+    [
+      ['Connection', humanizeHomeState(device.connectionStatus || 'offline')],
+      ['Pairing', humanizeHomeState(device.pairingStatus || device.pairStatus || 'unpaired')],
+      ['Source', humanizeHomeState(device.transport || device.discoverySource || 'scan')]
+    ].forEach(([label, value]) => {
+      const pill = document.createElement('span');
+      pill.className = 'home-device-pill';
+      pill.textContent = `${label}: ${value}`;
+      status.appendChild(pill);
+    });
+
+    const configure = document.createElement('button');
+    configure.className = 'secondary-btn home-device-configure-btn';
+    configure.type = 'button';
+    configure.dataset.homeConfigure = device.deviceId || '';
+    configure.textContent = device.pairingStatus === 'paired' ? 'Paired' : 'Set Up';
+    configure.disabled = device.pairingStatus === 'paired';
+
+    card.append(main, status, configure);
+    homeDeviceListEl.appendChild(card);
+  });
+}
+
+function renderHomeWizard() {
+  const session = getActiveHomeSession();
+  const device = getSelectedHomeDevice();
+  const hasSession = Boolean(session);
+  if (homeWizardEmptyEl) homeWizardEmptyEl.hidden = hasSession;
+  homeWizardSteps.forEach(stepEl => {
+    stepEl.hidden = true;
+    stepEl.classList.remove('active');
+  });
+  if (!hasSession) {
+    if (homeOnboardingProgressEl) homeOnboardingProgressEl.style.width = '0%';
+    setHomeOnboardingStatus(device ? 'Choose Set Up to add this Home Device.' : 'Press Scan to find a nearby Home Device.', 'info');
+    return;
+  }
+
+  const step = normalizeHomeStep(homeManualStep || session.step);
+  const activeStep = document.querySelector(`[data-home-step="${step}"]`);
+  if (activeStep) {
+    activeStep.hidden = false;
+    activeStep.classList.add('active');
+  }
+  const progress = Math.max(0, Math.min(100, Number(session.progress) || HOME_ONBOARDING_STEP_PROGRESS[step] || 0));
+  if (homeOnboardingProgressEl) homeOnboardingProgressEl.style.width = `${progress}%`;
+
+  if (homeWizardDeviceNameEl) homeWizardDeviceNameEl.textContent = device?.deviceName || session.device?.deviceName || 'OpenX Home Device';
+  if (homeWizardDeviceIdEl) homeWizardDeviceIdEl.textContent = session.deviceId || device?.deviceId || '--';
+  if (homeWizardDeviceFirmwareEl) homeWizardDeviceFirmwareEl.textContent = device?.firmwareVersion || session.device?.firmwareVersion || 'unknown';
+  if (homeWizardDeviceStatusEl) {
+    homeWizardDeviceStatusEl.textContent = [
+      device?.connectionStatus || session.device?.connectionStatus || 'offline',
+      device?.pairingStatus || session.device?.pairingStatus || 'unpaired'
+    ].join(' / ');
+  }
+  if (homeServerAddressEl && !homeServerAddressEl.value) {
+    homeServerAddressEl.value = homeServerAddressFallback();
+  }
+  if (homeApprovalDeviceNameEl) {
+    homeApprovalDeviceNameEl.textContent = device?.deviceName || session.device?.deviceName || 'OpenX Home Device';
+  }
+  if (homeConnectingTitleEl && step === 'connecting') {
+    homeConnectingTitleEl.textContent = session.state === 'connected' ? 'Device Connected' : 'Connecting Device...';
+  }
+  if (homeConnectingDetailEl && step === 'connecting') {
+    homeConnectingDetailEl.textContent = session.state === 'connected'
+      ? 'The Home Device reached OpenX_Server. Approve pairing to finish setup.'
+      : 'Settings were sent. Waiting for the Home Device to connect through OpenX_Server.';
+  }
+  const errorTone = session.state === 'failed' ? 'error' : 'info';
+  setHomeOnboardingStatus(session.error || session.history?.at?.(-1)?.message || 'Setup is ready.', errorTone);
+}
+
+function renderHomeAutomation() {
+  const devices = getHomeDevices();
+  const scanning = Boolean(homeOnboardingSnapshot?.discovery?.discoveryStarted);
+  const onlineCount = devices.filter(device => String(device.connectionStatus || '').toLowerCase() === 'online').length;
+  const pairedCount = devices.filter(device => String(device.pairingStatus || device.pairStatus || '').toLowerCase() === 'paired').length;
+  if (homeFoundCountEl) homeFoundCountEl.textContent = String(devices.length);
+  if (homeOnlineCountEl) homeOnlineCountEl.textContent = String(onlineCount);
+  if (homePairedCountEl) homePairedCountEl.textContent = String(pairedCount);
+  if (homeDiscoveryStatusEl) {
+    homeDiscoveryStatusEl.textContent = scanning
+      ? `Scanning Bluetooth and OpenX_Server - ${devices.length} found.`
+      : `${devices.length ? 'Home devices loaded.' : 'Press Scan to find a device.'}`;
+  }
+  renderHomeDiscoveryBanner();
+  renderHomeDeviceList();
+  renderHomeWizard();
+}
+
+async function loadHomeOnboardingSnapshot(options = {}) {
+  if (!window.openx?.getHomeOnboardingSnapshot) {
+    setHomeOnboardingStatus('Home onboarding is unavailable in this build.', 'error');
+    return null;
+  }
+  try {
+    if (options.startDiscovery && window.openx?.startHomeDiscovery) {
+      await window.openx.startHomeDiscovery();
+    }
+    const snapshot = await window.openx.getHomeOnboardingSnapshot();
+    homeOnboardingSnapshot = snapshot?.success === false ? null : snapshot;
+    if (homeServerAddressEl && !homeServerAddressEl.value) {
+      homeServerAddressEl.value = homeServerAddressFallback();
+    }
+    renderHomeAutomation();
+    return homeOnboardingSnapshot;
+  } catch (error) {
+    setHomeOnboardingStatus(error?.message || 'Could not load Home Device onboarding.', 'error');
+    renderHomeAutomation();
+    return null;
+  }
+}
+
+async function refreshHomeDiscovery() {
+  if (!window.openx?.startHomeDiscovery) {
+    setHomeOnboardingStatus('Home Device discovery is unavailable in this build.', 'error');
+    return;
+  }
+  if (homeDiscoveryRefreshBtn) homeDiscoveryRefreshBtn.disabled = true;
+  setHomeOnboardingStatus('Scanning Bluetooth and OpenX_Server for Home Devices...', 'info');
+  try {
+    const bluetoothResult = await discoverHomeBluetoothDevice();
+    await window.openx.startHomeDiscovery();
+    await loadHomeOnboardingSnapshot();
+    if (bluetoothResult?.success) {
+      setHomeOnboardingStatus(bluetoothResult.message || 'Bluetooth Home Device found. Choose Set Up to continue.', 'success');
+    } else if (bluetoothResult?.code && bluetoothResult.code !== 'bluetooth-selection-cancelled') {
+      setHomeOnboardingStatus(bluetoothResult.message || 'Bluetooth scan did not find a Home Device. Server devices were refreshed.', 'warning');
+    }
+  } catch (error) {
+    setHomeOnboardingStatus(error?.message || 'Could not start Home Device discovery.', 'error');
+  } finally {
+    if (homeDiscoveryRefreshBtn) homeDiscoveryRefreshBtn.disabled = false;
+  }
+}
+
+async function startHomeOnboarding(deviceId) {
+  const selectedId = String(deviceId || homeSelectedDeviceId || '').trim();
+  if (!selectedId) {
+    setHomeOnboardingStatus('Select a Home Device first.', 'warning');
+    return;
+  }
+  if (!window.openx?.startHomeOnboarding) {
+    setHomeOnboardingStatus('Home onboarding is unavailable in this build.', 'error');
+    return;
+  }
+  homeSelectedDeviceId = selectedId;
+  homeManualStep = '';
+  setHomeOnboardingStatus('Starting setup...', 'info');
+  try {
+    const result = await window.openx.startHomeOnboarding(selectedId);
+    if (result?.session) homeActiveSession = result.session;
+    if (result?.success === false) {
+      setHomeOnboardingStatus(result.message || 'Could not start setup.', 'warning');
+    }
+    await loadHomeOnboardingSnapshot();
+  } catch (error) {
+    setHomeOnboardingStatus(error?.message || 'Could not start setup.', 'error');
+  }
+}
+
+function validateHomeWifiForm() {
+  const ssid = homeWifiSsidEl?.value?.trim() || '';
+  const password = homeWifiPasswordEl?.value || '';
+  if (!ssid) {
+    setHomeOnboardingStatus('Enter the Wi-Fi network name.', 'warning');
+    homeWifiSsidEl?.focus?.();
+    return false;
+  }
+  if (!password) {
+    setHomeOnboardingStatus('Enter the Wi-Fi password. It is sent only to the device and is not stored by OpenX Desktop.', 'warning');
+    homeWifiPasswordEl?.focus?.();
+    return false;
+  }
+  return true;
+}
+
+function validateHomeServerForm() {
+  const serverAddress = homeServerAddressEl?.value?.trim() || '';
+  if (!serverAddress) {
+    setHomeOnboardingStatus('Enter the OpenX_Server address.', 'warning');
+    homeServerAddressEl?.focus?.();
+    return false;
+  }
+  try {
+    const url = new URL(serverAddress);
+    if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) throw new Error('invalid protocol');
+    return true;
+  } catch (_) {
+    setHomeOnboardingStatus('Use a valid http, https, ws, or wss OpenX_Server address.', 'warning');
+    homeServerAddressEl?.focus?.();
+    return false;
+  }
+}
+
+function scheduleHomeConnectionWait(sessionId) {
+  if (homeAutoConnectionTimer) clearTimeout(homeAutoConnectionTimer);
+  homeAutoConnectionTimer = window.setTimeout(async () => {
+    homeAutoConnectionTimer = null;
+    if (!sessionId || !window.openx?.waitForHomeDeviceConnection) return;
+    try {
+      const result = await window.openx.waitForHomeDeviceConnection(sessionId);
+      if (result?.session) {
+        homeActiveSession = result.session;
+        homeManualStep = '';
+      }
+      if (result?.success === false) {
+        setHomeOnboardingStatus(result.message || 'The Home Device did not connect in time.', 'error');
+      }
+      await loadHomeOnboardingSnapshot();
+    } catch (error) {
+      setHomeOnboardingStatus(error?.message || 'The Home Device did not connect in time.', 'error');
+    }
+  }, HOME_CONNECTION_WAIT_DELAY_MS);
+}
+
+async function sendHomeConfiguration() {
+  const session = getActiveHomeSession();
+  if (!session) {
+    setHomeOnboardingStatus('Start setup before sending configuration.', 'warning');
+    return;
+  }
+  if (!validateHomeWifiForm() || !validateHomeServerForm()) return;
+  if (!window.openx?.configureHomeDevice) {
+    setHomeOnboardingStatus('Home Device configuration is unavailable in this build.', 'error');
+    return;
+  }
+  if (homeSendConfigBtn) homeSendConfigBtn.disabled = true;
+  setHomeWizardStep('connecting');
+  setHomeOnboardingStatus('Sending Wi-Fi and OpenX_Server settings...', 'info');
+  try {
+    const bluetoothResult = await writeHomeConfigurationByBluetooth(session.deviceId, {
+      ssid: homeWifiSsidEl.value.trim(),
+      password: homeWifiPasswordEl.value,
+      serverAddress: homeServerAddressEl.value.trim()
+    });
+    if (!bluetoothResult.success) {
+      setHomeWizardStep('server');
+      setHomeOnboardingStatus(bluetoothResult.message || 'Could not send settings to the Home Device over Bluetooth.', 'error');
+      return;
+    }
+    const result = await window.openx.configureHomeDevice({
+      sessionId: session.sessionId,
+      ssid: homeWifiSsidEl.value.trim(),
+      password: homeWifiPasswordEl.value,
+      serverAddress: homeServerAddressEl.value.trim()
+    });
+    clearHomeSensitiveFields();
+    if (result?.session) homeActiveSession = result.session;
+    if (result?.success === false) {
+      setHomeOnboardingStatus(result.message || 'Configuration failed.', 'error');
+      return;
+    }
+    homeManualStep = 'connecting';
+    renderHomeAutomation();
+    scheduleHomeConnectionWait(session.sessionId);
+  } catch (error) {
+    setHomeOnboardingStatus(error?.message || 'Configuration failed.', 'error');
+  } finally {
+    if (homeSendConfigBtn) homeSendConfigBtn.disabled = false;
+  }
+}
+
+async function approveHomePairing() {
+  const session = getActiveHomeSession();
+  if (!session) {
+    setHomeOnboardingStatus('No Home Device is waiting for approval.', 'warning');
+    return;
+  }
+  if (!window.openx?.approveHomeDevicePairing) {
+    setHomeOnboardingStatus('Home Device approval is unavailable in this build.', 'error');
+    return;
+  }
+  if (homeApprovePairingBtn) homeApprovePairingBtn.disabled = true;
+  setHomeOnboardingStatus('Approving Home Device pairing...', 'info');
+  try {
+    const result = await window.openx.approveHomeDevicePairing(session.sessionId);
+    if (result?.session) homeActiveSession = result.session;
+    if (result?.success === false) {
+      setHomeOnboardingStatus(result.message || 'Pairing was rejected.', 'error');
+      return;
+    }
+    homeManualStep = '';
+    await loadHomeOnboardingSnapshot();
+  } catch (error) {
+    setHomeOnboardingStatus(error?.message || 'Could not approve pairing.', 'error');
+  } finally {
+    if (homeApprovePairingBtn) homeApprovePairingBtn.disabled = false;
+  }
+}
+
+async function finishHomeOnboarding() {
+  const session = getActiveHomeSession();
+  clearHomeSensitiveFields();
+  if (session?.sessionId && window.openx?.finishHomeOnboarding) {
+    try {
+      await window.openx.finishHomeOnboarding(session.sessionId);
+    } catch (_) {}
+  }
+  homeActiveSession = null;
+  homeSelectedDeviceId = '';
+  homeManualStep = '';
+  setHomeOnboardingStatus('Home Device setup is complete.', 'success');
+  await loadHomeOnboardingSnapshot();
+}
+
+async function cancelHomeOnboarding() {
+  const session = getActiveHomeSession();
+  if (homeAutoConnectionTimer) {
+    clearTimeout(homeAutoConnectionTimer);
+    homeAutoConnectionTimer = null;
+  }
+  clearHomeSensitiveFields();
+  if (session?.sessionId && window.openx?.cancelHomeOnboarding) {
+    try {
+      await window.openx.cancelHomeOnboarding(session.sessionId);
+    } catch (_) {}
+  }
+  homeActiveSession = null;
+  homeManualStep = '';
+  setHomeOnboardingStatus('Home Device setup was cancelled.', 'info');
+  await loadHomeOnboardingSnapshot();
+}
+
+function handleHomeOnboardingChanged(snapshot) {
+  const previousIds = homeKnownDeviceIds;
+  homeOnboardingSnapshot = snapshot?.success === false ? homeOnboardingSnapshot : snapshot;
+  const devices = getHomeDevices();
+  homeKnownDeviceIds = new Set(devices.map(device => device.deviceId).filter(Boolean));
+  const newlyFound = devices.find(device =>
+    device.pairingStatus !== 'paired' &&
+    device.deviceId &&
+    !previousIds.has(device.deviceId)
+  );
+  if (newlyFound && activeWorkspaceView !== 'home-automation') {
+    showToast('Home Device found', `${newlyFound.deviceName || 'OpenX Home Device'} is ready for setup.`, 'info');
+  }
+  if (activeWorkspaceView === 'home-automation') renderHomeAutomation();
 }
 
 function formatDueDate(value) {
@@ -4798,6 +5491,11 @@ mobileAppBtn?.addEventListener('click', () => {
   openMobileApp();
   window.setTimeout(() => mobileAppBtn.classList.remove('opening'), 180);
 });
+homeAutomationAppBtn?.addEventListener('click', () => {
+  homeAutomationAppBtn.classList.add('opening');
+  setWorkspaceView('home-automation');
+  window.setTimeout(() => homeAutomationAppBtn.classList.remove('opening'), 180);
+});
 settingsAppBtn?.addEventListener('click', () => {
   openSettingsPanel('system');
 });
@@ -4894,6 +5592,33 @@ remindersAppTabs.forEach(button => {
 });
 remoteAppCloseBtn?.addEventListener('click', closeRemoteApp);
 mobileAppCloseBtn?.addEventListener('click', closeMobileApp);
+homeAutomationCloseBtn?.addEventListener('click', closeHomeAutomationApp);
+homeDiscoveryRefreshBtn?.addEventListener('click', refreshHomeDiscovery);
+homeDiscoveryConfigureBtn?.addEventListener('click', () => {
+  startHomeOnboarding(homeDiscoveryConfigureBtn.dataset.deviceId);
+});
+homeDeviceListEl?.addEventListener('click', (event) => {
+  const button = event.target?.closest?.('[data-home-configure]');
+  if (!button) return;
+  startHomeOnboarding(button.dataset.homeConfigure);
+});
+homeDeviceNextBtn?.addEventListener('click', () => setHomeWizardStep('wifi'));
+homeOnboardingCancelBtn?.addEventListener('click', cancelHomeOnboarding);
+homeWifiPasswordToggleBtn?.addEventListener('click', () => {
+  if (!homeWifiPasswordEl) return;
+  const showing = homeWifiPasswordEl.type === 'text';
+  homeWifiPasswordEl.type = showing ? 'password' : 'text';
+  homeWifiPasswordToggleBtn.textContent = showing ? 'Show' : 'Hide';
+});
+homeWifiBackBtn?.addEventListener('click', () => setHomeWizardStep('device'));
+homeWifiNextBtn?.addEventListener('click', () => {
+  if (validateHomeWifiForm()) setHomeWizardStep('server');
+});
+homeServerBackBtn?.addEventListener('click', () => setHomeWizardStep('wifi'));
+homeSendConfigBtn?.addEventListener('click', sendHomeConfiguration);
+homeApprovePairingBtn?.addEventListener('click', approveHomePairing);
+homeRejectPairingBtn?.addEventListener('click', cancelHomeOnboarding);
+homeFinishBtn?.addEventListener('click', finishHomeOnboarding);
 remoteRefreshBtn?.addEventListener('click', () => refreshRemoteTargets());
 remoteTargetSelectEl?.addEventListener('change', () => {
   selectedRemoteTargetKey = remoteTargetSelectEl.value;
@@ -4985,6 +5710,10 @@ function cleanupRendererResources() {
     cancelAnimationFrame(remoteTargetsRenderFrame);
     remoteTargetsRenderFrame = null;
   }
+  if (homeAutoConnectionTimer) {
+    clearTimeout(homeAutoConnectionTimer);
+    homeAutoConnectionTimer = null;
+  }
   if (messageScrollAnimationFrame !== null) {
     cancelAnimationFrame(messageScrollAnimationFrame);
     messageScrollAnimationFrame = null;
@@ -5021,6 +5750,7 @@ if (window.openx) {
   window.openx.onOpenDesktopChat?.(openPeopleChatFromDesktopEvent);
   window.openx.onDesktopChatChanged?.(handleDesktopChatChanged);
   window.openx.onDesktopChatRegistrationChanged?.(handlePeopleChatRegistrationChanged);
+  window.openx.onHomeOnboardingChanged?.(handleHomeOnboardingChanged);
 }
 
 async function initialize() {

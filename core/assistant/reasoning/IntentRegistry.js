@@ -183,6 +183,28 @@ const INTENT_DEFINITIONS = [
     description: 'Send a directional or shortcut command to an active OpenX Remote target'
   },
   {
+    id: 'home.device_control',
+    patterns: [
+      'turn on bedroom light',
+      'turn off kitchen fan',
+      'switch on living room light',
+      'switch off bedroom fan',
+      'toggle kitchen light',
+      'open garage door',
+      'close curtains'
+    ],
+    permissionLevel: 'low',
+    action: 'home.device_control',
+    entities: [
+      { name: 'target', type: 'string', required: true },
+      { name: 'action', type: 'string', required: true },
+      { name: 'displayTarget', type: 'string', required: false },
+      { name: 'value', type: 'number', required: false },
+      { name: 'rawCommand', type: 'string', required: false }
+    ],
+    description: 'Prepare a Home Automation device-control packet'
+  },
+  {
     id: 'mode.start',
     patterns: ['start mode', 'open mode', 'launch mode', 'activate mode', 'start the mode'],
     permissionLevel: 'low',

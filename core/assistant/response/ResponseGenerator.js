@@ -511,6 +511,16 @@ const RESPONSE_BUILDERS = {
         ? `Moved PowerPoint to slide ${slideNumber}${target}.`
         : `Moved PowerPoint to the requested slide${target}.`;
     },
+    'home.device_control': context => {
+      const target = valueFromContext(context, 'displayTarget', valueFromContext(context, 'target', 'that device'));
+      const action = valueFromContext(context, 'homeAction', valueFromContext(context, 'action', 'control'));
+      const requestId = valueFromContext(context, 'requestId', '');
+      const actionText = String(action || '')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, letter => letter.toLowerCase());
+      const suffix = requestId ? ` Request ${requestId} is pending for future device transport.` : ' It is pending for future device transport.';
+      return `Prepared the Home Automation packet to ${actionText} ${target}.${suffix}`;
+    },
     'mode.start': context => {
       const modeName = valueFromContext(context, 'modeName', 'mode');
       const opened = valueFromContext(context, 'opened', []);

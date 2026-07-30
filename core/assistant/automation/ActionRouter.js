@@ -11,6 +11,7 @@ const ActionConfirmation = require('../../automation/common/action-confirm');
 const NlpProcessor = require('../linguistic/NlpProcessor');
 const { normalizeWebTarget, resolveTrustedWebTarget } = require('../semantic/WebTargets');
 const { MediaCommandRouter } = require('../../automation/media');
+const { HomeAutomationRouter } = require('../../home-automation');
 const { CommandFrameParser } = require('../linguistic/InputParser');
 const NaturalLanguageRouter = require('../semantic/NaturalLanguageRouter');
 const { AppCommandLanguage, BrowserCommandLanguage } = NaturalLanguageRouter;
@@ -125,6 +126,7 @@ class ActionRouter {
       logging: config?.logging,
       contextProvider: config?.contextEngine || config?.contextProvider || null
     });
+    this.homeAutomationRouter = new HomeAutomationRouter(config?.homeAutomation || {});
     this.clauseActionableCache = new Map();
     this.semanticParseCache = new Map();
     this.matchIntentCache = new Map();
@@ -382,6 +384,7 @@ class ActionRouter {
       ['_resolveExplicitTimerIntent', () => this._resolveExplicitTimerIntent(rawCommandText, preparedInput)],
       ['_resolveContextualPresentationShortcutIntent', () => this._resolveContextualPresentationShortcutIntent(rawCommandText, preparedInput, source)],
       ['_resolveRemoteControlIntent', () => this._resolveRemoteControlIntent(rawCommandText, preparedInput)],
+      ['_resolveHomeAutomationIntent', () => this._resolveHomeAutomationIntent(rawCommandText, preparedInput, source)],
       ['_resolvePresentationControlIntent', () => this._resolvePresentationControlIntent(rawCommandText, preparedInput)],
       ['_resolvePresentationFileIntent', () => this._resolvePresentationFileIntent(rawCommandText, preparedInput)],
       ['_resolveSystemPowerIntent', () => this._resolveSystemPowerIntent(rawCommandText, preparedInput)],
@@ -466,6 +469,21 @@ class ActionRouter {
       if (result) return result;
     }
     return null;
+  }
+
+  _resolveHomeAutomationIntent(rawText, preparedInput = {}, source = 'chat') {
+    const route = this.homeAutomationRouter?.resolve?.(rawText, preparedInput, { source });
+    if (!route?.intentId) {
+      return null;
+    }
+    const intent = this.intentRegistry.get(route.intentId);
+    return intent
+      ? {
+          intent,
+          confidence: route.confidence || 0.98,
+          entities: route.entities || {}
+        }
+      : null;
   }
 
   _safeInvokeResolver(name, resolver, context = {}) {

@@ -16,6 +16,7 @@ const SchedulerController = require('./scheduler');
 const PlannerController = require('./planner');
 const ScreenshotController = require('./screenshot-recording');
 const RemoteController = require('./remote');
+const { HomeAutomationManager } = require('../home-automation');
 const FormAutomation = require('../../plugins/forms');
 const ActionVerifier = require('./common/action-verification');
 const { resolveTrustedWebTarget } = require('../assistant/semantic/WebTargets');
@@ -45,6 +46,7 @@ class AutomationEngine {
     this.system = new SystemController(config);
     this.windows = new WindowsController(config);
     this.remote = new RemoteController(config, { windows: this.windows });
+    this.homeAutomation = new HomeAutomationManager(config?.homeAutomation || {});
     this.scheduler = new SchedulerController(config);
     this.planner = new PlannerController(config);
     this.screenshot = new ScreenshotController(config);
@@ -142,6 +144,10 @@ class AutomationEngine {
       'browser.listTabs': (entities) => this._listBrowserTabs(entities),
       'remote.listTargets': () => this.remote.listTargets(),
       'remote.control': (entities) => this.remote.sendControl(entities),
+      'home.device_control': (entities, context) => this.homeAutomation.handleAssistantRequest({
+        ...entities,
+        source: context?.source || 'assistant'
+      }),
       'media.play': (entities) => this.media.play(entities.mediaQuery, entities.mediaPlatform),
       'media.next': () => this.media.next(),
       'media.previous': () => this.media.previous(),

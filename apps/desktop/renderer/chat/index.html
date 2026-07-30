@@ -477,6 +477,150 @@
         </div>
       </section>
 
+      <section class="workspace-view" id="home-automation-view" aria-label="Home Automation" hidden>
+        <div class="home-automation-shell">
+          <header class="home-automation-header">
+            <div>
+              <span class="home-automation-eyebrow">OpenX Home</span>
+              <strong>Home Automation</strong>
+              <small id="home-discovery-status">Scan nearby devices and connect them to OpenX_Server.</small>
+            </div>
+            <div class="home-automation-actions">
+              <button class="secondary-btn" id="home-discovery-refresh-btn" type="button">Scan</button>
+              <button class="people-chat-icon-btn" id="home-automation-close-btn" type="button" title="Close home automation" aria-label="Close home automation">&#10005;</button>
+            </div>
+          </header>
+
+          <section class="home-status-strip" aria-label="Home automation summary">
+            <div class="home-status-card">
+              <span>Found</span>
+              <strong id="home-found-count">0</strong>
+            </div>
+            <div class="home-status-card">
+              <span>Online</span>
+              <strong id="home-online-count">0</strong>
+            </div>
+            <div class="home-status-card">
+              <span>Paired</span>
+              <strong id="home-paired-count">0</strong>
+            </div>
+          </section>
+
+          <section class="home-discovery-banner" id="home-discovery-banner" hidden>
+            <div>
+              <strong>Device ready to add</strong>
+              <small id="home-discovery-banner-detail">Ready for setup.</small>
+            </div>
+            <button class="primary-btn" id="home-discovery-configure-btn" type="button">Set Up</button>
+          </section>
+
+          <div class="home-automation-layout">
+            <section class="home-automation-card home-device-list-card" aria-labelledby="home-devices-title">
+              <div class="home-automation-card-head">
+                <span>Devices</span>
+                <strong id="home-devices-title">Nearby and connected devices</strong>
+                <small>New devices appear from Bluetooth. Configured devices appear from OpenX_Server.</small>
+              </div>
+              <div class="home-device-list" id="home-device-list"></div>
+            </section>
+
+            <section class="home-automation-card home-onboarding-card" aria-labelledby="home-wizard-title">
+              <div class="home-automation-card-head">
+                <span>Setup</span>
+                <strong id="home-wizard-title">Add a Home Device</strong>
+                <small>Choose a device, send Wi-Fi safely, then approve pairing after it comes online.</small>
+              </div>
+              <div class="home-step-rail" aria-hidden="true">
+                <span>Device</span>
+                <span>Wi-Fi</span>
+                <span>Server</span>
+                <span>Pair</span>
+              </div>
+              <div class="home-progress-track" aria-hidden="true">
+                <span id="home-onboarding-progress"></span>
+              </div>
+              <div class="home-wizard-stage" id="home-wizard-stage">
+                <div class="home-wizard-empty" id="home-wizard-empty">
+                  Press Scan, choose your OpenX Home Device, then follow the setup steps here.
+                </div>
+
+                <form class="home-wizard-step" id="home-wizard-device" data-home-step="device" hidden>
+                  <strong>Confirm Device</strong>
+                  <small>Make sure this is the ESP32 you want to add.</small>
+                  <div class="home-device-info-grid">
+                    <span>Name</span><b id="home-wizard-device-name">--</b>
+                    <span>Device ID</span><b id="home-wizard-device-id">--</b>
+                    <span>Firmware</span><b id="home-wizard-device-firmware">--</b>
+                    <span>Status</span><b id="home-wizard-device-status">--</b>
+                  </div>
+                  <div class="home-wizard-actions">
+                    <button class="primary-btn" id="home-device-next-btn" type="button">Continue</button>
+                    <button class="secondary-btn" id="home-onboarding-cancel-btn" type="button">Cancel</button>
+                  </div>
+                </form>
+
+                <form class="home-wizard-step" id="home-wizard-wifi" data-home-step="wifi" hidden>
+                  <strong>Connect to Wi-Fi</strong>
+                  <small>The password is sent directly to the Home Device and is cleared from this screen after sending.</small>
+                  <label class="field-wrap">
+                    <span>Wi-Fi name</span>
+                    <input class="field" id="home-wifi-ssid" type="text" autocomplete="off" placeholder="Home Wi-Fi">
+                  </label>
+                  <label class="field-wrap home-password-field">
+                    <span>Wi-Fi Password</span>
+                    <input class="field" id="home-wifi-password" type="password" autocomplete="new-password" placeholder="Password">
+                    <button class="secondary-btn" id="home-wifi-password-toggle" type="button">Show</button>
+                  </label>
+                  <div class="home-wizard-actions">
+                    <button class="secondary-btn" id="home-wifi-back-btn" type="button">Back</button>
+                    <button class="primary-btn" id="home-wifi-next-btn" type="button">Continue</button>
+                  </div>
+                </form>
+
+                <form class="home-wizard-step" id="home-wizard-server" data-home-step="server" hidden>
+                  <strong>Connect to OpenX_Server</strong>
+                  <small>This is where the Home Device reports status and receives commands.</small>
+                  <label class="field-wrap">
+                    <span>Server Address</span>
+                    <input class="field" id="home-server-address" type="url" spellcheck="false" placeholder="wss://openx-server.onrender.com/ws">
+                  </label>
+                  <div class="home-wizard-actions">
+                    <button class="secondary-btn" id="home-server-back-btn" type="button">Back</button>
+                    <button class="primary-btn" id="home-send-config-btn" type="button">Send Configuration</button>
+                  </div>
+                </form>
+
+                <div class="home-wizard-step" id="home-wizard-connecting" data-home-step="connecting" hidden>
+                  <strong id="home-connecting-title">Connecting Device...</strong>
+                  <small id="home-connecting-detail">Sending Wi-Fi and OpenX_Server settings, then waiting for the device to connect.</small>
+                  <div class="home-pulse" aria-hidden="true"></div>
+                </div>
+
+                <div class="home-wizard-step" id="home-wizard-approval" data-home-step="approval" hidden>
+                  <strong>Approve Pairing</strong>
+                  <p><span id="home-approval-device-name">OpenX Home Device</span> is requesting to join your account.</p>
+                  <div class="home-wizard-actions">
+                    <button class="primary-btn" id="home-approve-pairing-btn" type="button">Approve</button>
+                    <button class="secondary-btn" id="home-reject-pairing-btn" type="button">Cancel</button>
+                  </div>
+                </div>
+
+                <div class="home-wizard-step" id="home-wizard-complete" data-home-step="complete" hidden>
+                  <strong>Device Added</strong>
+                  <ol class="home-complete-list">
+                    <li>Configuration sent</li>
+                    <li>Device connected</li>
+                    <li>Pairing completed</li>
+                  </ol>
+                  <button class="primary-btn" id="home-finish-btn" type="button">Finish</button>
+                </div>
+              </div>
+              <p class="home-onboarding-status" id="home-onboarding-status" aria-live="polite"></p>
+            </section>
+          </div>
+        </div>
+      </section>
+
       <section class="workspace-view" id="apps-view" aria-label="Apps" hidden>
         <div class="apps-scroll">
           <div class="apps-grid" aria-label="OpenX apps">
@@ -539,6 +683,20 @@
               <span class="app-card-copy">
                 <strong>Mobile</strong>
                 <small>Pair and devices</small>
+              </span>
+            </button>
+            <button class="app-card" id="home-automation-app-btn" type="button">
+              <span class="app-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M3 11.5 12 4l9 7.5"/>
+                  <path d="M5.5 10.5V20h13v-9.5"/>
+                  <path d="M9 20v-6h6v6"/>
+                  <path d="M8.5 9.5h7"/>
+                </svg>
+              </span>
+              <span class="app-card-copy">
+                <strong>Home</strong>
+                <small>Devices and setup</small>
               </span>
             </button>
             <button class="app-card" id="settings-app-btn" type="button">

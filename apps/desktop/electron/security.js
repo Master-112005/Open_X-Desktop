@@ -453,6 +453,82 @@ function validateRemoteControl(payload = {}) {
   return normalized;
 }
 
+function validateHomeDeviceId(payload = {}) {
+  requirePlainObject(payload, 'homeOnboarding');
+  const deviceId = requireString(payload.deviceId || '', 'homeOnboarding.deviceId', { maxLength: 160 });
+  if (!/^[A-Za-z0-9._:-]{3,160}$/.test(deviceId)) throw new TypeError('homeOnboarding.deviceId is invalid');
+  return { deviceId };
+}
+
+function validateHomeOnboardingSession(payload = {}) {
+  requirePlainObject(payload, 'homeOnboarding');
+  const sessionId = requireString(payload.sessionId || '', 'homeOnboarding.sessionId', { maxLength: 220 });
+  if (!/^[A-Za-z0-9._:-]+$/.test(sessionId)) throw new TypeError('homeOnboarding.sessionId is invalid');
+  return { sessionId };
+}
+
+function validateHomeOnboardingConfiguration(payload = {}) {
+  const { sessionId } = validateHomeOnboardingSession(payload);
+  const ssid = requireString(payload.ssid || '', 'homeOnboarding.ssid', { maxLength: 64 });
+  const password = requireString(payload.password || '', 'homeOnboarding.password', { maxLength: 256 });
+  const serverAddress = normalizeCloudUrl(payload.serverAddress || '');
+  return { sessionId, ssid, password, serverAddress };
+}
+
+function validateHomeOnboardingApproval(payload = {}) {
+  const { sessionId } = validateHomeOnboardingSession(payload);
+  const ownerId = payload.ownerId === undefined
+    ? 'desktop-owner'
+    : requireString(payload.ownerId, 'homeOnboarding.ownerId', { maxLength: 160 });
+  if (!/^[A-Za-z0-9._:-]{3,160}$/.test(ownerId)) throw new TypeError('homeOnboarding.ownerId is invalid');
+  return { sessionId, ownerId };
+}
+
+function validateHomeDiscoveredDevice(payload = {}) {
+  requirePlainObject(payload, 'homeDevice');
+  const deviceId = requireString(payload.deviceId || '', 'homeDevice.deviceId', { maxLength: 160 });
+  if (!/^[A-Za-z0-9._:-]{3,160}$/.test(deviceId)) throw new TypeError('homeDevice.deviceId is invalid');
+  const normalized = {
+    deviceId,
+    deviceName: requireString(payload.deviceName || payload.name || 'OpenX Home Device', 'homeDevice.deviceName', { maxLength: 100 }),
+    firmwareVersion: requireString(payload.firmwareVersion || 'unknown', 'homeDevice.firmwareVersion', { maxLength: 80, allowEmpty: true }),
+    protocolVersion: requireString(payload.protocolVersion || 'openx-home-v1', 'homeDevice.protocolVersion', { maxLength: 40, allowEmpty: true }),
+    deviceStatus: requireString(payload.deviceStatus || payload.status || 'ready_for_setup', 'homeDevice.deviceStatus', { maxLength: 60, allowEmpty: true })
+  };
+  if (payload.connectionStatus !== undefined) {
+    normalized.connectionStatus = requireString(payload.connectionStatus, 'homeDevice.connectionStatus', { maxLength: 40, allowEmpty: true });
+  }
+  if (payload.pairingStatus !== undefined) {
+    normalized.pairingStatus = requireString(payload.pairingStatus, 'homeDevice.pairingStatus', { maxLength: 40, allowEmpty: true });
+  }
+  if (payload.configurationUrl !== undefined) {
+    normalized.configurationUrl = normalizeCloudUrl(payload.configurationUrl);
+  }
+  if (payload.ipAddress !== undefined) {
+    normalized.ipAddress = requireString(payload.ipAddress, 'homeDevice.ipAddress', { maxLength: 80, allowEmpty: true });
+  }
+  if (payload.discoverySource !== undefined || payload.source !== undefined) {
+    normalized.discoverySource = requireString(
+      payload.discoverySource || payload.source || '',
+      'homeDevice.discoverySource',
+      { maxLength: 80, allowEmpty: true }
+    );
+  }
+  if (payload.transport !== undefined) {
+    normalized.transport = requireString(payload.transport, 'homeDevice.transport', { maxLength: 40, allowEmpty: true });
+  }
+  if (payload.bluetoothDeviceId !== undefined) {
+    normalized.bluetoothDeviceId = requireString(payload.bluetoothDeviceId, 'homeDevice.bluetoothDeviceId', { maxLength: 180, allowEmpty: true });
+  }
+  if (Array.isArray(payload.capabilities)) {
+    normalized.capabilities = payload.capabilities
+      .slice(0, 50)
+      .map((capability, index) => requireString(String(capability || ''), `homeDevice.capabilities[${index}]`, { maxLength: 80, allowEmpty: true }))
+      .filter(Boolean);
+  }
+  return normalized;
+}
+
 function validateCloudFileTransferAction(payload) {
   requirePlainObject(payload);
   const transferId = requireString(payload.transferId, 'transferId', { maxLength: 160 });
@@ -692,6 +768,16 @@ const IPC_VALIDATORS = Object.freeze({
   'desktopChat:uiState': validateDesktopChatUiState,
   'remote:listTargets': validateEmpty,
   'remote:control': validateRemoteControl,
+  'homeOnboarding:snapshot': validateEmpty,
+  'homeOnboarding:startDiscovery': validateEmpty,
+  'homeOnboarding:stopDiscovery': validateEmpty,
+  'homeOnboarding:addDiscoveredDevice': validateHomeDiscoveredDevice,
+  'homeOnboarding:start': validateHomeDeviceId,
+  'homeOnboarding:configure': validateHomeOnboardingConfiguration,
+  'homeOnboarding:waitForConnection': validateHomeOnboardingSession,
+  'homeOnboarding:approve': validateHomeOnboardingApproval,
+  'homeOnboarding:finish': validateHomeOnboardingSession,
+  'homeOnboarding:cancel': validateHomeOnboardingSession,
   'uiState:get': validateEmpty,
   'uiState:save': validateUiState,
   'security:status': validateEmpty,

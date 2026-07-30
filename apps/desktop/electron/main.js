@@ -40,6 +40,7 @@ const { CryptoManager } = require('../../../core/chat/crypto');
 const { MessageManager } = require('../../../core/chat/messages');
 const { ChatRuntimeStateMachine } = require('../../../core/chat/state');
 const { CloudCommandManager, CloudConnectionManager, CloudFileTransferManager, CloudLogger, CloudPairingManager } = require('../../../core/cloud');
+const { HomeOnboardingManager, HomeLanDiscoveryTransport } = require('../../../core/home-automation');
 const CrashRecoveryPolicy = require('./crash-recovery');
 const OpenXSecurityLock = require('../security-lock');
 const {
@@ -367,6 +368,7 @@ let cloudConnectionManager = null;
 let cloudPairingManager = null;
 let cloudCommandManager = null;
 let cloudFileTransferManager = null;
+let homeOnboardingManager = null;
 let cloudProfileSyncRegistered = false;
 let cloudModesSyncRegistered = false;
 const cloudFileTransferUiProgress = new Map();
@@ -524,10 +526,33 @@ function isVoiceCaptureRendererUrl(url) {
   }
 }
 
+function isChatRendererUrl(url) {
+  if (!isTrustedRendererUrl(url, RENDERER_ROOT)) return false;
+  try {
+    const { fileURLToPath } = require('url');
+    return path.resolve(fileURLToPath(url)) === path.resolve(path.join(RENDERER_ROOT, 'chat', 'index.html'));
+  } catch (_) {
+    return false;
+  }
+}
+
 function canGrantVoiceCapturePermission(webContents, permission, candidateUrl = '') {
   if (!['media', 'microphone'].includes(String(permission || ''))) return false;
   const contentsUrl = webContents?.getURL?.() || '';
   return isVoiceCaptureRendererUrl(candidateUrl) || isVoiceCaptureRendererUrl(contentsUrl);
+}
+
+function canGrantHomeBluetoothPermission(webContents, permission, candidateUrl = '') {
+  const normalizedPermission = String(permission || '').toLowerCase();
+  const bluetoothPermissions = new Set([
+    'bluetooth',
+    'bluetoothscanning',
+    'bluetooth-serial',
+    'bluetoothserial'
+  ]);
+  if (!bluetoothPermissions.has(normalizedPermission)) return false;
+  const contentsUrl = webContents?.getURL?.() || '';
+  return isChatRendererUrl(candidateUrl) || isChatRendererUrl(contentsUrl);
 }
 
 function configureSessionSecurity() {
@@ -537,6 +562,11 @@ function configureSessionSecurity() {
       const requestingUrl = details?.requestingUrl || webContents?.getURL?.() || '';
       if (canGrantVoiceCapturePermission(webContents, permission, requestingUrl)) {
         mainLogger.info('Allowed voice capture microphone permission', { permission, requestingUrl });
+        callback(true);
+        return;
+      }
+      if (canGrantHomeBluetoothPermission(webContents, permission, requestingUrl)) {
+        mainLogger.info('[HOME] Allowed Home Device Bluetooth permission', { permission, requestingUrl });
         callback(true);
         return;
       }
@@ -550,8 +580,25 @@ function configureSessionSecurity() {
       if (canGrantVoiceCapturePermission(webContents, permission, requestingOrigin)) {
         return true;
       }
+      if (canGrantHomeBluetoothPermission(webContents, permission, requestingOrigin)) {
+        return true;
+      }
       mainLogger.warn('Blocked renderer permission check', { permission, requestingOrigin });
       return false;
+    });
+    defaultSession?.on?.('select-bluetooth-device', (event, deviceList, callback) => {
+      event.preventDefault();
+      const devices = Array.isArray(deviceList) ? deviceList : [];
+      const selected = devices.find(device => /openx/i.test(String(device.deviceName || device.name || ''))) || devices[0];
+      if (selected?.deviceId) {
+        mainLogger.info('[HOME] Selected Bluetooth Home Device for provisioning', {
+          deviceName: selected.deviceName || selected.name || 'unknown'
+        });
+        callback(selected.deviceId);
+      } else {
+        mainLogger.warn('[HOME] No Bluetooth Home Device was available for provisioning');
+        callback('');
+      }
     });
     defaultSession?.webRequest?.onBeforeRequest?.({
       urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*']
@@ -813,7 +860,10 @@ function createChatWindow() {
     skipTaskbar: true,
     alwaysOnTop: true,
     hasShadow: true,
-    webPreferences: createSecureWebPreferences(PRELOAD_PATH)
+    webPreferences: {
+      ...createSecureWebPreferences(PRELOAD_PATH),
+      enableBlinkFeatures: 'WebBluetooth'
+    }
   });
 
   const chatFile = path.join(RENDERER_ROOT, 'chat', 'index.html');
@@ -6063,6 +6113,148 @@ function createCloudSecureKeyStore() {
   };
 }
 
+function sendHomeOnboardingStatus(snapshot = null) {
+  if (!chatWindow || chatWindow.isDestroyed()) return;
+  const payload = snapshot || homeOnboardingManager?.getSnapshot?.() || null;
+  if (!payload) return;
+  chatWindow.webContents.send('homeOnboarding:changed', toIpcSafeValue(payload));
+}
+
+function normalizeHomeServerHttpBaseUrl(serverAddress) {
+  const parsed = new URL(String(serverAddress || 'wss://openx-server.onrender.com/ws').trim());
+  if (parsed.protocol === 'ws:') parsed.protocol = 'http:';
+  if (parsed.protocol === 'wss:') parsed.protocol = 'https:';
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('OpenX_Server address must use http, https, ws, or wss.');
+  }
+  parsed.pathname = '';
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString().replace(/\/$/, '');
+}
+
+async function fetchHomeServerJson(serverAddress, route, options = {}) {
+  const baseUrl = normalizeHomeServerHttpBaseUrl(serverAddress);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(options.timeoutMs) || 9000);
+  timeout.unref?.();
+  try {
+    const response = await fetch(`${baseUrl}${route}`, {
+      method: options.method || 'GET',
+      headers: {
+        accept: 'application/json',
+        ...(options.body ? { 'content-type': 'application/json' } : {})
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: controller.signal
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body?.success === false) {
+      return {
+        success: false,
+        statusCode: response.status,
+        code: body?.code || `http-${response.status}`,
+        message: body?.message || `OpenX_Server returned ${response.status}.`,
+        ...body
+      };
+    }
+    return { success: true, statusCode: response.status, ...body };
+  } catch (error) {
+    return {
+      success: false,
+      code: error.name === 'AbortError' ? 'home-server-timeout' : 'home-server-unreachable',
+      message: error.name === 'AbortError'
+        ? 'OpenX_Server home request timed out.'
+        : `OpenX_Server home request failed: ${error.message}`
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function createHomeServerClient() {
+  return {
+    async listHomeDevices({ serverAddress, ownerId = '' } = {}) {
+      const query = ownerId ? `?ownerId=${encodeURIComponent(ownerId)}` : '';
+      return fetchHomeServerJson(serverAddress, `/home/devices${query}`);
+    },
+
+    async getHomeDevice({ serverAddress, deviceId } = {}) {
+      const normalizedDeviceId = String(deviceId || '').trim();
+      if (!normalizedDeviceId) return { success: false, code: 'missing-device-id', message: 'Home device ID is required.' };
+      return fetchHomeServerJson(serverAddress, `/home/devices/${encodeURIComponent(normalizedDeviceId)}`);
+    },
+
+    async approveHomePairing({ device, ownerId = 'desktop-owner', serverAddress }) {
+      const deviceId = String(device?.deviceId || '').trim();
+      if (!deviceId) return { success: false, code: 'missing-device-id', message: 'Home device ID is required.' };
+      const desktopDeviceId = String(cloudConnectionManager?.device?.deviceId || runtimeConfig?.cloud?.deviceId || 'openx-desktop').trim();
+      const pairRequest = await fetchHomeServerJson(serverAddress, '/home/pairing/request', {
+        method: 'POST',
+        body: {
+          deviceId,
+          ownerId,
+          desktopDeviceId,
+          pairingLabel: device?.deviceName || 'OpenX Home Device',
+          metadata: { source: 'openx-desktop' }
+        }
+      });
+      if (!pairRequest.success && pairRequest.code !== 'home-device-owned') return pairRequest;
+      const pairingSessionId = pairRequest.session?.pairingSessionId || pairRequest.pairRequest?.pairingSessionId || '';
+      if (!pairingSessionId && pairRequest.code === 'home-device-owned') {
+        return {
+          success: true,
+          paired: true,
+          ownerId,
+          deviceId,
+          serverAddress,
+          message: 'Home device is already paired.'
+        };
+      }
+      const approved = await fetchHomeServerJson(serverAddress, '/home/pairing/approve', {
+        method: 'POST',
+        body: {
+          pairingSessionId,
+          deviceId,
+          ownerId,
+          approvedByDeviceId: desktopDeviceId
+        }
+      });
+      return approved.success
+        ? { ...approved, paired: true, ownerId, deviceId, serverAddress }
+        : approved;
+    }
+  };
+}
+
+function initializeHomeOnboarding() {
+  if (homeOnboardingManager) return homeOnboardingManager;
+  const defaultServerAddress = runtimeConfig?.cloud?.relayUrl || 'wss://openx-server.onrender.com/ws';
+  const discoveryTransport = new HomeLanDiscoveryTransport({
+    logger: mainLogger
+  });
+  const serverClient = createHomeServerClient();
+  homeOnboardingManager = new HomeOnboardingManager({
+    defaultServerAddress,
+    serverClient,
+    discovery: {
+      transport: discoveryTransport
+    },
+    pairing: {
+      serverClient
+    }
+  });
+  homeOnboardingManager.discovery.subscribe(() => sendHomeOnboardingStatus());
+  homeOnboardingManager.startDiscovery();
+  homeOnboardingManager.refreshServerDevices?.()
+    .then(() => sendHomeOnboardingStatus())
+    .catch(error => mainLogger.warn('[HOME] Server device refresh failed', { error: error.message }));
+  mainLogger.info('[HOME] Home Device discovery started', {
+    defaultServerAddress
+  });
+  return homeOnboardingManager;
+}
+
 function initializeCloudConnection() {
   if (cloudConnectionManager) return cloudConnectionManager;
   const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG.app?.dataPaths || {};
@@ -6727,6 +6919,66 @@ function setupIPC() {
     return sendRemoteControlAction(payload || {});
   });
 
+  registerIpcHandler('homeOnboarding:snapshot', async () => {
+    return initializeHomeOnboarding().getSnapshot();
+  });
+
+  registerIpcHandler('homeOnboarding:startDiscovery', async () => {
+    const manager = initializeHomeOnboarding();
+    const result = manager.startDiscovery();
+    await manager.refreshServerDevices?.();
+    sendHomeOnboardingStatus();
+    return result;
+  });
+
+  registerIpcHandler('homeOnboarding:stopDiscovery', async () => {
+    const result = initializeHomeOnboarding().stopDiscovery();
+    sendHomeOnboardingStatus();
+    return result;
+  });
+
+  registerIpcHandler('homeOnboarding:addDiscoveredDevice', async (_event, payload) => {
+    const result = initializeHomeOnboarding().addDiscoveredDevice(payload || {});
+    sendHomeOnboardingStatus();
+    return result;
+  });
+
+  registerIpcHandler('homeOnboarding:start', async (_event, { deviceId }) => {
+    const result = initializeHomeOnboarding().startOnboarding(deviceId);
+    sendHomeOnboardingStatus();
+    return result;
+  });
+
+  registerIpcHandler('homeOnboarding:configure', async (_event, payload) => {
+    const result = await initializeHomeOnboarding().sendConfiguration(payload || {});
+    sendHomeOnboardingStatus();
+    return result;
+  });
+
+  registerIpcHandler('homeOnboarding:waitForConnection', async (_event, { sessionId }) => {
+    const result = await initializeHomeOnboarding().waitForConnection(sessionId);
+    sendHomeOnboardingStatus();
+    return result;
+  });
+
+  registerIpcHandler('homeOnboarding:approve', async (_event, payload) => {
+    const result = await initializeHomeOnboarding().approvePairing(payload || {});
+    sendHomeOnboardingStatus();
+    return result;
+  });
+
+  registerIpcHandler('homeOnboarding:finish', async (_event, { sessionId }) => {
+    const result = initializeHomeOnboarding().finish(sessionId);
+    sendHomeOnboardingStatus();
+    return result;
+  });
+
+  registerIpcHandler('homeOnboarding:cancel', async (_event, { sessionId }) => {
+    const result = initializeHomeOnboarding().cancel(sessionId);
+    sendHomeOnboardingStatus();
+    return result;
+  });
+
   registerIpcHandler('uiState:get', async () => {
     return {
       success: true,
@@ -7194,6 +7446,15 @@ async function cleanupRuntime() {
         mainLogger.error('[CLOUD] Cleanup failed', { error: error.message });
       } finally {
         cloudConnectionManager = null;
+      }
+    }
+    if (homeOnboardingManager) {
+      try {
+        homeOnboardingManager.stopDiscovery();
+      } catch (error) {
+        mainLogger.error('[HOME] Onboarding cleanup failed', { error: error.message });
+      } finally {
+        homeOnboardingManager = null;
       }
     }
     destroyTextToSpeech();
@@ -7810,6 +8071,7 @@ app.whenReady().then(async () => {
   initializeCloudPairing();
   initializeCloudCommands();
   initializeCloudMobileRuntime();
+  initializeHomeOnboarding();
   await maybeAutoConnectCloud('desktop-startup');
   restoreLiveScheduleInDynamicIsland();
   startDesktopChatReceiveRuntime({

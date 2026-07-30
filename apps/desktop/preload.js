@@ -968,6 +968,36 @@ const openxApi = {
   sendRemoteControl: (payload = {}) =>
     ipcRenderer.invoke('remote:control', payload),
 
+  getHomeOnboardingSnapshot: () =>
+    ipcRenderer.invoke('homeOnboarding:snapshot'),
+
+  startHomeDiscovery: () =>
+    ipcRenderer.invoke('homeOnboarding:startDiscovery'),
+
+  stopHomeDiscovery: () =>
+    ipcRenderer.invoke('homeOnboarding:stopDiscovery'),
+
+  addDiscoveredHomeDevice: (device = {}) =>
+    ipcRenderer.invoke('homeOnboarding:addDiscoveredDevice', device),
+
+  startHomeOnboarding: (deviceId) =>
+    ipcRenderer.invoke('homeOnboarding:start', { deviceId }),
+
+  configureHomeDevice: (configuration = {}) =>
+    ipcRenderer.invoke('homeOnboarding:configure', configuration),
+
+  waitForHomeDeviceConnection: (sessionId) =>
+    ipcRenderer.invoke('homeOnboarding:waitForConnection', { sessionId }),
+
+  approveHomeDevicePairing: (sessionId, ownerId = 'desktop-owner') =>
+    ipcRenderer.invoke('homeOnboarding:approve', { sessionId, ownerId }),
+
+  finishHomeOnboarding: (sessionId) =>
+    ipcRenderer.invoke('homeOnboarding:finish', { sessionId }),
+
+  cancelHomeOnboarding: (sessionId) =>
+    ipcRenderer.invoke('homeOnboarding:cancel', { sessionId }),
+
   getUiState: () =>
     ipcRenderer.invoke('uiState:get'),
 
@@ -1116,6 +1146,15 @@ const openxApi = {
     const handler = (_event, status) => callback(status);
     ipcRenderer.on('cloud:pairing:status', handler);
     return () => ipcRenderer.removeListener('cloud:pairing:status', handler);
+  },
+
+  onHomeOnboardingChanged: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Home onboarding listener must be a function');
+    }
+    const handler = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('homeOnboarding:changed', handler);
+    return () => ipcRenderer.removeListener('homeOnboarding:changed', handler);
   },
 
   onScheduleChanged: (callback) => {
