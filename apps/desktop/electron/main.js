@@ -40,7 +40,7 @@ const { CryptoManager } = require('../../../core/chat/crypto');
 const { MessageManager } = require('../../../core/chat/messages');
 const { ChatRuntimeStateMachine } = require('../../../core/chat/state');
 const { CloudCommandManager, CloudConnectionManager, CloudFileTransferManager, CloudLogger, CloudPairingManager } = require('../../../core/cloud');
-const { HomeOnboardingManager, HomeLanDiscoveryTransport } = require('../../../core/home-automation');
+const { HomeOnboardingManager, HomeLanDiscoveryTransport, HomeDeviceStore, resolveHomeOwnerId, HomeCommandClient } = require('../../../core/home-automation');
 const CrashRecoveryPolicy = require('./crash-recovery');
 const OpenXSecurityLock = require('../security-lock');
 const {
@@ -369,6 +369,9 @@ let cloudPairingManager = null;
 let cloudCommandManager = null;
 let cloudFileTransferManager = null;
 let homeOnboardingManager = null;
+let homeCommandClient = null;
+let pendingHomeBluetoothSelection = null;
+const HOME_BLUETOOTH_SCAN_TIMEOUT_MS = 35000;
 let cloudProfileSyncRegistered = false;
 let cloudModesSyncRegistered = false;
 const cloudFileTransferUiProgress = new Map();
@@ -555,6 +558,49 @@ function canGrantHomeBluetoothPermission(webContents, permission, candidateUrl =
   return isChatRendererUrl(candidateUrl) || isChatRendererUrl(contentsUrl);
 }
 
+function clearPendingHomeBluetoothSelection() {
+  if (!pendingHomeBluetoothSelection) return;
+  clearTimeout(pendingHomeBluetoothSelection.timeout);
+  pendingHomeBluetoothSelection = null;
+}
+
+function handleHomeBluetoothDeviceSelection(event, deviceList, callback) {
+  event.preventDefault();
+  // Electron re-invokes this handler with a growing deviceList every time the
+  // native BLE scan sees a new advertisement, not just once at the end of the
+  // scan. Cancelling immediately whenever the OpenX device isn't in the list
+  // yet aborts the scan before the ESP32's advertisement has a chance to
+  // arrive, so a "no match yet" result must keep the scan alive instead.
+  const devices = Array.isArray(deviceList) ? deviceList : [];
+  const candidates = devices.slice(0, 8).map(device => ({
+    deviceName: device.deviceName || device.name || 'unknown',
+    deviceId: device.deviceId ? `${String(device.deviceId).slice(0, 8)}...` : ''
+  }));
+  mainLogger.info('[HOME] Bluetooth provisioning candidates found', {
+    candidateCount: devices.length,
+    candidates
+  });
+  const selected = devices.find(device => /openx/i.test(String(device.deviceName || device.name || ''))) ||
+    (devices.length === 1 ? devices[0] : null);
+  if (selected?.deviceId) {
+    mainLogger.info('[HOME] Selected Bluetooth Home Device for provisioning', {
+      deviceName: selected.deviceName || selected.name || 'unknown'
+    });
+    clearPendingHomeBluetoothSelection();
+    callback(selected.deviceId);
+    return;
+  }
+  clearPendingHomeBluetoothSelection();
+  const timeout = setTimeout(() => {
+    mainLogger.warn('[HOME] No OpenX Bluetooth Home Device was found before the scan timeout', {
+      candidateCount: devices.length
+    });
+    pendingHomeBluetoothSelection = null;
+    callback('');
+  }, HOME_BLUETOOTH_SCAN_TIMEOUT_MS);
+  pendingHomeBluetoothSelection = { callback, timeout };
+}
+
 function configureSessionSecurity() {
   try {
     const defaultSession = session.defaultSession;
@@ -585,20 +631,6 @@ function configureSessionSecurity() {
       }
       mainLogger.warn('Blocked renderer permission check', { permission, requestingOrigin });
       return false;
-    });
-    defaultSession?.on?.('select-bluetooth-device', (event, deviceList, callback) => {
-      event.preventDefault();
-      const devices = Array.isArray(deviceList) ? deviceList : [];
-      const selected = devices.find(device => /openx/i.test(String(device.deviceName || device.name || ''))) || devices[0];
-      if (selected?.deviceId) {
-        mainLogger.info('[HOME] Selected Bluetooth Home Device for provisioning', {
-          deviceName: selected.deviceName || selected.name || 'unknown'
-        });
-        callback(selected.deviceId);
-      } else {
-        mainLogger.warn('[HOME] No Bluetooth Home Device was available for provisioning');
-        callback('');
-      }
     });
     defaultSession?.webRequest?.onBeforeRequest?.({
       urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*']
@@ -872,12 +904,14 @@ function createChatWindow() {
     expectedFile: chatFile,
     createWindow: createChatWindow
   });
+  chatWindow.webContents.on('select-bluetooth-device', handleHomeBluetoothDeviceSelection);
   chatWindow.loadFile(chatFile).catch(error => {
     mainLogger.error('Failed to load chat renderer', { error: error.message });
   });
 
   chatWindow.on('closed', () => {
     chatWindow = null;
+    clearPendingHomeBluetoothSelection();
   });
 
   if (process.argv.includes('--dev')) {
@@ -6172,9 +6206,9 @@ async function fetchHomeServerJson(serverAddress, route, options = {}) {
   }
 }
 
-function createHomeServerClient() {
+function createHomeServerClient(defaultOwnerId = 'desktop-owner') {
   return {
-    async listHomeDevices({ serverAddress, ownerId = '' } = {}) {
+    async listHomeDevices({ serverAddress, ownerId = defaultOwnerId } = {}) {
       const query = ownerId ? `?ownerId=${encodeURIComponent(ownerId)}` : '';
       return fetchHomeServerJson(serverAddress, `/home/devices${query}`);
     },
@@ -6185,7 +6219,7 @@ function createHomeServerClient() {
       return fetchHomeServerJson(serverAddress, `/home/devices/${encodeURIComponent(normalizedDeviceId)}`);
     },
 
-    async approveHomePairing({ device, ownerId = 'desktop-owner', serverAddress }) {
+    async approveHomePairing({ device, ownerId = defaultOwnerId, serverAddress }) {
       const deviceId = String(device?.deviceId || '').trim();
       if (!deviceId) return { success: false, code: 'missing-device-id', message: 'Home device ID is required.' };
       const desktopDeviceId = String(cloudConnectionManager?.device?.deviceId || runtimeConfig?.cloud?.deviceId || 'openx-desktop').trim();
@@ -6223,6 +6257,24 @@ function createHomeServerClient() {
       return approved.success
         ? { ...approved, paired: true, ownerId, deviceId, serverAddress }
         : approved;
+    },
+
+    async renameDevice({ serverAddress, deviceId, ownerId = defaultOwnerId, deviceName }) {
+      const normalizedDeviceId = String(deviceId || '').trim();
+      if (!normalizedDeviceId) return { success: false, code: 'missing-device-id', message: 'Home device ID is required.' };
+      return fetchHomeServerJson(serverAddress, `/home/devices/${encodeURIComponent(normalizedDeviceId)}`, {
+        method: 'PATCH',
+        body: { ownerId, deviceName }
+      });
+    },
+
+    async forgetDevice({ serverAddress, deviceId, ownerId = defaultOwnerId }) {
+      const normalizedDeviceId = String(deviceId || '').trim();
+      if (!normalizedDeviceId) return { success: false, code: 'missing-device-id', message: 'Home device ID is required.' };
+      return fetchHomeServerJson(serverAddress, `/home/devices/${encodeURIComponent(normalizedDeviceId)}`, {
+        method: 'DELETE',
+        body: { ownerId }
+      });
     }
   };
 }
@@ -6230,15 +6282,20 @@ function createHomeServerClient() {
 function initializeHomeOnboarding() {
   if (homeOnboardingManager) return homeOnboardingManager;
   const defaultServerAddress = runtimeConfig?.cloud?.relayUrl || 'wss://openx-server.onrender.com/ws';
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG.app?.dataPaths || {};
+  const ownerId = resolveHomeOwnerId({ dataPaths });
+  const homeDeviceStore = new HomeDeviceStore({ dataPaths });
   const discoveryTransport = new HomeLanDiscoveryTransport({
     logger: mainLogger
   });
-  const serverClient = createHomeServerClient();
+  const serverClient = createHomeServerClient(ownerId);
   homeOnboardingManager = new HomeOnboardingManager({
     defaultServerAddress,
     serverClient,
+    ownerId,
     discovery: {
-      transport: discoveryTransport
+      transport: discoveryTransport,
+      store: homeDeviceStore
     },
     pairing: {
       serverClient
@@ -6249,10 +6306,48 @@ function initializeHomeOnboarding() {
   homeOnboardingManager.refreshServerDevices?.()
     .then(() => sendHomeOnboardingStatus())
     .catch(error => mainLogger.warn('[HOME] Server device refresh failed', { error: error.message }));
+  // OpenX_Server keeps its device registry in memory only, so a redeploy or
+  // restart silently un-pairs every device. Poll in the background so a
+  // previously-paired device gets its ownership reclaimed automatically
+  // (see HomeOnboardingManager.reclaimDevice) instead of the user having to
+  // notice it's broken and redo Bluetooth + Wi-Fi setup from scratch.
+  const homeRefreshTimer = setInterval(() => {
+    homeOnboardingManager.refreshServerDevices?.()
+      .then(result => {
+        if (result?.reclaimed) {
+          mainLogger.info('[HOME] Reclaimed ownership after server restart', { reclaimed: result.reclaimed });
+        }
+        sendHomeOnboardingStatus();
+      })
+      .catch(error => mainLogger.warn('[HOME] Background device refresh failed', { error: error.message }));
+  }, 30000);
+  homeRefreshTimer.unref?.();
   mainLogger.info('[HOME] Home Device discovery started', {
     defaultServerAddress
   });
   return homeOnboardingManager;
+}
+
+function wireHomeAutomationExecution() {
+  if (!assistant?.automation?.homeAutomation || !cloudConnectionManager) return;
+  const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG.app?.dataPaths || {};
+  const ownerId = resolveHomeOwnerId({ dataPaths });
+  if (!homeCommandClient) {
+    homeCommandClient = new HomeCommandClient({
+      sendPacket: packet => cloudConnectionManager.sendHomePacket(packet),
+      subscribe: handler => {
+        cloudConnectionManager.on('home-packet', handler);
+        return () => cloudConnectionManager.off('home-packet', handler);
+      },
+      isConnected: () => cloudConnectionManager.isConnected()
+    });
+  }
+  assistant.automation.homeAutomation.configureLiveExecution({
+    getPairedDevices: () => initializeHomeOnboarding().discovery.listDevices(),
+    commandClient: homeCommandClient,
+    ownerId
+  });
+  mainLogger.info('[HOME] Live device-command execution wired', { ownerId });
 }
 
 function initializeCloudConnection() {
@@ -6926,7 +7021,15 @@ function setupIPC() {
   registerIpcHandler('homeOnboarding:startDiscovery', async () => {
     const manager = initializeHomeOnboarding();
     const result = manager.startDiscovery();
-    await manager.refreshServerDevices?.();
+    const serverRefresh = await manager.refreshServerDevices?.();
+    const snapshot = manager.getSnapshot();
+    mainLogger.info('[HOME] Home Device scan completed', {
+      discoveryStarted: snapshot?.discovery?.discoveryStarted === true,
+      devicesShown: Array.isArray(snapshot?.discovery?.devices) ? snapshot.discovery.devices.length : 0,
+      serverDevicesAdded: Number(serverRefresh?.added || 0),
+      serverRefreshStatus: serverRefresh?.success === false ? 'failed' : 'ok',
+      serverRefreshCode: serverRefresh?.code || ''
+    });
     sendHomeOnboardingStatus();
     return result;
   });
@@ -6939,30 +7042,125 @@ function setupIPC() {
 
   registerIpcHandler('homeOnboarding:addDiscoveredDevice', async (_event, payload) => {
     const result = initializeHomeOnboarding().addDiscoveredDevice(payload || {});
+    const logPayload = {
+      deviceId: payload?.deviceId || '',
+      deviceName: payload?.deviceName || payload?.name || '',
+      transport: payload?.transport || '',
+      discoverySource: payload?.discoverySource || payload?.source || '',
+      success: result?.success !== false,
+      duplicate: result?.duplicate === true,
+      code: result?.code || ''
+    };
+    if (result?.success === false) {
+      mainLogger.warn('[HOME] Home Device discovery item was rejected', logPayload);
+    } else {
+      mainLogger.info('[HOME] Home Device discovered', logPayload);
+    }
     sendHomeOnboardingStatus();
     return result;
   });
 
   registerIpcHandler('homeOnboarding:start', async (_event, { deviceId }) => {
     const result = initializeHomeOnboarding().startOnboarding(deviceId);
+    const logPayload = {
+      deviceId,
+      success: result?.success !== false,
+      sessionId: result?.session?.sessionId || '',
+      step: result?.session?.step || '',
+      code: result?.code || ''
+    };
+    if (result?.success === false) {
+      mainLogger.warn('[HOME] Home Device setup start failed', logPayload);
+    } else {
+      mainLogger.info('[HOME] Home Device setup started', logPayload);
+    }
     sendHomeOnboardingStatus();
     return result;
   });
 
   registerIpcHandler('homeOnboarding:configure', async (_event, payload) => {
     const result = await initializeHomeOnboarding().sendConfiguration(payload || {});
+    const logPayload = {
+      sessionId: payload?.sessionId || '',
+      serverAddress: payload?.serverAddress || '',
+      ssidLength: String(payload?.ssid || '').length,
+      success: result?.success !== false,
+      step: result?.session?.step || '',
+      code: result?.code || ''
+    };
+    if (result?.success === false) {
+      mainLogger.warn('[HOME] Home Device configuration failed', logPayload);
+    } else {
+      mainLogger.info('[HOME] Home Device configuration recorded', logPayload);
+    }
     sendHomeOnboardingStatus();
     return result;
   });
 
   registerIpcHandler('homeOnboarding:waitForConnection', async (_event, { sessionId }) => {
     const result = await initializeHomeOnboarding().waitForConnection(sessionId);
+    const logPayload = {
+      sessionId,
+      deviceId: result?.session?.deviceId || result?.device?.deviceId || '',
+      success: result?.success !== false,
+      connectionStatus: result?.device?.connectionStatus || '',
+      step: result?.session?.step || '',
+      code: result?.code || ''
+    };
+    if (result?.success === false) {
+      mainLogger.warn('[HOME] Home Device did not connect after configuration', logPayload);
+    } else {
+      mainLogger.info('[HOME] Home Device connected after configuration', logPayload);
+    }
     sendHomeOnboardingStatus();
     return result;
   });
 
   registerIpcHandler('homeOnboarding:approve', async (_event, payload) => {
     const result = await initializeHomeOnboarding().approvePairing(payload || {});
+    const logPayload = {
+      sessionId: payload?.sessionId || '',
+      ownerId: payload?.ownerId || '',
+      deviceId: result?.session?.deviceId || result?.device?.deviceId || '',
+      success: result?.success !== false,
+      paired: result?.pairing?.paired === true,
+      code: result?.code || ''
+    };
+    if (result?.success === false) {
+      mainLogger.warn('[HOME] Home Device pairing approval failed', logPayload);
+    } else {
+      mainLogger.info('[HOME] Home Device pairing approved', logPayload);
+    }
+    sendHomeOnboardingStatus();
+    return result;
+  });
+
+  registerIpcHandler('homeOnboarding:renameDevice', async (_event, { deviceId, ownerId, deviceName }) => {
+    const result = await initializeHomeOnboarding().renameDevice(deviceId, ownerId, deviceName);
+    const logPayload = { deviceId, success: result?.success !== false, code: result?.code || '' };
+    if (result?.success === false) {
+      mainLogger.warn('[HOME] Home Device rename failed', logPayload);
+    } else {
+      mainLogger.info('[HOME] Home Device renamed', logPayload);
+    }
+    sendHomeOnboardingStatus();
+    return result;
+  });
+
+  registerIpcHandler('homeOnboarding:refreshDevice', async (_event, { deviceId }) => {
+    const result = await initializeHomeOnboarding().refreshDevice(deviceId);
+    if (result?.success !== false) sendHomeOnboardingStatus();
+    return result;
+  });
+
+  registerIpcHandler('homeOnboarding:removeDevice', async (_event, { deviceId, ownerId }) => {
+    const result = await initializeHomeOnboarding().removeDevice(deviceId, ownerId);
+    const logPayload = { deviceId, success: result?.success !== false, notified: result?.notified === true, code: result?.code || '' };
+    if (result?.success === false) {
+      mainLogger.warn('[HOME] Home Device removal failed', logPayload);
+    } else {
+      mainLogger.info('[HOME] Home Device removed', logPayload);
+    }
     sendHomeOnboardingStatus();
     return result;
   });
@@ -8072,6 +8270,7 @@ app.whenReady().then(async () => {
   initializeCloudCommands();
   initializeCloudMobileRuntime();
   initializeHomeOnboarding();
+  wireHomeAutomationExecution();
   await maybeAutoConnectCloud('desktop-startup');
   restoreLiveScheduleInDynamicIsland();
   startDesktopChatReceiveRuntime({

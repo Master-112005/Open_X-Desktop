@@ -478,10 +478,29 @@ function validateHomeOnboardingConfiguration(payload = {}) {
 function validateHomeOnboardingApproval(payload = {}) {
   const { sessionId } = validateHomeOnboardingSession(payload);
   const ownerId = payload.ownerId === undefined
-    ? 'desktop-owner'
+    ? undefined
     : requireString(payload.ownerId, 'homeOnboarding.ownerId', { maxLength: 160 });
-  if (!/^[A-Za-z0-9._:-]{3,160}$/.test(ownerId)) throw new TypeError('homeOnboarding.ownerId is invalid');
+  if (ownerId !== undefined && !/^[A-Za-z0-9._:-]{3,160}$/.test(ownerId)) throw new TypeError('homeOnboarding.ownerId is invalid');
   return { sessionId, ownerId };
+}
+
+function validateHomeDeviceOwnerId(payload = {}) {
+  return payload.ownerId === undefined
+    ? undefined
+    : requireString(payload.ownerId, 'homeOnboarding.ownerId', { maxLength: 160 });
+}
+
+function validateHomeDeviceRename(payload = {}) {
+  const { deviceId } = validateHomeDeviceId(payload);
+  const deviceName = requireString(payload.deviceName || '', 'homeOnboarding.deviceName', { maxLength: 100 });
+  const ownerId = validateHomeDeviceOwnerId(payload);
+  return { deviceId, deviceName, ownerId };
+}
+
+function validateHomeDeviceRemoval(payload = {}) {
+  const { deviceId } = validateHomeDeviceId(payload);
+  const ownerId = validateHomeDeviceOwnerId(payload);
+  return { deviceId, ownerId };
 }
 
 function validateHomeDiscoveredDevice(payload = {}) {
@@ -776,6 +795,9 @@ const IPC_VALIDATORS = Object.freeze({
   'homeOnboarding:configure': validateHomeOnboardingConfiguration,
   'homeOnboarding:waitForConnection': validateHomeOnboardingSession,
   'homeOnboarding:approve': validateHomeOnboardingApproval,
+  'homeOnboarding:renameDevice': validateHomeDeviceRename,
+  'homeOnboarding:removeDevice': validateHomeDeviceRemoval,
+  'homeOnboarding:refreshDevice': validateHomeDeviceId,
   'homeOnboarding:finish': validateHomeOnboardingSession,
   'homeOnboarding:cancel': validateHomeOnboardingSession,
   'uiState:get': validateEmpty,

@@ -989,8 +989,17 @@ const openxApi = {
   waitForHomeDeviceConnection: (sessionId) =>
     ipcRenderer.invoke('homeOnboarding:waitForConnection', { sessionId }),
 
-  approveHomeDevicePairing: (sessionId, ownerId = 'desktop-owner') =>
+  approveHomeDevicePairing: (sessionId, ownerId) =>
     ipcRenderer.invoke('homeOnboarding:approve', { sessionId, ownerId }),
+
+  renameHomeDevice: (deviceId, deviceName, ownerId) =>
+    ipcRenderer.invoke('homeOnboarding:renameDevice', { deviceId, deviceName, ownerId }),
+
+  removeHomeDevice: (deviceId, ownerId) =>
+    ipcRenderer.invoke('homeOnboarding:removeDevice', { deviceId, ownerId }),
+
+  refreshHomeDevice: (deviceId) =>
+    ipcRenderer.invoke('homeOnboarding:refreshDevice', { deviceId }),
 
   finishHomeOnboarding: (sessionId) =>
     ipcRenderer.invoke('homeOnboarding:finish', { sessionId }),

@@ -237,6 +237,10 @@ class CloudConnectionManager extends EventEmitter {
     }
   }
 
+  sendHomePacket(packet) {
+    return this.send(packet);
+  }
+
   sendRelayPacket(packet) {
     const protectedPacket = this.protectRelayPacket(packet);
     const sent = this.send({
@@ -672,6 +676,10 @@ class CloudConnectionManager extends EventEmitter {
     if (payload?.type === 'relay:packet') {
       const message = this.unprotectRelayMessage(payload);
       if (message) this.emit('relay-packet', message);
+      return;
+    }
+    if (String(payload?.type || '').startsWith('home:')) {
+      this.emit('home-packet', payload);
       return;
     }
     if (payload?.type === 'relay:ack') {

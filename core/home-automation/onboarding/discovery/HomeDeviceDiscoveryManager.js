@@ -1,4 +1,10 @@
-const { createPublicDevice, cleanDeviceId, isValidDeviceId } = require('../utilities/OnboardingSanitizer');
+const { createPublicDevice, cleanDeviceId, isValidDeviceId, cleanString } = require('../utilities/OnboardingSanitizer');
+
+function isDiagnosticDevice(device = {}) {
+  const deviceId = String(device.deviceId || '').toLowerCase();
+  const deviceName = String(device.deviceName || device.name || '').toLowerCase();
+  return deviceId.startsWith('diag_') || deviceId.includes('diagnostic') || deviceName.includes('diagnostic');
+}
 
 class HomeDeviceDiscoveryManager {
   constructor(options = {}) {
@@ -6,10 +12,36 @@ class HomeDeviceDiscoveryManager {
     this.discoveryTtlMs = Number(options.discoveryTtlMs) || 90 * 1000;
     this.discoveryIntervalMs = Number(options.discoveryIntervalMs) || 5000;
     this.transport = options.transport || null;
+    this.store = options.store || null;
     this.devices = new Map();
     this.listeners = new Set();
     this.timer = null;
     this.started = false;
+    this.loadPersistedDevices();
+  }
+
+  loadPersistedDevices() {
+    if (!this.store) return;
+    let persisted = [];
+    try {
+      persisted = this.store.list();
+    } catch (_) {
+      return;
+    }
+    for (const device of persisted) {
+      const normalized = createPublicDevice({ ...device, connectionStatus: 'offline' });
+      if (!isValidDeviceId(normalized.deviceId)) continue;
+      this.devices.set(normalized.deviceId, normalized);
+    }
+  }
+
+  persistPairedDevice(device) {
+    if (!this.store || !device || device.pairingStatus !== 'paired') return;
+    try {
+      this.store.upsert(device);
+    } catch (_) {
+      // Persistence is best-effort; in-memory state remains authoritative for this session.
+    }
   }
 
   start() {
@@ -43,6 +75,9 @@ class HomeDeviceDiscoveryManager {
   }
 
   addDiscoveredDevice(candidate = {}, options = {}) {
+    if (isDiagnosticDevice(candidate)) {
+      return { success: false, code: 'diagnostic-device-hidden', message: 'Diagnostic Home device records are hidden from setup.' };
+    }
     const device = createPublicDevice({
       ...candidate,
       deviceName: candidate.deviceName || candidate.name || 'OpenX Home Device',
@@ -64,6 +99,7 @@ class HomeDeviceDiscoveryManager {
     };
     this.devices.set(device.deviceId, merged);
     if (!existing) this.emit('device_found', merged);
+    if (merged.pairingStatus === 'paired') this.persistPairedDevice(merged);
     return { success: true, device: this.toPublicDevice(merged), duplicate: Boolean(existing) };
   }
 
@@ -73,6 +109,15 @@ class HomeDeviceDiscoveryManager {
     for (const [deviceId, device] of this.devices.entries()) {
       const lastSeen = Date.parse(device.lastSeenAt);
       if (Number.isFinite(lastSeen) && lastSeen + this.discoveryTtlMs > now) continue;
+      if (device.pairingStatus === 'paired') {
+        // Paired devices are the user's own Connected Devices: keep them listed
+        // (as offline) instead of pruning, so rename/remove stay available.
+        if (device.connectionStatus !== 'offline') {
+          device.connectionStatus = 'offline';
+          this.emit('device_updated', device);
+        }
+        continue;
+      }
       this.devices.delete(deviceId);
       removed += 1;
     }
@@ -89,7 +134,32 @@ class HomeDeviceDiscoveryManager {
       lastSeenAt: new Date(this.now()).toISOString()
     });
     this.emit('device_updated', device);
+    if (device.pairingStatus === 'paired') this.persistPairedDevice(device);
     return this.toPublicDevice(device);
+  }
+
+  renameDevice(deviceId, deviceName) {
+    const device = this.devices.get(cleanDeviceId(deviceId));
+    if (!device) return null;
+    device.deviceName = cleanString(deviceName, 100) || device.deviceName;
+    device.updatedAt = new Date(this.now()).toISOString();
+    this.emit('device_updated', device);
+    if (device.pairingStatus === 'paired') this.persistPairedDevice(device);
+    return this.toPublicDevice(device);
+  }
+
+  removeDevice(deviceId) {
+    const normalizedId = cleanDeviceId(deviceId);
+    const existed = this.devices.delete(normalizedId);
+    if (existed) {
+      this.emit('device_removed', { deviceId: normalizedId });
+      try {
+        this.store?.remove(normalizedId);
+      } catch (_) {
+        // Best-effort cleanup; a stale on-disk record is harmless.
+      }
+    }
+    return existed;
   }
 
   markConnected(deviceId) {

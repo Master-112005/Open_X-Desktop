@@ -513,13 +513,20 @@ const RESPONSE_BUILDERS = {
     },
     'home.device_control': context => {
       const target = valueFromContext(context, 'displayTarget', valueFromContext(context, 'target', 'that device'));
-      const action = valueFromContext(context, 'homeAction', valueFromContext(context, 'action', 'control'));
-      const requestId = valueFromContext(context, 'requestId', '');
-      const actionText = String(action || '')
-        .replace(/_/g, ' ')
-        .replace(/\b\w/g, letter => letter.toLowerCase());
-      const suffix = requestId ? ` Request ${requestId} is pending for future device transport.` : ' It is pending for future device transport.';
-      return `Prepared the Home Automation packet to ${actionText} ${target}.${suffix}`;
+      const action = String(valueFromContext(context, 'homeAction', valueFromContext(context, 'action', ''))).trim();
+      const value = valueFromContext(context, 'value', null);
+      const hasValue = value !== null && value !== undefined && value !== '';
+      const actionPhrases = {
+        turn_on: `Turned on ${target}.`,
+        turn_off: `Turned off ${target}.`,
+        toggle: `Toggled ${target}.`,
+        open: `Opened ${target}.`,
+        close: `Closed ${target}.`,
+        set_level: hasValue
+          ? `Set ${target} to ${value}${typeof value === 'number' ? '%' : ''}.`
+          : `Adjusted ${target}.`
+      };
+      return actionPhrases[action] || `Updated ${target}.`;
     },
     'mode.start': context => {
       const modeName = valueFromContext(context, 'modeName', 'mode');

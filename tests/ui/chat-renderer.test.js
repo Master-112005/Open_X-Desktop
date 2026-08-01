@@ -614,7 +614,6 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(script, /Save Permissions|updatePhonePermissions/);
     assert.match(script, /Remove/);
     assert.doesNotMatch(script, /disconnectPhoneDevice/);
-    assert.doesNotMatch(script, /Rename/);
     assert.match(script, /Trust/);
     assert.doesNotMatch(script, /renamePhoneDevice/);
     assert.doesNotMatch(script, /updatePhoneTrust/);

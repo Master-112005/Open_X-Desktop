@@ -12,6 +12,15 @@ class HomeAutomationManager {
     this.packetValidator = options.packetValidator || new HomePacketValidator(options);
     this.responseHandler = options.responseHandler || new HomeResponseHandler(options);
     this.state = options.state || new HomeAutomationState(options.state || options);
+    this.getPairedDevices = typeof options.getPairedDevices === 'function' ? options.getPairedDevices : null;
+    this.commandClient = options.commandClient || null;
+    this.ownerId = options.ownerId || '';
+  }
+
+  configureLiveExecution({ getPairedDevices, commandClient, ownerId } = {}) {
+    if (typeof getPairedDevices === 'function') this.getPairedDevices = getPairedDevices;
+    if (commandClient) this.commandClient = commandClient;
+    if (ownerId) this.ownerId = ownerId;
   }
 
   handleAssistantRequest(request = {}) {
@@ -41,6 +50,10 @@ class HomeAutomationManager {
           }
         }
       };
+    }
+
+    if (this.getPairedDevices && this.commandClient) {
+      return this.executeRealCommand(command);
     }
 
     const packet = this.packetBuilder.buildDeviceCommand(command);
@@ -95,6 +108,91 @@ class HomeAutomationManager {
         }
       }
     };
+  }
+
+  async executeRealCommand(command) {
+    const baseData = {
+      action: 'home.device_control',
+      target: command.target,
+      displayTarget: command.displayTarget,
+      homeAction: command.action,
+      value: command.value
+    };
+    const devices = this.getPairedDevices() || [];
+    const paired = devices.filter(device => String(device.pairingStatus || device.pairStatus || '').toLowerCase() === 'paired');
+    if (!paired.length) {
+      return {
+        success: false,
+        error: "You don't have any Home Devices set up yet.",
+        data: { ...baseData, verified: false, verification: { status: 'failed', check: 'home-device-not-found', message: 'No paired devices.' } }
+      };
+    }
+
+    const targetDevice = this.resolveTargetDevice(paired, command);
+    if (!targetDevice) {
+      const label = command.displayTarget || command.target || 'that device';
+      return {
+        success: false,
+        error: paired.length > 1
+          ? `You have a few Home Devices - which one did you mean by "${label}"?`
+          : `I couldn't find a Home Device matching "${label}".`,
+        data: { ...baseData, verified: false, verification: { status: 'failed', check: 'home-device-not-found', message: `No paired device matched "${label}".` } }
+      };
+    }
+
+    if (String(targetDevice.connectionStatus || '').toLowerCase() !== 'online') {
+      return {
+        success: false,
+        error: `${targetDevice.deviceName || 'That device'} is offline right now, so I can't control it.`,
+        data: { ...baseData, displayTarget: targetDevice.deviceName || baseData.displayTarget, verified: false, verification: { status: 'failed', check: 'home-device-offline', message: 'Target device is not online.' } }
+      };
+    }
+
+    const result = await this.commandClient.sendCommand({
+      deviceId: targetDevice.deviceId,
+      ownerId: this.ownerId,
+      action: command.action,
+      target: command.target,
+      value: command.value
+    });
+
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.message || `${targetDevice.deviceName || 'The device'} could not run that command.`,
+        data: {
+          ...baseData,
+          displayTarget: targetDevice.deviceName || baseData.displayTarget,
+          verified: false,
+          verification: { status: 'failed', check: result.code || 'home-command-failed', message: result.message || '' }
+        }
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        ...baseData,
+        displayTarget: targetDevice.deviceName || baseData.displayTarget,
+        verified: true,
+        verification: {
+          status: 'passed',
+          check: 'home-command-executed',
+          method: 'home-command-client',
+          deviceId: targetDevice.deviceId
+        }
+      }
+    };
+  }
+
+  resolveTargetDevice(paired, command) {
+    if (paired.length === 1) return paired[0];
+    const needle = String(command.displayTarget || command.target || '').toLowerCase().trim();
+    if (!needle) return null;
+    return paired.find(device => {
+      const name = String(device.deviceName || '').toLowerCase().trim();
+      return name && (name.includes(needle) || needle.includes(name));
+    }) || null;
   }
 
   handleExecutionResponse(response = {}) {

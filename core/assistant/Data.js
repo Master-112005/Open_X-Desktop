@@ -158,6 +158,8 @@ function buildDataPaths(config = {}) {
     homeLearningDeviceRegistryPath: path.join(homeLearningDir, 'devices.json'),
     homeLearningPatternPath: path.join(homeLearningDir, 'patterns.json'),
     homeLearningSequencePath: path.join(homeLearningDir, 'sequences.json'),
+    homeDevicesPath: path.join(root, 'home-devices.json'),
+    homeOwnerIdPath: path.join(root, 'home-owner-id.json'),
     routineLearningDir: path.join(root, 'learning', 'routines'),
     routineObservationPath: path.join(root, 'learning', 'routines', 'observations.jsonl'),
     routineSummaryPath: path.join(root, 'learning', 'routines', 'summaries.json'),

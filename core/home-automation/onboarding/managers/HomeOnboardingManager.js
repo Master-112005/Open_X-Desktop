@@ -4,6 +4,12 @@ const HomeConfigurationService = require('../services/HomeConfigurationService')
 const HomePairingService = require('../services/HomePairingService');
 const { HOME_ONBOARDING_STATES } = require('../constants/OnboardingStates');
 
+function isDiagnosticServerDevice(device = {}) {
+  const deviceId = String(device.deviceId || '').toLowerCase();
+  const deviceName = String(device.deviceName || device.name || '').toLowerCase();
+  return deviceId.startsWith('diag_') || deviceId.includes('diagnostic') || deviceName.includes('diagnostic');
+}
+
 class HomeOnboardingManager {
   constructor(options = {}) {
     this.now = options.now || (() => Date.now());
@@ -21,7 +27,8 @@ class HomeOnboardingManager {
       : new HomePairingService(options.pairing || {});
     this.lastServerAddress = options.defaultServerAddress || 'wss://openx-server.onrender.com/ws';
     this.serverClient = options.serverClient || null;
-    this.connectionWaitTimeoutMs = Number(options.connectionWaitTimeoutMs) || 45000;
+    this.ownerId = options.ownerId || 'desktop-owner';
+    this.connectionWaitTimeoutMs = Number(options.connectionWaitTimeoutMs) || 90000;
     this.connectionPollIntervalMs = Number(options.connectionPollIntervalMs) || 1500;
   }
 
@@ -37,7 +44,7 @@ class HomeOnboardingManager {
     return this.discovery.addDiscoveredDevice(device);
   }
 
-  async refreshServerDevices(ownerId = '') {
+  async refreshServerDevices(ownerId = this.ownerId) {
     if (typeof this.serverClient?.listHomeDevices !== 'function') {
       return { success: false, code: 'server-client-unavailable', message: 'OpenX_Server device refresh is unavailable.' };
     }
@@ -48,17 +55,69 @@ class HomeOnboardingManager {
     if (!result?.success) return result;
     const devices = Array.isArray(result.devices) ? result.devices : [];
     let added = 0;
+    let reclaimed = 0;
     for (const device of devices) {
+      if (isDiagnosticServerDevice(device)) continue;
+      const serverPairStatus = String(device.pairStatus || device.pairingStatus || 'unpaired').toLowerCase();
+      const wasOursLocally = this.discovery.getDevice(device.deviceId)?.pairingStatus === 'paired';
+      if (serverPairStatus !== 'paired' && wasOursLocally) {
+        const reclaimedDevice = await this.reclaimDevice(device, ownerId);
+        if (reclaimedDevice) {
+          reclaimed += 1;
+          added += 1;
+          continue;
+        }
+      }
       const upserted = this.discovery.addDiscoveredDevice({
         ...device,
         deviceStatus: device.status || device.registrationState || device.deviceStatus || 'registered',
-        pairingStatus: device.pairStatus || device.pairingStatus || 'unpaired',
+        pairingStatus: serverPairStatus,
         discoverySource: 'openx-server',
         transport: 'server'
       }, { includePaired: true });
       if (upserted.success) added += 1;
     }
-    return { success: true, devices, added };
+    return { success: true, devices, added, reclaimed };
+  }
+
+  /**
+   * A device we previously paired can come back from OpenX_Server unowned
+   * after the server restarts (its device registry is in-memory only), even
+   * though the physical device kept its Wi-Fi credentials and reconnected on
+   * its own. Rather than forcing the user through Bluetooth + Wi-Fi setup
+   * again, silently re-claim ownership - the device is already registered
+   * and reachable, so pairing is just an HTTP formality at this point.
+   */
+  async reclaimDevice(device, ownerId = this.ownerId) {
+    if (typeof this.pairing?.approvePairing !== 'function') return null;
+    const result = await this.pairing.approvePairing({ device, ownerId, serverAddress: this.lastServerAddress });
+    if (!result.success) return null;
+    this.discovery.addDiscoveredDevice({
+      ...device,
+      deviceStatus: device.status || device.registrationState || device.deviceStatus || 'registered',
+      pairingStatus: 'paired',
+      discoverySource: 'openx-server',
+      transport: 'server'
+    }, { includePaired: true });
+    return this.discovery.markPaired(device.deviceId);
+  }
+
+  async refreshDevice(deviceId) {
+    const normalizedId = String(deviceId || '').trim();
+    if (!normalizedId) return { success: false, code: 'missing-device-id', message: 'Home device ID is required.' };
+    if (typeof this.serverClient?.getHomeDevice !== 'function') {
+      return { success: false, code: 'server-client-unavailable', message: 'OpenX_Server device refresh is unavailable.' };
+    }
+    const result = await this.serverClient.getHomeDevice({ serverAddress: this.lastServerAddress, deviceId: normalizedId });
+    if (!result?.success || !result.device) return result;
+    const upserted = this.discovery.addDiscoveredDevice({
+      ...result.device,
+      deviceStatus: result.device.status || result.device.registrationState || result.device.deviceStatus || 'registered',
+      pairingStatus: result.device.pairStatus || result.device.pairingStatus || 'unpaired',
+      discoverySource: 'openx-server',
+      transport: 'server'
+    }, { includePaired: true });
+    return { success: true, device: upserted.device || result.device };
   }
 
   getSnapshot() {
@@ -141,7 +200,7 @@ class HomeOnboardingManager {
     }
     const failed = this.state.fail(
       sessionId,
-      'The Home Device did not appear on OpenX_Server yet. Keep it powered on, check Wi-Fi, then press Refresh.',
+      'The Home Device did not appear on OpenX_Server yet. Keep it powered on, check Wi-Fi, then press Scan.',
       lastResult?.code || 'home-device-not-online'
     );
     return {
@@ -152,7 +211,46 @@ class HomeOnboardingManager {
     };
   }
 
-  async approvePairing({ sessionId, ownerId = 'desktop-owner' }) {
+  async renameDevice(deviceId, ownerId = this.ownerId, deviceName) {
+    const trimmedName = String(deviceName || '').trim();
+    if (!trimmedName) return { success: false, code: 'missing-device-name', message: 'Enter a name for this device.' };
+    if (typeof this.serverClient?.renameDevice !== 'function') {
+      const device = this.discovery.renameDevice(deviceId, trimmedName);
+      return device
+        ? { success: true, device }
+        : { success: false, code: 'device-not-found', message: 'Home device was not found.' };
+    }
+    const result = await this.serverClient.renameDevice({
+      serverAddress: this.lastServerAddress,
+      deviceId,
+      ownerId,
+      deviceName: trimmedName
+    });
+    if (!result.success) return result;
+    const device = this.discovery.renameDevice(deviceId, trimmedName);
+    return { success: true, device: device || result.device };
+  }
+
+  async removeDevice(deviceId, ownerId = this.ownerId) {
+    if (typeof this.serverClient?.forgetDevice !== 'function') {
+      this.discovery.removeDevice(deviceId);
+      return { success: true, notified: false };
+    }
+    const result = await this.serverClient.forgetDevice({
+      serverAddress: this.lastServerAddress,
+      deviceId,
+      ownerId
+    });
+    // If OpenX_Server no longer considers this ours (e.g. its in-memory
+    // registry was reset by a restart), there is nothing left to protect -
+    // let the user clear it from their own list regardless.
+    const nothingToProtect = result.code === 'unknown-home-device' || result.code === 'home-owner-mismatch';
+    if (!result.success && !nothingToProtect) return result;
+    this.discovery.removeDevice(deviceId);
+    return { success: true, notified: result.notified === true };
+  }
+
+  async approvePairing({ sessionId, ownerId = this.ownerId }) {
     const session = this.state.getSession(sessionId);
     if (!session) return { success: false, code: 'session-not-found', message: 'Onboarding session was not found.' };
     this.state.transition(sessionId, HOME_ONBOARDING_STATES.WAITING_APPROVAL, 'approval', 86, 'Waiting for pairing approval.');

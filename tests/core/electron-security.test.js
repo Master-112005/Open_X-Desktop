@@ -401,6 +401,10 @@ describe('Electron Security Boundary', function() {
       'gallery:showPhoto', 'gallery:toggleFavorite', 'gallery:nameFace',
       'gallery:setFaceRelationship', 'gallery:updateFacePerson', 'gallery:deleteFacePerson',
       'gallery:addFaceToPerson', 'gallery:removeFaceCluster', 'gallery:scanPeople',
+      'homeOnboarding:snapshot', 'homeOnboarding:startDiscovery', 'homeOnboarding:stopDiscovery',
+      'homeOnboarding:addDiscoveredDevice', 'homeOnboarding:start', 'homeOnboarding:configure',
+      'homeOnboarding:waitForConnection', 'homeOnboarding:approve', 'homeOnboarding:renameDevice',
+      'homeOnboarding:removeDevice', 'homeOnboarding:refreshDevice', 'homeOnboarding:finish', 'homeOnboarding:cancel',
       'app:quit'
     ];
 

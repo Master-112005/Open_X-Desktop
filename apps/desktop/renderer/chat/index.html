@@ -515,11 +515,20 @@
           </section>
 
           <div class="home-automation-layout">
+            <section class="home-automation-card home-connected-list-card" aria-labelledby="home-connected-title">
+              <div class="home-automation-card-head">
+                <span>Your Home</span>
+                <strong id="home-connected-title">Connected Devices</strong>
+                <small>Devices you've already set up. Rename them or remove one to reset it.</small>
+              </div>
+              <div class="home-connected-list" id="home-connected-list"></div>
+            </section>
+
             <section class="home-automation-card home-device-list-card" aria-labelledby="home-devices-title">
               <div class="home-automation-card-head">
-                <span>Devices</span>
-                <strong id="home-devices-title">Nearby and connected devices</strong>
-                <small>New devices appear from Bluetooth. Configured devices appear from OpenX_Server.</small>
+                <span>Add a Device</span>
+                <strong id="home-devices-title">Nearby Devices</strong>
+                <small>New OpenX devices show up here once they're powered on nearby.</small>
               </div>
               <div class="home-device-list" id="home-device-list"></div>
             </section>
@@ -546,13 +555,15 @@
 
                 <form class="home-wizard-step" id="home-wizard-device" data-home-step="device" hidden>
                   <strong>Confirm Device</strong>
-                  <small>Make sure this is the ESP32 you want to add.</small>
+                  <small>Give it a name you'll recognize, like "Living Room Light".</small>
+                  <label class="field-wrap">
+                    <span>Name</span>
+                    <input class="field" id="home-wizard-device-name-input" type="text" maxlength="100" placeholder="OpenX Home Device">
+                  </label>
                   <div class="home-device-info-grid">
-                    <span>Name</span><b id="home-wizard-device-name">--</b>
-                    <span>Device ID</span><b id="home-wizard-device-id">--</b>
                     <span>Firmware</span><b id="home-wizard-device-firmware">--</b>
-                    <span>Status</span><b id="home-wizard-device-status">--</b>
                   </div>
+                  <small class="home-wizard-device-id" id="home-wizard-device-id-hint"></small>
                   <div class="home-wizard-actions">
                     <button class="primary-btn" id="home-device-next-btn" type="button">Continue</button>
                     <button class="secondary-btn" id="home-onboarding-cancel-btn" type="button">Cancel</button>
@@ -594,6 +605,10 @@
                   <strong id="home-connecting-title">Connecting Device...</strong>
                   <small id="home-connecting-detail">Sending Wi-Fi and OpenX_Server settings, then waiting for the device to connect.</small>
                   <div class="home-pulse" aria-hidden="true"></div>
+                  <div class="home-wizard-actions" id="home-connecting-actions" hidden>
+                    <button class="primary-btn" id="home-connecting-retry-btn" type="button">Retry</button>
+                    <button class="secondary-btn" id="home-connecting-cancel-btn" type="button">Cancel</button>
+                  </div>
                 </div>
 
                 <div class="home-wizard-step" id="home-wizard-approval" data-home-step="approval" hidden>

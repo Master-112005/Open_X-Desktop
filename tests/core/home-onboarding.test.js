@@ -29,6 +29,20 @@ describe('Home Automation Desktop Onboarding', function() {
     assert.equal(discovery.listDevices()[0].deviceId, 'home_device_1');
   });
 
+  it('hides diagnostic server records from desktop setup', function() {
+    const discovery = new HomeDeviceDiscoveryManager();
+    const diagnostic = discovery.addDiscoveredDevice({
+      deviceId: 'diag_openx_device_123',
+      deviceName: 'OpenX Diagnostic Device',
+      discoverySource: 'openx-server',
+      transport: 'server'
+    }, { includePaired: true });
+
+    assert.equal(diagnostic.success, false);
+    assert.equal(diagnostic.code, 'diagnostic-device-hidden');
+    assert.equal(discovery.listDevices().length, 0);
+  });
+
   it('validates Wi-Fi and OpenX_Server configuration without storing credentials', async function() {
     const service = new HomeConfigurationService();
     const invalid = service.validateConfiguration({

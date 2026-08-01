@@ -8,6 +8,7 @@ const HomeAutomationState = require('./state/HomeAutomationState');
 const { HOME_PACKET_TYPES } = require('./constants/PacketTypes');
 const { HOME_ACTIONS } = require('./constants/HomeActions');
 const { createHomeAutomationUiSnapshot } = require('./ui/HomeAutomationUiPlaceholders');
+const HomeCommandClient = require('./execution/HomeCommandClient');
 const homeOnboarding = require('./onboarding');
 
 module.exports = {
@@ -21,5 +22,6 @@ module.exports = {
   HOME_PACKET_TYPES,
   HOME_ACTIONS,
   createHomeAutomationUiSnapshot,
+  HomeCommandClient,
   ...homeOnboarding
 };
