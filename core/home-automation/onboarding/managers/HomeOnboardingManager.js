@@ -102,14 +102,31 @@ class HomeOnboardingManager {
     return this.discovery.markPaired(device.deviceId);
   }
 
-  async refreshDevice(deviceId) {
+  async refreshDevice(deviceId, ownerId = this.ownerId) {
     const normalizedId = String(deviceId || '').trim();
     if (!normalizedId) return { success: false, code: 'missing-device-id', message: 'Home device ID is required.' };
     if (typeof this.serverClient?.getHomeDevice !== 'function') {
       return { success: false, code: 'server-client-unavailable', message: 'OpenX_Server device refresh is unavailable.' };
     }
     const result = await this.serverClient.getHomeDevice({ serverAddress: this.lastServerAddress, deviceId: normalizedId });
-    if (!result?.success || !result.device) return result;
+    if (!result?.success || !result.device) {
+      try {
+        await this.refreshServerDevices(ownerId);
+      } catch (_) {}
+      const existing = this.discovery.getDevice(normalizedId);
+      if (String(existing?.connectionStatus || '').toLowerCase() === 'online') {
+        return { success: true, device: existing, reclaimed: existing.pairingStatus === 'paired' };
+      }
+      return existing
+        ? { success: false, ...result, device: existing }
+        : result;
+    }
+    const existing = this.discovery.getDevice(normalizedId);
+    const serverPairStatus = String(result.device.pairStatus || result.device.pairingStatus || 'unpaired').toLowerCase();
+    if (serverPairStatus !== 'paired' && existing?.pairingStatus === 'paired') {
+      const reclaimedDevice = await this.reclaimDevice(result.device, ownerId);
+      if (reclaimedDevice) return { success: true, device: reclaimedDevice, reclaimed: true };
+    }
     const upserted = this.discovery.addDiscoveredDevice({
       ...result.device,
       deviceStatus: result.device.status || result.device.registrationState || result.device.deviceStatus || 'registered',

@@ -111,4 +111,46 @@ describe('Home Automation Desktop Onboarding', function() {
     assert.equal(second.success, false);
     assert.equal(second.code, 'onboarding-in-progress');
   });
+
+  it('keeps a locally paired device connected when reconnect refresh sees an unpaired server record', async function() {
+    let approved = false;
+    const manager = new HomeOnboardingManager({
+      ownerId: 'owner_1',
+      serverClient: {
+        async getHomeDevice() {
+          return {
+            success: true,
+            device: {
+              deviceId: 'home_device_1',
+              deviceName: 'Living Room Light',
+              connectionStatus: 'online',
+              pairStatus: 'unpaired',
+              status: 'registered'
+            }
+          };
+        }
+      },
+      pairing: {
+        async approvePairing({ ownerId }) {
+          approved = ownerId === 'owner_1';
+          return { success: true, paired: true };
+        }
+      }
+    });
+    manager.discovery.addDiscoveredDevice({
+      deviceId: 'home_device_1',
+      deviceName: 'Living Room Light',
+      connectionStatus: 'offline',
+      pairingStatus: 'paired'
+    }, { includePaired: true });
+
+    const refreshed = await manager.refreshDevice('home_device_1');
+    const connected = manager.discovery.getDevice('home_device_1');
+
+    assert.equal(refreshed.success, true);
+    assert.equal(refreshed.reclaimed, true);
+    assert.equal(approved, true);
+    assert.equal(connected.pairingStatus, 'paired');
+    assert.equal(connected.connectionStatus, 'online');
+  });
 });

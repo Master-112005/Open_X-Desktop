@@ -303,6 +303,8 @@ let homeManualStep = '';
 let homeAutoConnectionTimer = null;
 let homeKnownDeviceIds = new Set();
 const homeBluetoothDevices = new Map();
+let homeUserRequestedScan = false;
+let homeScanInProgress = false;
 let homeRenamingDeviceId = '';
 let homeRemovingDeviceId = '';
 let homeWizardNameDeviceId = '';
@@ -2747,11 +2749,28 @@ function isHomeDevicePaired(device = {}) {
 }
 
 function getConnectedHomeDevices() {
-  return getHomeDevices().filter(isHomeDevicePaired);
+  return getHomeDevices()
+    .filter(isHomeDevicePaired)
+    .sort((left, right) => {
+      const leftOnline = String(left.connectionStatus || '').toLowerCase() === 'online' ? 1 : 0;
+      const rightOnline = String(right.connectionStatus || '').toLowerCase() === 'online' ? 1 : 0;
+      if (leftOnline !== rightOnline) return rightOnline - leftOnline;
+      return String(left.deviceName || '').localeCompare(String(right.deviceName || ''));
+    });
 }
 
 function getNearbyHomeDevices() {
   return getHomeDevices().filter(device => !isHomeDevicePaired(device));
+}
+
+function getHomeDashboardCounts() {
+  const connectedDevices = getConnectedHomeDevices();
+  const nearbyDevices = getNearbyHomeDevices();
+  return {
+    found: homeUserRequestedScan ? nearbyDevices.length : 0,
+    online: connectedDevices.filter(device => String(device.connectionStatus || '').toLowerCase() === 'online').length,
+    paired: connectedDevices.length
+  };
 }
 
 function getActiveHomeSession() {
@@ -2800,18 +2819,6 @@ function humanizeHomeState(value = '') {
     ble: 'Bluetooth'
   };
   return labels[normalized] || String(value || 'Unknown').replace(/_/g, ' ');
-}
-
-function summarizeHomeDevice(device = {}) {
-  const source = humanizeHomeState(device.transport || device.discoverySource || 'scan');
-  const connection = humanizeHomeState(device.connectionStatus || 'offline');
-  const pairing = humanizeHomeState(device.pairingStatus || device.pairStatus || 'unpaired');
-  if (device.pairingStatus === 'paired' || device.pairStatus === 'paired') return `${connection} - ${source}`;
-  if (device.transport === 'ble' || device.discoverySource === 'bluetooth') return 'Bluetooth setup available';
-  if (device.transport === 'server' || device.discoverySource === 'openx-server') {
-    return connection === 'Online' ? 'Online on OpenX_Server' : 'Seen on OpenX_Server, not in Bluetooth setup mode';
-  }
-  return `${pairing} - ${connection}`;
 }
 
 function normalizeHomeStep(step) {
@@ -2920,6 +2927,24 @@ function homeDeviceRelativeTime(isoString) {
   return `${days} day${days === 1 ? '' : 's'} ago`;
 }
 
+function homeDeviceShortId(deviceId = '') {
+  const normalized = String(deviceId || '').trim();
+  return normalized.length > 8 ? normalized.slice(-8) : normalized;
+}
+
+function homeConnectedDeviceMeta(device = {}) {
+  const parts = [];
+  const firmware = String(device.firmwareVersion || '').trim();
+  if (firmware && firmware !== 'unknown') parts.push(`Firmware ${firmware}`);
+  const source = humanizeHomeState(device.transport || device.discoverySource || 'server');
+  if (source && source !== 'Unknown') parts.push(source);
+  const lastSeen = homeDeviceRelativeTime(device.lastSeenAt);
+  if (lastSeen) parts.push(`Seen ${lastSeen}`);
+  const shortId = homeDeviceShortId(device.deviceId);
+  if (shortId) parts.push(`ID ${shortId}`);
+  return parts.join(' - ');
+}
+
 function renderHomeConnectedList() {
   if (!homeConnectedListEl) return;
   const devices = getConnectedHomeDevices();
@@ -2930,7 +2955,7 @@ function renderHomeConnectedList() {
     const title = document.createElement('strong');
     title.textContent = 'No devices connected yet';
     const detail = document.createElement('span');
-    detail.textContent = 'Set up a nearby device below to see it here.';
+    detail.textContent = 'Set up a nearby device above to see it here.';
     empty.append(title, detail);
     homeConnectedListEl.appendChild(empty);
     return;
@@ -2983,9 +3008,17 @@ function renderHomeConnectedList() {
 
       const status = document.createElement('span');
       status.className = `home-status-dot ${isOnline ? 'online' : 'offline'}`;
-      status.textContent = isOnline ? 'Online' : `Offline${device.lastSeenAt ? ` · seen ${homeDeviceRelativeTime(device.lastSeenAt)}` : ''}`;
+      status.textContent = isOnline ? 'Online' : `Offline${device.lastSeenAt ? ` - seen ${homeDeviceRelativeTime(device.lastSeenAt)}` : ''}`;
 
-      main.append(nameRow, status);
+      const metaText = homeConnectedDeviceMeta(device);
+      if (metaText) {
+        const meta = document.createElement('small');
+        meta.className = 'home-connected-meta';
+        meta.textContent = metaText;
+        main.append(nameRow, status, meta);
+      } else {
+        main.append(nameRow, status);
+      }
     }
 
     const actions = document.createElement('div');
@@ -3097,17 +3130,16 @@ function renderHomeWizard() {
 }
 
 function renderHomeAutomation() {
-  const devices = getHomeDevices();
-  const scanning = Boolean(homeOnboardingSnapshot?.discovery?.discoveryStarted);
-  const onlineCount = devices.filter(device => String(device.connectionStatus || '').toLowerCase() === 'online').length;
-  const pairedCount = devices.filter(device => String(device.pairingStatus || device.pairStatus || '').toLowerCase() === 'paired').length;
-  if (homeFoundCountEl) homeFoundCountEl.textContent = String(devices.length);
-  if (homeOnlineCountEl) homeOnlineCountEl.textContent = String(onlineCount);
-  if (homePairedCountEl) homePairedCountEl.textContent = String(pairedCount);
+  const counts = getHomeDashboardCounts();
+  if (homeFoundCountEl) homeFoundCountEl.textContent = String(counts.found);
+  if (homeOnlineCountEl) homeOnlineCountEl.textContent = String(counts.online);
+  if (homePairedCountEl) homePairedCountEl.textContent = String(counts.paired);
   if (homeDiscoveryStatusEl) {
-    homeDiscoveryStatusEl.textContent = scanning
-      ? `Scanning Bluetooth and OpenX_Server - ${devices.length} shown.`
-      : `${devices.length ? 'Home devices loaded.' : 'Press Scan to find a device.'}`;
+    homeDiscoveryStatusEl.textContent = homeScanInProgress
+      ? `Scanning Bluetooth and OpenX_Server - ${counts.found} nearby shown.`
+      : homeUserRequestedScan
+      ? `${counts.found ? `${counts.found} nearby device${counts.found === 1 ? '' : 's'} found.` : 'No nearby devices found. Press Scan to try again.'}`
+      : 'Press Scan to find nearby devices.';
   }
   renderHomeDiscoveryBanner();
   renderHomeConnectedList();
@@ -3143,21 +3175,28 @@ async function refreshHomeDiscovery() {
     setHomeOnboardingStatus('Home Device discovery is unavailable in this build.', 'error');
     return;
   }
+  homeUserRequestedScan = true;
+  homeScanInProgress = true;
   if (homeDiscoveryRefreshBtn) homeDiscoveryRefreshBtn.disabled = true;
+  renderHomeAutomation();
   setHomeOnboardingStatus('Scanning Bluetooth and OpenX_Server for Home Devices...', 'info');
+  let finalStatus = null;
   try {
     const bluetoothResult = await discoverHomeBluetoothDevice();
     await window.openx.startHomeDiscovery();
     await loadHomeOnboardingSnapshot();
     if (bluetoothResult?.success) {
-      setHomeOnboardingStatus(bluetoothResult.message || 'Bluetooth Home Device found. Choose Set Up to continue.', 'success');
+      finalStatus = { message: bluetoothResult.message || 'Bluetooth Home Device found. Choose Set Up to continue.', tone: 'success' };
     } else if (bluetoothResult?.code) {
-      setHomeOnboardingStatus(bluetoothResult.message || 'Bluetooth scan did not find a Home Device. Server devices were refreshed.', 'warning');
+      finalStatus = { message: bluetoothResult.message || 'Bluetooth scan did not find a Home Device. Server devices were refreshed.', tone: 'warning' };
     }
   } catch (error) {
-    setHomeOnboardingStatus(error?.message || 'Could not start Home Device discovery.', 'error');
+    finalStatus = { message: error?.message || 'Could not start Home Device discovery.', tone: 'error' };
   } finally {
+    homeScanInProgress = false;
     if (homeDiscoveryRefreshBtn) homeDiscoveryRefreshBtn.disabled = false;
+    renderHomeAutomation();
+    if (finalStatus) setHomeOnboardingStatus(finalStatus.message, finalStatus.tone);
   }
 }
 
@@ -3245,22 +3284,31 @@ async function reconnectHomeDevice(deviceId) {
   homeReconnectingDeviceId = normalizedId;
   renderHomeConnectedList();
   setHomeOnboardingStatus('Checking for the device...', 'info');
+  let finalStatus = null;
   try {
     const result = await window.openx.refreshHomeDevice(normalizedId);
     if (result?.success === false) {
-      setHomeOnboardingStatus(result.message || 'The device is still offline. Make sure it has power and Wi-Fi.', 'warning');
-      return;
+      finalStatus = {
+        message: result.message || 'The device is still offline. Make sure it has power and Wi-Fi.',
+        tone: 'warning'
+      };
+    } else {
+      const isOnline = String(result?.device?.connectionStatus || '').toLowerCase() === 'online';
+      finalStatus = {
+        message: result?.reclaimed
+          ? 'Device ownership was restored and it is back online.'
+          : isOnline
+          ? 'The device is back online.'
+          : 'Still offline. Make sure it has power and Wi-Fi, then try again.',
+        tone: isOnline ? 'success' : 'warning'
+      };
     }
-    const isOnline = String(result?.device?.connectionStatus || '').toLowerCase() === 'online';
-    setHomeOnboardingStatus(
-      isOnline ? 'The device is back online.' : 'Still offline. Make sure it has power and Wi-Fi, then try again.',
-      isOnline ? 'success' : 'warning'
-    );
   } catch (error) {
-    setHomeOnboardingStatus(error?.message || 'Could not check the device.', 'error');
+    finalStatus = { message: error?.message || 'Could not check the device.', tone: 'error' };
   } finally {
     homeReconnectingDeviceId = '';
     await loadHomeOnboardingSnapshot();
+    if (finalStatus) setHomeOnboardingStatus(finalStatus.message, finalStatus.tone);
   }
 }
 

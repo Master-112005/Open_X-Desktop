@@ -515,42 +515,21 @@
           </section>
 
           <div class="home-automation-layout">
-            <section class="home-automation-card home-connected-list-card" aria-labelledby="home-connected-title">
-              <div class="home-automation-card-head">
-                <span>Your Home</span>
-                <strong id="home-connected-title">Connected Devices</strong>
-                <small>Devices you've already set up. Rename them or remove one to reset it.</small>
-              </div>
-              <div class="home-connected-list" id="home-connected-list"></div>
-            </section>
-
             <section class="home-automation-card home-device-list-card" aria-labelledby="home-devices-title">
               <div class="home-automation-card-head">
-                <span>Add a Device</span>
                 <strong id="home-devices-title">Nearby Devices</strong>
-                <small>New OpenX devices show up here once they're powered on nearby.</small>
+                <small>Power on an OpenX Home device nearby, then press Scan.</small>
               </div>
               <div class="home-device-list" id="home-device-list"></div>
             </section>
 
-            <section class="home-automation-card home-onboarding-card" aria-labelledby="home-wizard-title">
-              <div class="home-automation-card-head">
-                <span>Setup</span>
-                <strong id="home-wizard-title">Add a Home Device</strong>
-                <small>Choose a device, send Wi-Fi safely, then approve pairing after it comes online.</small>
-              </div>
-              <div class="home-step-rail" aria-hidden="true">
-                <span>Device</span>
-                <span>Wi-Fi</span>
-                <span>Server</span>
-                <span>Pair</span>
-              </div>
+            <section class="home-automation-card home-onboarding-card" aria-label="Home setup">
               <div class="home-progress-track" aria-hidden="true">
                 <span id="home-onboarding-progress"></span>
               </div>
               <div class="home-wizard-stage" id="home-wizard-stage">
                 <div class="home-wizard-empty" id="home-wizard-empty">
-                  Press Scan, choose your OpenX Home Device, then follow the setup steps here.
+                  Choose a nearby OpenX Home device to start setup.
                 </div>
 
                 <form class="home-wizard-step" id="home-wizard-device" data-home-step="device" hidden>
@@ -631,6 +610,14 @@
                 </div>
               </div>
               <p class="home-onboarding-status" id="home-onboarding-status" aria-live="polite"></p>
+            </section>
+
+            <section class="home-automation-card home-connected-list-card" aria-labelledby="home-connected-title">
+              <div class="home-automation-card-head">
+                <strong id="home-connected-title">Connected Devices</strong>
+                <small>Devices you've already set up. Rename them or remove one to reset it.</small>
+              </div>
+              <div class="home-connected-list" id="home-connected-list"></div>
             </section>
           </div>
         </div>

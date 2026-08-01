@@ -196,6 +196,11 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /function loadHomeOnboardingSnapshot/);
     assert.match(script, /function startHomeOnboarding/);
     assert.match(script, /function sendHomeConfiguration/);
+    assert.match(script, /function getHomeDashboardCounts/);
+    assert.match(script, /found:\s*homeUserRequestedScan \? nearbyDevices\.length : 0/);
+    assert.match(script, /homeScanInProgress/);
+    assert.match(script, /homeConnectedDeviceMeta/);
+    assert.match(script, /result\?\.reclaimed/);
     assert.match(script, /clearHomeSensitiveFields\(\)/);
     assert.match(script, /window\.openx\.onHomeOnboardingChanged\?\./);
     assert.match(script, /classList\.toggle\('home-automation-fullscreen', showingHomeAutomation\)/);
@@ -206,6 +211,7 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /\.home-automation-layout/);
     assert.match(css, /\.home-discovery-banner/);
     assert.match(css, /\.home-device-card/);
+    assert.match(css, /\.home-connected-meta/);
     assert.match(css, /\.home-progress-track/);
     assert.match(css, /\.home-pulse/);
   });
