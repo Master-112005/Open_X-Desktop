@@ -75,6 +75,27 @@ class HomeOnboardingStateManager {
     return session ? this.toPublicSession(session) : null;
   }
 
+  replaceSessionDevice(sessionId, device = {}) {
+    const session = this.sessions.get(sessionId);
+    const deviceId = cleanDeviceId(device?.deviceId);
+    if (!session || !deviceId) return null;
+    session.deviceId = deviceId;
+    session.device = {
+      ...(session.device || {}),
+      ...device,
+      deviceId
+    };
+    session.updatedAt = new Date(this.now()).toISOString();
+    session.history.push({
+      state: session.state,
+      step: session.step,
+      progress: session.progress,
+      message: 'Device identity updated from OpenX_Server.',
+      timestamp: session.updatedAt
+    });
+    return this.toPublicSession(session);
+  }
+
   toPublicSession(session) {
     return {
       sessionId: session.sessionId,

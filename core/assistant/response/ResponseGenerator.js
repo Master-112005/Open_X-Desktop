@@ -515,7 +515,17 @@ const RESPONSE_BUILDERS = {
       const target = valueFromContext(context, 'displayTarget', valueFromContext(context, 'target', 'that device'));
       const action = String(valueFromContext(context, 'homeAction', valueFromContext(context, 'action', ''))).trim();
       const value = valueFromContext(context, 'value', null);
+      const homeMessage = String(valueFromContext(context, 'homeMessage', '') || '').trim();
+      const relayChanged = valueFromContext(context, 'relayChanged', undefined);
+      const relayState = String(valueFromContext(context, 'relayState', '') || '').trim().toLowerCase();
       const hasValue = value !== null && value !== undefined && value !== '';
+      if (homeMessage) {
+        const lowerMessage = homeMessage.toLowerCase();
+        if (lowerMessage.includes('already')) {
+          return `${target} is already ${relayState || (action === 'turn_on' ? 'on' : action === 'turn_off' ? 'off' : 'set')}.`;
+        }
+        if (relayChanged === false && relayState) return `${target} is already ${relayState}.`;
+      }
       const actionPhrases = {
         turn_on: `Turned on ${target}.`,
         turn_off: `Turned off ${target}.`,

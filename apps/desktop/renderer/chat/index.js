@@ -233,6 +233,7 @@ const HOME_BLE_DEVICE_INFO_UUID = '6f18c611-7a95-4a5d-9f7a-5f1fd7f3a201';
 const HOME_BLE_CONFIGURATION_UUID = '6f18c612-7a95-4a5d-9f7a-5f1fd7f3a201';
 const HOME_BLE_STATUS_UUID = '6f18c613-7a95-4a5d-9f7a-5f1fd7f3a201';
 const HOME_BLE_CONFIG_MAX_BYTES = 768;
+const HOME_DEVICE_ID_PATTERN = /^[A-Za-z0-9._:-]{3,160}$/;
 const HOME_ONBOARDING_UI_STEPS = Object.freeze(['device', 'wifi', 'server', 'connecting', 'approval', 'complete']);
 const HOME_ONBOARDING_STEP_PROGRESS = Object.freeze({
   device: 12,
@@ -2602,11 +2603,36 @@ function parseHomeBluetoothJson(value, fallback = {}) {
   }
 }
 
-function normalizeHomeBluetoothDevice(bluetoothDevice, info = {}) {
-  const deviceId = String(info.deviceId || bluetoothDevice?.id || '').trim();
+function deriveHomeDeviceIdFromBluetoothDevice(bluetoothDevice = {}) {
+  const source = `${bluetoothDevice?.id || ''} ${bluetoothDevice?.name || ''}`;
+  const match = source.match(/([0-9a-f]{2}[:-]){5}[0-9a-f]{2}/i);
+  if (!match) return '';
+  const parts = match[0].replace(/-/g, ':').split(':').map(part => parseInt(part, 16));
+  if (parts.length !== 6 || parts.some(part => !Number.isInteger(part))) return '';
+  parts[5] = (parts[5] + 254) & 0xff;
+  return `oxd_${parts.reverse().map(part => part.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+}
+
+function hashHomeBluetoothFallbackId(value = '') {
+  let hash = 5381;
+  const text = String(value || 'openx-home-device');
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) + hash + text.charCodeAt(index)) >>> 0;
+  }
+  return `oxd_ble_${hash.toString(16).padStart(8, '0')}`;
+}
+
+function normalizeHomeBluetoothDevice(bluetoothDevice, info = {}, selection = {}) {
+  const bluetoothDeviceId = String(selection.bluetoothDeviceId || bluetoothDevice?.id || '').trim();
+  const deviceName = String(info.deviceName || selection.deviceName || bluetoothDevice?.name || 'OpenX Home Device').trim();
+  const derivedId = deriveHomeDeviceIdFromBluetoothDevice({
+    id: `${bluetoothDeviceId} ${bluetoothDevice?.id || ''}`,
+    name: `${deviceName} ${bluetoothDevice?.name || ''}`
+  });
+  const deviceId = String(info.deviceId || derivedId || hashHomeBluetoothFallbackId(`${bluetoothDeviceId}:${deviceName}`)).trim();
   return {
     deviceId,
-    deviceName: String(info.deviceName || bluetoothDevice?.name || 'OpenX Home Device').trim(),
+    deviceName,
     firmwareVersion: String(info.firmwareVersion || 'unknown').trim(),
     hardwareModel: String(info.hardwareModel || '').trim(),
     protocolVersion: String(info.protocolVersion || 'openx-home-v1').trim(),
@@ -2615,7 +2641,7 @@ function normalizeHomeBluetoothDevice(bluetoothDevice, info = {}) {
     pairingStatus: 'unpaired',
     discoverySource: 'bluetooth',
     transport: 'ble',
-    bluetoothDeviceId: String(bluetoothDevice?.id || '').trim(),
+    bluetoothDeviceId,
     capabilities: Array.isArray(info.capabilities) ? info.capabilities : ['relay']
   };
 }
@@ -2648,13 +2674,20 @@ async function discoverHomeBluetoothDevice() {
       ],
       optionalServices: [HOME_BLE_SERVICE_UUID]
     });
+    const selectionResult = await window.openx?.getSelectedHomeBluetoothDevice?.();
+    const selection = selectionResult?.selection || {};
     const serviceResult = await getHomeBluetoothService({ device: bluetoothDevice });
     if (!serviceResult.success) return serviceResult;
-    const infoCharacteristic = await serviceResult.service.getCharacteristic(HOME_BLE_DEVICE_INFO_UUID);
-    const info = parseHomeBluetoothJson(await infoCharacteristic.readValue(), {});
-    const discovered = normalizeHomeBluetoothDevice(bluetoothDevice, info);
-    if (!discovered.deviceId) {
-      return { success: false, code: 'home-device-id-missing', message: 'The Bluetooth Home Device did not report a device ID.' };
+    let info = {};
+    try {
+      const infoCharacteristic = await serviceResult.service.getCharacteristic(HOME_BLE_DEVICE_INFO_UUID);
+      info = parseHomeBluetoothJson(await infoCharacteristic.readValue(), {});
+    } catch (_) {
+      info = {};
+    }
+    const discovered = normalizeHomeBluetoothDevice(bluetoothDevice, info, selection);
+    if (!HOME_DEVICE_ID_PATTERN.test(discovered.deviceId)) {
+      return { success: false, code: 'home-device-id-missing', message: 'The Bluetooth Home Device did not report a valid device ID.' };
     }
     homeBluetoothDevices.set(discovered.deviceId, {
       device: bluetoothDevice,

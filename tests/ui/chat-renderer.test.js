@@ -197,6 +197,12 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /function startHomeOnboarding/);
     assert.match(script, /function sendHomeConfiguration/);
     assert.match(script, /function getHomeDashboardCounts/);
+    assert.match(script, /function deriveHomeDeviceIdFromBluetoothDevice/);
+    assert.match(script, /function hashHomeBluetoothFallbackId/);
+    assert.match(script, /parts\[5\] = \(parts\[5\] \+ 254\) & 0xff/);
+    assert.match(script, /const HOME_DEVICE_ID_PATTERN = \/\^\[A-Za-z0-9\._:-\]\{3,160\}\$\//);
+    assert.doesNotMatch(script, /info\.deviceId \|\| bluetoothDevice\?\.id/);
+    assert.match(script, /getSelectedHomeBluetoothDevice/);
     assert.match(script, /found:\s*homeUserRequestedScan \? nearbyDevices\.length : 0/);
     assert.match(script, /homeScanInProgress/);
     assert.match(script, /homeConnectedDeviceMeta/);
@@ -205,6 +211,7 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /window\.openx\.onHomeOnboardingChanged\?\./);
     assert.match(script, /classList\.toggle\('home-automation-fullscreen', showingHomeAutomation\)/);
     assert.match(preload, /getHomeOnboardingSnapshot/);
+    assert.match(preload, /getSelectedHomeBluetoothDevice/);
     assert.match(preload, /startHomeOnboarding/);
     assert.match(preload, /configureHomeDevice/);
     assert.match(preload, /approveHomeDevicePairing/);

@@ -18,7 +18,7 @@ class HomeCommandClient {
     this.subscribe = options.subscribe;
     this.isConnected = options.isConnected || (() => true);
     this.now = options.now || (() => Date.now());
-    this.timeoutMs = Number(options.timeoutMs) || 12000;
+    this.timeoutMs = Number(options.timeoutMs) || 4500;
     this.pending = new Map();
     this.unsubscribe = typeof this.subscribe === 'function'
       ? this.subscribe(packet => this._handlePacket(packet))
@@ -27,7 +27,12 @@ class HomeCommandClient {
 
   _handlePacket(packet) {
     const type = String(packet?.type || '');
-    const requestId = String(packet?.requestId || '');
+    const requestId = [
+      packet?.requestId,
+      packet?.originalRequestId,
+      packet?.commandRequestId,
+      packet?.responseTo
+    ].map(value => String(value || '').trim()).find(value => value && this.pending.has(value)) || '';
     const entry = requestId && this.pending.get(requestId);
     if (!entry) return;
     if (type === ACCEPT_TYPE) {
@@ -46,7 +51,7 @@ class HomeCommandClient {
       status: packet.status,
       result: packet.result || null,
       code: packet.status === 'success' ? null : (packet.result?.errorCode || 'home-command-failed'),
-      message: packet.status === 'success' ? null : (packet.result?.message || 'The Home Device could not run that command.')
+      message: packet.result?.message || (packet.status === 'success' ? null : 'The Home Device could not run that command.')
     });
   }
 

@@ -180,12 +180,17 @@ class HomeAutomationManager {
       data: {
         ...baseData,
         displayTarget: targetDevice.deviceName || baseData.displayTarget,
+        homeResult: result.result || null,
+        homeMessage: result.message || result.result?.message || '',
+        relayState: result.result?.relayState || '',
+        relayChanged: result.result?.changed,
         verified: true,
         verification: {
           status: 'passed',
           check: 'home-command-executed',
           method: 'home-command-client',
-          deviceId: targetDevice.deviceId
+          deviceId: targetDevice.deviceId,
+          result: result.result || null
         }
       }
     };

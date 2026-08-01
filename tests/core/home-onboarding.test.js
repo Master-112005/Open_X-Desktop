@@ -97,6 +97,59 @@ describe('Home Automation Desktop Onboarding', function() {
     assert.equal(finished.devices[0].pairingStatus, 'paired');
   });
 
+  it('migrates a Bluetooth setup session to the real server device ID', async function() {
+    const manager = new HomeOnboardingManager({
+      ownerId: 'owner_1',
+      connectionWaitTimeoutMs: 1000,
+      connectionPollIntervalMs: 1,
+      serverClient: {
+        async getHomeDevice() {
+          return { success: false, code: 'unknown-home-device', message: 'Home device was not found.' };
+        },
+        async listHomeDevices() {
+          return {
+            success: true,
+            devices: [{
+              deviceId: 'oxd_D8CCE6F4E9D4',
+              deviceName: 'OpenX Home Device',
+              firmwareVersion: '0.4.0',
+              protocolVersion: 'openx-home-v1',
+              status: 'registered',
+              connectionStatus: 'online',
+              pairStatus: 'unpaired'
+            }]
+          };
+        }
+      }
+    });
+    manager.addDiscoveredDevice({
+      deviceId: 'oxd_ble_1234abcd',
+      deviceName: 'OpenX Home Device',
+      discoverySource: 'bluetooth',
+      transport: 'ble',
+      connectionStatus: 'ble_advertising'
+    });
+
+    const started = manager.startOnboarding('oxd_ble_1234abcd');
+    const configured = await manager.sendConfiguration({
+      sessionId: started.session.sessionId,
+      ssid: 'Home WiFi',
+      password: 'secret-password',
+      serverAddress: 'wss://openx-server.onrender.com/ws'
+    });
+    const connected = await manager.waitForConnection(started.session.sessionId);
+    const realDevice = manager.discovery.getDevice('oxd_D8CCE6F4E9D4');
+
+    assert.equal(started.success, true);
+    assert.equal(configured.success, true);
+    assert.equal(connected.success, true);
+    assert.equal(connected.session.deviceId, 'oxd_D8CCE6F4E9D4');
+    assert.equal(connected.device.deviceId, 'oxd_D8CCE6F4E9D4');
+    assert.equal(connected.device.connectionStatus, 'online');
+    assert.equal(realDevice.connectionStatus, 'online');
+    assert.equal(manager.discovery.getDevice('oxd_ble_1234abcd'), null);
+  });
+
   it('prevents duplicate onboarding sessions for the same device', function() {
     const manager = new HomeOnboardingManager();
     manager.addDiscoveredDevice({

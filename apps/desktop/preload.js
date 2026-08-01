@@ -971,6 +971,9 @@ const openxApi = {
   getHomeOnboardingSnapshot: () =>
     ipcRenderer.invoke('homeOnboarding:snapshot'),
 
+  getSelectedHomeBluetoothDevice: () =>
+    ipcRenderer.invoke('homeOnboarding:getBluetoothSelection'),
+
   startHomeDiscovery: () =>
     ipcRenderer.invoke('homeOnboarding:startDiscovery'),
 

@@ -10,6 +10,58 @@ function isDiagnosticServerDevice(device = {}) {
   return deviceId.startsWith('diag_') || deviceId.includes('diagnostic') || deviceName.includes('diagnostic');
 }
 
+function getDevicePairingStatus(device = {}) {
+  return String(device.pairStatus || device.pairingStatus || 'unpaired').toLowerCase();
+}
+
+function isConnectedServerDevice(device = {}) {
+  const connectionStatus = String(device.connectionStatus || device.status || '').toLowerCase();
+  return device.online === true || connectionStatus === 'online' || connectionStatus === 'connected';
+}
+
+function isBluetoothOnboardingSession(session = {}) {
+  const device = session.device || {};
+  const sessionDeviceId = String(session.deviceId || device.deviceId || '').toLowerCase();
+  return sessionDeviceId.startsWith('oxd_ble_')
+    || String(device.discoverySource || '').toLowerCase() === 'bluetooth'
+    || String(device.transport || '').toLowerCase() === 'ble';
+}
+
+function namesMatch(left = '', right = '') {
+  const normalizedLeft = String(left || '').trim().toLowerCase();
+  const normalizedRight = String(right || '').trim().toLowerCase();
+  return Boolean(normalizedLeft && normalizedRight)
+    && (normalizedLeft === normalizedRight
+      || normalizedLeft.includes(normalizedRight)
+      || normalizedRight.includes(normalizedLeft));
+}
+
+function findConnectedServerDevice(devices = [], session = {}) {
+  const sessionDeviceId = String(session.deviceId || '').trim();
+  const candidates = devices
+    .filter(device => device?.deviceId && !isDiagnosticServerDevice(device))
+    .filter(device => isConnectedServerDevice(device));
+  const exact = candidates.find(device => String(device.deviceId || '').trim() === sessionDeviceId);
+  if (exact) return exact;
+  if (!isBluetoothOnboardingSession(session)) return null;
+  const sessionName = session.device?.deviceName || session.device?.name || '';
+  const unpaired = candidates.filter(device => getDevicePairingStatus(device) !== 'paired');
+  const matchingName = unpaired.filter(device => namesMatch(device.deviceName || device.name, sessionName));
+  if (matchingName.length === 1) return matchingName[0];
+  if (unpaired.length === 1) return unpaired[0];
+  return null;
+}
+
+function toServerDiscoveryDevice(device = {}) {
+  return {
+    ...device,
+    deviceStatus: device.status || device.registrationState || device.deviceStatus || 'registered',
+    pairingStatus: device.pairStatus || device.pairingStatus || 'unpaired',
+    discoverySource: 'openx-server',
+    transport: 'server'
+  };
+}
+
 class HomeOnboardingManager {
   constructor(options = {}) {
     this.now = options.now || (() => Date.now());
@@ -58,7 +110,7 @@ class HomeOnboardingManager {
     let reclaimed = 0;
     for (const device of devices) {
       if (isDiagnosticServerDevice(device)) continue;
-      const serverPairStatus = String(device.pairStatus || device.pairingStatus || 'unpaired').toLowerCase();
+      const serverPairStatus = getDevicePairingStatus(device);
       const wasOursLocally = this.discovery.getDevice(device.deviceId)?.pairingStatus === 'paired';
       if (serverPairStatus !== 'paired' && wasOursLocally) {
         const reclaimedDevice = await this.reclaimDevice(device, ownerId);
@@ -68,13 +120,10 @@ class HomeOnboardingManager {
           continue;
         }
       }
-      const upserted = this.discovery.addDiscoveredDevice({
+      const upserted = this.discovery.addDiscoveredDevice(toServerDiscoveryDevice({
         ...device,
-        deviceStatus: device.status || device.registrationState || device.deviceStatus || 'registered',
-        pairingStatus: serverPairStatus,
-        discoverySource: 'openx-server',
-        transport: 'server'
-      }, { includePaired: true });
+        pairingStatus: serverPairStatus
+      }), { includePaired: true });
       if (upserted.success) added += 1;
     }
     return { success: true, devices, added, reclaimed };
@@ -92,13 +141,10 @@ class HomeOnboardingManager {
     if (typeof this.pairing?.approvePairing !== 'function') return null;
     const result = await this.pairing.approvePairing({ device, ownerId, serverAddress: this.lastServerAddress });
     if (!result.success) return null;
-    this.discovery.addDiscoveredDevice({
+    this.discovery.addDiscoveredDevice(toServerDiscoveryDevice({
       ...device,
-      deviceStatus: device.status || device.registrationState || device.deviceStatus || 'registered',
-      pairingStatus: 'paired',
-      discoverySource: 'openx-server',
-      transport: 'server'
-    }, { includePaired: true });
+      pairingStatus: 'paired'
+    }), { includePaired: true });
     return this.discovery.markPaired(device.deviceId);
   }
 
@@ -122,18 +168,12 @@ class HomeOnboardingManager {
         : result;
     }
     const existing = this.discovery.getDevice(normalizedId);
-    const serverPairStatus = String(result.device.pairStatus || result.device.pairingStatus || 'unpaired').toLowerCase();
+    const serverPairStatus = getDevicePairingStatus(result.device);
     if (serverPairStatus !== 'paired' && existing?.pairingStatus === 'paired') {
       const reclaimedDevice = await this.reclaimDevice(result.device, ownerId);
       if (reclaimedDevice) return { success: true, device: reclaimedDevice, reclaimed: true };
     }
-    const upserted = this.discovery.addDiscoveredDevice({
-      ...result.device,
-      deviceStatus: result.device.status || result.device.registrationState || result.device.deviceStatus || 'registered',
-      pairingStatus: result.device.pairStatus || result.device.pairingStatus || 'unpaired',
-      discoverySource: 'openx-server',
-      transport: 'server'
-    }, { includePaired: true });
+    const upserted = this.discovery.addDiscoveredDevice(toServerDiscoveryDevice(result.device), { includePaired: true });
     return { success: true, device: upserted.device || result.device };
   }
 
@@ -190,27 +230,38 @@ class HomeOnboardingManager {
   }
 
   async waitForServerConnection(sessionId, waitingSession) {
-    const session = this.state.getSession(sessionId);
     const deadline = this.now() + this.connectionWaitTimeoutMs;
     let lastResult = null;
     while (this.now() <= deadline) {
+      const session = this.state.getSession(sessionId);
+      if (!session) return { success: false, code: 'session-not-found', message: 'Onboarding session was not found.' };
+      let serverDevices = [];
       lastResult = await this.serverClient.getHomeDevice({
         serverAddress: this.lastServerAddress,
         deviceId: session.deviceId
       });
       const device = lastResult?.device || null;
       if (lastResult?.success && device?.deviceId) {
-        this.discovery.addDiscoveredDevice({
-          ...device,
-          deviceStatus: device.status || device.registrationState || 'registered',
-          pairingStatus: device.pairStatus || 'unpaired',
-          discoverySource: 'openx-server',
-          transport: 'server'
-        }, { includePaired: true });
-        if (String(device.connectionStatus || '').toLowerCase() === 'online') {
-          const connectedDevice = this.discovery.markConnected(session.deviceId);
+        this.discovery.addDiscoveredDevice(toServerDiscoveryDevice(device), { includePaired: true });
+        serverDevices = [device];
+      } else if (isBluetoothOnboardingSession(session) && typeof this.serverClient?.listHomeDevices === 'function') {
+        const refreshed = await this.refreshServerDevices(this.ownerId);
+        if (refreshed?.success) serverDevices = Array.isArray(refreshed.devices) ? refreshed.devices : [];
+        if (!refreshed?.success) lastResult = refreshed || lastResult;
+      }
+      const connectedServerDevice = findConnectedServerDevice(serverDevices, session);
+      if (connectedServerDevice?.deviceId) {
+        const serverDevice = toServerDiscoveryDevice(connectedServerDevice);
+        const upserted = this.discovery.addDiscoveredDevice(serverDevice, { includePaired: true });
+        const actualDeviceId = String(upserted.device?.deviceId || connectedServerDevice.deviceId || '').trim();
+        if (actualDeviceId && actualDeviceId !== session.deviceId) {
+          this.discovery.removeDevice(session.deviceId);
+          this.state.replaceSessionDevice(sessionId, upserted.device || serverDevice);
+        }
+        if (isConnectedServerDevice(connectedServerDevice)) {
+          const connectedDevice = this.discovery.markConnected(actualDeviceId || session.deviceId);
           const connected = this.state.transition(sessionId, HOME_ONBOARDING_STATES.CONNECTED, 'approval', 78, 'Device connected through OpenX_Server.');
-          return { success: true, session: connected || waitingSession, device: connectedDevice || device };
+          return { success: true, session: connected || waitingSession, device: connectedDevice || upserted.device || serverDevice };
         }
       }
       await new Promise(resolve => setTimeout(resolve, this.connectionPollIntervalMs));

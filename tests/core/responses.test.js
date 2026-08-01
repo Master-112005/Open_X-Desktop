@@ -7,6 +7,23 @@ describe('Response Generator', function() {
     ResponseGenerator = require('../../core/assistant/response/ResponseGenerator');
   });
 
+  it('should report unchanged home relay state instead of claiming a new action', function() {
+    const gen = new ResponseGenerator();
+    const result = gen.generate('success', 'home.device_control', {
+      result: {
+        data: {
+          displayTarget: 'Bed Light',
+          homeAction: 'turn_off',
+          homeMessage: 'relay already off',
+          relayState: 'off',
+          relayChanged: false
+        }
+      }
+    });
+
+    assert.equal(result, 'Bed Light is already off, sir.');
+  });
+
   it('should generate success response with interpolation', function() {
     const gen = new ResponseGenerator();
     const result = gen.generate('success', 'volume.set', { entities: { value: 70 } });

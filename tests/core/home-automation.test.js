@@ -68,4 +68,38 @@ describe('Home Automation foundation', function() {
     assert.equal(result.data.placeholder, true);
     assert.equal(manager.listPendingRequests().length, 1);
   });
+
+  it('returns live relay result details for assistant responses', async function() {
+    const manager = new homeAutomation.HomeAutomationManager({
+      getPairedDevices: () => [{
+        deviceId: 'home_device_1',
+        deviceName: 'Bed Light',
+        pairingStatus: 'paired',
+        connectionStatus: 'online'
+      }],
+      commandClient: {
+        sendCommand: async () => ({
+          success: true,
+          message: 'relay already off',
+          result: {
+            message: 'relay already off',
+            relayState: 'off',
+            changed: false
+          }
+        })
+      },
+      ownerId: 'owner_1'
+    });
+
+    const result = await manager.handleAssistantRequest({
+      rawCommand: 'turn off bed light',
+      source: 'test'
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.displayTarget, 'Bed Light');
+    assert.equal(result.data.homeMessage, 'relay already off');
+    assert.equal(result.data.relayState, 'off');
+    assert.equal(result.data.relayChanged, false);
+  });
 });

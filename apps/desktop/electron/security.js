@@ -788,6 +788,7 @@ const IPC_VALIDATORS = Object.freeze({
   'remote:listTargets': validateEmpty,
   'remote:control': validateRemoteControl,
   'homeOnboarding:snapshot': validateEmpty,
+  'homeOnboarding:getBluetoothSelection': validateEmpty,
   'homeOnboarding:startDiscovery': validateEmpty,
   'homeOnboarding:stopDiscovery': validateEmpty,
   'homeOnboarding:addDiscoveredDevice': validateHomeDiscoveredDevice,

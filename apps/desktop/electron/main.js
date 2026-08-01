@@ -51,6 +51,7 @@ const {
   isPlainObject,
   isTrustedRendererUrl
 } = require('./security');
+const { selectHomeBluetoothDevice } = require('./home-bluetooth-selection');
 
 const RENDERER_ROOT = path.resolve(__dirname, '..', 'renderer');
 const VOICE_CAPTURE_FILE = path.join(RENDERER_ROOT, 'voice-capture', 'index.html');
@@ -371,6 +372,7 @@ let cloudFileTransferManager = null;
 let homeOnboardingManager = null;
 let homeCommandClient = null;
 let pendingHomeBluetoothSelection = null;
+let lastHomeBluetoothSelection = null;
 const HOME_BLUETOOTH_SCAN_TIMEOUT_MS = 35000;
 let cloudProfileSyncRegistered = false;
 let cloudModesSyncRegistered = false;
@@ -580,9 +582,15 @@ function handleHomeBluetoothDeviceSelection(event, deviceList, callback) {
     candidateCount: devices.length,
     candidates
   });
-  const selected = devices.find(device => /openx/i.test(String(device.deviceName || device.name || ''))) ||
-    (devices.length === 1 ? devices[0] : null);
+  const selected = selectHomeBluetoothDevice(devices);
   if (selected?.deviceId) {
+    lastHomeBluetoothSelection = {
+      bluetoothDeviceId: String(selected.deviceId || ''),
+      deviceName: String(selected.deviceName || selected.name || 'OpenX Home Device'),
+      serviceUuids: Array.isArray(selected.serviceUuids) ? selected.serviceUuids.slice(0, 16) : [],
+      uuids: Array.isArray(selected.uuids) ? selected.uuids.slice(0, 16) : [],
+      selectedAt: new Date().toISOString()
+    };
     mainLogger.info('[HOME] Selected Bluetooth Home Device for provisioning', {
       deviceName: selected.deviceName || selected.name || 'unknown'
     });
@@ -7016,6 +7024,13 @@ function setupIPC() {
 
   registerIpcHandler('homeOnboarding:snapshot', async () => {
     return initializeHomeOnboarding().getSnapshot();
+  });
+
+  registerIpcHandler('homeOnboarding:getBluetoothSelection', async () => {
+    return {
+      success: true,
+      selection: lastHomeBluetoothSelection ? { ...lastHomeBluetoothSelection } : null
+    };
   });
 
   registerIpcHandler('homeOnboarding:startDiscovery', async () => {
