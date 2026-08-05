@@ -419,6 +419,41 @@ describe('App Controller', function() {
     }
   });
 
+  it('should cache command existence checks to avoid repeated where.exe calls', function() {
+    const childProcess = require('child_process');
+    const originalExecFileSync = childProcess.execFileSync;
+    const appsPath = require.resolve('../../core/automation/apps');
+    const previousApps = require.cache[appsPath];
+    let whereCalls = 0;
+
+    try {
+      delete require.cache[appsPath];
+      childProcess.execFileSync = (command, args) => {
+        if (command === 'where.exe') {
+          whereCalls += 1;
+          if (args[0] === 'known-command') return '';
+          const error = new Error('not found');
+          error.status = 1;
+          throw error;
+        }
+        return originalExecFileSync(command, args);
+      };
+
+      const FreshAppController = require('../../core/automation/apps');
+      const controller = new FreshAppController({});
+
+      assert.equal(controller._commandExists('known-command'), true);
+      assert.equal(controller._commandExists('known-command'), true);
+      assert.equal(controller._commandExists('missing-command'), false);
+      assert.equal(controller._commandExists('missing-command'), false);
+      assert.equal(whereCalls, 2);
+    } finally {
+      childProcess.execFileSync = originalExecFileSync;
+      delete require.cache[appsPath];
+      if (previousApps) require.cache[appsPath] = previousApps;
+    }
+  });
+
   it('should close window-targeted apps by visible window before process fallback', function() {
     const controller = new AppController({});
     let windowCloseAttempted = false;

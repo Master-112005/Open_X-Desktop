@@ -17,6 +17,8 @@ class CloudResponseSerializer {
   serialize({ request, result, status = 'completed', responseType = 'assistant-response', error = null }) {
     const now = Date.now();
     const responseId = createId('cloud_response');
+    const normalizedStatus = String(status || '').toLowerCase();
+    const isResponseStatus = ['completed', 'processing', 'queued', 'received'].includes(normalizedStatus);
     const payloadResult = responseType === 'schedule-sync'
       ? (result || null)
       : responseType === 'remote-control'
@@ -30,7 +32,7 @@ class CloudResponseSerializer {
     return {
       packetId: createId('cloud_packet'),
       protocolVersion: this.version,
-      packetType: status === 'completed' ? 'response' : 'error',
+      packetType: isResponseStatus ? 'response' : 'error',
       sourceDeviceId: request.destinationDeviceId,
       destinationDeviceId: request.sourceDeviceId,
       ownerId: request.ownerId,
@@ -42,8 +44,8 @@ class CloudResponseSerializer {
         lifecycle: status,
         source: 'desktop',
         destination: 'cloud-phone',
-        streaming: false,
-        retryable: responseType !== 'remote-control'
+        streaming: responseType === 'assistant-status',
+        retryable: responseType !== 'remote-control' && responseType !== 'assistant-status'
       },
       checksum: null,
       encryption: null,
@@ -157,7 +159,7 @@ class CloudResponseSerializer {
         sources
       };
     }
-    for (const key of ['path', 'filename', 'folderName', 'url', 'query', 'count', 'dueAt', 'kind', 'message', 'title', 'status']) {
+    for (const key of ['path', 'filename', 'folderName', 'url', 'query', 'count', 'dueAt', 'kind', 'message', 'title', 'status', 'cloudStatus', 'queuedPosition']) {
       if (Object.prototype.hasOwnProperty.call(data, key)) {
         safe[key] = typeof data[key] === 'number' || typeof data[key] === 'boolean'
           ? data[key]
@@ -236,6 +238,23 @@ class CloudResponseSerializer {
         data: { code, ...(metadata.data || {}) }
       },
       error: { code, message }
+    });
+  }
+
+  status(request, status, message, metadata = {}) {
+    return this.serialize({
+      request,
+      status,
+      responseType: metadata.responseType || 'assistant-status',
+      result: {
+        success: true,
+        response: message,
+        message,
+        data: {
+          cloudStatus: status,
+          ...(metadata.data || {})
+        }
+      }
     });
   }
 }

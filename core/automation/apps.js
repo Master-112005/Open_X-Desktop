@@ -151,6 +151,8 @@ const POWERSHELL_TIMEOUT_MS = 10000;
 const PROCESS_STOP_TIMEOUT_MS = 8000;
 const START_APPS_CACHE_TTL_MS = 60_000;
 const START_APPS_FAILURE_TTL_MS = 15_000;
+const COMMAND_EXISTS_CACHE_TTL_MS = 60_000;
+const COMMAND_EXISTS_FAILURE_TTL_MS = 10_000;
 
 const APP_ALIASES = new Map([
   ['google chrome', 'chrome'],
@@ -201,6 +203,7 @@ class AppController {
     this.windowSession = new WindowsSessionController(config);
     this._startAppsCache = null;
     this._startAppsCacheExpiresAt = 0;
+    this._commandExistsCache = new Map();
   }
 
   open(appName, options = {}) {
@@ -724,13 +727,28 @@ class AppController {
       return false;
     }
 
+    const cacheKey = safeCommand.toLowerCase();
+    const now = Date.now();
+    const cached = this._commandExistsCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.exists;
+    }
+
     try {
       execFileSync('where.exe', [safeCommand], {
         timeout: 3000,
         stdio: 'ignore'
       });
+      this._commandExistsCache.set(cacheKey, {
+        exists: true,
+        expiresAt: now + COMMAND_EXISTS_CACHE_TTL_MS
+      });
       return true;
     } catch (err) {
+      this._commandExistsCache.set(cacheKey, {
+        exists: false,
+        expiresAt: now + COMMAND_EXISTS_FAILURE_TTL_MS
+      });
       return false;
     }
   }

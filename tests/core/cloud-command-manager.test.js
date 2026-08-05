@@ -163,9 +163,124 @@ describe('CloudCommandManager', () => {
     await new Promise(resolve => setTimeout(resolve, 40));
 
     assert.deepEqual(routed, ['command 1', 'command 2', 'command 3', 'command 4', 'command 5']);
-    assert.equal(connection.sent.length, 5);
+    const completed = connection.sent.filter(packet => packet.payload.status === 'completed');
+    const queued = connection.sent.filter(packet => packet.payload.status === 'queued');
+    assert.equal(completed.length, 5);
+    assert.equal(queued.length, 4);
     assert.equal(manager.getStatus().queue.queued, 0);
     assert.equal(manager.getStatus().queue.completed, 5);
+  });
+
+  it('sends an immediate queued status when a cloud assistant command waits behind another command', async () => {
+    const connection = createConnection();
+    let releaseFirst;
+    const firstDone = new Promise(resolve => {
+      releaseFirst = resolve;
+    });
+    const routed = [];
+    const manager = new CloudCommandManager({
+      connectionManager: connection,
+      executionTimeoutMs: 1000,
+      progressUpdateMs: 5000,
+      commandRouter: {
+        async route(command) {
+          routed.push(command);
+          if (command === 'first command') {
+            await firstDone;
+          }
+          return { success: true, response: `Done ${command}` };
+        }
+      },
+      logger: { info() {}, warn() {}, error() {}, debug() {} }
+    });
+    const firstPacket = createPacket({ command: 'first command' });
+    firstPacket.packet.packetId = 'packet_queued_1';
+    firstPacket.packet.requestId = 'request_queued_1';
+    const secondPacket = createPacket({ command: 'second command' });
+    secondPacket.packet.packetId = 'packet_queued_2';
+    secondPacket.packet.requestId = 'request_queued_2';
+
+    manager.handleRelayPacket(firstPacket);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    manager.handleRelayPacket(secondPacket);
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.deepEqual(routed, ['first command']);
+    assert.equal(connection.sent.length, 1);
+    assert.equal(connection.sent[0].payload.status, 'queued');
+    assert.equal(connection.sent[0].payload.requestId, 'request_queued_2');
+    assert.equal(connection.sent[0].payload.payload.data.cloudStatus, 'queued');
+    assert.equal(connection.sent[0].payload.payload.data.queuedPosition, 1);
+
+    releaseFirst();
+    await new Promise(resolve => setTimeout(resolve, 40));
+
+    assert.deepEqual(routed, ['first command', 'second command']);
+    assert.equal(connection.sent.length, 3);
+    assert.equal(connection.sent[1].payload.requestId, 'request_queued_1');
+    assert.equal(connection.sent[1].payload.status, 'completed');
+    assert.equal(connection.sent[2].payload.requestId, 'request_queued_2');
+    assert.equal(connection.sent[2].payload.status, 'completed');
+  });
+
+  it('sends a lightweight processing update for slow cloud assistant commands', async () => {
+    const connection = createConnection();
+    const manager = new CloudCommandManager({
+      connectionManager: connection,
+      executionTimeoutMs: 1000,
+      progressUpdateMs: 100,
+      commandRouter: {
+        async route(command, options) {
+          assert.equal(command, 'open downloads');
+          assert.equal(options.phoneContext.cloudRequestId, 'request_1');
+          assert.ok(options.signal);
+          await new Promise(resolve => setTimeout(resolve, 160));
+          return { success: true, response: 'Opened downloads.' };
+        }
+      },
+      logger: { info() {}, warn() {}, error() {}, debug() {} }
+    });
+
+    manager.handleRelayPacket(createPacket());
+    await new Promise(resolve => setTimeout(resolve, 220));
+
+    assert.equal(connection.sent.length, 2);
+    assert.equal(connection.sent[0].packetType, 'response');
+    assert.equal(connection.sent[0].payload.status, 'processing');
+    assert.equal(connection.sent[0].payload.responseType, 'assistant-status');
+    assert.equal(connection.sent[0].payload.payload.data.cloudStatus, 'processing');
+    assert.equal(connection.sent[1].packetType, 'response');
+    assert.equal(connection.sent[1].payload.status, 'completed');
+    assert.equal(connection.sent[1].payload.payload.response, 'Opened downloads.');
+  });
+
+  it('aborts slow cloud assistant commands when the cloud execution timeout expires', async () => {
+    const connection = createConnection();
+    let aborted = false;
+    const manager = new CloudCommandManager({
+      connectionManager: connection,
+      executionTimeoutMs: 1000,
+      progressUpdateMs: 5000,
+      commandRouter: {
+        async route(_command, options) {
+          options.signal?.addEventListener?.('abort', () => {
+            aborted = true;
+          });
+          await new Promise(resolve => setTimeout(resolve, 1200));
+          return { success: true, response: 'Too late.' };
+        }
+      },
+      logger: { info() {}, warn() {}, error() {}, debug() {} }
+    });
+
+    manager.handleRelayPacket(createPacket());
+    await new Promise(resolve => setTimeout(resolve, 1100));
+
+    assert.equal(aborted, true);
+    assert.equal(connection.sent.length, 1);
+    assert.equal(connection.sent[0].packetType, 'error');
+    assert.equal(connection.sent[0].payload.status, 'timed-out');
+    assert.equal(connection.sent[0].payload.error.code, 'execution-timeout');
   });
 
   it('rejects invalid owner packets before assistant execution', async () => {

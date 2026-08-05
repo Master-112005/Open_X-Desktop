@@ -206,4 +206,86 @@ describe('Home Automation Desktop Onboarding', function() {
     assert.equal(connected.pairingStatus, 'paired');
     assert.equal(connected.connectionStatus, 'online');
   });
+
+  it('migrates a stale Bluetooth connected-device record during reconnect', async function() {
+    const manager = new HomeOnboardingManager({
+      ownerId: 'owner_1',
+      serverClient: {
+        async getHomeDevice({ deviceId }) {
+          assert.equal(deviceId, 'oxd_ble_deadbeef');
+          return { success: false, code: 'unknown-home-device', message: 'Unknown home device.' };
+        },
+        async listHomeDevices() {
+          return {
+            success: true,
+            devices: [{
+              deviceId: 'oxd_D8CCE6F4E9D4',
+              deviceName: 'OpenX Home Device',
+              connectionStatus: 'online',
+              pairStatus: 'paired',
+              status: 'ready'
+            }]
+          };
+        }
+      }
+    });
+    manager.discovery.addDiscoveredDevice({
+      deviceId: 'oxd_ble_deadbeef',
+      deviceName: 'OpenX Home Device',
+      discoverySource: 'bluetooth',
+      transport: 'ble',
+      connectionStatus: 'offline',
+      pairingStatus: 'paired'
+    }, { includePaired: true });
+
+    const refreshed = await manager.refreshDevice('oxd_ble_deadbeef');
+    const realDevice = manager.discovery.getDevice('oxd_D8CCE6F4E9D4');
+
+    assert.equal(refreshed.success, true);
+    assert.equal(refreshed.migratedFrom, 'oxd_ble_deadbeef');
+    assert.equal(refreshed.reconnected, true);
+    assert.equal(refreshed.device.deviceId, 'oxd_D8CCE6F4E9D4');
+    assert.equal(realDevice.pairingStatus, 'paired');
+    assert.equal(realDevice.connectionStatus, 'online');
+    assert.equal(manager.discovery.getDevice('oxd_ble_deadbeef'), null);
+  });
+
+  it('preserves local pairing when reconnect cannot restore server ownership', async function() {
+    const manager = new HomeOnboardingManager({
+      ownerId: 'owner_1',
+      serverClient: {
+        async getHomeDevice() {
+          return {
+            success: true,
+            device: {
+              deviceId: 'home_device_1',
+              deviceName: 'Living Room Light',
+              connectionStatus: 'online',
+              pairStatus: 'unpaired',
+              status: 'registered'
+            }
+          };
+        }
+      },
+      pairing: {
+        async approvePairing() {
+          return { success: false, code: 'pairing-unavailable', message: 'Pairing unavailable.' };
+        }
+      }
+    });
+    manager.discovery.addDiscoveredDevice({
+      deviceId: 'home_device_1',
+      deviceName: 'Living Room Light',
+      connectionStatus: 'offline',
+      pairingStatus: 'paired'
+    }, { includePaired: true });
+
+    const refreshed = await manager.refreshDevice('home_device_1');
+    const existing = manager.discovery.getDevice('home_device_1');
+
+    assert.equal(refreshed.success, false);
+    assert.equal(refreshed.code, 'home-device-reclaim-failed');
+    assert.equal(existing.pairingStatus, 'paired');
+    assert.equal(existing.connectionStatus, 'offline');
+  });
 });

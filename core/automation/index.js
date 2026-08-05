@@ -144,6 +144,7 @@ class AutomationEngine {
       'browser.listTabs': (entities) => this._listBrowserTabs(entities),
       'remote.listTargets': () => this.remote.listTargets(),
       'remote.control': (entities) => this.remote.sendControl(entities),
+      'home.devices.list': (entities) => this.homeAutomation.listDevices(entities),
       'home.device_control': (entities, context) => this.homeAutomation.handleAssistantRequest({
         ...entities,
         source: context?.source || 'assistant'
@@ -213,6 +214,7 @@ class AutomationEngine {
       'alarm.cancel': () => this.scheduler.cancelLatest('Alarm'),
       'alarm.list': (entities) => this.scheduler.listSchedules('Alarm', entities.scope || 'active'),
       'alarm.clear': () => this.scheduler.clearSchedules('Alarm'),
+      'schedule.list': (entities) => this._listScheduleSummary(entities),
       'calendar.open': () => this.planner.open('calendar'),
       'timetable.open': () => this.planner.open('timetable'),
       'visualMemory.openGallery': (entities) => this._openVisualMemoryGallery(entities),
@@ -475,6 +477,57 @@ class AutomationEngine {
         responseVariantSeed: `reminder.multi:${entities.reminderText}:${timeExpressions.join('|')}:${entities.recurrence || ''}`
       }
     };
+  }
+
+  _listScheduleSummary(entities = {}) {
+    const scope = String(entities.scope || (/today/i.test(String(entities.rawCommand || '')) ? 'today' : 'active')).trim().toLowerCase() || 'active';
+    const today = this._localDateKey();
+    const scheduleResult = this.scheduler.listSchedules(null, scope === 'today' ? 'today' : 'active');
+    const scheduleEntries = Array.isArray(scheduleResult?.data?.entries) ? scheduleResult.data.entries : [];
+    const plannerResult = this.planner.listEntries(scope === 'today' ? { date: today } : {});
+    const plannerEntries = Array.isArray(plannerResult?.data?.entries) ? plannerResult.data.entries : [];
+    const entries = [
+      ...scheduleEntries.map(entry => ({
+        ...entry,
+        source: 'scheduler',
+        label: entry.message || entry.title || entry.taskName || entry.kind || 'Schedule'
+      })),
+      ...plannerEntries.map(entry => ({
+        ...entry,
+        kind: entry.type === 'timetable' ? 'Timetable' : 'Calendar',
+        source: 'planner',
+        label: entry.title || entry.plannerText || 'Calendar item',
+        dueAt: entry.date && entry.startTime ? `${entry.date}T${entry.startTime}:00` : entry.date || ''
+      }))
+    ].sort((left, right) => String(left.dueAt || '').localeCompare(String(right.dueAt || '')));
+
+    return {
+      success: true,
+      data: {
+        action: 'schedule.list',
+        scope,
+        today,
+        count: entries.length,
+        entries,
+        scheduleCount: scheduleEntries.length,
+        plannerCount: plannerEntries.length,
+        operation: 'list',
+        verified: true,
+        verification: {
+          status: 'passed',
+          check: 'schedule-summary-list',
+          count: entries.length,
+          scope
+        }
+      }
+    };
+  }
+
+  _localDateKey(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
   async execute(actionId, entities, context = {}) {

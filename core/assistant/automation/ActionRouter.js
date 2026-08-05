@@ -376,6 +376,9 @@ class ActionRouter {
 
     return this._runResolverChain([
       ['_resolveLearningRepairIntent', () => this._resolveLearningRepairIntent(rawCommandText, preparedInput)],
+      ['_resolveLocalInfoIntent', () => this._resolveLocalInfoIntent(rawCommandText, preparedInput)],
+      ['_resolveHomeDeviceListIntent', () => this._resolveHomeDeviceListIntent(rawCommandText, preparedInput)],
+      ['_resolveScheduleListIntent', () => this._resolveScheduleListIntent(rawCommandText, preparedInput)],
       ['_resolvePlannerIntent', () => this._resolvePlannerIntent(rawCommandText, preparedInput)],
       ['_resolveStopwatchIntent', () => this._resolveStopwatchIntent(rawCommandText, preparedInput)],
       ['_resolveScheduleManagementIntent', () => this._resolveScheduleManagementIntent(rawCommandText, preparedInput)],
@@ -416,7 +419,6 @@ class ActionRouter {
       ['_resolveExplicitFolderIntent', () => this._resolveExplicitFolderIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitFolderMoveIntent', () => this._resolveExplicitFolderMoveIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitModeIntent', () => this._resolveExplicitModeIntent(rawCommandText, preparedInput)],
-      ['_resolveLocalInfoIntent', () => this._resolveLocalInfoIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitAppIntent', () => this._resolveExplicitAppIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitWindowIntent', () => this._resolveExplicitWindowIntent(rawCommandText, preparedInput)],
       ['_resolveSiteSearchIntent', () => this._resolveSiteSearchIntent(rawCommandText, preparedInput)],
@@ -484,6 +486,48 @@ class ActionRouter {
           entities: route.entities || {}
         }
       : null;
+  }
+
+  _resolveHomeDeviceListIntent(rawText, preparedInput = {}) {
+    const corrected = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
+    const raw = String(rawText || corrected || '').trim().toLowerCase();
+    const input = `${raw} ${corrected}`.replace(/\s+/g, ' ').trim();
+    if (!input) return null;
+    if (!/\b(?:home\s+devices?|home\s+automation\s+devices?|connected\s+devices?|smart\s+devices?|openx\s+home\s+devices?)\b/.test(input)) {
+      return null;
+    }
+    if (!/\b(?:what|which|show|list|tell|display|have|connected|online|paired)\b/.test(input)) {
+      return null;
+    }
+    const intent = this.intentRegistry.get('home.devices.list');
+    if (!intent) return null;
+    const scope = /\bonline\b/.test(input)
+      ? 'online'
+      : /\b(?:paired|connected)\b/.test(input)
+        ? 'paired'
+        : 'all';
+    return { intent, confidence: 0.99, entities: { scope } };
+  }
+
+  _resolveScheduleListIntent(rawText, preparedInput = {}) {
+    const corrected = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
+    const raw = String(rawText || corrected || '').trim().toLowerCase();
+    const input = `${raw} ${corrected}`.replace(/\s+/g, ' ').trim();
+    if (!input) return null;
+    if (/\b(?:ipl|cricket|fifa|world\s+cup|fixtures?|match(?:es)?|movie|release|price|news)\b/.test(input)) {
+      return null;
+    }
+    const asksLocalSchedule = (
+      /\b(?:what|show|list|tell|read|display)\b.*\b(?:my|today|todays|today's|openx)\b.*\b(?:schedule|agenda|reminders?|alarms?|timers?|calendar|timetable)\b/.test(input) ||
+      /\b(?:what|show|list|tell|read|display)\b.*\b(?:schedule|agenda)\b.*\b(?:today|todays|today's)\b/.test(input) ||
+      /\b(?:what|which)\b.*\b(?:do\s+i\s+have|have\s+i|is\s+on)\b.*\b(?:today|schedule|agenda|calendar|timetable)\b/.test(input) ||
+      /\b(?:today|todays|today's)\s+(?:schedule|agenda)\b/.test(input)
+    );
+    if (!asksLocalSchedule) return null;
+    const intent = this.intentRegistry.get('schedule.list');
+    if (!intent) return null;
+    const scope = /\b(?:today|todays|today's)\b/.test(input) ? 'today' : 'active';
+    return { intent, confidence: 0.99, entities: { scope, rawCommand: rawText || corrected } };
   }
 
   _safeInvokeResolver(name, resolver, context = {}) {

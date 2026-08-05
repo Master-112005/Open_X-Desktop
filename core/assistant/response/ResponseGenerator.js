@@ -170,6 +170,26 @@ function naturalJoin(items) {
   return `${values.slice(0, -1).join(', ')}, and ${values[values.length - 1]}`;
 }
 
+function formatHomeDeviceEntry(device = {}) {
+  const name = device.deviceName || device.name || device.deviceId || 'OpenX Home Device';
+  const connection = String(device.connectionStatus || '').trim().toLowerCase();
+  const status = connection === 'online'
+    ? 'online'
+    : connection === 'ble_advertising'
+      ? 'nearby for setup'
+      : 'offline';
+  return `${name} (${status})`;
+}
+
+function formatScheduleListEntry(entry = {}) {
+  const kind = String(entry.kind || entry.type || 'Schedule').trim();
+  const label = String(entry.label || entry.message || entry.title || entry.taskName || kind).trim();
+  const dueAt = entry.dueAt || (entry.date && entry.startTime ? `${entry.date}T${entry.startTime}:00` : entry.date || '');
+  const hasClock = Boolean(entry.startTime || /(?:T|\b\d{1,2}:\d{2}\b)/.test(String(dueAt || '')));
+  const when = hasClock ? scheduleClock(dueAt, entry.startTime || '') : '';
+  return when ? `${kind}: ${label} at ${when}` : `${kind}: ${label}`;
+}
+
 function formatSearchEntry(entry) {
   const name = entry?.name || basenameOrValue(entry?.path);
   const location = locationLabel(entry);
@@ -537,6 +557,18 @@ const RESPONSE_BUILDERS = {
           : `Adjusted ${target}.`
       };
       return actionPhrases[action] || `Updated ${target}.`;
+    },
+    'home.devices.list': context => {
+      const devices = valueFromContext(context, 'devices', []);
+      const pairedCount = Number(valueFromContext(context, 'pairedCount', 0));
+      const onlineCount = Number(valueFromContext(context, 'onlineCount', 0));
+      if (!Array.isArray(devices) || devices.length === 0) {
+        return 'You do not have any OpenX Home Devices listed yet. Press Scan in Home Automation to add one.';
+      }
+      const listed = devices.slice(0, 4).map(formatHomeDeviceEntry);
+      const remaining = Math.max(0, devices.length - listed.length);
+      const suffix = remaining ? `, plus ${remaining} more` : '';
+      return `You have ${pairedCount || devices.length} Home Device${(pairedCount || devices.length) === 1 ? '' : 's'} listed. ${onlineCount} online: ${listed.join(', ')}${suffix}.`;
     },
     'mode.start': context => {
       const modeName = valueFromContext(context, 'modeName', 'mode');
@@ -1295,6 +1327,19 @@ const RESPONSE_BUILDERS = {
       return count
         ? `You have ${count} ${activePrefix}alarm${count === 1 ? '' : 's'}${scopeSuffix}.`
         : `You have no ${activePrefix}alarms${scopeSuffix}.`;
+    },
+    'schedule.list': context => {
+      const entries = valueFromContext(context, 'entries', []);
+      const count = Number(valueFromContext(context, 'count', Array.isArray(entries) ? entries.length : 0));
+      const scope = String(valueFromContext(context, 'scope', 'active') || 'active').toLowerCase();
+      const scopeLabel = scope === 'today' ? 'today' : 'active';
+      if (!Array.isArray(entries) || count === 0) {
+        return `You have no ${scopeLabel} OpenX schedule items.`;
+      }
+      const listed = entries.slice(0, 5).map(formatScheduleListEntry);
+      const remaining = Math.max(0, count - listed.length);
+      const suffix = remaining ? `, plus ${remaining} more` : '';
+      return `Your ${scopeLabel} OpenX schedule has ${count} item${count === 1 ? '' : 's'}: ${listed.join('; ')}${suffix}.`;
     },
     'alarm.clear': context => `Cancelled ${valueFromContext(context, 'count', 0)} alarm${valueFromContext(context, 'count', 0) === 1 ? '' : 's'}.`,
     'calendar.open': context => chooseVariant(responseSeed(context, 'planner.open:calendar'), [

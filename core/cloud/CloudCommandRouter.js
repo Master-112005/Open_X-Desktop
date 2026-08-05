@@ -24,6 +24,9 @@ class CloudCommandRouter {
         cloud: true
       };
     }
+    if (options.signal) {
+      commandOptions.signal = options.signal;
+    }
     if (Object.keys(commandOptions).length > 0) {
       return assistant.processCommand(command.trim(), 'phone', commandOptions);
     }

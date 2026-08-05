@@ -147,13 +147,27 @@ class Assistant extends EventEmitter {
     this.personality = new Personality(config);
     this.responses = new ResponseGenerator(config);
     this.pluginManager = null;
+    this.pluginsLoaded = true;
+    this.pluginsLoadFailed = false;
+    this.pluginLoadWarningEmitted = false;
+    this.pluginLoadWaitMs = Number.isFinite(config?.assistant?.pluginLoadWaitMs)
+      ? Math.max(0, Number(config.assistant.pluginLoadWaitMs))
+      : 1000;
     this.pluginsReady = Promise.resolve([]);
     if (config?.plugins?.enabled === true && this.automation && this.router?.intentRegistry) {
+      this.pluginsLoaded = false;
       this.pluginManager = new PluginManager(config, this.automation, this.router.intentRegistry);
-      this.pluginsReady = this.pluginManager.loadAll().catch(error => {
-        this.logger.warn('Plugin loading failed', error.message);
-        return [];
-      });
+      this.pluginsReady = this.pluginManager.loadAll()
+        .then(plugins => {
+          this.pluginsLoaded = true;
+          return plugins;
+        })
+        .catch(error => {
+          this.pluginsLoaded = true;
+          this.pluginsLoadFailed = true;
+          this.logger.warn('Plugin loading failed', error.message);
+          return [];
+        });
     }
     this.isProcessing = false;
     this.pendingConfirmation = null;
@@ -204,7 +218,7 @@ class Assistant extends EventEmitter {
       }, { input, source });
     }
 
-    await this.pluginsReady;
+    await this._waitForPluginsReady();
 
     this.isProcessing = true;
     this.eventBus.publish(EVENTS.COMMAND_RECEIVED, { input, source });
@@ -2192,6 +2206,38 @@ class Assistant extends EventEmitter {
       if (timer) clearTimeout(timer);
       if (abortHandler) signal.removeEventListener?.('abort', abortHandler);
       unlinkParentAbort();
+    }
+  }
+
+  async _waitForPluginsReady() {
+    if (!this.pluginManager || this.pluginsLoaded || this.pluginsLoadFailed) {
+      return this.pluginsReady;
+    }
+    if (!this.pluginLoadWaitMs) {
+      return [];
+    }
+
+    let timer = null;
+    let timedOut = false;
+    try {
+      return await Promise.race([
+        this.pluginsReady,
+        new Promise(resolve => {
+          timer = setTimeout(() => {
+            timedOut = true;
+            resolve([]);
+          }, this.pluginLoadWaitMs);
+          timer.unref?.();
+        })
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (timedOut && !this.pluginLoadWarningEmitted) {
+        this.pluginLoadWarningEmitted = true;
+        this.logger.warn('Plugin loading still in progress; continuing command without waiting for plugins.', {
+          waitMs: this.pluginLoadWaitMs
+        });
+      }
     }
   }
 

@@ -6322,8 +6322,13 @@ function initializeHomeOnboarding() {
   const homeRefreshTimer = setInterval(() => {
     homeOnboardingManager.refreshServerDevices?.()
       .then(result => {
-        if (result?.reclaimed) {
-          mainLogger.info('[HOME] Reclaimed ownership after server restart', { reclaimed: result.reclaimed });
+        if (result?.added || result?.reclaimed || result?.reclaimFailed) {
+          mainLogger.info('[HOME] Background Home Device refresh completed', {
+            devicesSeen: Array.isArray(result.devices) ? result.devices.length : 0,
+            devicesAdded: Number(result.added || 0),
+            reclaimed: Number(result.reclaimed || 0),
+            reclaimFailed: Number(result.reclaimFailed || 0)
+          });
         }
         sendHomeOnboardingStatus();
       })
@@ -7164,7 +7169,26 @@ function setupIPC() {
 
   registerIpcHandler('homeOnboarding:refreshDevice', async (_event, { deviceId }) => {
     const result = await initializeHomeOnboarding().refreshDevice(deviceId);
-    if (result?.success !== false) sendHomeOnboardingStatus();
+    const logPayload = {
+      requestedDeviceId: deviceId || '',
+      resolvedDeviceId: result?.device?.deviceId || '',
+      success: result?.success !== false,
+      connectionStatus: result?.device?.connectionStatus || '',
+      pairingStatus: result?.device?.pairingStatus || result?.device?.pairStatus || '',
+      migratedFrom: result?.migratedFrom || '',
+      replacementDeviceId: result?.replacementDeviceId || '',
+      reconnected: result?.reconnected === true,
+      reclaimed: result?.reclaimed === true,
+      code: result?.code || '',
+      serverRefreshStatus: result?.serverRefreshStatus || '',
+      serverRefreshCode: result?.serverRefreshCode || ''
+    };
+    if (result?.success === false) {
+      mainLogger.warn('[HOME] Home Device reconnect check failed', logPayload);
+    } else {
+      mainLogger.info('[HOME] Home Device reconnect check completed', logPayload);
+    }
+    sendHomeOnboardingStatus();
     return result;
   });
 

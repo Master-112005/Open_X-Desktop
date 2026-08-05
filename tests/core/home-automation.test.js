@@ -69,6 +69,35 @@ describe('Home Automation foundation', function() {
     assert.equal(manager.listPendingRequests().length, 1);
   });
 
+  it('lists paired home devices for assistant inventory questions', function() {
+    const manager = new homeAutomation.HomeAutomationManager({
+      getPairedDevices: () => [
+        {
+          deviceId: 'home_device_1',
+          deviceName: 'Bed Light',
+          pairingStatus: 'paired',
+          connectionStatus: 'online'
+        },
+        {
+          deviceId: 'home_device_2',
+          deviceName: 'Desk Light',
+          pairingStatus: 'paired',
+          connectionStatus: 'offline'
+        }
+      ]
+    });
+
+    const result = manager.listDevices();
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.action, 'home.devices.list');
+    assert.equal(result.data.count, 2);
+    assert.equal(result.data.pairedCount, 2);
+    assert.equal(result.data.onlineCount, 1);
+    assert.equal(result.data.devices[0].deviceName, 'Bed Light');
+    assert.equal(result.data.verification.status, 'passed');
+  });
+
   it('returns live relay result details for assistant responses', async function() {
     const manager = new homeAutomation.HomeAutomationManager({
       getPairedDevices: () => [{

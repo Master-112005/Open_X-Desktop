@@ -43,6 +43,37 @@ describe('Assistant Confirmation Flow', function() {
     assert.equal(observedSignal?.reason?.code, 'command_timeout');
   });
 
+  it('does not block built-in command execution on a stuck plugin load', async function() {
+    let routed = false;
+    const assistant = new Assistant({
+      assistant: { pluginLoadWaitMs: 5 }
+    }, {
+      router: {
+        process: async () => {
+          routed = true;
+          return {
+            success: true,
+            intent: 'app.open',
+            response: 'Opened chrome.'
+          };
+        }
+      },
+      automation: {},
+      eventBus: { publish() {} }
+    });
+    assistant.pluginManager = { getLoaded() { return []; } };
+    assistant.pluginsLoaded = false;
+    assistant.pluginsLoadFailed = false;
+    assistant.pluginsReady = new Promise(() => {});
+
+    const result = await assistant._processCommandDirect('open chrome', 'chat');
+
+    assert.equal(routed, true);
+    assert.equal(result.success, true);
+    assert.match(result.response, /^Opened chrome\./);
+    assert.equal(assistant.pluginLoadWarningEmitted, true);
+  });
+
   it('should keep a pending confirmation and execute it on voice confirmation', async function() {
     const router = {
       process: async () => ({

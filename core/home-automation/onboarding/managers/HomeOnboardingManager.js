@@ -27,6 +27,14 @@ function isBluetoothOnboardingSession(session = {}) {
     || String(device.transport || '').toLowerCase() === 'ble';
 }
 
+function isBluetoothDerivedDevice(device = {}) {
+  const deviceId = String(device.deviceId || '').toLowerCase();
+  return deviceId.startsWith('oxd_ble_')
+    || String(device.discoverySource || '').toLowerCase() === 'bluetooth'
+    || String(device.transport || '').toLowerCase() === 'ble'
+    || Boolean(device.bluetoothDeviceId);
+}
+
 function namesMatch(left = '', right = '') {
   const normalizedLeft = String(left || '').trim().toLowerCase();
   const normalizedRight = String(right || '').trim().toLowerCase();
@@ -49,6 +57,22 @@ function findConnectedServerDevice(devices = [], session = {}) {
   const matchingName = unpaired.filter(device => namesMatch(device.deviceName || device.name, sessionName));
   if (matchingName.length === 1) return matchingName[0];
   if (unpaired.length === 1) return unpaired[0];
+  return null;
+}
+
+function findReconnectReplacement(devices = [], existing = {}) {
+  if (!existing?.deviceId || !isBluetoothDerivedDevice(existing)) return null;
+  const candidates = devices
+    .filter(device => device?.deviceId && !isDiagnosticServerDevice(device))
+    .filter(device => String(device.deviceId || '').trim() !== String(existing.deviceId || '').trim());
+  if (!candidates.length) return null;
+  const online = candidates.filter(device => isConnectedServerDevice(device));
+  const pool = online.length ? online : candidates;
+  const paired = pool.filter(device => getDevicePairingStatus(device) === 'paired');
+  const preferred = paired.length ? paired : pool;
+  const named = preferred.filter(device => namesMatch(device.deviceName || device.name, existing.deviceName || existing.name));
+  if (named.length === 1) return named[0];
+  if (preferred.length === 1) return preferred[0];
   return null;
 }
 
@@ -108,6 +132,7 @@ class HomeOnboardingManager {
     const devices = Array.isArray(result.devices) ? result.devices : [];
     let added = 0;
     let reclaimed = 0;
+    let reclaimFailed = 0;
     for (const device of devices) {
       if (isDiagnosticServerDevice(device)) continue;
       const serverPairStatus = getDevicePairingStatus(device);
@@ -119,14 +144,16 @@ class HomeOnboardingManager {
           added += 1;
           continue;
         }
+        reclaimFailed += 1;
+        continue;
       }
       const upserted = this.discovery.addDiscoveredDevice(toServerDiscoveryDevice({
         ...device,
         pairingStatus: serverPairStatus
       }), { includePaired: true });
-      if (upserted.success) added += 1;
+      if (upserted.success && !upserted.duplicate) added += 1;
     }
-    return { success: true, devices, added, reclaimed };
+    return { success: true, devices, added, reclaimed, reclaimFailed };
   }
 
   /**
@@ -156,25 +183,74 @@ class HomeOnboardingManager {
     }
     const result = await this.serverClient.getHomeDevice({ serverAddress: this.lastServerAddress, deviceId: normalizedId });
     if (!result?.success || !result.device) {
+      let refreshResult = null;
       try {
-        await this.refreshServerDevices(ownerId);
+        refreshResult = await this.refreshServerDevices(ownerId);
       } catch (_) {}
       const existing = this.discovery.getDevice(normalizedId);
+      const replacement = findReconnectReplacement(refreshResult?.devices || [], existing);
+      if (replacement?.deviceId) {
+        const serverPairStatus = getDevicePairingStatus(replacement);
+        let reclaimed = false;
+        let upserted = this.discovery.addDiscoveredDevice(toServerDiscoveryDevice(replacement), { includePaired: true });
+        if (serverPairStatus !== 'paired' && existing?.pairingStatus === 'paired') {
+          const reclaimedDevice = await this.reclaimDevice(replacement, ownerId);
+          if (reclaimedDevice) {
+            reclaimed = true;
+            upserted = { success: true, device: reclaimedDevice };
+          } else {
+            return {
+              success: false,
+              code: 'home-device-reclaim-failed',
+              message: 'The Home Device is online, but OpenX could not restore ownership yet. Try reconnect again in a few seconds.',
+              device: existing,
+              replacementDeviceId: replacement.deviceId,
+              serverRefreshStatus: refreshResult?.success === false ? 'failed' : 'ok',
+              serverRefreshCode: refreshResult?.code || ''
+            };
+          }
+        }
+        this.discovery.removeDevice(normalizedId);
+        const connectedDevice = isConnectedServerDevice(replacement)
+          ? this.discovery.markConnected(replacement.deviceId)
+          : this.discovery.getDevice(replacement.deviceId);
+        return {
+          success: true,
+          device: connectedDevice || upserted.device || toServerDiscoveryDevice(replacement),
+          migratedFrom: normalizedId,
+          reconnected: isConnectedServerDevice(replacement),
+          reclaimed
+        };
+      }
       if (String(existing?.connectionStatus || '').toLowerCase() === 'online') {
-        return { success: true, device: existing, reclaimed: existing.pairingStatus === 'paired' };
+        return { success: true, device: existing, reconnected: true, reclaimed: existing.pairingStatus === 'paired' };
       }
       return existing
-        ? { success: false, ...result, device: existing }
+        ? {
+            success: false,
+            ...result,
+            code: result?.code || 'home-device-offline',
+            message: 'The Home Device is still offline. Keep it powered on, check Wi-Fi, then try reconnect again.',
+            device: existing,
+            serverRefreshStatus: refreshResult?.success === false ? 'failed' : 'ok',
+            serverRefreshCode: refreshResult?.code || ''
+          }
         : result;
     }
     const existing = this.discovery.getDevice(normalizedId);
     const serverPairStatus = getDevicePairingStatus(result.device);
     if (serverPairStatus !== 'paired' && existing?.pairingStatus === 'paired') {
       const reclaimedDevice = await this.reclaimDevice(result.device, ownerId);
-      if (reclaimedDevice) return { success: true, device: reclaimedDevice, reclaimed: true };
+      if (reclaimedDevice) return { success: true, device: reclaimedDevice, reclaimed: true, reconnected: isConnectedServerDevice(result.device) };
+      return {
+        success: false,
+        code: 'home-device-reclaim-failed',
+        message: 'The Home Device is online, but OpenX could not restore ownership yet. Try reconnect again in a few seconds.',
+        device: existing
+      };
     }
     const upserted = this.discovery.addDiscoveredDevice(toServerDiscoveryDevice(result.device), { includePaired: true });
-    return { success: true, device: upserted.device || result.device };
+    return { success: true, device: upserted.device || result.device, reconnected: isConnectedServerDevice(result.device) };
   }
 
   getSnapshot() {

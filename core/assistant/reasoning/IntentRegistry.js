@@ -205,6 +205,38 @@ const INTENT_DEFINITIONS = [
     description: 'Prepare a Home Automation device-control packet'
   },
   {
+    id: 'home.devices.list',
+    patterns: [
+      'what home devices do i have',
+      'what are my home devices',
+      'show my home devices',
+      'list home devices',
+      'connected home devices'
+    ],
+    permissionLevel: 'low',
+    action: 'home.devices.list',
+    entities: [
+      { name: 'scope', type: 'string', required: false }
+    ],
+    description: 'List paired and discovered OpenX Home Devices'
+  },
+  {
+    id: 'schedule.list',
+    patterns: [
+      'what is my today schedule',
+      'what is my schedule today',
+      'show my schedule today',
+      'list today schedule',
+      'what do i have today'
+    ],
+    permissionLevel: 'low',
+    action: 'schedule.list',
+    entities: [
+      { name: 'scope', type: 'string', required: false }
+    ],
+    description: 'List OpenX reminders, alarms, timers, and planner items'
+  },
+  {
     id: 'mode.start',
     patterns: ['start mode', 'open mode', 'launch mode', 'activate mode', 'start the mode'],
     permissionLevel: 'low',

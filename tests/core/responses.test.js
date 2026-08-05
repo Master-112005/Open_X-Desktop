@@ -24,6 +24,28 @@ describe('Response Generator', function() {
     assert.equal(result, 'Bed Light is already off, sir.');
   });
 
+  it('should answer home device inventory with names and state', function() {
+    const gen = new ResponseGenerator();
+    const result = gen.generate('success', 'home.devices.list', {
+      result: {
+        data: {
+          count: 2,
+          pairedCount: 2,
+          onlineCount: 1,
+          devices: [
+            { deviceName: 'Bed Light', pairingStatus: 'paired', connectionStatus: 'online' },
+            { deviceName: 'Desk Light', pairingStatus: 'paired', connectionStatus: 'offline' }
+          ]
+        }
+      }
+    });
+
+    assert.match(result, /2 Home Devices/i);
+    assert.match(result, /1 online/i);
+    assert.match(result, /Bed Light \(online\)/i);
+    assert.match(result, /Desk Light \(offline\)/i);
+  });
+
   it('should generate success response with interpolation', function() {
     const gen = new ResponseGenerator();
     const result = gen.generate('success', 'volume.set', { entities: { value: 70 } });
@@ -505,6 +527,27 @@ describe('Response Generator', function() {
     assert.match(reminder, /Jul|7\//i);
     assert.match(reminder, /12:21/);
     assert.match(reminder, /daily/i);
+  });
+
+  it('should summarize local OpenX schedule items', function() {
+    const gen = new ResponseGenerator();
+    const result = gen.generate('success', 'schedule.list', {
+      result: {
+        data: {
+          scope: 'today',
+          count: 2,
+          entries: [
+            { kind: 'Reminder', label: 'call mummy', dueAt: '2026-08-02T12:21:00' },
+            { kind: 'Calendar', label: 'team review', date: '2026-08-02' }
+          ]
+        }
+      }
+    });
+
+    assert.match(result, /today OpenX schedule has 2 items/i);
+    assert.match(result, /Reminder: call mummy at/i);
+    assert.match(result, /Calendar: team review/i);
+    assert.doesNotMatch(result, /team review at/i);
   });
 
   it('should include planner title date and time in planner confirmations', function() {

@@ -5,6 +5,7 @@ const CloudResponseSerializer = require('./CloudResponseSerializer');
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 60000;
 const DEFAULT_PROCESS_BATCH_SIZE = 8;
+const DEFAULT_PROGRESS_UPDATE_MS = 500;
 const MAX_COMMAND_LENGTH = 4000;
 
 function yieldToEventLoop() {
@@ -36,6 +37,9 @@ class CloudCommandManager extends EventEmitter {
     this.processBatchSize = Number.isFinite(options.processBatchSize)
       ? Math.max(1, Math.min(25, Math.round(options.processBatchSize)))
       : DEFAULT_PROCESS_BATCH_SIZE;
+    this.progressUpdateMs = Number.isFinite(options.progressUpdateMs)
+      ? Math.max(100, Math.min(5000, Math.round(options.progressUpdateMs)))
+      : DEFAULT_PROGRESS_UPDATE_MS;
     this.logger = options.logger || console;
     this.lifecycle = new Map();
     this.started = false;
@@ -115,6 +119,7 @@ class CloudCommandManager extends EventEmitter {
       return { accepted: true, requestId: request.requestId };
     }
 
+    const queueWasBusy = this.processing || this.queue.getStatistics().active || this.queue.getStatistics().queued > 0;
     const queued = this.queue.enqueue(request);
     if (!queued.accepted) {
       this.setLifecycle(request.requestId, queued.code);
@@ -125,6 +130,11 @@ class CloudCommandManager extends EventEmitter {
     }
 
     this.setLifecycle(request.requestId, 'queued');
+    if (queueWasBusy) {
+      this.sendAssistantStatus(request, 'queued', 'OpenX Desktop queued your command.', {
+        data: { queuedPosition: this.queue.getStatistics().queued }
+      });
+    }
     this.processQueue();
     return { accepted: true, requestId: request.requestId };
   }
@@ -287,9 +297,17 @@ class CloudCommandManager extends EventEmitter {
       requestId: request.requestId,
       sourceDeviceId: request.sourceDeviceId
     });
+    const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    let finished = false;
+    const progressTimer = setTimeout(() => {
+      if (finished) return;
+      this.sendAssistantStatus(request, 'processing', 'OpenX Desktop is processing your command.');
+    }, this.progressUpdateMs);
+    progressTimer.unref?.();
     try {
       const result = await this.withTimeout(
         this.commandRouter.route(request.command, {
+          signal: abortController?.signal || null,
           phoneContext: {
             deviceId: request.sourceDeviceId,
             deviceName: request.deviceName || null,
@@ -298,8 +316,11 @@ class CloudCommandManager extends EventEmitter {
             cloudRequestId: request.requestId
           }
         }),
-        this.executionTimeoutMs
+        this.executionTimeoutMs,
+        () => abortController?.abort?.()
       );
+      finished = true;
+      clearTimeout(progressTimer);
       this.setLifecycle(request.requestId, 'completed');
       this.queue.finish(true);
       this.sendSerializedResponse(this.serializer.serialize({
@@ -320,6 +341,8 @@ class CloudCommandManager extends EventEmitter {
         success: result?.success === true
       });
     } catch (error) {
+      finished = true;
+      clearTimeout(progressTimer);
       const timedOut = error?.code === 'execution-timeout';
       this.setLifecycle(request.requestId, timedOut ? 'timed-out' : 'failed');
       this.queue.finish(false);
@@ -346,6 +369,17 @@ class CloudCommandManager extends EventEmitter {
         error: error?.message || String(error)
       });
     }
+  }
+
+  sendAssistantStatus(request, status, message, metadata = {}) {
+    const sent = this.sendSerializedResponse(this.serializer.status(request, status, message, metadata));
+    if (sent) {
+      this.log('debug', 'Progress Sent', {
+        requestId: request.requestId,
+        status
+      });
+    }
+    return sent;
   }
 
   async executeScheduleSync(request) {
@@ -460,10 +494,13 @@ class CloudCommandManager extends EventEmitter {
     });
   }
 
-  withTimeout(promise, timeoutMs) {
+  withTimeout(promise, timeoutMs, onTimeout = null) {
     let timer = null;
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(() => {
+        try {
+          onTimeout?.();
+        } catch (_) {}
         const error = new Error('Execution Timed Out');
         error.code = 'execution-timeout';
         reject(error);
