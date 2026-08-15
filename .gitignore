@@ -7,6 +7,10 @@ models/whisper/*.bin
 dist/
 .playwright-mcp/
 models/
+!models/
+models/*
+!models/parakeet/
+!models/parakeet/**
 !core/assistant/models/
 !core/assistant/models/**
 AGENTS.md

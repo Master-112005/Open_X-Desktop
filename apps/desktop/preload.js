@@ -17,6 +17,27 @@ const openxApi = {
   hideChat: () =>
     ipcRenderer.invoke('window:hideChat'),
 
+  openVoice: () =>
+    ipcRenderer.invoke('window:openVoice'),
+
+  closeVoice: () =>
+    ipcRenderer.invoke('voice:close'),
+
+  getVoiceActivation: () =>
+    ipcRenderer.invoke('voice:getActivation'),
+
+  getVoiceSettings: () =>
+    ipcRenderer.invoke('voice:getSettings'),
+
+  updateVoiceSettings: (settings = {}) =>
+    ipcRenderer.invoke('voice:updateSettings', settings),
+
+  transcribeVoice: (samples) =>
+    ipcRenderer.invoke('voice:transcribe', samples),
+
+  processVoiceCommand: (input) =>
+    ipcRenderer.invoke('command:process', { input, source: 'voice' }),
+
   openDesktopChatApp: () =>
     ipcRenderer.invoke('window:openPeopleChat'),
 
@@ -206,6 +227,15 @@ const openxApi = {
   handleScheduleAlert: (id, action, minutes = 5) =>
     ipcRenderer.invoke('schedule:alertAction', { id, action, minutes }),
 
+  stopIsland: (payload = {}) =>
+    ipcRenderer.invoke('island:stop', payload),
+
+  snoozeIsland: (payload = {}) =>
+    ipcRenderer.invoke('island:snooze', payload),
+
+  islandIdle: () =>
+    ipcRenderer.invoke('island:idle'),
+
   getScheduleSnapshot: () =>
     ipcRenderer.invoke('schedule:getSnapshot'),
 
@@ -363,6 +393,42 @@ const openxApi = {
     const handler = (_event, schedule) => callback(schedule);
     ipcRenderer.on('schedule:due', handler);
     return () => ipcRenderer.removeListener('schedule:due', handler);
+  },
+
+  onVoiceActivated: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Voice activation listener must be a function');
+    }
+    const handler = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('voice:activated', handler);
+    return () => ipcRenderer.removeListener('voice:activated', handler);
+  },
+
+  onVoiceDeactivated: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Voice deactivation listener must be a function');
+    }
+    const handler = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('voice:deactivated', handler);
+    return () => ipcRenderer.removeListener('voice:deactivated', handler);
+  },
+
+  onVoiceInterrupted: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Voice interrupt listener must be a function');
+    }
+    const handler = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('voice:interrupted', handler);
+    return () => ipcRenderer.removeListener('voice:interrupted', handler);
+  },
+
+  onIslandShow: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Island listener must be a function');
+    }
+    const handler = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('island:show', handler);
+    return () => ipcRenderer.removeListener('island:show', handler);
   },
 
   onTimerWidgetState: (callback) => {

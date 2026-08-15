@@ -4,6 +4,7 @@ const { clampConfidence } = require('./AcquisitionSanitizer');
 
 const BASE_CONFIDENCE = Object.freeze({
   chat: 0.99,
+  voice: 0.94,
 
   phone: 0.92,
   cloud: 0.86,

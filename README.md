@@ -43,9 +43,8 @@ This README was updated from a filtered local scan of the OpenX repository.
 - Controls browsers, media, folders, files, system settings, volume, brightness, screenshots, recording, reminders, alarms, timers, planner items, and schedules.
 - Supports natural multi-step commands such as opening multiple apps, closing recent app groups, and applying shared values to volume and brightness.
 - Provides local OpenX Chat for real user-to-user messaging through OpenX Chat Server.
-- Shows chat notifications and assistant actions through the Dynamic Island when the chat surface is not active.
 - Stores local chat state and bounded message history in `OpenX_Data`.
-- Provides local chat sessions with audio capture, preprocessing, text input, inputText normalization, Dynamic Island chat UI, and Windows SAPI text output.
+- Provides local chat sessions with audio capture, preprocessing, text input, inputText normalization, and Windows SAPI text output.
 - Provides OpenX Gallery for local photos, favorites, recent photos, timeline browsing, people naming, relation metadata, and photo search.
 - Uses Visual Memory for local photo indexing, metadata filtering, semantic/visual search foundations, face memory, people grouping, duplicate suppression, and future model-backed retrieval.
 - Connects with OpenX Mobile and cloud relay for pairing, commands, presence, and file transfer.
@@ -89,9 +88,9 @@ OpenX uses local model files and local Windows runtimes where possible.
 
 | File | Important classes/functions | Responsibility |
 |---|---|---|
-| `apps/desktop/electron/main.js` | `initializeAssistant`, `setupIPC`, `createChatWindow`, `createSettingsWindow`, `createPeopleChatWindow`, `createGalleryWindow`, `initializeCloudConnection`, `initializeCloudPairing`, `initializeCloudCommands`, `initializeCloudFileTransfers`, `startDesktopChatRegistration`, `sendDesktopChatMessage`, `sendDesktopChatMessageToContact`, `processDesktopChatIncomingEnvelope`, `syncDesktopChatMailbox`, `ensureVisualMemoryRuntime`, `getLazyVisualMemoryApi` | Electron main process, window lifecycle, IPC, assistant boot, cloud, desktop chat, gallery, dynamic island, data migration, and cleanup. |
+| `apps/desktop/electron/main.js` | `initializeAssistant`, `setupIPC`, `createChatWindow`, `createSettingsWindow`, `createPeopleChatWindow`, `createGalleryWindow`, `initializeCloudConnection`, `initializeCloudPairing`, `initializeCloudCommands`, `initializeCloudFileTransfers`, `startDesktopChatRegistration`, `sendDesktopChatMessage`, `sendDesktopChatMessageToContact`, `processDesktopChatIncomingEnvelope`, `syncDesktopChatMailbox`, `ensureVisualMemoryRuntime`, `getLazyVisualMemoryApi` | Electron main process, window lifecycle, IPC, assistant boot, cloud, desktop chat, gallery, data migration, and cleanup. |
 | `apps/desktop/electron/security.js` | IPC validators and channel allow-listing | Rejects invalid or unauthorized renderer payloads before they reach privileged main-process code. |
-| `apps/desktop/preload.js` | `contextBridge` APIs, chat overlay render helpers | Safe bridge from renderer windows to main process. |
+| `apps/desktop/preload.js` | `contextBridge` APIs | Safe bridge from renderer windows to main process. |
 | `apps/desktop/renderer/chat/index.js` | `sendMessage`, settings handlers, chat app handlers, people chat handlers | Main assistant renderer, settings UI, apps surface, activity, OpenX Chat UI, dynamic state rendering. |
 | `apps/desktop/renderer/gallery/index.js` | gallery view rendering, people scan, viewer, favorites, recent | Gallery renderer for photos, timeline, search, people, and image viewer. |
 | `core/assistant/index.js` | `Assistant`, `processCommand` | Public assistant facade used by desktop chat, chat, phone, cloud, and other command sources. |
@@ -139,7 +138,7 @@ chat / chat / cloud / mobile
   -> verification
   -> response generation
   -> context and learning update
-  -> renderer, chat, dynamic island, cloud, or chat response
+  -> renderer, chat, cloud, or chat response
 ```
 
 Important behavior:
@@ -164,7 +163,7 @@ desktop chat UI
   -> OpenX Chat Server REST/WebSocket
   -> mailbox and live delivery
   -> local message store
-  -> chat UI or Dynamic Island notification
+  -> chat UI
 ```
 
 Important desktop chat responsibilities:
@@ -176,7 +175,6 @@ Important desktop chat responsibilities:
 - Receive live messages over WebSocket.
 - Sync missed messages from mailbox paths.
 - Store local bounded chat history in `OpenX_Data`.
-- Show Dynamic Island notifications only when appropriate.
 
 The chat server remains the transport and account authority. The desktop remains the local UI, local encryption, and local state owner.
 
@@ -190,7 +188,7 @@ Alt+Space or chat UI
   -> inputText normalization
   -> Assistant.processCommand
   -> response
-  -> Dynamic Island and optional text output
+  -> chat UI and optional text output
 ```
 
 Chat resource behavior:
@@ -236,7 +234,7 @@ OpenX Mobile / relay
   -> cloud connection manager
   -> pairing manager
   -> command manager or file transfer manager
-  -> assistant / dynamic island / file storage
+  -> assistant / file storage
 ```
 
 Cloud features:
@@ -245,7 +243,7 @@ Cloud features:
 - QR pairing and approval/rejection.
 - Cloud command execution through the assistant pipeline.
 - Phone/mobile presence.
-- File transfer prompts through the Dynamic Island.
+- File transfer receive lifecycle and received-file storage.
 - Received file storage under `%USERPROFILE%\Documents\OpenX\`.
 - E2EE helpers for encrypted cloud packets.
 

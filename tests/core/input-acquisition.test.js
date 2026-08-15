@@ -6,6 +6,7 @@ describe('Assistant Input Acquisition Layer', function() {
     const manager = createDefaultInputSourceManager();
     const samples = [
       ['chat', 'open chrome', {}],
+      ['voice', 'open chrome', { metadata: { transcriptSource: 'parakeet' } }],
       ['phone', 'send me resume file', { phoneContext: { deviceId: 'phone_1', deviceName: 'Pixel' } }],
       ['cloud', { payload: { command: 'open downloads' }, metadata: { cloudRequestId: 'cloud_1' } }, {}],
       ['plugin', 'run plugin action', { metadata: { pluginId: 'plugin.test' } }],
@@ -16,7 +17,7 @@ describe('Assistant Input Acquisition Layer', function() {
 
     const results = samples.map(([source, input, options]) => manager.acquire(input, source, options));
 
-    assert.equal(results.length, 7);
+    assert.equal(results.length, 8);
     results.forEach((rawInput, index) => {
       assert.ok(rawInput.id);
       assert.ok(rawInput.requestId);
@@ -67,5 +68,38 @@ describe('Assistant Input Acquisition Layer', function() {
     assert.equal(result.output.source, 'phone');
     assert.equal(observedRawInput.source, 'phone');
     assert.equal(observedRawInput.device.deviceId, 'phone_1');
+  });
+
+  it('routes desktop voice transcripts through the assistant engine', async function() {
+    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
+    const AssistantEngine = require('../../core/assistant/AssistantEngine');
+
+    let observed = null;
+    const engine = new AssistantEngine({
+      inputSourceManager: createDefaultInputSourceManager(),
+      pipeline: {
+        async process(payload) {
+          observed = payload;
+          return {
+            success: true,
+            output: {
+              success: true,
+              source: payload.rawUserInput.source,
+              response: 'done'
+            }
+          };
+        }
+      }
+    });
+
+    const result = await engine.processCommand('what time is it', 'voice', {
+      metadata: { transcriptSource: 'parakeet' }
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.source, 'voice');
+    assert.equal(observed.rawUserInput.source, 'voice');
+    assert.equal(observed.rawUserInput.sourceType, 'desktop-voice');
+    assert.equal(observed.rawUserInput.metadata.transcriptSource, 'parakeet');
   });
 });

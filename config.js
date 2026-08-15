@@ -87,6 +87,16 @@ const CONFIG = {
     }
   },
 
+  voice: {
+    activationShortcut: 'Alt+Space',
+    microphoneDeviceId: null,
+    voiceVolume: 1,
+    showVoiceTranscript: true,
+    autoCloseVoice: false,
+    speakRepliesEnabled: true,
+    ttsVoiceURI: ''
+  },
+
   system: {
     pollingIntervalMs: 5000,
     volumeStep: 5,

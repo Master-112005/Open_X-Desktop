@@ -163,10 +163,10 @@ Model and runtime files found:
 
 | File | Important classes/functions | Responsibility |
 |---|---|---|
-| `apps/desktop/electron/main.js` | `initializeAssistant`, `setupIPC`, `createChatWindow`, `createSettingsWindow`, `createPeopleChatWindow`, `createGalleryWindow`, `startDesktopChatRegistration`, `sendDesktopChatMessage`, `sendDesktopChatMessageToContact`, `processDesktopChatIncomingEnvelope`, `syncDesktopChatMailbox`, `startDesktopChatReceiveRuntime`, `ensureVisualMemoryRuntime`, `getLazyVisualMemoryApi`, `initializeCloudConnection`, `initializeCloudPairing`, `initializeCloudCommands`, `initializeCloudFileTransfers` | Main Electron process, app lifecycle, IPC, windows, assistant boot, desktop chat, live receive, mailbox sync, Dynamic Island, gallery, cloud, chat, data cleanup, and shutdown. |
+| `apps/desktop/electron/main.js` | `initializeAssistant`, `setupIPC`, `createChatWindow`, `createSettingsWindow`, `createPeopleChatWindow`, `createGalleryWindow`, `startDesktopChatRegistration`, `sendDesktopChatMessage`, `sendDesktopChatMessageToContact`, `processDesktopChatIncomingEnvelope`, `syncDesktopChatMailbox`, `startDesktopChatReceiveRuntime`, `ensureVisualMemoryRuntime`, `getLazyVisualMemoryApi`, `initializeCloudConnection`, `initializeCloudPairing`, `initializeCloudCommands`, `initializeCloudFileTransfers` | Main Electron process, app lifecycle, IPC, windows, assistant boot, desktop chat, live receive, mailbox sync, gallery, cloud, chat, data cleanup, and shutdown. |
 | `apps/desktop/electron/security.js` | IPC validation helpers and allow-listing | Validates renderer payloads before privileged main-process handlers run. |
-| `apps/desktop/preload.js` | `contextBridge` APIs, chat overlay DOM render helpers | Safe renderer bridge for assistant, settings, gallery, cloud, chat, chat, and UI commands. |
-| `apps/desktop/renderer/chat/index.js` | assistant chat handlers, settings handlers, people chat handlers, app navigation handlers | Main desktop renderer for assistant chat, activity, apps, settings, profile, OpenX Chat, and Dynamic Island-adjacent UI state. |
+| `apps/desktop/preload.js` | `contextBridge` APIs | Safe renderer bridge for assistant, settings, gallery, cloud, chat, chat, and UI commands. |
+| `apps/desktop/renderer/chat/index.js` | assistant chat handlers, settings handlers, people chat handlers, app navigation handlers | Main desktop renderer for assistant chat, activity, apps, settings, profile, OpenX Chat, and UI state. |
 | `apps/desktop/renderer/gallery/index.js` | gallery rendering, people scan, viewer, favorites, recent, search | Local Gallery UI. |
 | `core/assistant/index.js` | `Assistant`, `processCommand`, `_processCommandDirect`, contextual rewrite and pending state methods | Main assistant facade. |
 | `core/assistant/automation/ActionRouter.js` | `ActionRouter`, `process` | Natural command routing, multi-command splitting, intent/entity repair, and automation preparation. |
@@ -223,7 +223,7 @@ User input
   -> verification
   -> ResponseGenerator
   -> context and learning update
-  -> renderer / chat / dynamic island / mobile / cloud response
+  -> renderer / chat / mobile / cloud response
 ```
 
 Key command examples handled by the architecture:
@@ -301,7 +301,6 @@ WebSocket envelope or mailbox sync envelope
   -> append bounded local message history
   -> ACK contiguous mailbox sequence
   -> notify renderer
-  -> Dynamic Island notification if chat is not active
   -> optional text output prompt for urgent/actionable messages
 ```
 
@@ -320,7 +319,7 @@ Important chat modules:
 
 ## Chat Runtime
 
-Chat is built as a layered local runtime under `apps/desktop/chat`. The design keeps capture, preprocessing, text input, inputText normalization, assistant dispatch, text output, overlay UI, and diagnostics separate.
+Chat is built as a layered local runtime under `apps/desktop/chat`. The design keeps capture, preprocessing, text input, inputText normalization, assistant dispatch, text output, and diagnostics separate.
 
 ```text
 Alt+Space / chat shortcut
@@ -332,7 +331,7 @@ Alt+Space / chat shortcut
   -> Assistant.processCommand
   -> ChatResponseHandler
   -> ChatExecutionCoordinator
-  -> Windows SAPI text output and Dynamic Island overlay
+  -> Windows SAPI text output
 ```
 
 Performance notes:
@@ -500,7 +499,7 @@ Plugin actions are registered with the assistant/automation layer and remain sub
 | `tests/core/` | Assistant, NLP, routing, learning, security, cloud, gallery, visual memory, chat, chat, settings, scheduler, validation, verification. |
 | `tests/automation/` | Apps, browser, files, media, volume, brightness, communications, windows/session automation. |
 | `tests/context-awareness/` | Context engine and mode engine. |
-| `tests/ui/` | Renderer UI contracts for chat, gallery, planner, dynamic island, timer widget, schedule alerts. |
+| `tests/ui/` | Renderer UI contracts for chat, gallery, planner, timer widget, schedule alerts. |
 | `tests/media-handling/` | Media handling behavior. |
 
 ## Detailed System Architecture
@@ -544,7 +543,7 @@ The codebase deliberately avoids placing all assistant behavior in the Electron 
 
 ## Desktop Electron Runtime Detail
 
-`apps/desktop/electron/main.js` is the largest coordination file. It does not only create windows; it is also the integration point between desktop UI, assistant core, OpenX Chat, Visual Memory, chat, cloud relay, file transfer, Dynamic Island, settings, security lock, crash recovery, and cleanup.
+`apps/desktop/electron/main.js` is the largest coordination file. It does not only create windows; it is also the integration point between desktop UI, assistant core, OpenX Chat, Visual Memory, chat, cloud relay, file transfer, settings, security lock, crash recovery, and cleanup.
 
 Important main-process responsibilities:
 
@@ -555,12 +554,11 @@ Important main-process responsibilities:
 - Harden renderer sessions and permissions.
 - Maintain assistant runtime singleton.
 - Dispatch assistant commands from chat, chat, phone, cloud, and OpenX Chat.
-- Start chat capture and chat overlay only when needed.
+- Start chat capture only when needed.
 - Start Visual Memory only when a gallery or visual-memory path needs it.
 - Connect to cloud relay only when enabled or requested.
 - Manage file transfer prompts, progress, accept/reject, and final storage.
 - Manage OpenX Chat registration/login, live WebSocket receive, mailbox sync, message send, and local history.
-- Present schedule alerts, chat notifications, transfer prompts, and phone notifications through the Dynamic Island.
 - Clean up timers, windows, sockets, chat runtime, and child processes during shutdown.
 
 Key runtime protection mechanisms:
@@ -583,7 +581,6 @@ OpenX has multiple renderer surfaces. Each renderer has a narrow purpose and com
 | Planner | `apps/desktop/renderer/planner/` | Calendar, planner, schedule views. |
 | Timer widget | `apps/desktop/renderer/timer-widget/` | Floating timer/reminder/alarm widget state. |
 | Chat capture | `apps/desktop/renderer/chat-capture/` | Browser-side audio capture bridge when chat is active. |
-| Chat overlay | `apps/desktop/chat/ui/` | Dynamic Island style chat state, inputText, actions, live schedule, notifications, chat prompts. |
 
 The main assistant renderer under `apps/desktop/renderer/chat` now handles both the assistant window and OpenX Chat app. It contains logic for:
 
@@ -612,7 +609,7 @@ Important preload-exposed capability groups:
 - Settings and profile updates.
 - Security lock status and verification.
 - Planner and schedule commands.
-- Chat overlay/capture state.
+- Chat capture state.
 - Cloud connection, pairing, devices, and transfer actions.
 - Gallery photo, favorite, recent, people, and scan operations.
 - OpenX Chat setup, contact, conversation, and message operations.
@@ -845,7 +842,7 @@ Desktop UI layer
   -> chat setup, contact search, request UI, conversation UI, message composer
 
 Electron integration layer
-  -> account/device state, server requests, WebSocket receive, mailbox sync, Dynamic Island notifications
+  -> account/device state, server requests, WebSocket receive, mailbox sync
 
 core/chat domain layer
   -> crypto, messages, conversations, sync, requests, devices, state, transfer, quality, performance
@@ -920,17 +917,6 @@ live WebSocket disconnected
 ```
 
 This split is important because laptop sleep, network changes, and Render/cloud WebSocket resets can happen normally. The mailbox path is the recovery path.
-
-### Dynamic Island Chat Behavior
-
-Dynamic Island is used only when it helps the user.
-
-Expected behavior:
-
-- If OpenX Chat is open and active, new messages update the chat UI without a Dynamic Island interruption.
-- If OpenX Chat is closed or hidden, incoming messages can appear in Dynamic Island.
-- For action-like messages such as `call me`, OpenX can show a prompt and offer a small response action.
-- Message prompts should identify sender and a short safe preview.
 
 ## Visual Memory Detailed Architecture
 
@@ -1095,9 +1081,9 @@ cloud command packet
 
 The user-facing file destination is intentionally not `OpenX_Data` because received files are user documents, not hidden assistant state.
 
-## Scheduling, Planner, And Dynamic Island Detail
+## Scheduling, Planner, And Timer Detail
 
-OpenX scheduling combines assistant parsing, scheduler automation, local data storage, UI rendering, and Dynamic Island alerts.
+OpenX scheduling combines assistant parsing, scheduler automation, local data storage, UI rendering, and timer alerts.
 
 Supported schedule objects:
 
@@ -1116,7 +1102,7 @@ natural language schedule command
   -> scheduler/planner controller
   -> local schedules/planner JSON
   -> timer/alert evaluation
-  -> Dynamic Island or planner UI
+  -> planner UI
   -> user action such as snooze/stop/open
 ```
 
@@ -1159,7 +1145,6 @@ UI performance principles:
 - Use file URLs for local gallery images.
 - Avoid repeated timers when a window is closed.
 - Disconnect observers and polling loops on unload.
-- Keep Dynamic Island updates short and structured.
 
 ## Production Readiness Notes
 
@@ -1182,7 +1167,6 @@ Important release checks before shipping:
 - Delete `%USERPROFILE%\OpenX_Data` and confirm assistant/chat local history resets as expected.
 - Confirm received files still go to `%USERPROFILE%\Documents\OpenX`.
 - Confirm OpenX Chat can register/login, create device state, add contact, send message, receive message, and sync mailbox after reconnect.
-- Confirm Dynamic Island chat notifications appear only when chat is not active.
 - Confirm gallery opens quickly and indexes in background.
 - Confirm Visual Memory people scan does not overuse CPU/RAM on a large Pictures folder.
 - Confirm chat first-use startup works after lazy prewarm.

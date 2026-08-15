@@ -27,6 +27,7 @@ const { CloudCommandManager, CloudConnectionManager, CloudFileTransferManager, C
 const { HomeOnboardingManager, HomeLanDiscoveryTransport, HomeDeviceStore, resolveHomeOwnerId, HomeCommandClient } = require('../../../core/home-automation');
 const CrashRecoveryPolicy = require('./crash-recovery');
 const OpenXSecurityLock = require('../security-lock');
+const { ModelLoader } = require('../voice/stt/ModelLoader');
 const {
   IPC_VALIDATORS,
   assertTrustedIpcSender,
@@ -59,6 +60,12 @@ const TEMP_CLEANUP_STARTUP_DELAY_MS = 12 * 1000;
 const TEMP_CLEANUP_MAX_SCAN_ENTRIES = 1000;
 const TEMP_CLEANUP_MAX_DELETE_ENTRIES = 128;
 const TEMP_CLEANUP_CONCURRENCY = 4;
+const VOICE_WINDOW_WIDTH = 460;
+const VOICE_WINDOW_HEIGHT = 144;
+const ISLAND_WINDOW_WIDTH = 460;
+const ISLAND_WINDOW_HEIGHT = 144;
+const VOICE_MODEL_PRELOAD_DELAY_MS = 90 * 1000;
+const ISLAND_DEFAULT_SNOOZE_MINUTES = 5;
 
 const ELECTRON_PROFILE_DIR = BASE_CONFIG.app.dataPaths.electronProfileDir;
 const LEGACY_ELECTRON_PROFILE_DIRS = Object.freeze([
@@ -265,6 +272,11 @@ const crashRecoveryPolicy = new CrashRecoveryPolicy({
 });
 
 let chatWindow = null;
+let voiceWindow = null;
+let islandWindow = null;
+let islandReady = false;
+let pendingVoiceActivation = null;
+let pendingIslandItems = [];
 let timerWidgetWindow = null;
 let timerWidgetMode = null;
 let plannerWindow = null;
@@ -276,13 +288,14 @@ let visualMemoryDefaultFoldersReady = false;
 let visualMemoryIndexPromise = null;
 let lazyVisualMemoryApi = null;
 let visualMemoryReadyLogged = false;
-let liveScheduleCollapseTimer = null;
-let activeLiveSchedulePayload = null;
 let powerRecoveryHandlersRegistered = false;
 let settingsService = null;
 let runtimeConfig = null;
 let eventBus = null;
 let registeredChatShortcuts = [];
+let registeredVoiceShortcuts = [];
+let voiceModelLoader = null;
+let voiceWarmupTimer = null;
 let ipcRegistered = false;
 let cleanupFinished = false;
 let cleanupPromise = null;
@@ -322,11 +335,9 @@ let lastHomeBluetoothSelection = null;
 const HOME_BLUETOOTH_SCAN_TIMEOUT_MS = 35000;
 let cloudProfileSyncRegistered = false;
 let cloudModesSyncRegistered = false;
-const cloudFileTransferUiProgress = new Map();
 const rendererCrashHistory = new Map();
 const recoveryTimeouts = new Set();
 const unresponsiveTimeouts = new Map();
-const LIVE_SCHEDULE_INITIAL_EXPAND_MS = 5000;
 const DEFAULT_CHAT_API_BASE_URL = 'https://openx-chat-server.onrender.com';
 const LEGACY_CHAT_API_BASE_URLS = new Set([
   'http://localhost:8090',
@@ -362,6 +373,12 @@ const IPC_CHANNELS = [
   'browser:openExternal',
   'window:openChat',
   'window:hideChat',
+  'window:openVoice',
+  'voice:close',
+  'voice:getActivation',
+  'voice:getSettings',
+  'voice:updateSettings',
+  'voice:transcribe',
   'window:openPeopleChat',
   'window:openSettings',
   'window:openPlanner',
@@ -410,6 +427,9 @@ const IPC_CHANNELS = [
   'settings:save',
   'settings:reset',
   'schedule:alertAction',
+  'island:stop',
+  'island:snooze',
+  'island:idle',
   'cloud:fileTransferAction',
   'schedule:getSnapshot',
   'timerWidget:getState',
@@ -465,6 +485,16 @@ function isChatRendererUrl(url) {
   }
 }
 
+function isVoiceRendererUrl(url) {
+  if (!isTrustedRendererUrl(url, RENDERER_ROOT)) return false;
+  try {
+    const { fileURLToPath } = require('url');
+    return path.resolve(fileURLToPath(url)) === path.resolve(path.join(RENDERER_ROOT, 'voice', 'index.html'));
+  } catch (_) {
+    return false;
+  }
+}
+
 function canGrantHomeBluetoothPermission(webContents, permission, candidateUrl = '') {
   const normalizedPermission = String(permission || '').toLowerCase();
   const bluetoothPermissions = new Set([
@@ -476,6 +506,13 @@ function canGrantHomeBluetoothPermission(webContents, permission, candidateUrl =
   if (!bluetoothPermissions.has(normalizedPermission)) return false;
   const contentsUrl = webContents?.getURL?.() || '';
   return isChatRendererUrl(candidateUrl) || isChatRendererUrl(contentsUrl);
+}
+
+function canGrantVoiceMediaPermission(webContents, permission, candidateUrl = '') {
+  const normalizedPermission = String(permission || '').toLowerCase();
+  if (!['media', 'audio', 'microphone'].includes(normalizedPermission)) return false;
+  const contentsUrl = webContents?.getURL?.() || '';
+  return isVoiceRendererUrl(candidateUrl) || isVoiceRendererUrl(contentsUrl);
 }
 
 function clearPendingHomeBluetoothSelection() {
@@ -537,6 +574,11 @@ function configureSessionSecurity() {
         callback(true);
         return;
       }
+      if (canGrantVoiceMediaPermission(webContents, permission, requestingUrl)) {
+        mainLogger.info('[VOICE] Allowed microphone permission', { permission, requestingUrl });
+        callback(true);
+        return;
+      }
       mainLogger.warn('Blocked renderer permission request', {
         permission,
         requestingUrl
@@ -545,6 +587,9 @@ function configureSessionSecurity() {
     });
     defaultSession?.setPermissionCheckHandler?.((webContents, permission, requestingOrigin) => {
       if (canGrantHomeBluetoothPermission(webContents, permission, requestingOrigin)) {
+        return true;
+      }
+      if (canGrantVoiceMediaPermission(webContents, permission, requestingOrigin)) {
         return true;
       }
       mainLogger.warn('Blocked renderer permission check', { permission, requestingOrigin });
@@ -783,6 +828,23 @@ function secureWindow(browserWindow, options) {
   });
 }
 
+function forwardRendererConsole(browserWindow, windowType) {
+  browserWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const metadata = {
+      windowType,
+      line: Number(line) || null,
+      source: sourceId ? path.basename(String(sourceId)) : ''
+    };
+    if (level >= 3) {
+      mainLogger.error(`[${windowType}] ${message}`, metadata);
+    } else if (level === 2) {
+      mainLogger.warn(`[${windowType}] ${message}`, metadata);
+    } else {
+      mainLogger.info(`[${windowType}] ${message}`, metadata);
+    }
+  });
+}
+
 function revealChatWindow() {
   if (!chatWindow || chatWindow.isDestroyed()) return false;
   if (chatWindow.isMinimized()) chatWindow.restore();
@@ -835,6 +897,225 @@ function createChatWindow() {
   if (process.argv.includes('--dev')) {
     chatWindow.webContents.openDevTools({ mode: 'detach' });
   }
+}
+
+function topCenterBounds(width, height, offsetY = 0) {
+  const display = screen.getPrimaryDisplay();
+  const area = display?.workArea || { x: 0, y: 0, width: 1280, height: 720 };
+  return {
+    x: Math.round(area.x + (area.width - width) / 2),
+    y: Math.round(area.y + offsetY),
+    width,
+    height
+  };
+}
+
+function getVoiceModelLoader() {
+  if (!voiceModelLoader) {
+    voiceModelLoader = new ModelLoader({ logger: mainLogger });
+  }
+  return voiceModelLoader;
+}
+
+function scheduleVoiceWarmup(reason = 'startup') {
+  if (voiceWarmupTimer || process.env.OPENX_TEST === '1') return;
+  voiceWarmupTimer = setTimeout(() => {
+    voiceWarmupTimer = null;
+    getVoiceModelLoader().load().catch(error => {
+      mainLogger.warn('[VOICE] Deferred Parakeet warmup failed', { reason, error: error.message });
+    });
+  }, VOICE_MODEL_PRELOAD_DELAY_MS);
+  voiceWarmupTimer.unref?.();
+}
+
+function createVoiceWindow() {
+  if (voiceWindow && !voiceWindow.isDestroyed()) return voiceWindow;
+  voiceWindow = new BrowserWindow({
+    ...topCenterBounds(VOICE_WINDOW_WIDTH, VOICE_WINDOW_HEIGHT),
+    show: false,
+    transparent: true,
+    frame: false,
+    resizable: false,
+    movable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    focusable: true,
+    webPreferences: createSecureWebPreferences(PRELOAD_PATH)
+  });
+  voiceWindow.setAlwaysOnTop(true, 'screen-saver');
+  voiceWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  const voiceFile = path.join(RENDERER_ROOT, 'voice', 'index.html');
+  secureWindow(voiceWindow, {
+    windowType: 'voice',
+    expectedFile: voiceFile,
+    createWindow: createVoiceWindow
+  });
+  forwardRendererConsole(voiceWindow, 'voice-ui');
+  voiceWindow.loadFile(voiceFile).catch(error => {
+    mainLogger.error('[VOICE] Failed to load voice renderer', { error: error.message });
+  });
+  voiceWindow.on('closed', () => {
+    voiceWindow = null;
+  });
+  return voiceWindow;
+}
+
+function openVoiceWindow(options = {}) {
+  const window = createVoiceWindow();
+  const activationPayload = {
+    reason: String(options.reason || 'manual'),
+    greeting: String(options.greeting || ''),
+    activatedAt: new Date().toISOString()
+  };
+  pendingVoiceActivation = activationPayload;
+  window.setBounds(topCenterBounds(VOICE_WINDOW_WIDTH, VOICE_WINDOW_HEIGHT));
+  window.setAlwaysOnTop(true, 'screen-saver');
+  const wasVisible = window.isVisible();
+  window.show();
+  window.focus();
+  getVoiceModelLoader().load().catch(error => {
+    mainLogger.warn('[VOICE] On-demand Parakeet load failed', { error: error.message });
+  });
+  if (!window.webContents.isLoading()) {
+    window.webContents.send(wasVisible ? 'voice:interrupted' : 'voice:activated', activationPayload);
+  }
+  mainLogger.info('[VOICE] Voice window opened', { reason: activationPayload.reason, interrupted: wasVisible });
+  return { success: true, visible: true };
+}
+
+function closeVoiceWindow() {
+  if (!voiceWindow || voiceWindow.isDestroyed()) return { success: true, visible: false };
+  voiceWindow.webContents.send('voice:deactivated', { reason: 'closed' });
+  voiceWindow.hide();
+  return { success: true, visible: false };
+}
+
+function consumePendingVoiceActivation() {
+  const activationPayload = pendingVoiceActivation || {
+    reason: 'startup',
+    greeting: '',
+    activatedAt: new Date().toISOString()
+  };
+  pendingVoiceActivation = null;
+  return activationPayload;
+}
+
+function createIslandWindow() {
+  if (islandWindow && !islandWindow.isDestroyed()) return islandWindow;
+  islandReady = false;
+  islandWindow = new BrowserWindow({
+    ...topCenterBounds(ISLAND_WINDOW_WIDTH, ISLAND_WINDOW_HEIGHT),
+    show: false,
+    transparent: true,
+    frame: false,
+    resizable: false,
+    movable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    focusable: false,
+    webPreferences: createSecureWebPreferences(PRELOAD_PATH)
+  });
+  islandWindow.setAlwaysOnTop(true, 'screen-saver');
+  islandWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  islandWindow.setIgnoreMouseEvents(true, { forward: true });
+  const islandFile = path.join(RENDERER_ROOT, 'island', 'index.html');
+  secureWindow(islandWindow, {
+    windowType: 'island',
+    expectedFile: islandFile,
+    createWindow: createIslandWindow
+  });
+  forwardRendererConsole(islandWindow, 'island-ui');
+  islandWindow.webContents.once('did-finish-load', () => {
+    islandReady = true;
+    flushPendingIslandItems();
+  });
+  islandWindow.loadFile(islandFile).catch(error => {
+    mainLogger.error('[ISLAND] Failed to load island renderer', { error: error.message });
+  });
+  islandWindow.on('closed', () => {
+    islandWindow = null;
+    islandReady = false;
+  });
+  return islandWindow;
+}
+
+function initIslandWindow() {
+  createIslandWindow();
+}
+
+function flushPendingIslandItems() {
+  if (!islandWindow || islandWindow.isDestroyed() || !islandReady) return;
+  while (pendingIslandItems.length > 0) {
+    islandWindow.webContents.send('island:show', pendingIslandItems.shift());
+  }
+}
+
+function showIslandItem(item = {}) {
+  const text = String(item.text || item.message || item.body || item.title || '').trim();
+  if (!text) return false;
+  const window = createIslandWindow();
+  const payload = {
+    id: String(item.id || `island-${Date.now()}`),
+    kind: String(item.kind || item.type || 'assistant').toLowerCase(),
+    title: String(item.title || '').trim(),
+    text,
+    dueAt: item.dueAt || item.createdAt || new Date().toISOString(),
+    visibleMs: Number(item.visibleMs) || undefined,
+    snoozeMinutes: Number(item.snoozeMinutes) || ISLAND_DEFAULT_SNOOZE_MINUTES,
+    primaryAction: String(item.primaryAction || '').trim()
+  };
+  window.setBounds(topCenterBounds(ISLAND_WINDOW_WIDTH, ISLAND_WINDOW_HEIGHT));
+  window.setAlwaysOnTop(true, 'screen-saver');
+  window.setIgnoreMouseEvents(false);
+  window.showInactive();
+  if (!islandReady || window.webContents.isLoading()) {
+    pendingIslandItems.push(payload);
+  } else {
+    window.webContents.send('island:show', payload);
+  }
+  return true;
+}
+
+function setIslandIdle() {
+  if (islandWindow && !islandWindow.isDestroyed()) {
+    islandWindow.setIgnoreMouseEvents(true, { forward: true });
+    islandWindow.hide();
+  }
+  return { success: true };
+}
+
+function buildScheduleIslandItem(schedule = {}) {
+  const kind = String(schedule.kind || schedule.type || 'reminder').toLowerCase();
+  const text = String(schedule.message || schedule.title || schedule.plannerText || 'Scheduled item is due').trim();
+  return {
+    id: String(schedule.id || schedule.scheduleId || `schedule-${Date.now()}`),
+    kind: ['timer', 'alarm', 'schedule', 'calendar'].includes(kind) ? kind : 'reminder',
+    title: kind === 'timer' ? 'Timer' : (kind === 'alarm' ? 'Alarm' : (kind === 'calendar' || kind === 'schedule' ? 'Schedule' : 'Reminder')),
+    text,
+    dueAt: schedule.dueAt || schedule.date || new Date().toISOString(),
+    snoozeMinutes: ISLAND_DEFAULT_SNOOZE_MINUTES
+  };
+}
+
+function runIslandScheduleAction({ id, kind }, action, minutes = ISLAND_DEFAULT_SNOOZE_MINUTES) {
+  if (kind === 'assistant') return { success: true };
+  const scheduler = assistant?.automation?.scheduler;
+  if (!scheduler) return { success: false, error: 'Scheduler unavailable' };
+  const result = action === 'snooze'
+    ? scheduler.snooze(id, minutes)
+    : scheduler.complete(id);
+  if (result?.success) {
+    sendPlannerEntries('calendar');
+    sendScheduleActivitySnapshot(`island-${action}`);
+    broadcastScheduleSync();
+  }
+  return result || { success: false, error: 'Schedule action failed' };
 }
 
 function buildSettingsSnapshot() {
@@ -3048,15 +3329,6 @@ function desktopChatAccountFallbackLabel(accountId) {
   return isDesktopChatAccountId(id) ? `${id.slice(0, 10)}...${id.slice(-4)}` : 'OpenX user';
 }
 
-function desktopChatSenderInitials(senderName) {
-  const words = String(senderName || 'Chat')
-    .replace(/[^A-Za-z0-9 ]/g, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  return (words.length > 1 ? `${words[0][0]}${words[1][0]}` : String(words[0] || 'CH').slice(0, 2)).toUpperCase();
-}
-
 async function resolveDesktopChatAccountLabel(apiBaseUrl, accountId) {
   const normalized = normalizeDesktopChatSetupText(accountId || '', 100).toLowerCase();
   if (!isDesktopChatAccountId(normalized)) return 'OpenX user';
@@ -3112,33 +3384,6 @@ function desktopChatHistoryHasMessage(history = [], messageId = '') {
   return (Array.isArray(history) ? history : []).some(entry => {
     return normalizeDesktopChatSetupText(entry.messageId || '', 100).toLowerCase() === messageId;
   });
-}
-
-function analyzeDesktopChatIncomingPrompt(preview = '', senderName = '') {
-  const text = normalizeDesktopChatText(preview, DESKTOP_CHAT_NOTIFICATION_PREVIEW_MAX);
-  const lower = text.toLowerCase();
-  const sender = normalizeDesktopChatText(senderName || 'OpenX Chat', 80) || 'OpenX Chat';
-  const asksToCall = /\b(?:call|phone|ring)\s+(?:me|back)\b|\b(?:call|phone|ring)\s+me\s+(?:now|immediately|urgent|asap)\b/.test(lower);
-  const urgent = /\b(?:urgent|asap|immediately|emergency|right\s+now|quickly|fast)\b/.test(lower);
-  const asksForReply = /\b(?:reply|respond|text|message)\s+(?:me|back)\b|\b(?:can|could|please)\s+you\b/.test(lower);
-  if (!asksToCall && !urgent && !asksForReply) return null;
-
-  const request = asksToCall
-    ? `${sender} is asking you to call. Can I tell ${sender} OK?`
-    : `${sender} sent: ${text}. Can I tell ${sender} OK?`;
-  return {
-    prompt: request,
-    replyText: 'OK',
-    kind: asksToCall ? 'call-request' : urgent ? 'urgent-message' : 'reply-request'
-  };
-}
-
-function presentDesktopChatPrompt() {
-  return false;
-}
-
-function presentDesktopChatMessageInDynamicIsland() {
-  return false;
 }
 
 async function ensureDesktopChatConversationForEnvelope(manager, envelope = {}, registered = {}, senderName = '') {
@@ -3229,9 +3474,6 @@ async function processDesktopChatIncomingEnvelope(envelope = {}, options = {}) {
   const peerAccountId = direction === 'outgoing' ? recipientAccountId : senderAccountId;
   const peerName = desktopChatConversationPeerLabel(existing || {}, peerAccountId, localAccountId)
     || await resolveDesktopChatAccountLabel(registered.apiBaseUrl, peerAccountId);
-  const senderName = direction === 'incoming'
-    ? peerName
-    : (normalizeDesktopChatText(registered.state?.username || registered.state?.account?.username || '', 80) || 'You');
   let conversation = await ensureDesktopChatConversationForEnvelope(manager, envelope, registered, peerName);
   const historyBefore = await manager.storage.listHistory(conversation.conversationId);
   const duplicate = desktopChatHistoryHasMessage(historyBefore, messageId);
@@ -3266,14 +3508,6 @@ async function processDesktopChatIncomingEnvelope(envelope = {}, options = {}) {
     reason: direction === 'outgoing' ? 'synced-message' : 'incoming-message',
     conversation: serialized
   });
-  if (!duplicate && direction !== 'outgoing' && serialized.muted !== true && options.notify !== false) {
-    presentDesktopChatMessageInDynamicIsland({
-      senderName,
-      preview,
-      conversationId: serialized.conversationId,
-      messageId
-    });
-  }
   return {
     success: true,
     duplicate,
@@ -4664,248 +4898,6 @@ async function scanGalleryPeople(options = {}) {
   return { success: result.success !== false, data: result };
 }
 
-function formatScheduleDueLabel(schedule = {}) {
-  const due = new Date(schedule.dueAt || Date.now());
-  if (Number.isNaN(due.getTime())) return 'Due now';
-  return due.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-function formatScheduleRecurrenceLabel(recurrence = '') {
-  const key = String(recurrence || '').trim().toLowerCase();
-  if (!key) return '';
-  if (key.startsWith('weekly:')) {
-    const days = key
-      .slice('weekly:'.length)
-      .split(',')
-      .map(day => day.trim())
-      .filter(Boolean)
-      .map(day => day.charAt(0).toUpperCase() + day.slice(1));
-    if (days.length === 1) return `Every ${days[0]}`;
-    if (days.length > 1) return `Every ${days.slice(0, -1).join(', ')} and ${days[days.length - 1]}`;
-  }
-  return `Repeats ${key.replace(/-/g, ' ')}`;
-}
-
-function scheduleActionId(schedule = {}) {
-  return String(schedule.id || schedule.taskName || '').trim();
-}
-
-function buildScheduleDynamicIslandActions(schedule = {}) {
-  const scheduleId = scheduleActionId(schedule);
-  if (!scheduleId) return [];
-  return [
-    {
-      id: 'snooze',
-      label: 'Snooze 5 min',
-      kind: 'snooze',
-      scheduleId,
-      minutes: 5
-    },
-    {
-      id: 'stop',
-      label: 'Stop',
-      kind: 'stop',
-      scheduleId,
-      primary: true
-    }
-  ];
-}
-
-function clearLiveScheduleCollapseTimer() {
-  if (liveScheduleCollapseTimer) {
-    clearTimeout(liveScheduleCollapseTimer);
-    liveScheduleCollapseTimer = null;
-  }
-}
-
-function liveScheduleCompactStatus(schedule = {}) {
-  const kind = String(schedule.kind || 'Schedule').trim() || 'Schedule';
-  if (String(kind).toLowerCase() === 'alarm') return `Alarm ${formatScheduleDueLabel(schedule)}`;
-  return `${kind} running`;
-}
-
-function liveScheduleIcon(schedule = {}) {
-  return String(schedule.kind || '').toLowerCase() === 'alarm' ? '\u23F0' : '\u23F1';
-}
-
-function buildLiveSchedulePayload(schedule = {}) {
-  const kind = String(schedule.kind || 'Schedule').trim() || 'Schedule';
-  const message = String(schedule.message || schedule.title || `${kind} is running`).trim();
-  return {
-    success: true,
-    intent: 'schedule.live',
-    response: message,
-    data: {
-      schedule: {
-        ...schedule,
-        dueLabel: formatScheduleDueLabel(schedule),
-        recurrenceLabel: formatScheduleRecurrenceLabel(schedule.recurrence)
-      },
-      actions: [],
-      resultEntries: []
-    },
-    ui: {
-      icon: liveScheduleIcon(schedule),
-      previewStatus: liveScheduleCompactStatus(schedule),
-      preExpandDelayMs: 80,
-      autoHideMs: 0,
-      persistUntilAction: true
-    }
-  };
-}
-
-function collapseLiveScheduleToCompact() {
-  clearLiveScheduleCollapseTimer();
-  return false;
-}
-
-function presentLiveScheduleInDynamicIsland() {
-  return false;
-}
-
-function expandLiveScheduleInDynamicIsland() {
-  return { success: false, error: 'No active live schedule' };
-}
-
-function clearLiveScheduleActivity(schedule = null, options = {}) {
-  clearLiveScheduleCollapseTimer();
-  const shouldDismissOverlay = options.dismissOverlay === true;
-  const dismissOverlay = () => {
-    if (!shouldDismissOverlay) return;
-    return;
-  };
-  if (!schedule || !activeLiveSchedulePayload) {
-    activeLiveSchedulePayload = null;
-    dismissOverlay();
-    return;
-  }
-  const active = activeLiveSchedulePayload.data?.schedule || {};
-  const activeId = String(active.id || active.taskName || '');
-  const scheduleId = String(schedule.id || schedule.taskName || '');
-  if (!scheduleId || activeId === scheduleId) {
-    activeLiveSchedulePayload = null;
-    dismissOverlay();
-  }
-}
-
-function latestActiveLiveSchedule() {
-  const items = Array.isArray(assistant?.automation?.scheduler?.scheduledItems)
-    ? assistant.automation.scheduler.scheduledItems
-    : [];
-  return items
-    .filter(item => ['timer', 'alarm'].includes(String(item.kind || '').toLowerCase()) && ['scheduled', 'paused'].includes(item.status))
-    .filter(item => {
-      const dueAt = new Date(item.dueAt || 0).getTime();
-      return Number.isFinite(dueAt) && (item.status === 'paused' || dueAt > Date.now());
-    })
-    .sort((left, right) => new Date(left.dueAt || 0).getTime() - new Date(right.dueAt || 0).getTime())[0] || null;
-}
-
-function restoreLiveScheduleInDynamicIsland() {
-  const schedule = latestActiveLiveSchedule();
-  if (!schedule) return false;
-  return presentLiveScheduleInDynamicIsland(schedule, { expandMs: 0 }) && collapseLiveScheduleToCompact(schedule);
-}
-
-function presentScheduleInDynamicIsland() {
-  return false;
-}
-
-function normalizePhoneNotification(notification = {}, metadata = {}) {
-  const details = notification.details && typeof notification.details === 'object' ? notification.details : {};
-  const sourceName = String(
-    notification.sourceDeviceName ||
-    notification.deviceName ||
-    metadata.deviceName ||
-    details.deviceName ||
-    'Mobile'
-  ).replace(/\s+/g, ' ').trim().slice(0, 80);
-  const appName = String(
-    notification.appName ||
-    notification.packageName ||
-    details.appName ||
-    notification.category ||
-    'Notification'
-  ).replace(/\s+/g, ' ').trim().slice(0, 80);
-  const title = String(notification.title || appName || 'Notification').replace(/\s+/g, ' ').trim().slice(0, 140);
-  const message = String(notification.message || notification.text || notification.body || '').replace(/\s+/g, ' ').trim().slice(0, 360);
-  const packageName = String(notification.packageName || details.packageName || '').replace(/\s+/g, ' ').trim().slice(0, 120);
-  const repeatCount = Math.max(1, Math.round(Number(notification.repeatCount || details.repeatCount) || 1));
-  const notificationKey = String(details.notificationKey || notification.notificationKey || '').replace(/\s+/g, ' ').trim().slice(0, 220);
-  return {
-    notificationId: String(notification.notificationId || notification.id || notificationKey || `phone_notification_${Date.now()}`).trim(),
-    sourceName,
-    appName,
-    packageName,
-    title,
-    message,
-    receivedAt: notification.createdAt || notification.timestamp || Date.now(),
-    priority: String(notification.priority || 'normal').toLowerCase(),
-    repeatCount,
-    notificationKey,
-    groupKey: String(details.groupKey || packageName || appName || sourceName).toLowerCase()
-  };
-}
-
-const PHONE_NOTIFICATION_BURST_WINDOW_MS = 650;
-const PHONE_NOTIFICATION_MAX_GROUP_ITEMS = 6;
-const PHONE_NOTIFICATION_MAX_GROUPS = 16;
-const phoneNotificationGroups = new Map();
-
-function phoneNotificationInitials(appName) {
-  const words = String(appName || 'Phone').replace(/[^A-Za-z0-9 ]/g, ' ').trim().split(/\s+/).filter(Boolean);
-  return (words.length > 1 ? `${words[0][0]}${words[1][0]}` : String(words[0] || 'PH').slice(0, 2)).toUpperCase();
-}
-
-function phoneNotificationGroupKey(notification) {
-  return [
-    notification.sourceName,
-    notification.groupKey || notification.packageName || notification.appName
-  ].map(value => String(value || '').toLowerCase()).join('|');
-}
-
-function displayPhoneNotificationGroup(groupKey) {
-  const group = phoneNotificationGroups.get(groupKey);
-  if (group?.timer) clearTimeout(group.timer);
-  phoneNotificationGroups.delete(groupKey);
-  return false;
-}
-
-function trimPhoneNotificationGroup(group) {
-  const overflow = group.notifications.size - PHONE_NOTIFICATION_MAX_GROUP_ITEMS;
-  if (overflow <= 0) return;
-  const oldest = [...group.notifications.entries()]
-    .sort((left, right) => Number(left[1].receivedAt || 0) - Number(right[1].receivedAt || 0))
-    .slice(0, overflow);
-  for (const [notificationId] of oldest) group.notifications.delete(notificationId);
-}
-
-function enforcePhoneNotificationGroupLimit() {
-  while (phoneNotificationGroups.size > PHONE_NOTIFICATION_MAX_GROUPS) {
-    const oldest = [...phoneNotificationGroups.entries()]
-      .sort((left, right) => Number(left[1].lastUpdatedAt || 0) - Number(right[1].lastUpdatedAt || 0))[0];
-    if (!oldest) return;
-    displayPhoneNotificationGroup(oldest[0]);
-  }
-}
-
-function presentPhoneNotificationInDynamicIsland() {
-  return false;
-}
-
-function formatTransferSize(bytes) {
-  const size = Math.max(0, Number(bytes) || 0);
-  if (size < 1024) return `${size} B`;
-  const units = ['KB', 'MB', 'GB'];
-  let value = size / 1024;
-  let unit = units[0];
-  for (let index = 1; index < units.length && value >= 1024; index += 1) {
-    value /= 1024;
-    unit = units[index];
-  }
-  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${unit}`;
-}
-
 function cloudTransferDisplayName(transfer = {}) {
   return String(transfer.fileName || 'file').replace(/\s+/g, ' ').trim().slice(0, 160) || 'file';
 }
@@ -4914,25 +4906,6 @@ function getCloudReceivedDirectory() {
   return runtimeConfig?.app?.dataPaths?.cloudReceivedDir ||
     BASE_CONFIG.app?.dataPaths?.cloudReceivedDir ||
     path.join(app.getPath('documents'), 'OpenX');
-}
-
-function presentCloudFileTransferPrompt() {
-  return false;
-}
-
-function presentCloudFileTransferStatus() {
-  return false;
-}
-
-function shouldPresentCloudFileTransferProgress(transfer = {}) {
-  const transferId = String(transfer.transferId || '').trim();
-  if (!transferId) return false;
-  const percent = Math.max(0, Math.min(100, Math.round(Number(transfer.percent) || 0)));
-  const last = cloudFileTransferUiProgress.get(transferId) || { percent: -1, at: 0 };
-  const now = Date.now();
-  if (percent < 100 && percent < last.percent + 10 && now - last.at < 1500) return false;
-  cloudFileTransferUiProgress.set(transferId, { percent, at: now });
-  return true;
 }
 
 function getTimerWidgetState(preferredId = null, options = {}) {
@@ -5133,23 +5106,6 @@ function saveCloudE2EEMasterKey(masterKey) {
   } catch (error) {
     mainLogger.warn('[CLOUD] Unable to persist encrypted E2EE key', { error: error.message });
     return false;
-  }
-}
-
-function handleLiveScheduleCommand(payload) {
-  if (!payload?.success || !payload.intent) return;
-  const intent = String(payload.intent);
-  if (/^(?:timer|alarm)\.(?:cancel|clear)$/.test(intent)) {
-    clearLiveScheduleActivity(payload.data || null, { dismissOverlay: true });
-    return;
-  }
-  if (/^(?:timer|alarm)\.(?:set|reset|snooze)$/.test(intent)) {
-    presentLiveScheduleInDynamicIsland(payload.data || {}, { expandMs: LIVE_SCHEDULE_INITIAL_EXPAND_MS });
-    return;
-  }
-  if (/^timer\.(?:pause|resume)$/.test(intent)) {
-    presentLiveScheduleInDynamicIsland(payload.data || latestActiveLiveSchedule() || {}, { expandMs: 0 });
-    collapseLiveScheduleToCompact(payload.data || latestActiveLiveSchedule() || {});
   }
 }
 
@@ -5394,10 +5350,6 @@ function initializeCloudConnection() {
     logger: cloudLogger
   });
   cloudConnectionManager.on('status', status => sendCloudStatus(status));
-  cloudConnectionManager.on('notification', notification => {
-    if (String(notification?.category || '').toLowerCase() !== 'phone' && !notification?.details?.appName) return;
-    presentPhoneNotificationInDynamicIsland(notification, { source: 'phone-cloud' });
-  });
   return cloudConnectionManager;
 }
 
@@ -5494,12 +5446,6 @@ function initializeCloudFileTransfers() {
       sourceDeviceId: transfer.sourceDeviceId,
       destination: getCloudReceivedDirectory()
     });
-    const presented = presentCloudFileTransferPrompt(transfer);
-    if (!presented) {
-      mainLogger.warn('[CLOUD-FILE] Transfer is waiting for approval but Dynamic Island is unavailable', {
-        transferId: transfer.transferId
-      });
-    }
   });
   cloudFileTransferManager.on('progress', transfer => {
     mainLogger.info('[CLOUD-FILE] Transfer progress', {
@@ -5507,13 +5453,6 @@ function initializeCloudFileTransfers() {
       state: transfer.state,
       percent: transfer.percent
     });
-    if (
-      String(transfer.direction || '').toLowerCase() === 'phone-to-desktop' &&
-      ['accepted', 'downloading', 'receiving'].includes(String(transfer.state || '').toLowerCase()) &&
-      shouldPresentCloudFileTransferProgress(transfer)
-    ) {
-      presentCloudFileTransferStatus(transfer, 'progress');
-    }
     const busyStates = new Set(['pending', 'accepted', 'transferring', 'receiving', 'downloading', 'uploading', 'waiting-approval']);
     if (busyStates.has(String(transfer.state || '').toLowerCase())) {
       manager.updatePresence?.('busy', { reason: 'file-transfer' });
@@ -5522,23 +5461,19 @@ function initializeCloudFileTransfers() {
     }
   });
   cloudFileTransferManager.on('completed', transfer => {
-    cloudFileTransferUiProgress.delete(String(transfer.transferId || ''));
     mainLogger.info('[CLOUD-FILE] Transfer completed', {
       transferId: transfer.transferId,
       fileName: transfer.fileName,
       filePath: transfer.filePath || null
     });
-    presentCloudFileTransferStatus(transfer, 'completed');
     manager.updatePresence?.('online', { reason: 'file-transfer-complete' });
   });
   cloudFileTransferManager.on('failed', transfer => {
-    cloudFileTransferUiProgress.delete(String(transfer.transferId || ''));
     mainLogger.warn('[CLOUD-FILE] Transfer failed', {
       transferId: transfer.transferId,
       fileName: transfer.fileName || null,
       reason: transfer.reason || transfer.error || 'unknown'
     });
-    presentCloudFileTransferStatus(transfer, 'failed');
     manager.updatePresence?.('online', { reason: 'file-transfer-failed' });
   });
   cloudFileTransferManager.start();
@@ -5790,6 +5725,9 @@ function setupIPC() {
   registerIpcHandler('command:process', async (_event, { input, source }) => {
     if (!assistant) return { success: false, response: 'Assistant not initialized' };
     const result = await assistant.processCommand(input, source);
+    if (result?.island) {
+      showIslandItem(result.island);
+    }
     if (
       result?.needsClarification &&
       result.data?.clarificationType === 'browser.open.blankTabAlreadyOpen' &&
@@ -5825,6 +5763,49 @@ function setupIPC() {
       chatWindow.hide();
     }
     return { success: true, visible: false };
+  });
+
+  registerIpcHandler('window:openVoice', async () => {
+    return openVoiceWindow({ reason: 'renderer' });
+  });
+
+  registerIpcHandler('voice:close', async () => {
+    return closeVoiceWindow();
+  });
+
+  registerIpcHandler('voice:getActivation', async () => {
+    return consumePendingVoiceActivation();
+  });
+
+  registerIpcHandler('voice:getSettings', async () => {
+    return settingsService.getSettings().voice;
+  });
+
+  registerIpcHandler('voice:updateSettings', async (_event, payload) => {
+    const current = settingsService.getSettings().voice;
+    const saved = settingsService.saveSettings({ voice: { ...current, ...payload } });
+    runtimeConfig = settingsService.buildRuntimeConfig();
+    registerVoiceShortcut();
+    return saved.voice;
+  });
+
+  registerIpcHandler('voice:transcribe', async (_event, { samples }) => {
+    const startedAt = Date.now();
+    try {
+      const text = await getVoiceModelLoader().transcribe(samples);
+      mainLogger.info('[VOICE] Transcription completed', {
+        durationMs: Date.now() - startedAt,
+        samples: samples.length
+      });
+      return { success: true, text };
+    } catch (error) {
+      mainLogger.error('[VOICE] Transcription failed', {
+        durationMs: Date.now() - startedAt,
+        samples: samples.length,
+        error: error.message
+      });
+      return { success: false, text: '', error: 'Voice transcription failed' };
+    }
   });
 
   registerIpcHandler('window:openPeopleChat', async () => {
@@ -6332,11 +6313,19 @@ function setupIPC() {
       : (action === 'remove'
         ? scheduler?.removeSchedule?.(id)
         : scheduler?.complete(id));
-    if (result?.success && String(result.data?.kind || '').toLowerCase() === 'timer') {
-      if (action === 'snooze') presentLiveScheduleInDynamicIsland(result.data, { expandMs: 0 });
-      if (action === 'stop' || action === 'remove') clearLiveScheduleActivity(result.data, { dismissOverlay: true });
-    }
     return result || { success: false, error: 'Scheduler unavailable' };
+  });
+
+  registerIpcHandler('island:stop', async (_event, payload) => {
+    return runIslandScheduleAction(payload, 'stop');
+  });
+
+  registerIpcHandler('island:snooze', async (_event, payload) => {
+    return runIslandScheduleAction(payload, 'snooze', payload.minutes || ISLAND_DEFAULT_SNOOZE_MINUTES);
+  });
+
+  registerIpcHandler('island:idle', async () => {
+    return setIslandIdle();
   });
 
   registerIpcHandler('cloud:fileTransferAction', async (_event, { transferId, action }) => {
@@ -6348,9 +6337,6 @@ function setupIPC() {
     const fileName = cloudTransferDisplayName(transfer);
     if (action === 'accept') {
       const accepted = manager.acceptTransfer(transferId);
-      if (accepted) {
-        presentCloudFileTransferStatus({ ...transfer, percent: transfer.percent || 0 }, 'progress');
-      }
       return {
         success: accepted,
         data: {
@@ -6362,7 +6348,6 @@ function setupIPC() {
       };
     }
     const rejected = manager.rejectTransfer(transferId, 'rejected-by-desktop');
-    cloudFileTransferUiProgress.delete(String(transferId || ''));
     return {
       success: rejected,
       data: {
@@ -6527,6 +6512,11 @@ async function cleanupRuntime() {
     unresponsiveTimeouts.clear();
     stopDesktopChatReceiveRuntime();
     unregisterChatShortcut();
+    unregisterVoiceShortcut();
+    if (voiceWarmupTimer) {
+      clearTimeout(voiceWarmupTimer);
+      voiceWarmupTimer = null;
+    }
     globalShortcut.unregisterAll();
     childProcessRegistry.killAll();
     teardownIPC();
@@ -6592,6 +6582,8 @@ async function cleanupRuntime() {
     }
     eventBus?.removeAllListeners?.();
     if (chatWindow && !chatWindow.isDestroyed()) chatWindow.destroy();
+    if (voiceWindow && !voiceWindow.isDestroyed()) voiceWindow.destroy();
+    if (islandWindow && !islandWindow.isDestroyed()) islandWindow.destroy();
     if (timerWidgetWindow && !timerWidgetWindow.isDestroyed()) timerWidgetWindow.destroy();
     if (plannerWindow && !plannerWindow.isDestroyed()) plannerWindow.destroy();
     if (galleryWindow && !galleryWindow.isDestroyed()) galleryWindow.destroy();
@@ -6665,6 +6657,45 @@ function registerChatShortcut() {
 
 }
 
+function unregisterVoiceShortcut() {
+  if (registeredVoiceShortcuts.length === 0) {
+    return;
+  }
+
+  for (const shortcut of registeredVoiceShortcuts) {
+    try {
+      globalShortcut.unregister(shortcut);
+    } catch (error) {
+      mainLogger.error('Failed to unregister voice shortcut', { shortcut, error: error.message });
+    }
+  }
+  registeredVoiceShortcuts = [];
+}
+
+function getVoiceShortcut() {
+  return runtimeConfig?.voice?.activationShortcut || BASE_CONFIG.voice?.activationShortcut || 'Alt+Space';
+}
+
+function registerVoiceShortcut() {
+  unregisterVoiceShortcut();
+  const shortcut = getVoiceShortcut();
+  if (!shortcut) return;
+  try {
+    const registered = globalShortcut.register(shortcut, () => {
+      mainLogger.info('[VOICE] Voice shortcut pressed', { shortcut });
+      openVoiceWindow({ reason: 'shortcut' });
+    });
+    if (!registered) {
+      mainLogger.error('[VOICE] Failed to register voice shortcut', { shortcut });
+      return;
+    }
+    registeredVoiceShortcuts.push(shortcut);
+    mainLogger.info('[VOICE] Registered voice shortcut', { shortcut });
+  } catch (error) {
+    mainLogger.error('[VOICE] Invalid voice shortcut', { shortcut, error: error.message });
+  }
+}
+
 async function initializeAssistant() {
   ensureDataDir();
   runtimeConfig = settingsService.buildRuntimeConfig();
@@ -6684,6 +6715,8 @@ async function initializeAssistant() {
   );
 
   registerChatShortcut();
+  registerVoiceShortcut();
+  scheduleVoiceWarmup('assistant-ready');
   mainLogger.info('Assistant initialized', {
     name: runtimeConfig?.assistant?.displayName || 'OpenX'
   });
@@ -6719,8 +6752,6 @@ async function reloadRuntimeServices() {
   if (chatWindow?.webContents) {
     chatWindow.webContents.send('settings:changed', buildSettingsSnapshot());
   }
-
-  restoreLiveScheduleInDynamicIsland();
 }
 
 function registerPowerRecoveryHandlers() {
@@ -6836,10 +6867,7 @@ app.whenReady().then(async () => {
   runtimeConfig = settingsService.buildRuntimeConfig();
   eventBus = new AssistantEventBus();
   eventBus.subscribe(EVENTS.SCHEDULE_DUE, envelope => {
-    if (['timer', 'alarm'].includes(String(envelope.payload?.kind || '').toLowerCase())) {
-      clearLiveScheduleActivity(envelope.payload);
-    }
-    presentScheduleInDynamicIsland(envelope.payload);
+    showIslandItem(buildScheduleIslandItem(envelope.payload));
     sendPlannerEntries('calendar');
     sendScheduleActivitySnapshot('schedule-due');
   });
@@ -6849,9 +6877,9 @@ app.whenReady().then(async () => {
     broadcastScheduleSync(envelope.payload);
   });
   eventBus.subscribe(EVENTS.COMMAND_EXECUTED, envelope => handleTimerWidgetCommand(envelope.payload));
-  eventBus.subscribe(EVENTS.COMMAND_EXECUTED, envelope => handleLiveScheduleCommand(envelope.payload));
   eventBus.subscribe(EVENTS.COMMAND_EXECUTED, envelope => handlePlannerCommand(envelope.payload));
   setupIPC();
+  initIslandWindow();
   registerPowerRecoveryHandlers();
   createTray();
   await initializeAssistant();
@@ -6862,7 +6890,6 @@ app.whenReady().then(async () => {
   initializeHomeOnboarding();
   wireHomeAutomationExecution();
   await maybeAutoConnectCloud('desktop-startup');
-  restoreLiveScheduleInDynamicIsland();
   startDesktopChatReceiveRuntime({
     reason: 'desktop-startup',
     quietOffline: true,

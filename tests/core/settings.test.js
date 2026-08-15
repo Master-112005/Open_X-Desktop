@@ -31,6 +31,14 @@ describe('Settings Service', function() {
         activeTheme: 'graphite',
         glassTint: 42,
         maxHistory: 300
+      },
+      voice: {
+        activationShortcut: 'Alt+Space',
+        voiceVolume: 1,
+        showVoiceTranscript: true,
+        autoCloseVoice: false,
+        speakRepliesEnabled: true,
+        ttsVoiceURI: ''
       }
     };
 
@@ -46,6 +54,11 @@ describe('Settings Service', function() {
 
     assert.equal(snapshot.settings.assistant.displayName, 'OpenX');
     assert.equal(snapshot.settings.chat.activationShortcut, 'Control+Space');
+    assert.equal(snapshot.settings.voice.activationShortcut, 'Alt+Space');
+    assert.equal(snapshot.settings.voice.voiceVolume, 1);
+    assert.equal(snapshot.settings.voice.showVoiceTranscript, true);
+    assert.equal(snapshot.settings.voice.autoCloseVoice, false);
+    assert.equal(snapshot.settings.voice.speakRepliesEnabled, true);
     assert.equal(snapshot.settings.chat.themeId, 'graphite');
     assert.equal(snapshot.settings.chat.glassTint, 42);
     assert.equal(snapshot.settings.cloud.enabled, false);
@@ -76,6 +89,15 @@ describe('Settings Service', function() {
         themeId: 'white-glass',
         glassTint: 68,
         maxHistory: 900
+      },
+      voice: {
+        activationShortcut: 'alt + space',
+        microphoneDeviceId: ' microphone-1 ',
+        voiceVolume: 0.42,
+        showVoiceTranscript: false,
+        autoCloseVoice: true,
+        speakRepliesEnabled: false,
+        ttsVoiceURI: ' test-voice-uri '
       },
       system: {
         permissionLevel: 'critical'
@@ -109,6 +131,13 @@ describe('Settings Service', function() {
     assert.equal(saved.assistant.displayName, 'Athena');
     assert.equal(saved.assistant.honorific, 'commander');
     assert.equal(saved.chat.activationShortcut, 'Control+Shift+J');
+    assert.equal(saved.voice.activationShortcut, 'Alt+Space');
+    assert.equal(saved.voice.microphoneDeviceId, 'microphone-1');
+    assert.equal(saved.voice.voiceVolume, 0.42);
+    assert.equal(saved.voice.showVoiceTranscript, false);
+    assert.equal(saved.voice.autoCloseVoice, true);
+    assert.equal(saved.voice.speakRepliesEnabled, false);
+    assert.equal(saved.voice.ttsVoiceURI, 'test-voice-uri');
     assert.equal(saved.userProfile.fullName, 'Rakesh');
     assert.equal(saved.userProfile.phone, '+919876543210');
     assert.equal(saved.chat.themeId, 'white-glass');
@@ -140,6 +169,7 @@ describe('Settings Service', function() {
     const runtimeConfig = service.buildRuntimeConfig();
     assert.equal(runtimeConfig.assistant.displayName, 'Athena');
     assert.equal(runtimeConfig.chat.activationShortcut, 'Control+Shift+J');
+    assert.deepEqual(runtimeConfig.voice, saved.voice);
     assert.equal(runtimeConfig.assistant.userProfile.email, 'rakesh@example.com');
     assert.equal(runtimeConfig.chat.activeTheme, 'white-glass');
     assert.equal(runtimeConfig.chat.glassTint, 68);
@@ -190,6 +220,21 @@ describe('Settings Service', function() {
     assert.equal(saved.chat.activationShortcut, 'Control+Space');
   });
 
+  it('should keep voice shortcut separate from the chat shortcut', function() {
+    const { service } = createService();
+    const saved = service.saveSettings({
+      chat: {
+        activationShortcut: 'alt + space'
+      },
+      voice: {
+        activationShortcut: 'control + space'
+      }
+    });
+
+    assert.equal(saved.chat.activationShortcut, 'Control+Space');
+    assert.equal(saved.voice.activationShortcut, 'Alt+Space');
+  });
+
   it('should reset settings back to defaults', function() {
     const { service } = createService();
 
@@ -201,5 +246,6 @@ describe('Settings Service', function() {
     const reset = service.resetSettings();
     assert.equal(reset.assistant.displayName, 'OpenX');
     assert.equal(reset.chat.themeId, 'graphite');
+    assert.equal(reset.voice.activationShortcut, 'Alt+Space');
   });
 });

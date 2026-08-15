@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' blob:; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';"
+    >
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenX Voice</title>
+    <link rel="stylesheet" href="./index.css">
+  </head>
+  <body>
+    <main
+      id="voice-window"
+      class="voice-window"
+      data-phase="hidden"
+      data-state="idle"
+      data-mode="compact"
+      data-transparent="on"
+      data-theme="dark"
+    >
+      <div class="orb" id="voice-orb" data-state="idle" data-appearance="default" data-animation="on">
+        <div class="orb-ring"></div>
+        <div class="orb-core" id="orb-core"></div>
+      </div>
+      <div class="voice-label" id="voice-label">Ready</div>
+      <section class="voice-transcript" aria-live="polite">
+        <div class="voice-heard" id="voice-heard"></div>
+        <div class="voice-reply" id="voice-reply"></div>
+      </section>
+    </main>
+    <script src="./index.js"></script>
+  </body>
+</html>

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';"
+    >
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenX Island</title>
+    <link rel="stylesheet" href="./index.css">
+  </head>
+  <body>
+    <main class="island-stage">
+      <section id="island" class="island" data-phase="hidden" data-kind="assistant" aria-live="polite">
+        <div class="island-signal"></div>
+        <div class="island-body">
+          <div class="island-meta">
+            <span class="island-label" id="island-label">Assistant</span>
+            <span class="island-time" id="island-time"></span>
+          </div>
+          <div class="island-text" id="island-text"></div>
+        </div>
+        <div class="island-actions">
+          <button class="island-button" id="island-snooze" type="button">Snooze</button>
+          <button class="island-button island-button--primary" id="island-stop" type="button">Done</button>
+        </div>
+      </section>
+    </main>
+    <script src="./index.js"></script>
+  </body>
+</html>

@@ -90,6 +90,12 @@ function clampNumber(value, min, max, fallback) {
   return Math.max(min, Math.min(max, number));
 }
 
+function optionalTrimmedString(value, maxLength) {
+  if (value === undefined || value === null) return null;
+  const normalized = String(value).trim();
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
 function normalizeActivationShortcut(value, fallback = 'Alt+Space') {
   const normalizedFallback = String(fallback || 'Alt+Space').trim() || 'Alt+Space';
   const raw = String(value || '').trim();
@@ -333,6 +339,15 @@ class SettingsService {
         glassTint: clampNumber(this.baseConfig?.chat?.glassTint, 0, 100, 42),
         maxHistory: clampNumber(this.baseConfig?.chat?.maxHistory, 50, 300, 300)
       },
+      voice: {
+        activationShortcut: normalizeActivationShortcut(this.baseConfig?.voice?.activationShortcut, 'Alt+Space'),
+        microphoneDeviceId: this.baseConfig?.voice?.microphoneDeviceId ? String(this.baseConfig.voice.microphoneDeviceId).trim() : null,
+        voiceVolume: clampNumber(this.baseConfig?.voice?.voiceVolume, 0, 1, 1),
+        showVoiceTranscript: this.baseConfig?.voice?.showVoiceTranscript !== false,
+        autoCloseVoice: this.baseConfig?.voice?.autoCloseVoice === true,
+        speakRepliesEnabled: this.baseConfig?.voice?.speakRepliesEnabled !== false,
+        ttsVoiceURI: String(this.baseConfig?.voice?.ttsVoiceURI || '').trim()
+      },
       cloud: {
         enabled: false,
         deviceId: createStableCloudId('desktop', this.dataPaths.root),
@@ -442,6 +457,7 @@ class SettingsService {
     runtimeConfig.chat.maxHistory = settings.chat.maxHistory;
     runtimeConfig.chat.activeTheme = settings.chat.themeId;
     runtimeConfig.chat.glassTint = settings.chat.glassTint;
+    runtimeConfig.voice = deepClone(settings.voice);
     runtimeConfig.modes = deepClone(settings.modes);
     runtimeConfig.cloud = deepClone(settings.cloud);
     runtimeConfig.communication = deepClone(settings.communication);
@@ -491,6 +507,15 @@ class SettingsService {
         glassTint: clampNumber(source.chat?.glassTint, 0, 100, this.defaults.chat.glassTint),
         maxHistory: clampNumber(source.chat?.maxHistory, 50, 300, this.defaults.chat.maxHistory)
       },
+      voice: {
+        activationShortcut: this._normalizeVoiceActivationShortcut(source.voice?.activationShortcut),
+        microphoneDeviceId: optionalTrimmedString(source.voice?.microphoneDeviceId, 220),
+        voiceVolume: clampNumber(source.voice?.voiceVolume, 0, 1, this.defaults.voice.voiceVolume),
+        showVoiceTranscript: source.voice?.showVoiceTranscript !== false,
+        autoCloseVoice: source.voice?.autoCloseVoice === true,
+        speakRepliesEnabled: source.voice?.speakRepliesEnabled !== false,
+        ttsVoiceURI: String(source.voice?.ttsVoiceURI || '').trim().slice(0, 260)
+      },
       cloud: {
         enabled: source.cloud?.enabled === true,
         deviceId: String(source.cloud?.deviceId || this.defaults.cloud.deviceId).trim(),
@@ -524,6 +549,11 @@ class SettingsService {
   _normalizeChatActivationShortcut(shortcut) {
     const normalized = normalizeActivationShortcut(shortcut, this.defaults.chat.activationShortcut);
     return normalized === 'Alt+Space' ? 'Control+Space' : normalized;
+  }
+
+  _normalizeVoiceActivationShortcut(shortcut) {
+    const normalized = normalizeActivationShortcut(shortcut, this.defaults.voice.activationShortcut);
+    return normalized === 'Control+Space' ? this.defaults.voice.activationShortcut : normalized;
   }
 }
 

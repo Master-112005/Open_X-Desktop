@@ -6,6 +6,7 @@ const SOURCE_ALIASES = Object.freeze({
   android: 'phone',
   copy: 'clipboard',
   desktop: 'chat',
+  'desktop-voice': 'voice',
 
   extension: 'plugin',
   'image-text': 'ocr',
@@ -13,12 +14,15 @@ const SOURCE_ALIASES = Object.freeze({
   mobile: 'phone',
   moblie: 'phone',
   mobiel: 'phone',
+  mic: 'voice',
+  microphone: 'voice',
   'mobile-cloud': 'cloud',
   paste: 'clipboard',
   relay: 'cloud',
   rest: 'api',
   screen: 'ocr',
   'screen-text': 'ocr',
+  speech: 'voice',
 
 
   text: 'chat',

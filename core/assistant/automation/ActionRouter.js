@@ -3727,7 +3727,7 @@ class ActionRouter {
   }
 
   _sourceUsuallyTargetsActiveDesktop(source) {
-    return /^(?:chat|phone|mobile|remote|scheduled)$/i.test(String(source || 'chat'));
+    return /^(?:chat|voice|phone|mobile|remote|scheduled)$/i.test(String(source || 'chat'));
   }
 
   _rememberPresentationContextFromResult(intentId, entities = {}, result = {}, source = 'chat') {

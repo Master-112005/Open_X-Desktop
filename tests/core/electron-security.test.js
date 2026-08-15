@@ -53,6 +53,10 @@ describe('Electron Security Boundary', function() {
       IPC_VALIDATORS['command:process']({ input: '  open chrome  ', source: 'chat' }),
       { input: 'open chrome', source: 'chat' }
     );
+    assert.deepEqual(
+      IPC_VALIDATORS['command:process']({ input: '  what time is it  ', source: 'voice' }),
+      { input: 'what time is it', source: 'voice' }
+    );
     assert.throws(() => IPC_VALIDATORS['command:process']({ input: '', source: 'chat' }), /must not be empty/);
     assert.throws(() => IPC_VALIDATORS['command:process']({ input: 'hello', source: 'web' }), /not supported/);
     assert.throws(() => IPC_VALIDATORS['command:process']({ input: 'x'.repeat(5001) }), /exceeds/);
@@ -287,7 +291,7 @@ describe('Electron Security Boundary', function() {
     assert.throws(() => IPC_VALIDATORS['planner:addEntry']({ type: 'calendar', title: 'Bad', startTime: '9:30' }), /HH:MM/);
   });
 
-  it('should validate external browser URLs for Dynamic Island result links', function() {
+  it('should validate external browser URLs', function() {
     assert.deepEqual(
       IPC_VALIDATORS['browser:openExternal']({ url: ' https://example.com/path?q=openx ' }),
       { url: 'https://example.com/path?q=openx' }
@@ -302,7 +306,7 @@ describe('Electron Security Boundary', function() {
     );
   });
 
-  it('should normalize Dynamic Island end actions as stop actions', function() {
+  it('should normalize schedule end actions as stop actions', function() {
     assert.deepEqual(
       IPC_VALIDATORS['schedule:alertAction']({ id: 'reminder-1', action: 'end', minutes: 5 }),
       { id: 'reminder-1', action: 'stop', minutes: 5 }
@@ -313,7 +317,43 @@ describe('Electron Security Boundary', function() {
     );
   });
 
-  it('should validate Dynamic Island file transfer actions', function() {
+  it('should validate voice and island IPC payloads', function() {
+    const samples = Float32Array.from(new Array(1600).fill(0.1));
+    const validated = IPC_VALIDATORS['voice:transcribe'](samples);
+    assert.equal(validated.samples.length, 1600);
+    assert.equal(validated.samples[0], 0.10000000149011612);
+    assert.deepEqual(
+      IPC_VALIDATORS['voice:updateSettings']({
+        microphoneDeviceId: ' mic-1 ',
+        voiceVolume: 2,
+        showVoiceTranscript: false,
+        autoCloseVoice: true,
+        speakRepliesEnabled: false,
+        ttsVoiceURI: ' voice-uri '
+      }),
+      {
+        microphoneDeviceId: 'mic-1',
+        voiceVolume: 1,
+        showVoiceTranscript: false,
+        autoCloseVoice: true,
+        speakRepliesEnabled: false,
+        ttsVoiceURI: 'voice-uri'
+      }
+    );
+    assert.deepEqual(
+      IPC_VALIDATORS['island:snooze']({ id: 'reminder-1', kind: 'reminder', minutes: 90 }),
+      { id: 'reminder-1', kind: 'reminder', minutes: 60 }
+    );
+    assert.deepEqual(
+      IPC_VALIDATORS['island:stop']({ id: 'assistant-card', kind: 'assistant' }),
+      { id: 'assistant-card', kind: 'assistant' }
+    );
+    assert.throws(() => IPC_VALIDATORS['voice:transcribe']([1]), /too short/);
+    assert.throws(() => IPC_VALIDATORS['voice:updateSettings']({ voiceVolume: Number.NaN }), /invalid/);
+    assert.throws(() => IPC_VALIDATORS['island:stop']({ id: 'x', kind: 'web' }), /kind/);
+  });
+
+  it('should validate file transfer actions', function() {
     assert.deepEqual(
       IPC_VALIDATORS['cloud:fileTransferAction']({ transferId: 'cloud_mobile_transfer_abc-123', action: 'accept' }),
       { transferId: 'cloud_mobile_transfer_abc-123', action: 'accept' }
@@ -361,7 +401,9 @@ describe('Electron Security Boundary', function() {
     const expectedChannels = [
       'command:process', 'command:confirm', 'assistant:status',
       'browser:openExternal',
-      'window:openChat', 'window:hideChat', 'window:openPeopleChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
+      'window:openChat', 'window:hideChat', 'window:openVoice',
+      'voice:close', 'voice:getActivation', 'voice:getSettings', 'voice:updateSettings', 'voice:transcribe',
+      'window:openPeopleChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
       'window:openGallery', 'window:closeGallery',
       'config:get', 'settings:get',
       'assistantChatHistory:get', 'assistantChatHistory:getSync', 'assistantChatHistory:save', 'assistantChatHistory:saveSync', 'assistantChatHistory:clear',
@@ -376,7 +418,8 @@ describe('Electron Security Boundary', function() {
       'cloud:pairingQR:create', 'cloud:pairing:status', 'cloud:pairing:approve', 'cloud:pairing:reject',
       'cloud:devices:list', 'cloud:device:rename', 'cloud:device:remove',
       'settings:save', 'settings:reset',
-      'schedule:alertAction', 'cloud:fileTransferAction', 'schedule:getSnapshot', 'timerWidget:getState', 'timerWidget:close',
+      'schedule:alertAction', 'island:stop', 'island:snooze', 'island:idle',
+      'cloud:fileTransferAction', 'schedule:getSnapshot', 'timerWidget:getState', 'timerWidget:close',
       'timerWidget:stopStopwatch', 'timerWidget:resumeStopwatch',
       'timerWidget:resetStopwatch', 'planner:getEntries', 'planner:addEntry',
       'planner:deleteEntry',

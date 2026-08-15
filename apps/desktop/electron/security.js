@@ -2,7 +2,7 @@ const path = require('path');
 const { fileURLToPath } = require('url');
 
 const FORBIDDEN_OBJECT_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
-const ALLOWED_COMMAND_SOURCES = new Set(['chat']);
+const ALLOWED_COMMAND_SOURCES = new Set(['chat', 'voice']);
 const UNSAFE_TEXT_CONTROL_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 const UNSAFE_DIRECTIONAL_PATTERN = /[\u202A-\u202E\u2066-\u2069]/;
 
@@ -122,6 +122,45 @@ function validateExternalBrowserUrl(payload) {
 
 function validateSettings(payload) {
   return validateStructuredPayload(payload, 'settings', 256 * 1024);
+}
+
+function validateVoiceTranscribe(payload) {
+  const source = ArrayBuffer.isView(payload)
+    ? Array.from(payload)
+    : (Array.isArray(payload) ? payload : null);
+  if (!source) throw new TypeError('voice samples must be an array');
+  if (source.length < 1600) throw new RangeError('voice samples are too short');
+  if (source.length > 480000) throw new RangeError('voice samples are too long');
+  const samples = new Float32Array(source.length);
+  for (let index = 0; index < source.length; index += 1) {
+    const sample = Number(source[index]);
+    if (!Number.isFinite(sample)) throw new TypeError('voice samples contain an invalid number');
+    samples[index] = Math.max(-1, Math.min(1, sample));
+  }
+  return { samples };
+}
+
+function validateVoiceSettings(payload = {}) {
+  requirePlainObject(payload, 'voice');
+  const output = {};
+  if (payload.microphoneDeviceId !== undefined) {
+    output.microphoneDeviceId = payload.microphoneDeviceId === null || payload.microphoneDeviceId === ''
+      ? null
+      : requireString(payload.microphoneDeviceId, 'voice.microphoneDeviceId', { maxLength: 220 });
+  }
+  if (payload.voiceVolume !== undefined) {
+    output.voiceVolume = Math.max(0, Math.min(1, Number(payload.voiceVolume)));
+    if (!Number.isFinite(output.voiceVolume)) throw new TypeError('voice.voiceVolume is invalid');
+  }
+  for (const field of ['showVoiceTranscript', 'autoCloseVoice', 'speakRepliesEnabled']) {
+    if (payload[field] !== undefined) output[field] = payload[field] === true;
+  }
+  if (payload.ttsVoiceURI !== undefined) {
+    output.ttsVoiceURI = payload.ttsVoiceURI === null
+      ? ''
+      : requireString(payload.ttsVoiceURI, 'voice.ttsVoiceURI', { maxLength: 260, allowEmpty: true });
+  }
+  return output;
 }
 
 const CHAT_HISTORY_ENTRY_LIMIT = 300;
@@ -404,6 +443,23 @@ function validateScheduleAction(payload) {
   if (!['snooze', 'stop', 'end', 'remove'].includes(action)) throw new TypeError('schedule action is not supported');
   const minutes = Math.max(1, Math.min(60, Number(payload.minutes) || 5));
   return { id, action: action === 'end' ? 'stop' : action, minutes };
+}
+
+function validateIslandAction(payload = {}) {
+  requirePlainObject(payload, 'island');
+  const kind = requireString(payload.kind || 'assistant', 'island.kind', { maxLength: 40 }).toLowerCase();
+  if (!['assistant', 'reminder', 'timer', 'alarm', 'schedule', 'calendar'].includes(kind)) {
+    throw new TypeError('island kind is not supported');
+  }
+  const output = {
+    id: requireString(payload.id || '', 'island.id', { maxLength: 200 }),
+    kind
+  };
+  if (payload.minutes !== undefined) {
+    const minutes = Math.max(1, Math.min(60, Number(payload.minutes) || 5));
+    output.minutes = minutes;
+  }
+  return output;
 }
 
 function validateRemoteControl(payload = {}) {
@@ -726,6 +782,12 @@ const IPC_VALIDATORS = Object.freeze({
   'browser:openExternal': validateExternalBrowserUrl,
   'window:openChat': validateEmpty,
   'window:hideChat': validateEmpty,
+  'window:openVoice': validateEmpty,
+  'voice:close': validateEmpty,
+  'voice:getActivation': validateEmpty,
+  'voice:getSettings': validateEmpty,
+  'voice:updateSettings': validateVoiceSettings,
+  'voice:transcribe': validateVoiceTranscribe,
   'window:openPeopleChat': validateEmpty,
   'window:openSettings': validateEmpty,
   'window:openPlanner': validatePlannerView,
@@ -788,6 +850,9 @@ const IPC_VALIDATORS = Object.freeze({
   'settings:save': validateSettings,
   'settings:reset': validateEmpty,
   'schedule:alertAction': validateScheduleAction,
+  'island:stop': validateIslandAction,
+  'island:snooze': validateIslandAction,
+  'island:idle': validateEmpty,
   'cloud:fileTransferAction': validateCloudFileTransferAction,
   'schedule:getSnapshot': validateEmpty,
   'timerWidget:getState': validateEmpty,
