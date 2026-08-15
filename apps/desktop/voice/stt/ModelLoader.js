@@ -20,7 +20,18 @@ class ModelLoader {
   validate() {
     const missing = REQUIRED_FILES.filter(file => !fs.existsSync(path.join(this.modelsDir, file)));
     if (missing.length > 0) {
-      throw new Error(`Parakeet model files are missing: ${missing.join(', ')}`);
+      const error = new Error(`Parakeet model files are missing: ${missing.join(', ')}`);
+      error.code = 'voice_model_missing';
+      error.details = {
+        modelsDir: this.modelsDir,
+        missing,
+        candidates: resolveModelDirCandidates().map(candidate => ({
+          path: candidate,
+          exists: fs.existsSync(candidate),
+          missing: REQUIRED_FILES.filter(file => !fs.existsSync(path.join(candidate, file)))
+        }))
+      };
+      throw error;
     }
     return { success: true, modelsDir: this.modelsDir };
   }
@@ -51,18 +62,23 @@ class ModelLoader {
   }
 }
 
-function resolveDefaultModelsDir() {
-  const candidates = [
-    path.resolve(__dirname, '..', '..', '..', '..', 'models', 'parakeet')
-  ];
+function resolveModelDirCandidates() {
+  const sourceCandidate = path.resolve(__dirname, '..', '..', '..', '..', 'models', 'parakeet');
+  const candidates = [];
   if (process.resourcesPath) {
     candidates.push(
       path.join(process.resourcesPath, 'models', 'parakeet'),
       path.join(process.resourcesPath, 'app.asar.unpacked', 'models', 'parakeet')
     );
   }
+  candidates.push(sourceCandidate);
+  return candidates;
+}
+
+function resolveDefaultModelsDir() {
+  const candidates = resolveModelDirCandidates();
   return candidates.find(candidate => REQUIRED_FILES.every(file => fs.existsSync(path.join(candidate, file))))
     || candidates[0];
 }
 
-module.exports = { ModelLoader, REQUIRED_FILES, resolveDefaultModelsDir };
+module.exports = { ModelLoader, REQUIRED_FILES, resolveDefaultModelsDir, resolveModelDirCandidates };

@@ -1,4 +1,44 @@
+const fs = require('fs');
 const path = require('path');
+
+function prependPathEntry(directory) {
+  if (!directory || !fs.existsSync(directory)) return null;
+  const currentPath = process.env.PATH || '';
+  const entries = currentPath.split(path.delimiter).filter(Boolean);
+  if (!entries.some(entry => entry.toLowerCase() === directory.toLowerCase())) {
+    process.env.PATH = [directory, ...entries].join(path.delimiter);
+  }
+  return directory;
+}
+
+function resolveOnnxRuntimeNativePath() {
+  const nativeRelativePath = path.join(
+    'node_modules',
+    'onnxruntime-node',
+    'bin',
+    'napi-v6',
+    process.platform,
+    process.arch
+  );
+  const candidates = [];
+  if (process.resourcesPath) {
+    candidates.push(
+      path.join(process.resourcesPath, 'app.asar.unpacked', nativeRelativePath),
+      path.join(process.resourcesPath, nativeRelativePath)
+    );
+  }
+  candidates.push(path.resolve(__dirname, '..', '..', '..', '..', nativeRelativePath));
+
+  const nativeDirectory = candidates.find(candidate => fs.existsSync(path.join(candidate, 'onnxruntime_binding.node')));
+  return nativeDirectory || null;
+}
+
+function configureOnnxRuntimeNativePath() {
+  return prependPathEntry(resolveOnnxRuntimeNativePath());
+}
+
+configureOnnxRuntimeNativePath();
+
 const { InferenceSession, Tensor } = require('onnxruntime-node');
 const { LogMelFeatureExtractor, PARAKEET_SAMPLE_RATE, normalizePerFeature } = require('./fbank');
 const { readOnnxMetadataProps } = require('./onnx-metadata');
@@ -27,11 +67,27 @@ class ParakeetEngine {
     const decoderPath = path.join(modelsDir, 'decoder.int8.onnx');
     const joinerPath = path.join(modelsDir, 'joiner.int8.onnx');
     const tokensPath = path.join(modelsDir, 'tokens.txt');
-    const [encoder, decoder, joiner] = await Promise.all([
-      InferenceSession.create(encoderPath, INTERACTIVE_SESSION_OPTIONS),
-      InferenceSession.create(decoderPath, INTERACTIVE_SESSION_OPTIONS),
-      InferenceSession.create(joinerPath, INTERACTIVE_SESSION_OPTIONS)
-    ]);
+    let encoder;
+    let decoder;
+    let joiner;
+    try {
+      [encoder, decoder, joiner] = await Promise.all([
+        InferenceSession.create(encoderPath, INTERACTIVE_SESSION_OPTIONS),
+        InferenceSession.create(decoderPath, INTERACTIVE_SESSION_OPTIONS),
+        InferenceSession.create(joinerPath, INTERACTIVE_SESSION_OPTIONS)
+      ]);
+    } catch (error) {
+      error.code = error.code || 'voice_onnx_session_failed';
+      error.details = {
+        modelsDir,
+        nativeRuntimeDir: resolveOnnxRuntimeNativePath(),
+        encoderPath,
+        decoderPath,
+        joinerPath,
+        tokensPath
+      };
+      throw error;
+    }
     const meta = readOnnxMetadataProps(encoderPath);
     const predRnnLayers = Number(meta.pred_rnn_layers || '2');
     const predHidden = Number(meta.pred_hidden || '640');
@@ -165,7 +221,9 @@ class ParakeetEngine {
 }
 
 module.exports = {
+  configureOnnxRuntimeNativePath,
   INTERACTIVE_SESSION_OPTIONS,
   PARAKEET_SAMPLE_RATE,
-  ParakeetEngine
+  ParakeetEngine,
+  resolveOnnxRuntimeNativePath
 };

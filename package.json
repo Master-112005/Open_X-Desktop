@@ -61,11 +61,10 @@
     "productName": "OpenX",
     "copyright": "Copyright (c) 2024-2026 RAKESH",
     "asar": true,
+    "npmRebuild": false,
     "asarUnpack": [
       "core/assistant/llm/**/*",
       "core/vision/runtime/windows-face-analysis.ps1",
-      "models/Llama-3.2-1B/**/*",
-      "models/parakeet/**/*",
       "node_modules/@node-llama-cpp/win-x64*/**/*",
       "node_modules/node-llama-cpp/**/*",
       "node_modules/onnxruntime-node/**/*",
@@ -81,7 +80,6 @@
       "apps/**/*",
       "core/**/*",
       "plugins/**/*",
-      "models/**/*",
       "config.js",
       "package.json",
       "!**/*.test.js",
@@ -100,6 +98,14 @@
       {
         "from": "build/openx-chrome-host.exe",
         "to": "native-messaging/openx-chrome-host.exe"
+      },
+      {
+        "from": "models/parakeet",
+        "to": "models/parakeet"
+      },
+      {
+        "from": "models/Llama-3.2-1B",
+        "to": "models/Llama-3.2-1B"
       }
     ],
     "publish": null,

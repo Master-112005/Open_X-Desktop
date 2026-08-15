@@ -917,6 +917,28 @@ function getVoiceModelLoader() {
   return voiceModelLoader;
 }
 
+function formatVoiceTranscriptionFailure(error) {
+  const code = String(error?.code || '').trim();
+  const rawMessage = String(error?.message || 'Voice transcription failed').replace(/\s+/g, ' ').trim();
+  const safeMessage = rawMessage.slice(0, 220);
+  if (code === 'voice_model_missing') {
+    return {
+      code,
+      error: 'Voice model files are missing from this OpenX installation. Rebuild or reinstall OpenX with the bundled Parakeet voice models.'
+    };
+  }
+  if (code === 'voice_onnx_session_failed' || /onnxruntime|onnx|inferencesession/i.test(rawMessage)) {
+    return {
+      code: code || 'voice_onnx_runtime_failed',
+      error: `Voice model runtime failed to start: ${safeMessage}`
+    };
+  }
+  return {
+    code: code || 'voice_transcription_failed',
+    error: `Voice transcription failed: ${safeMessage}`
+  };
+}
+
 function scheduleVoiceWarmup(reason = 'startup') {
   if (voiceWarmupTimer || process.env.OPENX_TEST === '1') return;
   voiceWarmupTimer = setTimeout(() => {
@@ -5786,12 +5808,15 @@ function setupIPC() {
       });
       return { success: true, text };
     } catch (error) {
+      const failure = formatVoiceTranscriptionFailure(error);
       mainLogger.error('[VOICE] Transcription failed', {
         durationMs: Date.now() - startedAt,
         samples: samples.length,
-        error: error.message
+        code: failure.code,
+        error: error.message,
+        details: error.details || null
       });
-      return { success: false, text: '', error: 'Voice transcription failed' };
+      return { success: false, text: '', ...failure };
     }
   });
 

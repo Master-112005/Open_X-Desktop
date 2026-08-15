@@ -5,6 +5,7 @@ graphify-out/
 .code-review-graph/
 models/whisper/*.bin
 dist/
+dist-voice-check/
 .playwright-mcp/
 models/
 !models/
