@@ -218,8 +218,10 @@ const NOTIFICATION_STORAGE_KEY = 'openx-ui-notifications-v1';
 const ASSISTANT_CHAT_HISTORY_STORAGE_KEY = 'openx-ui-chat-history-v2';
 const UI_STATE_STORAGE_KEY = 'openx-ui-state-v1';
 const MAX_NOTIFICATION_HISTORY = 30;
-const CHAT_HISTORY_LIMIT = 300;
-const MAX_RENDERED_MESSAGES = CHAT_HISTORY_LIMIT;
+const DEFAULT_CHAT_HISTORY_LIMIT = 300;
+const MIN_CHAT_HISTORY_LIMIT = 50;
+const MAX_CHAT_HISTORY_LIMIT = 1000;
+const MAX_RENDERED_MESSAGES = MAX_CHAT_HISTORY_LIMIT;
 const MAX_CHAT_VISUAL_RESULTS = 10;
 const PEOPLE_CHAT_LIMIT = 30;
 const PEOPLE_CHAT_HISTORY_LIMIT = 300;
@@ -458,8 +460,18 @@ function loadStoredObject(key) {
   }
 }
 
-function chatHistoryLimit() {
-  return CHAT_HISTORY_LIMIT;
+function clampChatHistoryLimit(value, fallback = DEFAULT_CHAT_HISTORY_LIMIT) {
+  const numeric = Math.floor(Number(value));
+  const resolved = Number.isFinite(numeric) ? numeric : fallback;
+  return Math.max(MIN_CHAT_HISTORY_LIMIT, Math.min(MAX_CHAT_HISTORY_LIMIT, resolved));
+}
+
+function chatHistoryLimit(options = {}) {
+  const configured = settingsSnapshot?.settings?.chat?.maxHistory;
+  if (configured === undefined || configured === null) {
+    return options.allowPreSettingsMax === true ? MAX_CHAT_HISTORY_LIMIT : DEFAULT_CHAT_HISTORY_LIMIT;
+  }
+  return clampChatHistoryLimit(configured);
 }
 
 function redactSensitiveText(value) {
@@ -481,14 +493,14 @@ function normalizeChatHistoryItem(item = {}) {
   };
 }
 
-function normalizeChatHistoryItems(items = []) {
+function normalizeChatHistoryItems(items = [], limit = MAX_CHAT_HISTORY_LIMIT) {
   return (Array.isArray(items) ? items : [])
     .map(normalizeChatHistoryItem)
     .filter(Boolean)
-    .slice(-CHAT_HISTORY_LIMIT);
+    .slice(-clampChatHistoryLimit(limit, MAX_CHAT_HISTORY_LIMIT));
 }
 
-function mergeChatHistory(left = [], right = []) {
+function mergeChatHistory(left = [], right = [], limit = MAX_CHAT_HISTORY_LIMIT) {
   const merged = [];
   const seen = new Set();
   [...left, ...right].forEach(item => {
@@ -501,7 +513,7 @@ function mergeChatHistory(left = [], right = []) {
   });
   return merged
     .sort((a, b) => Number(a.createdAt) - Number(b.createdAt))
-    .slice(-CHAT_HISTORY_LIMIT);
+    .slice(-clampChatHistoryLimit(limit, MAX_CHAT_HISTORY_LIMIT));
 }
 
 function updateChatStorageStatus(count = conversationHistory.length) {
@@ -555,7 +567,7 @@ async function loadConversationHistory() {
     removeStoredValue(ASSISTANT_CHAT_HISTORY_STORAGE_KEY);
   }
   updateChatStorageStatus(merged.length);
-  return merged.slice(-CHAT_HISTORY_LIMIT);
+  return merged.slice(-MAX_CHAT_HISTORY_LIMIT);
 }
 
 function persistConversationHistory(entries = conversationHistory) {
@@ -684,7 +696,7 @@ function loadLegacyUiState() {
 }
 
 function clearLegacyUiStateStorage() {
-  [UI_STATE_STORAGE_KEY, SCHEDULE_STORAGE_KEY, NOTIFICATION_STORAGE_KEY, ASSISTANT_MUTED_STORAGE_KEY].forEach(key => {
+  [UI_STATE_STORAGE_KEY, SCHEDULE_STORAGE_KEY, NOTIFICATION_STORAGE_KEY].forEach(key => {
     try {
       localStorage.removeItem(key);
     } catch (_) {}
@@ -744,7 +756,6 @@ async function loadUiState() {
     stored = normalizeUiState();
   }
 
-  isAssistantMuted = stored.assistantMuted;
   scheduleItems = stored.schedules.length > 0 ? stored.schedules : legacy.schedules;
   notificationHistory = stored.notifications.length > 0 ? stored.notifications : legacy.notifications;
   if (legacy.schedules.length > 0 || legacy.notifications.length > 0) {
@@ -755,7 +766,7 @@ async function loadUiState() {
 
 async function restoreConversationHistory() {
   if (!messagesEl) return 0;
-  conversationHistory = (await loadConversationHistory()).slice(-chatHistoryLimit());
+  conversationHistory = (await loadConversationHistory()).slice(-chatHistoryLimit({ allowPreSettingsMax: true }));
   messagesEl.replaceChildren();
   renderedMessageCount = 0;
   conversationHistory.forEach(item => {
@@ -769,7 +780,7 @@ function repaintConversationIfBlank() {
   if (!messagesEl || messagesEl.querySelector('.message') || conversationHistory.length === 0) return;
   messagesEl.replaceChildren();
   renderedMessageCount = 0;
-  conversationHistory.slice(-chatHistoryLimit()).forEach(item => {
+  conversationHistory.slice(-chatHistoryLimit({ allowPreSettingsMax: true })).forEach(item => {
     addMessage(item.text, item.type, item.meta, { persist: false });
   });
   hasRenderedWelcome = true;
@@ -1133,9 +1144,10 @@ function addMessage(text, type, meta, options = {}) {
 }
 
 function pruneRenderedMessages() {
-  if (renderedMessageCount <= MAX_RENDERED_MESSAGES) return;
+  const limit = chatHistoryLimit({ allowPreSettingsMax: true });
+  if (renderedMessageCount <= limit) return;
   const renderedMessages = messagesEl.querySelectorAll('.message');
-  const overflow = renderedMessages.length - MAX_RENDERED_MESSAGES;
+  const overflow = renderedMessages.length - limit;
   if (overflow <= 0) {
     renderedMessageCount = renderedMessages.length;
     return;
@@ -4833,7 +4845,7 @@ function collectSettingsPayload() {
     chat: {
       themeId: selectedThemeId,
       glassTint: Number(document.getElementById(fieldIds.glassTint).value || 42),
-      maxHistory: Math.max(50, Math.min(300, Number(document.getElementById(fieldIds.chatMaxHistory).value || 300)))
+      maxHistory: clampChatHistoryLimit(document.getElementById(fieldIds.chatMaxHistory).value || DEFAULT_CHAT_HISTORY_LIMIT)
     },
     userProfile: {
       fullName: document.getElementById(fieldIds.profileFullName).value.trim(),
@@ -4945,12 +4957,33 @@ function applySnapshot(snapshot) {
   updateBranding();
   populateSettingsForm();
   updateSettingsSummary();
+  enforceConversationHistoryLimit({ persist: conversationReady, rerender: conversationReady });
   renderSecurityStatus(snapshot?.securityStatus);
   if (snapshot?.cloudStatus) {
     renderCloudStatus(snapshot.cloudStatus);
   }
   if (snapshot?.cloudPairingStatus) {
     renderCloudPairingStatus(snapshot.cloudPairingStatus);
+  }
+}
+
+function enforceConversationHistoryLimit(options = {}) {
+  const limit = chatHistoryLimit();
+  const nextHistory = conversationHistory.slice(-limit);
+  const changed = nextHistory.length !== conversationHistory.length;
+  conversationHistory = nextHistory;
+  updateChatStorageStatus(conversationHistory.length);
+  if (options.rerender === true && messagesEl && changed) {
+    messagesEl.replaceChildren();
+    renderedMessageCount = 0;
+    conversationHistory.forEach(item => {
+      addMessage(item.text, item.type, item.meta, { persist: false });
+    });
+    hasRenderedWelcome = conversationHistory.length > 0;
+    scheduleMessagesScroll();
+  }
+  if (options.persist === true && changed) {
+    saveConversationHistory({ immediate: true });
   }
 }
 
@@ -6166,6 +6199,7 @@ async function initialize() {
   const snapshot = await window.openx.getSettings();
   applySnapshot(snapshot);
   await conversationStart;
+  enforceConversationHistoryLimit({ persist: true, rerender: true });
   renderActivity();
   setWorkspaceView('chat');
   refreshActivitySchedulesFromRuntime();

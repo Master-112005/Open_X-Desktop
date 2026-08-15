@@ -102,10 +102,10 @@ describe('Electron Security Boundary', function() {
     );
     assert.throws(() => IPC_VALIDATORS['assistantChatHistory:save']({ entries: [{ type: 'bad', text: 'No' }] }), /entry type/);
     assert.equal(
-      IPC_VALIDATORS['assistantChatHistory:save']({ entries: new Array(300).fill({ type: 'user', text: 'x' }) }).entries.length,
-      300
+      IPC_VALIDATORS['assistantChatHistory:save']({ entries: new Array(1000).fill({ type: 'user', text: 'x' }) }).entries.length,
+      1000
     );
-    assert.throws(() => IPC_VALIDATORS['assistantChatHistory:save']({ entries: new Array(301).fill({ type: 'user', text: 'x' }) }), /too many/);
+    assert.throws(() => IPC_VALIDATORS['assistantChatHistory:save']({ entries: new Array(1001).fill({ type: 'user', text: 'x' }) }), /too many/);
     assert.throws(() => IPC_VALIDATORS['assistantChatHistory:get']({}), /does not accept/);
     assert.throws(() => IPC_VALIDATORS['assistantChatHistory:getSync']({}), /does not accept/);
     assert.throws(() => IPC_VALIDATORS['assistantChatHistory:clear']({}), /does not accept/);

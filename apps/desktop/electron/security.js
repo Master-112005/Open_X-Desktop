@@ -163,7 +163,7 @@ function validateVoiceSettings(payload = {}) {
   return output;
 }
 
-const CHAT_HISTORY_ENTRY_LIMIT = 300;
+const CHAT_HISTORY_ENTRY_LIMIT = 1000;
 
 function validateChatHistorySave(payload) {
   requirePlainObject(payload, 'chatHistory');

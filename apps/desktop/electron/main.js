@@ -1125,9 +1125,18 @@ function buildSettingsSnapshot() {
   };
 }
 
-const CHAT_HISTORY_LIMIT = 300;
+const DEFAULT_CHAT_HISTORY_LIMIT = 300;
+const MIN_CHAT_HISTORY_LIMIT = 50;
+const MAX_CHAT_HISTORY_LIMIT = 1000;
 const UI_STATE_SCHEDULE_LIMIT = 80;
 const UI_STATE_NOTIFICATION_LIMIT = 30;
+
+function assistantChatHistoryLimit() {
+  const configured = runtimeConfig?.chat?.maxHistory ?? BASE_CONFIG?.chat?.maxHistory ?? DEFAULT_CHAT_HISTORY_LIMIT;
+  const numeric = Math.floor(Number(configured));
+  const resolved = Number.isFinite(numeric) ? numeric : DEFAULT_CHAT_HISTORY_LIMIT;
+  return Math.max(MIN_CHAT_HISTORY_LIMIT, Math.min(MAX_CHAT_HISTORY_LIMIT, resolved));
+}
 
 function assistantChatHistoryPath() {
   const dataPaths = runtimeConfig?.app?.dataPaths || BASE_CONFIG?.app?.dataPaths || {};
@@ -1152,6 +1161,7 @@ function redactChatHistoryText(value) {
 }
 
 function normalizeChatHistoryEntries(entries = []) {
+  const limit = assistantChatHistoryLimit();
   return (Array.isArray(entries) ? entries : [])
     .map(entry => {
       const text = redactChatHistoryText(entry?.text);
@@ -1165,7 +1175,7 @@ function normalizeChatHistoryEntries(entries = []) {
       };
     })
     .filter(Boolean)
-    .slice(-CHAT_HISTORY_LIMIT);
+    .slice(-limit);
 }
 
 function mergeChatHistoryEntries(existingEntries = [], incomingEntries = []) {
@@ -1179,7 +1189,7 @@ function mergeChatHistoryEntries(existingEntries = [], incomingEntries = []) {
   });
   return merged
     .sort((left, right) => Number(left.createdAt) - Number(right.createdAt))
-    .slice(-CHAT_HISTORY_LIMIT);
+    .slice(-assistantChatHistoryLimit());
 }
 
 function migrateAccidentalAssistantChatHistory() {
@@ -2692,15 +2702,6 @@ function recordDesktopChatUiState(input = {}) {
   };
 }
 
-function isDesktopChatAppVisible() {
-  return Boolean(
-    desktopChatUiState.visible === true &&
-    chatWindow &&
-    !chatWindow.isDestroyed() &&
-    chatWindow.isVisible()
-  );
-}
-
 function serializeDesktopChatConversation(conversation = {}, history = []) {
   const metadata = conversation.metadata && typeof conversation.metadata === 'object' ? conversation.metadata : {};
   const safeHistory = serializeDesktopChatHistory(history);
@@ -3897,20 +3898,6 @@ function initializeSecurityLock() {
     dataRoot: dataPaths.root
   });
   return securityLockService;
-}
-
-function uniqueExistingPathCandidates(candidates = []) {
-  const seen = new Set();
-  const unique = [];
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    const resolved = path.resolve(String(candidate));
-    const key = resolved.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(resolved);
-  }
-  return unique;
 }
 
 function createSettingsWindow() {
@@ -6720,6 +6707,11 @@ async function initializeAssistant() {
   mainLogger.info('Assistant initialized', {
     name: runtimeConfig?.assistant?.displayName || 'OpenX'
   });
+  if (runtimeConfig?.localLlm?.warmupOnStartup === true && typeof assistant.warmupLocalLlm === 'function') {
+    assistant.warmupLocalLlm('assistant-ready').catch(error => {
+      mainLogger.warn('[LLM] Local LLM warmup failed', error?.message || error);
+    });
+  }
 }
 
 function initializeCloudMobileRuntime() {

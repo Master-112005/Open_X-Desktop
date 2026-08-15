@@ -97,6 +97,21 @@ const CONFIG = {
     ttsVoiceURI: ''
   },
 
+  localLlm: {
+    enabled: true,
+    modelPath: path.join(__dirname, 'models', 'Llama-3.2-1B', 'Llama-3.2-1B-Instruct-Q4_K_M.gguf'),
+    contextMin: 2048,
+    contextMax: 8192,
+    maxReplyTokens: 180,
+    runtime: 'auto',
+    nodePath: envPath('OPENX_LLM_NODE_PATH'),
+    warmupOnStartup: true,
+    loadTimeoutMs: 180000,
+    requestTimeoutMs: 120000,
+    responseStyle: 'concise',
+    language: 'system'
+  },
+
   system: {
     pollingIntervalMs: 5000,
     volumeStep: 5,

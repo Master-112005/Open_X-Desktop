@@ -8,7 +8,9 @@ dist/
 .playwright-mcp/
 models/
 !models/
-models/*
+models/
+!models/Llama-3.2-1B/
+!models/Llama-3.2-1B/**
 !models/parakeet/
 !models/parakeet/**
 !core/assistant/models/

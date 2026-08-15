@@ -122,7 +122,8 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /function savePeopleChatUser\(/);
     assert.match(script, /function deletePeopleChatConversation\(/);
     assert.match(script, /function handleDesktopChatChanged\(/);
-    assert.match(script, /const CHAT_HISTORY_LIMIT = 300/);
+    assert.match(script, /const DEFAULT_CHAT_HISTORY_LIMIT = 300/);
+    assert.match(script, /const MAX_CHAT_HISTORY_LIMIT = 1000/);
     assert.match(script, /const PEOPLE_CHAT_HISTORY_LIMIT = 300/);
     assert.match(script, /function publishPeopleChatUiState\(/);
     assert.match(script, /window\.openx\.setDesktopChatUiState/);
@@ -540,7 +541,8 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /removeStoredValue\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY\)/);
     assert.match(script, /const result = getAssistantHistorySync\(\)/);
     assert.match(script, /const result = await getAssistantHistory\(\)/);
-    assert.match(script, /function chatHistoryLimit\(\) \{\s*return CHAT_HISTORY_LIMIT;\s*\}/);
+    assert.match(script, /function chatHistoryLimit\(options = \{\}\) \{/);
+    assert.match(script, /allowPreSettingsMax === true \? MAX_CHAT_HISTORY_LIMIT : DEFAULT_CHAT_HISTORY_LIMIT/);
     assert.doesNotMatch(script, /saveStoredList\(ASSISTANT_CHAT_HISTORY_STORAGE_KEY/);
     assert.match(script, /const saveAssistantHistorySync = window\.openx\?\.saveAssistantChatHistorySync/);
     assert.doesNotMatch(script, /window\.openx\?\.getChatHistory|window\.openx\?\.saveChatHistorySync|window\.openx\?\.saveChatHistory|window\.openx\?\.clearChatHistory/);
@@ -556,7 +558,8 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /async function sendCommand\(text\) \{[\s\S]*await ensureConversationReady\(\);[\s\S]*addMessage\(text, 'user', 'You - just now'\)/);
     assert.match(script, /if \(conversationReady\) \{[\s\S]*persistConversationHistoryFallback\(\);[\s\S]*flushConversationHistorySave\(\);[\s\S]*\}/);
     assert.match(script, /const snapshot = normalizeChatHistoryItems\(entries\)\.slice\(-chatHistoryLimit\(\)\);[\s\S]*saveAssistantHistorySync\(snapshot\);[\s\S]*saveAssistantHistory\(snapshot\)/);
-    assert.match(script, /Math\.min\(300, Number\(document\.getElementById\(fieldIds\.chatMaxHistory\)\.value \|\| 300\)\)/);
+    assert.match(script, /maxHistory: clampChatHistoryLimit\(document\.getElementById\(fieldIds\.chatMaxHistory\)\.value \|\| DEFAULT_CHAT_HISTORY_LIMIT\)/);
+    assert.match(html, /id="chat-max-history" type="number" min="50" max="1000"/);
     assert.match(script, /function persistConversationHistoryFallback/);
     assert.match(script, /async function closeChatWindow/);
     assert.match(script, /persistConversationHistoryFallback\(\);\s*try\s*\{\s*await flushConversationHistorySave\(\);/s);
@@ -632,8 +635,9 @@ describe('Chat Renderer UI', function() {
   });
 
   it('should bound long-session rendering and coalesce glass tint updates', function() {
-    assert.match(script, /CHAT_HISTORY_LIMIT\s*=\s*300/);
-    assert.match(script, /MAX_RENDERED_MESSAGES\s*=\s*CHAT_HISTORY_LIMIT/);
+    assert.match(script, /DEFAULT_CHAT_HISTORY_LIMIT\s*=\s*300/);
+    assert.match(script, /MAX_CHAT_HISTORY_LIMIT\s*=\s*1000/);
+    assert.match(script, /MAX_RENDERED_MESSAGES\s*=\s*MAX_CHAT_HISTORY_LIMIT/);
     assert.match(script, /renderedMessages\[index\]\.remove\(\)/);
     assert.match(script, /function scheduleGlassTintUpdate\(/);
     assert.match(script, /requestAnimationFrame\(/);

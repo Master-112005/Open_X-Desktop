@@ -142,7 +142,7 @@ describe('Settings Service', function() {
     assert.equal(saved.userProfile.phone, '+919876543210');
     assert.equal(saved.chat.themeId, 'white-glass');
     assert.equal(saved.chat.glassTint, 68);
-    assert.equal(saved.chat.maxHistory, 300);
+    assert.equal(saved.chat.maxHistory, 900);
     assert.equal(saved.system.permissionLevel, 'critical');
     assert.equal(saved.activeLearning.enabled, false);
     assert.equal(saved.activeLearning.askForFeedback, false);

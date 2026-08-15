@@ -25,6 +25,7 @@ const {
   createCancellationError,
   linkAbortSignal
 } = require('./utils/Cancellation');
+const { createDefaultLocalLlmManager } = require('./llm');
 
 const CONFIRM_PHRASES = [
   'approve',
@@ -79,6 +80,12 @@ const CANCEL_PATTERNS = [
 ];
 
 const MAX_CHAT_VISUAL_RESULTS = 10;
+const LOCAL_LLM_CONVERSATION_INTENTS = new Set([
+  'greeting',
+  'thanks',
+  'help',
+  'assistant.wellbeing'
+]);
 
 const CHOICE_NUMBER_WORDS = Object.freeze({
   one: 1,
@@ -146,6 +153,10 @@ class Assistant extends EventEmitter {
     this.context = new ContextManager(config);
     this.personality = new Personality(config);
     this.responses = new ResponseGenerator(config);
+    this.localLlm = Object.prototype.hasOwnProperty.call(dependencies, 'localLlm')
+      ? dependencies.localLlm
+      : createDefaultLocalLlmManager(config, { logger: this.logger });
+    this._logLocalLlmConfiguration();
     this.pluginManager = null;
     this.pluginsLoaded = true;
     this.pluginsLoadFailed = false;
@@ -242,8 +253,10 @@ class Assistant extends EventEmitter {
 
       const wellbeingResult = this._answerWellbeingStatus(input, source);
       if (wellbeingResult) {
-        this.context.record(input, {}, wellbeingResult);
-        return this._finalizeAssistantResult(wellbeingResult, { input, source });
+        const localLlmResult = await this._tryLocalLlmFallback(input, input, source, wellbeingResult);
+        const finalWellbeingResult = localLlmResult || wellbeingResult;
+        this.context.record(input, {}, finalWellbeingResult);
+        return this._finalizeAssistantResult(finalWellbeingResult, { input, source });
       }
 
       const learningResult = await this._handleLearningInput(input, source);
@@ -271,7 +284,7 @@ class Assistant extends EventEmitter {
 
       const routedInput = this._buildRoutedInput(input);
       const pipelineContext = options.pipelineContext || null;
-      const result = await this._runWithCommandTimeout(({ signal, executionContext }) => this.router.process(routedInput, source, {
+      let result = await this._runWithCommandTimeout(({ signal, executionContext }) => this.router.process(routedInput, source, {
         contextualRewrite: this._lastContextualRewrite,
         conversation: this.context.buildConversationDigest({ limit: 4 }),
         pipelineContext,
@@ -285,6 +298,10 @@ class Assistant extends EventEmitter {
         executionContext
       }), { input, routedInput, source, stage: 'router.process', signal: options.signal });
       this._attachVisualMemorySearchResults(result, pipelineContext);
+      const localLlmResult = await this._tryLocalLlmFallback(input, routedInput, source, result);
+      if (localLlmResult) {
+        result = localLlmResult;
+      }
       this.context.record(input, result.entities || {}, result);
       this._recordLearningOutcome(input, routedInput, result);
 
@@ -797,6 +814,203 @@ class Assistant extends EventEmitter {
     }
 
     return null;
+  }
+
+  _isLocalLlmFallbackCandidate(result = {}) {
+    if (this._isUnimplementedCapabilityResult(result)) {
+      return true;
+    }
+    if (this._isLocalLlmConversationResult(result)) {
+      return true;
+    }
+    if (!result || result.success !== false) {
+      return false;
+    }
+    if (result.requiresConfirmation || result.needsClarification) {
+      return false;
+    }
+    if (result.intent) {
+      return false;
+    }
+    const error = String(result.error || '').toLowerCase();
+    return !error || error.includes('could not determine intent') || error.includes('unknown');
+  }
+
+  _isLocalLlmConversationResult(result = {}) {
+    if (!result) {
+      return false;
+    }
+    const intent = String(result.intent || '');
+    if (!LOCAL_LLM_CONVERSATION_INTENTS.has(intent)) {
+      return false;
+    }
+    if (result.requiresConfirmation || result.needsClarification) {
+      return false;
+    }
+    const data = result.data || {};
+    return data.executed !== true && data.actionExecuted !== true;
+  }
+
+  _isUnimplementedCapabilityResult(result = {}) {
+    if (!result || result.intent !== 'assistant.capability') {
+      return false;
+    }
+    const data = result.data || {};
+    const response = String(result.response || '').toLowerCase();
+    return data.action === 'capability.recognized' ||
+      data.capabilityMarkerOnly === true ||
+      response.includes('not connected to an automation controller') ||
+      response.includes('capability is not connected');
+  }
+
+  _logLocalLlmConfiguration() {
+    if (!this.localLlm || typeof this.localLlm.getStatus !== 'function') {
+      return;
+    }
+    try {
+      const status = this.localLlm.getStatus();
+      this.logger.info('[LLM] Local LLM configured', {
+        enabled: status.enabled,
+        status: status.status,
+        model: status.modelName,
+        modelReady: status.modelReady
+      });
+    } catch (error) {
+      this.logger.warn('[LLM] Local LLM configuration check failed', error?.message || error);
+    }
+  }
+
+  async warmupLocalLlm(reason = 'startup') {
+    if (!this.localLlm || typeof this.localLlm.getEngine !== 'function') {
+      return { success: false, reason: 'unavailable' };
+    }
+    if (typeof this.localLlm.isEnabled === 'function' && !this.localLlm.isEnabled()) {
+      this.logger.info('[LLM] Local LLM warmup skipped', { reason: 'disabled' });
+      return { success: false, reason: 'disabled' };
+    }
+    try {
+      const validation = typeof this.localLlm.validate === 'function'
+        ? this.localLlm.validate()
+        : { success: true };
+      if (validation?.success === false) {
+        this.logger.warn('[LLM] Local LLM warmup skipped', {
+          reason: validation.reason,
+          modelPath: validation.modelPath
+        });
+        return { success: false, reason: validation.reason };
+      }
+      this.logger.info('[LLM] Local LLM warmup requested', {
+        reason,
+        model: validation.modelName
+      });
+      await this.localLlm.getEngine({
+        memorySummary: this._buildLocalLlmMemorySummary(),
+        assistantName: this.config?.assistant?.displayName || 'OpenX',
+        responseStyle: this.config?.localLlm?.responseStyle || this.config?.assistant?.localLlm?.responseStyle || 'concise',
+        language: this.config?.localLlm?.language || this.config?.assistant?.localLlm?.language || 'system'
+      });
+      return { success: true };
+    } catch (error) {
+      this.logger.warn('[LLM] Local LLM warmup failed', error?.message || error);
+      return { success: false, error: error?.message || String(error) };
+    }
+  }
+
+  async _tryLocalLlmFallback(input, routedInput, source, routedResult = {}) {
+    if (!this._isLocalLlmFallbackCandidate(routedResult) || !this.localLlm) {
+      return null;
+    }
+    if (typeof this.localLlm.isEnabled === 'function' && !this.localLlm.isEnabled()) {
+      return null;
+    }
+
+    const validation = typeof this.localLlm.validate === 'function'
+      ? this.localLlm.validate()
+      : { success: true };
+    if (validation && validation.success === false) {
+      if (validation.reason !== 'disabled') {
+        this.logger.warn('Local LLM fallback unavailable', validation.reason || validation.error || 'unknown');
+      }
+      return null;
+    }
+
+    try {
+      const conversation = this.context.buildConversationDigest({ limit: 6 });
+      const responseStyle = this.learning?.getPreference?.('responseStyle')?.value ||
+        this.config?.assistant?.localLlm?.responseStyle ||
+        this.config?.localLlm?.responseStyle ||
+        'concise';
+      const llmResult = await this.localLlm.reply(routedInput || input, {
+        memorySummary: this._buildLocalLlmMemorySummary(),
+        conversationSummary: conversation?.summaryText || '',
+        assistantName: this.config?.assistant?.displayName || 'OpenX',
+        responseStyle,
+        language: this.config?.assistant?.localLlm?.language || this.config?.localLlm?.language || 'system',
+        source,
+        now: new Date().toISOString()
+      });
+      const response = String(llmResult?.response || llmResult?.text || llmResult || '').trim();
+      if (!response) {
+        return null;
+      }
+      return {
+        commandId: routedResult.commandId || `llm-${Date.now()}`,
+        success: true,
+        intent: 'assistant.llm',
+        confidence: routedResult.confidence ?? 0.35,
+        entities: {},
+        normalizedInput: routedResult.normalizedInput || routedInput,
+        languageUnderstanding: routedResult.languageUnderstanding || null,
+        response,
+        source,
+        data: {
+          ...(llmResult?.data || {}),
+          routedFallback: {
+            intent: routedResult.intent || null,
+            reason: this._isLocalLlmConversationResult(routedResult)
+              ? 'conversation'
+              : this._isUnimplementedCapabilityResult(routedResult)
+                ? 'unimplemented-capability'
+                : 'unknown-intent',
+            error: routedResult.error || null,
+            response: routedResult.response || null
+          }
+        }
+      };
+    } catch (error) {
+      this.logger.warn('Local LLM fallback failed', error?.message || error);
+      return null;
+    }
+  }
+
+  _buildLocalLlmMemorySummary() {
+    const lines = [];
+    const identity = this.learning?.getUserIdentitySummary?.();
+    if (identity && identity !== 'no personal facts stored') {
+      lines.push(`User identity: ${identity}`);
+    }
+
+    const snapshot = this.learning?.getSnapshot?.();
+    const preferences = snapshot?.preferences && typeof snapshot.preferences === 'object'
+      ? Object.entries(snapshot.preferences)
+        .filter(([, record]) => record?.value)
+        .slice(0, 12)
+        .map(([key, record]) => `${key}: ${record.value}`)
+      : [];
+    if (preferences.length > 0) {
+      lines.push(`Preferences: ${preferences.join('; ')}`);
+    }
+
+    const recent = this.context.getHistory?.(4) || [];
+    const recentLines = recent
+      .filter(entry => entry?.input)
+      .map(entry => `${entry.input}${entry.response ? ` -> ${entry.response}` : ''}`)
+      .slice(-4);
+    if (recentLines.length > 0) {
+      lines.push(`Recent exchange: ${recentLines.join(' | ')}`);
+    }
+
+    return lines.join('\n').slice(0, 2400);
   }
 
   _buildRoutedInput(input) {
