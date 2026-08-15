@@ -2,7 +2,7 @@ const path = require('path');
 const { fileURLToPath } = require('url');
 
 const FORBIDDEN_OBJECT_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
-const ALLOWED_COMMAND_SOURCES = new Set(['chat', 'voice']);
+const ALLOWED_COMMAND_SOURCES = new Set(['chat']);
 const UNSAFE_TEXT_CONTROL_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 const UNSAFE_DIRECTIONAL_PATTERN = /[\u202A-\u202E\u2066-\u2069]/;
 
@@ -108,11 +108,6 @@ function validateConfirmation(payload) {
     ? {}
     : validateStructuredPayload(payload.entities, 'entities', 64 * 1024);
   return { commandId, intentId, entities };
-}
-
-function validateSpeech(payload) {
-  requirePlainObject(payload);
-  return { text: requireString(payload.text, 'text', { maxLength: 4000 }) };
 }
 
 function validateExternalBrowserUrl(payload) {
@@ -557,27 +552,6 @@ function validateCloudFileTransferAction(payload) {
   return { transferId, action };
 }
 
-function validateVoiceOverlayCollapse(payload) {
-  if (payload === undefined) return {};
-  requirePlainObject(payload);
-  const normalized = {};
-  if (payload.statusText !== undefined) {
-    normalized.statusText = requireString(payload.statusText, 'statusText', { maxLength: 80 });
-  }
-  if (payload.icon !== undefined) {
-    normalized.icon = requireString(payload.icon, 'icon', { maxLength: 3 });
-  }
-  if (payload.hideAfterMs !== undefined) {
-    normalized.hideAfterMs = Math.max(0, Math.min(30000, Number(payload.hideAfterMs) || 0));
-  }
-  if (payload.presentationClass !== undefined) {
-    const presentationClass = requireString(payload.presentationClass, 'presentationClass', { maxLength: 60, allowEmpty: true });
-    if (presentationClass && !/^[A-Za-z0-9_-]+$/.test(presentationClass)) throw new TypeError('presentationClass is invalid');
-    normalized.presentationClass = presentationClass;
-  }
-  return normalized;
-}
-
 function validateTimerWidgetClose(payload) {
   if (payload !== undefined) requirePlainObject(payload);
   return {};
@@ -749,12 +723,7 @@ const IPC_VALIDATORS = Object.freeze({
   'command:process': validateCommand,
   'command:confirm': validateConfirmation,
   'assistant:status': validateEmpty,
-  'tts:speak': validateSpeech,
-  'tts:stop': validateEmpty,
   'browser:openExternal': validateExternalBrowserUrl,
-  'voice:start': validateEmpty,
-  'voiceOverlay:collapse': validateVoiceOverlayCollapse,
-  'voiceOverlay:expandLiveSchedule': validateEmpty,
   'window:openChat': validateEmpty,
   'window:hideChat': validateEmpty,
   'window:openPeopleChat': validateEmpty,

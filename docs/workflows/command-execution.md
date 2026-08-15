@@ -1,13 +1,13 @@
 # Command Execution Workflow
 
-## Voice Mode
+## Chat Mode
 
 ```
-User activates OpenX by hotkey, chat, phone, or voice UI
+User activates OpenX by hotkey, chat, phone, or chat UI
   → Wake word detected
   → Orb glows blue (listening)
   → Assistant captures audio
-  → Speech-to-text converts to text
+  → Text-to-text converts to text
   → Text enters shared pipeline
 ```
 

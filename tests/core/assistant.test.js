@@ -74,7 +74,7 @@ describe('Assistant Confirmation Flow', function() {
     assert.equal(assistant.pluginLoadWarningEmitted, true);
   });
 
-  it('should keep a pending confirmation and execute it on voice confirmation', async function() {
+  it('should keep a pending confirmation and execute it on chat confirmation', async function() {
     const router = {
       process: async () => ({
         commandId: 'cmd-1',
@@ -99,11 +99,11 @@ describe('Assistant Confirmation Flow', function() {
       eventBus: { publish() {} }
     });
 
-    const first = await assistant.processVoiceInput('close chrome');
+    const first = await assistant.processCommand('close chrome', 'chat');
     assert.equal(first.requiresConfirmation, true);
     assert.equal(assistant.getStatus().awaitingConfirmation, true);
 
-    const second = await assistant.processVoiceInput('yes');
+    const second = await assistant.processCommand('yes', 'chat');
     assert.equal(second.success, true);
     assert.equal(second.intent, 'app.close');
     assert.equal(second.entities.appName, 'chrome');
@@ -131,12 +131,12 @@ describe('Assistant Confirmation Flow', function() {
       eventBus: { publish() {} }
     });
 
-    const first = await assistant.processCommand('close chrome and set vol 100', 'voice');
+    const first = await assistant.processCommand('close chrome and set vol 100', 'chat');
     assert.equal(first.requiresConfirmation, true);
     assert.equal(first.intent, 'multi.command');
     assert.match(first.response, /Close an application/i);
 
-    const confirmed = await assistant.processCommand('yes', 'voice');
+    const confirmed = await assistant.processCommand('yes', 'chat');
 
     assert.equal(confirmed.success, true);
     assert.equal(confirmed.intent, 'multi.command');
@@ -732,11 +732,11 @@ describe('Assistant Confirmation Flow', function() {
     assert.equal(selectedEntities.selectedPath, 'C:\\B\\Screenshots');
   });
 
-  it('should understand spoken numbered choices during voice folder clarification', async function() {
+  it('should understand worded numbered choices during chat folder clarification', async function() {
     let selectedEntities = null;
     const router = {
       process: async () => ({
-        commandId: 'cmd-folder-voice',
+        commandId: 'cmd-folder-chat',
         success: false,
         needsClarification: true,
         intent: 'folder.open',
@@ -767,8 +767,8 @@ describe('Assistant Confirmation Flow', function() {
       eventBus: { publish() {} }
     });
 
-    await assistant.processCommand('open screenshots folder', 'voice');
-    const second = await assistant.processCommand('one', 'voice');
+    await assistant.processCommand('open screenshots folder', 'chat');
+    const second = await assistant.processCommand('one', 'chat');
 
     assert.equal(second.success, true);
     assert.equal(selectedEntities.selectedPath, 'C:\\A\\Screenshots');
@@ -879,7 +879,7 @@ describe('Assistant Confirmation Flow', function() {
     assert.equal(seenInputs[2], 'close github tab');
   });
 
-  it('should refuse unrelated follow-up speech until confirmation is resolved', async function() {
+  it('should refuse unrelated follow-up text until confirmation is resolved', async function() {
     const router = {
       process: async () => ({
         commandId: 'cmd-2',
@@ -900,8 +900,8 @@ describe('Assistant Confirmation Flow', function() {
       eventBus: { publish() {} }
     });
 
-    await assistant.processVoiceInput('close chrome');
-    const followUp = await assistant.processVoiceInput('open downloads');
+    await assistant.processCommand('close chrome', 'chat');
+    const followUp = await assistant.processCommand('open downloads', 'chat');
 
     assert.equal(followUp.requiresConfirmation, true);
     assert.ok(/proceed or cancel/i.test(followUp.response));
@@ -1372,15 +1372,15 @@ describe('Assistant Confirmation Flow', function() {
       eventBus: { publish() {} }
     });
 
-    await assistant.processVoiceInput('close chrome');
-    const cancel = await assistant.processVoiceInput('cancel');
+    await assistant.processCommand('close chrome', 'chat');
+    const cancel = await assistant.processCommand('cancel', 'chat');
 
     assert.equal(cancel.cancelled, true);
     assert.ok(/cancelled/i.test(cancel.response));
     assert.equal(assistant.getStatus().awaitingConfirmation, false);
   });
 
-  it('should cancel a pending confirmation when speech recognition misspells cancel', async function() {
+  it('should cancel a pending confirmation when text recognition misspells cancel', async function() {
     const router = {
       process: async () => ({
         commandId: 'cmd-3b',
@@ -1401,8 +1401,8 @@ describe('Assistant Confirmation Flow', function() {
       eventBus: { publish() {} }
     });
 
-    await assistant.processVoiceInput('close notepad');
-    const cancel = await assistant.processVoiceInput('canle it');
+    await assistant.processCommand('close notepad', 'chat');
+    const cancel = await assistant.processCommand('canle it', 'chat');
 
     assert.equal(cancel.cancelled, true);
     assert.equal(assistant.getStatus().awaitingConfirmation, false);
@@ -1429,8 +1429,8 @@ describe('Assistant Confirmation Flow', function() {
       eventBus: { publish() {} }
     });
 
-    await assistant.processVoiceInput('close notepad');
-    const cancel = await assistant.processVoiceInput("no don't do it");
+    await assistant.processCommand('close notepad', 'chat');
+    const cancel = await assistant.processCommand("no don't do it", 'chat');
 
     assert.equal(cancel.cancelled, true);
     assert.equal(assistant.getStatus().awaitingConfirmation, false);
@@ -1457,15 +1457,15 @@ describe('Assistant Confirmation Flow', function() {
       eventBus: { publish() {} }
     });
 
-    await assistant.processVoiceInput('close chrome');
-    const expired = assistant.expirePendingConfirmation('timeout', 'voice');
+    await assistant.processCommand('close chrome', 'chat');
+    const expired = assistant.expirePendingConfirmation('timeout', 'chat');
 
     assert.equal(expired.expired, true);
     assert.ok(/timed out/i.test(expired.response));
     assert.equal(assistant.getStatus().awaitingConfirmation, false);
   });
 
-  it('should prepare voice transcripts with NLP before command routing', async function() {
+  it('should prepare chat inputTexts with NLP before command routing', async function() {
     let routedInput = '';
     const router = {
       nlp: {
@@ -1491,13 +1491,13 @@ describe('Assistant Confirmation Flow', function() {
       eventBus: { publish() {} }
     });
 
-    const result = await assistant.processVoiceInput('can you please opne chrmoe');
+    const result = await assistant.processCommand('can you please opne chrmoe', 'chat');
 
     assert.equal(result.success, true);
     assert.equal(routedInput, 'open chrome');
   });
 
-  it('should route the repaired command text from noisy voice transcripts', async function() {
+  it('should route the repaired command text from noisy chat inputTexts', async function() {
     let routedInput = '';
     const router = {
       nlp: {
@@ -1527,13 +1527,13 @@ describe('Assistant Confirmation Flow', function() {
       eventBus: { publish() {} }
     });
 
-    const result = await assistant.processVoiceInput('sglkn open lsg chrome');
+    const result = await assistant.processCommand('sglkn open lsg chrome', 'chat');
 
     assert.equal(result.success, true);
     assert.equal(routedInput, 'open chrome');
   });
 
-  it('should resolve voice pronouns from recent command context before routing', async function() {
+  it('should resolve chat pronouns from recent command context before routing', async function() {
     const routedInputs = [];
     const router = {
       nlp: {
@@ -1568,8 +1568,8 @@ describe('Assistant Confirmation Flow', function() {
       eventBus: { publish() {} }
     });
 
-    await assistant.processVoiceInput('close youtube');
-    const result = await assistant.processVoiceInput('open it');
+    await assistant.processCommand('close youtube', 'chat');
+    const result = await assistant.processCommand('open it', 'chat');
 
     assert.equal(result.success, true);
     assert.deepEqual(routedInputs, ['close youtube', 'open youtube']);

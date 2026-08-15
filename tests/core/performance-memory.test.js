@@ -2,7 +2,6 @@ const assert = require('assert');
 
 const ContextManager = require('../../core/assistant/context/ContextManager');
 const ReasoningDiagnostics = require('../../core/assistant/reasoning/ReasoningDiagnostics');
-const { VoiceSessionManager } = require('../../apps/desktop/voice');
 
 describe('Performance Memory Guards', function() {
   it('should store compact command history instead of full result payloads', function() {
@@ -73,20 +72,4 @@ describe('Performance Memory Guards', function() {
     assert.equal(snapshot.errors[0].message, 'error-50');
   });
 
-  it('should bound retained voice session and transition diagnostics', function() {
-    const manager = new VoiceSessionManager({
-      maxSessionHistory: 3,
-      maxTransitionLog: 8,
-      timeouts: { initializationMs: 0, listeningMs: 0, overallMs: 0 }
-    });
-
-    for (let index = 0; index < 6; index += 1) {
-      manager.prepareSession({ sessionId: `session-${index}` });
-      manager.closeSession('memory-guard-test');
-    }
-
-    const metrics = manager.getMetrics();
-    assert.equal(metrics.sessionCount, 3);
-    assert.equal(metrics.transitionCount, 8);
-  });
 });

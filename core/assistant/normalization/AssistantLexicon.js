@@ -370,7 +370,7 @@ const ASSISTANT_DOMAIN_WORDS = Object.freeze([
   'verification',
   'vision',
   'visual',
-  'voice',
+
   'volume',
   'web',
   'website',

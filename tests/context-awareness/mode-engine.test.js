@@ -157,7 +157,6 @@ describe('Mode Engine and Context Intelligence', function() {
       activeApp: 'obs64.exe',
       activeTitle: 'OBS Stream',
       runningApps: ['obs64.exe'],
-      microphoneActive: true,
       fullscreen: true
     };
 
@@ -266,14 +265,12 @@ describe('Mode Engine and Context Intelligence', function() {
       activeApp: 'obs64.exe',
       activeTitle: 'OBS Stream',
       runningApps: ['obs64.exe'],
-      microphoneActive: true,
       fullscreen: true
     });
     engine.evaluate({
       activeApp: 'obs64.exe',
       activeTitle: 'OBS Stream',
       runningApps: ['obs64.exe'],
-      microphoneActive: true,
       fullscreen: true
     });
     assert.equal(engine.getState().currentMode, 'STREAM_MODE');

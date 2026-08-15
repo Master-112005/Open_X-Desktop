@@ -22,7 +22,6 @@ class AssistantResponse {
   constructor(input = {}) {
     this.verificationResult = input.verificationResult || null;
     this.responseType = String(input.responseType || 'summary');
-    this.formattedVoiceResponse = compactText(input.formattedVoiceResponse, 900);
     this.formattedChatResponse = compactText(input.formattedChatResponse, 2400);
     this.formattedNotification = compactText(input.formattedNotification, 180);
     this.suggestions = compactSuggestions(input.suggestions);

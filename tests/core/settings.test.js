@@ -23,13 +23,6 @@ describe('Settings Service', function() {
         honorific: 'sir',
         userProfile: {}
       },
-      voice: {
-        activationShortcut: 'Alt+Space',
-        tts: {
-          rate: 2,
-          volume: 100
-        }
-      },
       system: {
         volumeStep: 5
       },
@@ -52,7 +45,6 @@ describe('Settings Service', function() {
     const snapshot = service.getSnapshot();
 
     assert.equal(snapshot.settings.assistant.displayName, 'OpenX');
-    assert.equal(snapshot.settings.voice.activationShortcut, 'Alt+Space');
     assert.equal(snapshot.settings.chat.activationShortcut, 'Control+Space');
     assert.equal(snapshot.settings.chat.themeId, 'graphite');
     assert.equal(snapshot.settings.chat.glassTint, 42);
@@ -73,12 +65,6 @@ describe('Settings Service', function() {
         displayName: 'Athena',
         title: 'Form Assistant',
         honorific: 'commander'
-      },
-      voice: {
-        tts: {
-          rate: 4,
-          volume: 72
-        }
       },
       userProfile: {
         fullName: 'Rakesh',
@@ -123,8 +109,6 @@ describe('Settings Service', function() {
     assert.equal(saved.assistant.displayName, 'Athena');
     assert.equal(saved.assistant.honorific, 'commander');
     assert.equal(saved.chat.activationShortcut, 'Control+Shift+J');
-    assert.equal(saved.voice.tts.rate, 4);
-    assert.equal(saved.voice.tts.volume, 72);
     assert.equal(saved.userProfile.fullName, 'Rakesh');
     assert.equal(saved.userProfile.phone, '+919876543210');
     assert.equal(saved.chat.themeId, 'white-glass');
@@ -156,8 +140,6 @@ describe('Settings Service', function() {
     const runtimeConfig = service.buildRuntimeConfig();
     assert.equal(runtimeConfig.assistant.displayName, 'Athena');
     assert.equal(runtimeConfig.chat.activationShortcut, 'Control+Shift+J');
-    assert.equal(runtimeConfig.voice.tts.rate, 4);
-    assert.equal(runtimeConfig.voice.tts.volume, 72);
     assert.equal(runtimeConfig.assistant.userProfile.email, 'rakesh@example.com');
     assert.equal(runtimeConfig.chat.activeTheme, 'white-glass');
     assert.equal(runtimeConfig.chat.glassTint, 68);
@@ -206,21 +188,6 @@ describe('Settings Service', function() {
     });
 
     assert.equal(saved.chat.activationShortcut, 'Control+Space');
-  });
-
-  it('should migrate the old slow default TTS rate to the faster default', function() {
-    const { service } = createService();
-    const saved = service.saveSettings({
-      voice: {
-        tts: {
-          rate: -1,
-          volume: 64
-        }
-      }
-    });
-
-    assert.equal(saved.voice.tts.rate, 2);
-    assert.equal(saved.voice.tts.volume, 64);
   });
 
   it('should reset settings back to defaults', function() {

@@ -65,12 +65,6 @@ class BaseResponseGenerator {
 
   cleanForChannel(value, { channel = 'chat', maxLength = 500 } = {}) {
     let text = this.stripStatusPrefix(value);
-    if (channel === 'voice') {
-      text = text
-        .replace(/\bSource:\s*[^.]+\.?/gi, '')
-        .replace(/\bhttps?:\/\/\S+/gi, '')
-        .replace(/\s*;\s*/g, ', ');
-    }
     if (channel === 'notification') {
       text = this.firstSentence(text, maxLength);
     }

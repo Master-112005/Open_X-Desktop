@@ -49,7 +49,7 @@
           </div>
           <button class="window-btn about-close-btn" id="about-close-btn" type="button" title="Close about" aria-label="Close about">&#10005;</button>
         </div>
-        <p class="about-summary" id="about-summary">Local-first desktop assistant for automation, voice, and cloud mobile connection.</p>
+        <p class="about-summary" id="about-summary">Local-first desktop assistant for automation and cloud mobile connection.</p>
         <dl class="about-details">
           <div>
             <dt>Version</dt>
@@ -81,19 +81,9 @@
 
         <div id="input-area">
           <div id="input-row">
-            <div class="composer-field">
-              <button class="composer-voice-btn voice-start-btn" id="voice-start-btn" type="button" title="Start voice" aria-label="Start voice">
-                <span class="voice-start-ring outer" aria-hidden="true"></span>
-                <span class="voice-start-ring inner" aria-hidden="true"></span>
-                <span class="voice-start-symbol" aria-hidden="true">&#10022;</span>
-              </button>
-              <input type="text" id="input-box" placeholder="Ask or control your PC..." autocomplete="off" aria-label="Command">
+            <div class="composer-field">              <input type="text" id="input-box" placeholder="Ask or control your PC..." autocomplete="off" aria-label="Command">
               <button id="send-btn" title="Send command" aria-label="Send command"><span>Send</span><b aria-hidden="true">&#8593;</b></button>
-            </div>
-            <button class="composer-mute-btn voice-btn" id="assistant-mute-btn" type="button" title="Mute assistant voice" aria-label="Mute assistant voice" aria-pressed="false">
-              <span class="voice-icon" aria-hidden="true">&#128266;</span>
-            </button>
-          </div>
+            </div>          </div>
           <div id="composer-hint"><span>Enter to send</span></div>
         </div>
       </section>
@@ -761,7 +751,7 @@
           <div class="settings-nav settings-segmented" id="settings-nav" aria-label="Settings sections" data-active-section="system">
             <button class="settings-nav-chip" data-section-target="system" type="button">
               <span class="nav-label">System</span>
-              <span class="nav-hint">Identity, voice, and theme.</span>
+              <span class="nav-hint">Identity and theme.</span>
             </button>
             <button class="settings-nav-chip" data-section-target="profile" type="button">
               <span class="nav-label">Profile</span>
@@ -778,7 +768,7 @@
           <div class="system-options settings-segmented" id="system-options" role="tablist" aria-label="System settings" data-active-block="identity" hidden>
             <button class="system-option active" data-system-block-target="identity" type="button" role="tab" aria-selected="true">
               <span class="nav-label">Identity</span>
-              <span class="nav-hint">Name, honorific, and voice.</span>
+              <span class="nav-hint">Name and honorific.</span>
             </button>
             <button class="system-option" data-system-block-target="theme" type="button" role="tab" aria-selected="false">
               <span class="nav-label">Theme</span>
@@ -812,22 +802,6 @@
                   <option value="boss">boss</option>
                   <option value="commander">commander</option>
                 </select>
-              </label>
-            </div>
-            <div class="field-grid">
-              <label class="field-wrap">
-                <span class="field-label">Assistant Volume</span>
-                <span class="range-row">
-                  <input class="range-input" id="assistant-tts-volume" type="range" min="0" max="100" step="1">
-                  <span class="range-value" id="assistant-tts-volume-value">100%</span>
-                </span>
-              </label>
-              <label class="field-wrap">
-                <span class="field-label">Talking Speed</span>
-                <span class="range-row">
-                  <input class="range-input" id="assistant-tts-rate" type="range" min="-10" max="10" step="1">
-                  <span class="range-value" id="assistant-tts-rate-value">2</span>
-                </span>
               </label>
             </div>
           </section>

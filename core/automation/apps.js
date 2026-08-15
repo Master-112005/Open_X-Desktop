@@ -167,7 +167,7 @@ const APP_ALIASES = new Map([
   ['vscode', 'code'],
   ['calculator', 'calc'],
   ['paint', 'mspaint'],
-  ['voice recorder', 'soundrecorder'],
+
   ['sound recorder', 'soundrecorder'],
   ['device manager', 'devmgmt.msc'],
   ['disk management', 'diskmgmt.msc'],

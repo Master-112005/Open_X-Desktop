@@ -53,7 +53,7 @@ describe('Entity Extractor', function() {
     const extractor = new EntityExtractor({});
     const intent = { entities: [{ name: 'appName', type: 'string', required: true }] };
 
-    assert.equal(extractor.extract(intent, 'open voice recorder').appName, 'soundrecorder');
+    assert.equal(extractor.extract(intent, 'open chat recorder').appName, 'soundrecorder');
     assert.equal(extractor.extract(intent, 'open microsoft store').appName, 'microsoft store');
     assert.equal(extractor.extract(intent, 'open device manager').appName, 'devmgmt.msc');
     assert.equal(extractor.extract(intent, 'open update settings').appName, 'ms-settings:windowsupdate');
@@ -67,7 +67,7 @@ describe('Entity Extractor', function() {
     assert.equal(entities.appName, 'google chat');
   });
 
-  it('should resolve common PowerPoint speech variations', function() {
+  it('should resolve common PowerPoint text variations', function() {
     const extractor = new EntityExtractor({});
     const intent = { entities: [{ name: 'appName', type: 'string', required: true }] };
     const entities = extractor.extract(intent, 'close power paint');
@@ -108,7 +108,7 @@ describe('Entity Extractor', function() {
     assert.equal(entities.path, 'desktop');
   });
 
-  it('should extract spoken extension filenames for file creation', function() {
+  it('should extract worded extension filenames for file creation', function() {
     const extractor = new EntityExtractor({});
     const intent = {
       entities: [
@@ -183,7 +183,7 @@ describe('Entity Extractor', function() {
     assert.strictEqual(entities.value, null);
   });
 
-  it('should extract spoken maximum and minimum values', function() {
+  it('should extract worded maximum and minimum values', function() {
     const extractor = new EntityExtractor({});
     const intent = { entities: [{ name: 'value', type: 'number', required: true }] };
 
@@ -211,7 +211,7 @@ describe('Entity Extractor', function() {
     assert.equal(entities.reminderText, 'eat lunch');
   });
 
-  it('should extract loose spoken clock reminders without swallowing the message', function() {
+  it('should extract loose worded clock reminders without swallowing the message', function() {
     const extractor = new EntityExtractor({});
     const intent = {
       entities: [
@@ -275,7 +275,7 @@ describe('Entity Extractor', function() {
     assert.equal(create.reminderText, null);
   });
 
-  it('should extract day-of-month reminder dates and spoken message text', function() {
+  it('should extract day-of-month reminder dates and worded message text', function() {
     const extractor = new EntityExtractor({});
     const intent = {
       entities: [
@@ -317,7 +317,7 @@ describe('Entity Extractor', function() {
     assert.equal(durationOnly.reminderText, null);
   });
 
-  it('should extract scheduled remember phrases with common speech typos', function() {
+  it('should extract scheduled remember phrases with common text typos', function() {
     const extractor = new EntityExtractor({});
     const intent = {
       entities: [

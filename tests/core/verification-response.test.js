@@ -32,7 +32,7 @@ describe('Assistant Verification and Response Layer', function() {
     assert.deepEqual(first.evidence, second.evidence);
   });
 
-  it('produces deterministic channel-specific AssistantResponse', async function() {
+  it('produces deterministic AssistantResponse', async function() {
     const { createDefaultVerificationManager } = require('../../core/assistant/verification/index.js');
     const { createDefaultResponseManager, AssistantResponse } = require('../../core/assistant/response/index.js');
     const verification = await createDefaultVerificationManager().verify(automationResult());
@@ -42,7 +42,6 @@ describe('Assistant Verification and Response Layer', function() {
     assert.ok(first instanceof AssistantResponse);
     assert.ok(Object.isFrozen(first));
     assert.equal(first.responseType, 'confirmation');
-    assert.equal(first.formattedVoiceResponse, 'Completed Open Application.');
     assert.equal(first.formattedChatResponse, second.formattedChatResponse);
     assert.ok(first.formattedNotification.length <= 90);
   });

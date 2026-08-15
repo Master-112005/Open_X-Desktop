@@ -24,7 +24,7 @@ npm start
 Edit `config.js` to customize:
 - Wake word
 - Orb appearance
-- Voice settings
+- Chat settings
 - Permission levels
 - Theme preferences
 
@@ -37,7 +37,7 @@ npm test
 # Run specific test suites
 npm run test:core
 npm run test:automation
-npm run test:voice
+npm run test:chat
 ```
 
 ## Building
@@ -55,7 +55,7 @@ OpenX/
 ├── core/           # Core engine
 │   ├── assistant/  # Input processing, intent matching
 │   ├── automation/ # Windows operations
-│   ├── voice/      # Speech recognition & synthesis
+│   ├── chat/      # Text recognition & synthesis
 │   ├── permissions/# Security validation
 │   └── ui/         # State management
 ├── plugins/        # Extensible plugin system

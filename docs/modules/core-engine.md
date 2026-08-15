@@ -69,22 +69,22 @@
 - Window minimize/maximize/close
 - Hibernate and logoff
 
-## Voice (`apps/desktop/voice/`)
+## Chat (`apps/desktop/chat/`)
 
 ### Wake Word Detector
 - Listens for activation phrase
 - Supports manual activation via orb
 - Event-based architecture
 
-### Speech-to-Text
+### Text-to-Text
 - Windows SAPI integration
 - Optional Vosk support for offline recognition
-- Dictation grammar for natural speech
+- Text Input grammar for natural text
 
-### Text-to-Speech
-- Windows SAPI speech synthesis
-- Configurable voice, rate, volume
-- Available voice enumeration
+### Text-to-Text
+- Windows SAPI text synthesis
+- Configurable chat, rate, volume
+- Available chat enumeration
 
 ## Permissions (`apps/desktop/permissions.js`)
 

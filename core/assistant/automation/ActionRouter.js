@@ -869,7 +869,7 @@ class ActionRouter {
       /\b(?:open|show|launch|start|find|locate|search|pull\s+up|play|present)\b/.test(text);
     // A rename command commonly omits the word "file" (for example,
     // "Rename Notes to Meeting Notes"). Preserve its original wording so the
-    // noisy-voice repair path cannot turn the action verb into "remember".
+    // noisy input repair path cannot turn the action verb into "remember".
     const renameCommand = /^\s*rename\s+.+?\s+to\s+.+/i.test(String(rawText || ''));
     const phoneTransferCommand = PHONE_TRANSFER_ACTION_PATTERN.test(text) &&
       PHONE_TRANSFER_TARGET_WORD_PATTERN.test(text) &&
@@ -951,7 +951,7 @@ class ActionRouter {
       ['local-file-natural', /\b(?:downloaded something recently|save .*document yesterday|files .*worked on|show .*files .*week|find it|looking for|search my computer|look everywhere|most recent version|similar documents|last thing i worked on)\b/],
       ['streaming', /\b(?:subscriptions|watch later|latest video|continue watching|trending shows|watchlist|action movies|last show|shuffle .*playlist|movie for tonight|watch something|what'?s trending|next episode|podcasts?|educational|teach me something|interesting)\b/],
       ['messaging', /\b(?:unread messages|new messages|missed messages|missed calls|open my messages|texted me|message me|talk to my friends|search .*chat|specific conversation|share a file|pin this chat|archive this conversation|direct messages|mute all notifications|unnecessary notifications)\b/],
-      ['meeting', /\b(?:start a meeting|join .*meeting|share my screen|voice channel|team notifications|shared files)\b/],
+      ['meeting', /\b(?:start a meeting|join .*meeting|share my screen|team notifications|shared files)\b/],
       ['window', /\b(?:restore .*windows?|bring .*to front|focus on)\b/],
       ['system-power', /\b(?:sign out|hibernate|cancel shutdown|cancel restart|shutdown .*in \d+|restart .*in \d+)\b/],
       ['stopwatch', /\b(?:stopwatch|pause the stopwatch|resume the stopwatch|reset the stopwatch)\b/],
@@ -3022,7 +3022,7 @@ class ActionRouter {
       return false;
     }
 
-    // Speech recognition can join the target's final word with "in"
+    // Noisy input can join the target's final word with "in"
     // (for example, "jiohotstarin chrome"). Keep the original phrase so the
     // browser-language parser can repair that boundary without losing the
     // requested site or tab name.
@@ -3727,7 +3727,7 @@ class ActionRouter {
   }
 
   _sourceUsuallyTargetsActiveDesktop(source) {
-    return /^(?:chat|voice|phone|mobile|remote|scheduled)$/i.test(String(source || 'chat'));
+    return /^(?:chat|phone|mobile|remote|scheduled)$/i.test(String(source || 'chat'));
   }
 
   _rememberPresentationContextFromResult(intentId, entities = {}, result = {}, source = 'chat') {
@@ -5245,7 +5245,7 @@ class ActionRouter {
     if (!input || /^(?:what|who|when|where|why|how|which)\b/.test(input)) {
       return null;
     }
-    if (/^(?:i\s+was|we\s+were|just\s+)?(?:talking|chatting|speaking)\s+about\b/.test(input) ||
+    if (/^(?:i\s+was|we\s+were|just\s+)?(?:talking|chatting)\s+about\b/.test(input) ||
       /\b(?:i\s+was|we\s+were)\s+(?:just\s+)?talking\s+about\b/.test(input)) {
       return null;
     }

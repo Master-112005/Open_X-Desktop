@@ -14,7 +14,7 @@ Branch / commit: `chatintegration` / `7c8a5fa`
 
 ## Scope Scanned
 
-This report was regenerated from the current OpenX working tree. The scan covers source, renderer UI, assistant runtime, OpenX Chat client runtime, Visual Memory, AI Vision, voice, cloud/mobile, plugins, tests, scripts, documentation, model assets, and build metadata.
+This report was regenerated from the current OpenX working tree. The scan covers source, renderer UI, assistant runtime, OpenX Chat client runtime, Visual Memory, AI Vision, chat, cloud/mobile, plugins, tests, scripts, documentation, model assets, and build metadata.
 
 Excluded or collapsed generated/local-heavy folders:
 
@@ -90,17 +90,17 @@ Current tracked status snapshot:
 
 ## Product Purpose
 
-OpenX is a local-first Windows desktop assistant. It combines deterministic assistant command understanding, desktop automation, local voice, OpenX Chat, cloud/mobile pairing, local gallery, Visual Memory, face memory, scheduling, security, settings, learning, and plugin execution.
+OpenX is a local-first Windows desktop assistant. It combines deterministic assistant command understanding, desktop automation, local chat, OpenX Chat, cloud/mobile pairing, local gallery, Visual Memory, face memory, scheduling, security, settings, learning, and plugin execution.
 
-The assistant is intentionally layered. It does not treat natural language, permissions, execution, verification, and response generation as one step. It separates each concern so commands can be understood, validated, executed, verified, and explained consistently across chat, voice, desktop UI, mobile/cloud, and plugin surfaces.
+The assistant is intentionally layered. It does not treat natural language, permissions, execution, verification, and response generation as one step. It separates each concern so commands can be understood, validated, executed, verified, and explained consistently across chat, chat, desktop UI, mobile/cloud, and plugin surfaces.
 
 Primary design goals:
 
 - Local-first storage and privacy.
 - Deterministic command handling where possible.
-- Shared assistant intelligence across desktop chat, voice, mobile, cloud, and OpenX Chat commands.
+- Shared assistant intelligence across desktop chat, chat, mobile, cloud, and OpenX Chat commands.
 - Human-readable responses and logs.
-- Lazy loading for heavy voice and Visual Memory resources.
+- Lazy loading for heavy chat and Visual Memory resources.
 - Bounded local histories and cleanup paths.
 - Safe IPC and confirmation boundaries for privileged actions.
 
@@ -113,8 +113,8 @@ Primary design goals:
 | Main language | JavaScript, CommonJS |
 | Renderer UI | HTML, CSS, browser JavaScript |
 | Windows helper scripts | PowerShell |
-| Speech-to-text | `sherpa-onnx-node` with local Parakeet ONNX files |
-| Text-to-speech | Windows SAPI |
+| Text-to-text | `text-runtime-onnx-node` with local text model ONNX files |
+| Text-to-text | Windows SAPI |
 | Realtime networking | `ws` WebSocket client |
 | QR generation | `qrcode` |
 | Fuzzy search | `fuse.js` |
@@ -126,12 +126,12 @@ Primary design goals:
 
 ## Local Models And Runtime Assets
 
-OpenX uses local model assets and local Windows runtime APIs for voice, visual memory, face analysis, OCR, and semantic image retrieval foundations.
+OpenX uses local model assets and local Windows runtime APIs for chat, visual memory, face analysis, OCR, and semantic image retrieval foundations.
 
 | Asset/runtime | Purpose |
 |---|---|
-| Parakeet ONNX under `models/parakeet/` | Local speech-to-text through Sherpa ONNX. |
-| Windows SAPI | Local text-to-speech. |
+| text model ONNX under `models/text-model/` | Local text-to-text through text runtime ONNX. |
+| Windows SAPI | Local text-to-text. |
 | Windows FaceDetector bridge in `core/vision/runtime/windows-face-analysis.ps1` | Windows-local face detection and face-region quality/vector signals. |
 | SCRFD ONNX | Face detection model asset for AI Vision / Visual Memory paths. |
 | MobileFaceNet ONNX | Face embedding model asset for local face recognition/matching paths. |
@@ -154,18 +154,18 @@ Model and runtime files found:
 - `core/assistant/capabilities/visual-memory/runtime/models/paddleocr/detection/inference.onnx`
 - `core/assistant/capabilities/visual-memory/runtime/models/paddleocr/detection/inference.yml`
 - `core/assistant/capabilities/visual-memory/runtime/models/scrfd/2.5g_bnkps.onnx`
-- `models/parakeet/decoder.int8.onnx`
-- `models/parakeet/encoder.int8.onnx`
-- `models/parakeet/joiner.int8.onnx`
-- `models/parakeet/tokens.txt`
+- `models/text-model/decoder.int8.onnx`
+- `models/text-model/encoder.int8.onnx`
+- `models/text-model/joiner.int8.onnx`
+- `models/text-model/tokens.txt`
 
 ## Main Runtime Entrypoints And Important Methods
 
 | File | Important classes/functions | Responsibility |
 |---|---|---|
-| `apps/desktop/electron/main.js` | `initializeAssistant`, `setupIPC`, `createChatWindow`, `createSettingsWindow`, `createPeopleChatWindow`, `createGalleryWindow`, `startDesktopChatRegistration`, `sendDesktopChatMessage`, `sendDesktopChatMessageToContact`, `processDesktopChatIncomingEnvelope`, `syncDesktopChatMailbox`, `startDesktopChatReceiveRuntime`, `ensureVisualMemoryRuntime`, `getLazyVisualMemoryApi`, `initializeCloudConnection`, `initializeCloudPairing`, `initializeCloudCommands`, `initializeCloudFileTransfers` | Main Electron process, app lifecycle, IPC, windows, assistant boot, desktop chat, live receive, mailbox sync, Dynamic Island, gallery, cloud, voice, data cleanup, and shutdown. |
+| `apps/desktop/electron/main.js` | `initializeAssistant`, `setupIPC`, `createChatWindow`, `createSettingsWindow`, `createPeopleChatWindow`, `createGalleryWindow`, `startDesktopChatRegistration`, `sendDesktopChatMessage`, `sendDesktopChatMessageToContact`, `processDesktopChatIncomingEnvelope`, `syncDesktopChatMailbox`, `startDesktopChatReceiveRuntime`, `ensureVisualMemoryRuntime`, `getLazyVisualMemoryApi`, `initializeCloudConnection`, `initializeCloudPairing`, `initializeCloudCommands`, `initializeCloudFileTransfers` | Main Electron process, app lifecycle, IPC, windows, assistant boot, desktop chat, live receive, mailbox sync, Dynamic Island, gallery, cloud, chat, data cleanup, and shutdown. |
 | `apps/desktop/electron/security.js` | IPC validation helpers and allow-listing | Validates renderer payloads before privileged main-process handlers run. |
-| `apps/desktop/preload.js` | `contextBridge` APIs, voice overlay DOM render helpers | Safe renderer bridge for assistant, settings, gallery, cloud, chat, voice, and UI commands. |
+| `apps/desktop/preload.js` | `contextBridge` APIs, chat overlay DOM render helpers | Safe renderer bridge for assistant, settings, gallery, cloud, chat, chat, and UI commands. |
 | `apps/desktop/renderer/chat/index.js` | assistant chat handlers, settings handlers, people chat handlers, app navigation handlers | Main desktop renderer for assistant chat, activity, apps, settings, profile, OpenX Chat, and Dynamic Island-adjacent UI state. |
 | `apps/desktop/renderer/gallery/index.js` | gallery rendering, people scan, viewer, favorites, recent, search | Local Gallery UI. |
 | `core/assistant/index.js` | `Assistant`, `processCommand`, `_processCommandDirect`, contextual rewrite and pending state methods | Main assistant facade. |
@@ -187,11 +187,11 @@ Model and runtime files found:
 | `core/cloud/CloudPairingManager.js` | `createPairing`, `approvePairing`, `rejectPairing`, secure approval helpers | QR pairing and device trust flow. |
 | `core/cloud/CloudFileTransferManager.js` | incoming prompt, accept/reject, chunk send/receive, hash verification, cleanup | Mobile/cloud file transfer lifecycle. |
 | `core/cloud/CloudE2EE.js` | `generateSecret`, `deriveKey`, `encryptJson`, `decryptJson`, `SecurePacketChannel` | Cloud packet encryption helpers. |
-| `apps/desktop/voice/integration/AssistantDispatcher.js` | `dispatch` | Sends normalized voice commands to `Assistant.processCommand`. |
-| `apps/desktop/voice/integration/VoiceAssistantBridge.js` | transcript event bridge | Connects voice session events to assistant dispatch. |
-| `apps/desktop/voice/stt/STTEngine.js` | `STTEngine` | Speech recognition facade. |
-| `apps/desktop/voice/normalization/TranscriptProcessor.js` | `process` | Cleans and normalizes STT output before assistant routing. |
-| `apps/desktop/voice/tts.js` | `TextToSpeech` | Windows SAPI TTS. |
+| `apps/desktop/chat/integration/AssistantDispatcher.js` | `dispatch` | Sends normalized chat commands to `Assistant.processCommand`. |
+| `apps/desktop/chat/integration/ChatAssistantBridge.js` | inputText event bridge | Connects chat session events to assistant dispatch. |
+| `apps/desktop/chat/textInput/text inputEngine.js` | `text inputEngine` | Text recognition facade. |
+| `apps/desktop/chat/normalization/Input TextProcessor.js` | `process` | Cleans and normalizes text input output before assistant routing. |
+| `apps/desktop/chat/textOutput.js` | `TextToText` | Windows SAPI text output. |
 | `core/assistant/capabilities/visual-memory/runtime/api/VisualMemoryAPI.js` | `start`, `getPhotos`, `searchMemories`, `scanGalleryPeople`, `matchFace`, `searchFaces` | Public Visual Memory API. |
 | `core/assistant/capabilities/visual-memory/runtime/engine/VisualMemoryEngine.js` | `start`, `restart` | Visual-memory database, gallery, folders, metadata, query, filtering, intelligence, learning, and face memory. |
 | `core/assistant/capabilities/visual-memory/runtime/query/VisualQueryParser.js` | visual query parsing | Converts photo/search language into structured visual constraints. |
@@ -223,7 +223,7 @@ User input
   -> verification
   -> ResponseGenerator
   -> context and learning update
-  -> renderer / voice / dynamic island / mobile / cloud response
+  -> renderer / chat / dynamic island / mobile / cloud response
 ```
 
 Key command examples handled by the architecture:
@@ -240,7 +240,7 @@ Key command examples handled by the architecture:
 
 | Layer | Main folder | Responsibility |
 |---|---|---|
-| Acquisition | `core/assistant/acquisition/` | Source adapters for chat, voice, cloud, phone, OCR, plugin, API, clipboard, and metadata. |
+| Acquisition | `core/assistant/acquisition/` | Source adapters for chat, chat, cloud, phone, OCR, plugin, API, clipboard, and metadata. |
 | Normalization | `core/assistant/normalization/` | Input cleaning, contractions, spelling, punctuation, time/date/number/unit/slang handling. |
 | Linguistic | `core/assistant/linguistic/` | Tokenization, sentence splitting, POS, verbs, subjects, objects, clauses, pronouns, modifiers, questions. |
 | Semantic | `core/assistant/semantic/` | Meaning, confidence, relationship analysis, web target detection, conversation classification. |
@@ -252,7 +252,7 @@ Key command examples handled by the architecture:
 | Validation | `core/assistant/validation/` | Safety, permissions, context readiness, constraints, entity validation. |
 | Automation bridge | `core/assistant/automation/` | Route assistant outputs into automation execution. |
 | Verification | `core/assistant/verification/` | App/browser/window/reminder/cloud/transfer/execution verification. |
-| Response | `core/assistant/response/` | Chat, voice, notification, success/error/summary/clarification text. |
+| Response | `core/assistant/response/` | Chat, chat, notification, success/error/summary/clarification text. |
 | Learning | `core/assistant/learning/` | Local personalization, alias/correction/preference/habit/workflow/feedback learning. |
 
 ## Automation Controllers
@@ -302,7 +302,7 @@ WebSocket envelope or mailbox sync envelope
   -> ACK contiguous mailbox sequence
   -> notify renderer
   -> Dynamic Island notification if chat is not active
-  -> optional TTS prompt for urgent/actionable messages
+  -> optional text output prompt for urgent/actionable messages
 ```
 
 Important chat modules:
@@ -318,29 +318,29 @@ Important chat modules:
 - `core/chat/infrastructure/`: memory, storage, connection, sync, metrics, monitoring, and performance optimization helpers.
 - `core/chat/quality/`: production validation, crash recovery, release and performance reporting.
 
-## Voice Runtime
+## Chat Runtime
 
-Voice is built as a layered local runtime under `apps/desktop/voice`. The design keeps capture, preprocessing, STT, transcript normalization, assistant dispatch, TTS, overlay UI, and diagnostics separate.
+Chat is built as a layered local runtime under `apps/desktop/chat`. The design keeps capture, preprocessing, text input, inputText normalization, assistant dispatch, text output, overlay UI, and diagnostics separate.
 
 ```text
-Alt+Space / voice shortcut
+Alt+Space / chat shortcut
   -> AudioCapture
   -> AudioPipeline and VAD
-  -> STTEngine / Sherpa ONNX / Parakeet
-  -> TranscriptProcessor
+  -> text inputEngine / text runtime ONNX / text model
+  -> Input TextProcessor
   -> AssistantDispatcher
   -> Assistant.processCommand
-  -> VoiceResponseHandler
-  -> VoiceExecutionCoordinator
-  -> Windows SAPI TTS and Dynamic Island overlay
+  -> ChatResponseHandler
+  -> ChatExecutionCoordinator
+  -> Windows SAPI text output and Dynamic Island overlay
 ```
 
 Performance notes:
 
-- STT model location is validated at startup.
+- text input model location is validated at startup.
 - Heavy runtime prewarm is skipped until first use by default.
-- Diagnostics avoid storing raw audio or private transcript content.
-- TTS is available through Windows SAPI and coordinated so recognition pauses while the assistant speaks.
+- Diagnostics avoid storing raw audio or private inputText content.
+- chat output is generated through the assistant response pipeline.
 
 ## Visual Memory, Gallery, And AI Vision
 
@@ -424,7 +424,7 @@ Managed data root:
 | Schedules, alarms, timers, reminders | `OpenX_Data/schedules.json` |
 | Learning | `OpenX_Data/learning/` |
 | Logs | `OpenX_Data/logs/` |
-| Voice diagnostics | `OpenX_Data/voice/diagnostics/` |
+| Chat diagnostics | `OpenX_Data/chat/diagnostics/` |
 | Cloud state | `OpenX_Data/cloud/` |
 | OpenX Chat local state | `OpenX_Data/chat/` |
 | Electron/runtime profiles | `OpenX_Data/runtime/` |
@@ -449,7 +449,7 @@ External user-visible transfer destination:
 - Local photo indexing does not copy photos into OpenX by default.
 - Visual Memory should not upload raw photos by default.
 - Logs must avoid secrets, tokens, passwords, OTPs, private keys, raw key material, and private message content.
-- Voice diagnostics store metadata and lengths, not raw audio or private transcript content.
+- Chat diagnostics store metadata and lengths, not raw audio or private inputText content.
 
 ## Plugin Runtime
 
@@ -488,8 +488,8 @@ Plugin actions are registered with the assistant/automation layer and remain sub
 - Package output directory: `dist/`.
 - Build resources: `build/`.
 - ASAR enabled.
-- `sherpa-onnx-node`, `playwright`, and `playwright-core` are unpacked from ASAR.
-- Parakeet ONNX model files are included as extra files.
+- `text-runtime-onnx-node`, `playwright`, and `playwright-core` are unpacked from ASAR.
+- text model ONNX model files are included as extra files.
 - `build/openx-chrome-host.exe` is included for native messaging.
 - NSIS installer is configurable and does not delete app data on uninstall by default.
 
@@ -497,7 +497,7 @@ Plugin actions are registered with the assistant/automation layer and remain sub
 
 | Folder | Coverage |
 |---|---|
-| `tests/core/` | Assistant, NLP, routing, learning, security, cloud, gallery, visual memory, chat, voice, settings, scheduler, validation, verification. |
+| `tests/core/` | Assistant, NLP, routing, learning, security, cloud, gallery, visual memory, chat, chat, settings, scheduler, validation, verification. |
 | `tests/automation/` | Apps, browser, files, media, volume, brightness, communications, windows/session automation. |
 | `tests/context-awareness/` | Context engine and mode engine. |
 | `tests/ui/` | Renderer UI contracts for chat, gallery, planner, dynamic island, timer widget, schedule alerts. |
@@ -515,7 +515,7 @@ Electron main process
   -> IPC validation
   -> assistant instance
   -> desktop automation
-  -> voice runtime ownership
+  -> chat runtime ownership
   -> cloud relay ownership
   -> chat server transport
   -> gallery / visual-memory bridge
@@ -527,7 +527,7 @@ Renderer process
   -> OpenX Chat UI
   -> Gallery UI
   -> Planner UI
-  -> voice capture UI
+  -> chat capture UI
   -> safe preload APIs only
 
 Core runtime
@@ -544,24 +544,24 @@ The codebase deliberately avoids placing all assistant behavior in the Electron 
 
 ## Desktop Electron Runtime Detail
 
-`apps/desktop/electron/main.js` is the largest coordination file. It does not only create windows; it is also the integration point between desktop UI, assistant core, OpenX Chat, Visual Memory, voice, cloud relay, file transfer, Dynamic Island, settings, security lock, crash recovery, and cleanup.
+`apps/desktop/electron/main.js` is the largest coordination file. It does not only create windows; it is also the integration point between desktop UI, assistant core, OpenX Chat, Visual Memory, chat, cloud relay, file transfer, Dynamic Island, settings, security lock, crash recovery, and cleanup.
 
 Important main-process responsibilities:
 
 - Configure managed Electron profile storage inside `OpenX_Data/runtime/electron-profile`.
 - Migrate legacy data into the managed data root.
-- Register global shortcuts for assistant chat and voice.
+- Register global shortcuts for assistant chat and chat.
 - Create and recover renderer windows.
 - Harden renderer sessions and permissions.
 - Maintain assistant runtime singleton.
-- Dispatch assistant commands from chat, voice, phone, cloud, and OpenX Chat.
-- Start voice capture and voice overlay only when needed.
+- Dispatch assistant commands from chat, chat, phone, cloud, and OpenX Chat.
+- Start chat capture and chat overlay only when needed.
 - Start Visual Memory only when a gallery or visual-memory path needs it.
 - Connect to cloud relay only when enabled or requested.
 - Manage file transfer prompts, progress, accept/reject, and final storage.
 - Manage OpenX Chat registration/login, live WebSocket receive, mailbox sync, message send, and local history.
 - Present schedule alerts, chat notifications, transfer prompts, and phone notifications through the Dynamic Island.
-- Clean up timers, windows, sockets, voice runtime, and child processes during shutdown.
+- Clean up timers, windows, sockets, chat runtime, and child processes during shutdown.
 
 Key runtime protection mechanisms:
 
@@ -570,7 +570,7 @@ Key runtime protection mechanisms:
 - `toIpcSafeValue(...)` converts values into renderer-safe payloads.
 - `setupIPC()` registers all renderer-accessible commands.
 - `teardownIPC()` removes handlers during shutdown/reload paths.
-- `cleanupRuntime()` coordinates shutdown of assistant, voice, cloud, chat receive runtime, and windows.
+- `cleanupRuntime()` coordinates shutdown of assistant, chat, cloud, chat receive runtime, and windows.
 
 ## Renderer UI Surfaces
 
@@ -582,8 +582,8 @@ OpenX has multiple renderer surfaces. Each renderer has a narrow purpose and com
 | Gallery | `apps/desktop/renderer/gallery/` | Photos, favorites, recent, people, face naming/relation UI, search, viewer. |
 | Planner | `apps/desktop/renderer/planner/` | Calendar, planner, schedule views. |
 | Timer widget | `apps/desktop/renderer/timer-widget/` | Floating timer/reminder/alarm widget state. |
-| Voice capture | `apps/desktop/renderer/voice-capture/` | Browser-side audio capture bridge when voice is active. |
-| Voice overlay | `apps/desktop/voice/ui/` | Dynamic Island style voice state, transcript, actions, live schedule, notifications, chat prompts. |
+| Chat capture | `apps/desktop/renderer/chat-capture/` | Browser-side audio capture bridge when chat is active. |
+| Chat overlay | `apps/desktop/chat/ui/` | Dynamic Island style chat state, inputText, actions, live schedule, notifications, chat prompts. |
 
 The main assistant renderer under `apps/desktop/renderer/chat` now handles both the assistant window and OpenX Chat app. It contains logic for:
 
@@ -612,7 +612,7 @@ Important preload-exposed capability groups:
 - Settings and profile updates.
 - Security lock status and verification.
 - Planner and schedule commands.
-- Voice overlay/capture state.
+- Chat overlay/capture state.
 - Cloud connection, pairing, devices, and transfer actions.
 - Gallery photo, favorite, recent, people, and scan operations.
 - OpenX Chat setup, contact, conversation, and message operations.
@@ -641,7 +641,7 @@ Acquisition normalizes different input sources into a consistent assistant input
 Important source adapters:
 
 - Chat input.
-- Voice transcripts.
+- Chat inputTexts.
 - Cloud/mobile commands.
 - Phone context.
 - Clipboard input.
@@ -649,7 +649,7 @@ Important source adapters:
 - OCR input.
 - API input.
 
-Acquisition also attaches source metadata so later layers can distinguish a typed chat command from a phone/cloud/voice command without changing the public assistant command contract.
+Acquisition also attaches source metadata so later layers can distinguish a typed chat command from a phone/cloud/chat command without changing the public assistant command contract.
 
 ### Normalization
 
@@ -797,7 +797,7 @@ Response generation covers:
 - Confirmation.
 - Suggestions.
 - Summaries.
-- Voice formatting.
+- Chat formatting.
 - Chat formatting.
 - Notification formatting.
 - Personality/honorific handling.
@@ -929,7 +929,7 @@ Expected behavior:
 
 - If OpenX Chat is open and active, new messages update the chat UI without a Dynamic Island interruption.
 - If OpenX Chat is closed or hidden, incoming messages can appear in Dynamic Island.
-- For action-like messages such as `call me`, OpenX can speak a prompt and offer a small response action.
+- For action-like messages such as `call me`, OpenX can show a prompt and offer a small response action.
 - Message prompts should identify sender and a short safe preview.
 
 ## Visual Memory Detailed Architecture
@@ -1068,7 +1068,7 @@ Cloud relay modules under `core/cloud` support optional mobile/cloud connectivit
 
 ### Cloud Commands
 
-`CloudCommandManager` receives assistant command packets and routes valid commands through `CloudCommandRouter`, which calls the same assistant command API used by local chat and voice:
+`CloudCommandManager` receives assistant command packets and routes valid commands through `CloudCommandRouter`, which calls the same assistant command API used by local chat and chat:
 
 ```text
 cloud command packet
@@ -1136,14 +1136,14 @@ OpenX has several resource-control choices that matter for production use on nor
 Startup resource controls:
 
 - Visual Memory runtime is lazy-loaded.
-- Voice runtime prewarm is skipped until first use by default.
+- Chat runtime prewarm is skipped until first use by default.
 - Gallery indexing can continue in the background.
 - Electron profile state is centralized under `OpenX_Data/runtime`.
 - Stale temp cleanup runs after startup instead of blocking the UI.
 
 Runtime resource controls:
 
-- Voice sessions start only on shortcut/use.
+- Chat sessions start only on shortcut/use.
 - Vision inference uses resource/concurrency management.
 - People scan uses single-flight behavior so repeated scan requests reuse the active scan.
 - Gallery images use local file URLs instead of base64 IPC payloads.
@@ -1173,7 +1173,7 @@ Important strengths:
 - Clear separation between assistant understanding, validation, execution, verification, and response.
 - OpenX Chat client split into crypto, messages, conversations, sync, mailbox, requests, devices, and connection modules.
 - Visual Memory split into gallery, query, filtering, ranking, face memory, vision runtime, and diagnostics.
-- Voice split into capture, preprocessing, STT, normalization, assistant dispatch, TTS, UI, and diagnostics.
+- Chat split into capture, preprocessing, text input, normalization, assistant dispatch, text output, UI, and diagnostics.
 
 Important release checks before shipping:
 
@@ -1185,11 +1185,11 @@ Important release checks before shipping:
 - Confirm Dynamic Island chat notifications appear only when chat is not active.
 - Confirm gallery opens quickly and indexes in background.
 - Confirm Visual Memory people scan does not overuse CPU/RAM on a large Pictures folder.
-- Confirm voice first-use startup works after lazy prewarm.
+- Confirm chat first-use startup works after lazy prewarm.
 - Confirm app open/close behavior on a clean Windows install with missing optional apps.
 - Confirm media play commands default correctly and do not depend on user-specific installed apps.
 - Confirm cloud relay disabled startup does not repeatedly connect.
-- Confirm production logs do not expose secrets, private keys, passwords, OTPs, raw message content, or private transcripts.
+- Confirm production logs do not expose secrets, private keys, passwords, OTPs, raw message content, or private inputTexts.
 
 ## Important Current Risks And Follow-Up Areas
 
@@ -1248,10 +1248,10 @@ OpenX/
 |       |   |   |-- index.css
 |       |   |   |-- index.html
 |       |   |   `-- index.js
-|       |   `-- voice-capture/
+|       |   `-- chat-capture/
 |       |       |-- index.html
 |       |       `-- index.js
-|       |-- voice/
+|       |-- chat/
 |       |   |-- audio/
 |       |   |   |-- AudioBuffer.js
 |       |   |   |-- AudioCapture.js
@@ -1263,7 +1263,7 @@ OpenX/
 |       |   |   |-- AudioPermissions.js
 |       |   |   `-- index.js
 |       |   |-- config/
-|       |   |   `-- VoiceSettings.js
+|       |   |   `-- ChatSettings.js
 |       |   |-- diagnostics/
 |       |   |   |-- DiagnosticsConfiguration.js
 |       |   |   |-- DiagnosticsErrors.js
@@ -1280,18 +1280,18 @@ OpenX/
 |       |   |   |-- privacy.js
 |       |   |   |-- ResourceMonitor.js
 |       |   |   |-- SessionStatistics.js
-|       |   |   |-- VoiceLogger.js
-|       |   |   `-- VoiceMetrics.js
+|       |   |   |-- ChatLogger.js
+|       |   |   `-- ChatMetrics.js
 |       |   |-- integration/
 |       |   |   |-- AssistantDispatcher.js
 |       |   |   |-- AssistantInputAdapter.js
 |       |   |   |-- index.js
-|       |   |   |-- VoiceAssistantBridge.js
-|       |   |   |-- VoiceExecutionCoordinator.js
-|       |   |   |-- VoiceIntegrationConfiguration.js
-|       |   |   |-- VoiceIntegrationErrors.js
-|       |   |   |-- VoiceIntegrationEvents.js
-|       |   |   `-- VoiceResponseHandler.js
+|       |   |   |-- ChatAssistantBridge.js
+|       |   |   |-- ChatExecutionCoordinator.js
+|       |   |   |-- ChatIntegrationConfiguration.js
+|       |   |   |-- ChatIntegrationErrors.js
+|       |   |   |-- ChatIntegrationEvents.js
+|       |   |   `-- ChatResponseHandler.js
 |       |   |-- normalization/
 |       |   |   |-- AcronymNormalizer.js
 |       |   |   |-- ApplicationNormalizer.js
@@ -1301,12 +1301,12 @@ OpenX/
 |       |   |   |-- NormalizationConfiguration.js
 |       |   |   |-- NormalizationErrors.js
 |       |   |   |-- NormalizationEvents.js
-|       |   |   |-- NormalizedTranscript.js
+|       |   |   |-- NormalizedInput Text.js
 |       |   |   |-- TechnologyNormalizer.js
 |       |   |   |-- TextCleaner.js
 |       |   |   |-- TextValidator.js
-|       |   |   |-- TranscriptNormalizer.js
-|       |   |   `-- TranscriptProcessor.js
+|       |   |   |-- Input TextNormalizer.js
+|       |   |   `-- Input TextProcessor.js
 |       |   |-- preprocessing/
 |       |   |   |-- AudioFrameProcessor.js
 |       |   |   |-- AudioPipeline.js
@@ -1317,43 +1317,43 @@ OpenX/
 |       |   |   |-- ProcessedAudioFrame.js
 |       |   |   |-- ProcessingConfiguration.js
 |       |   |   |-- RNNoiseProcessor.js
-|       |   |   |-- SpeechSourceClassifier.js
-|       |   |   `-- VoiceActivityDetector.js
+|       |   |   |-- TextSourceClassifier.js
+|       |   |   `-- ChatActivityDetector.js
 |       |   |-- session/
 |       |   |   |-- SessionEvents.js
-|       |   |   |-- VoiceSession.js
-|       |   |   |-- VoiceSessionManager.js
-|       |   |   `-- VoiceStateMachine.js
-|       |   |-- stt/
+|       |   |   |-- ChatSession.js
+|       |   |   |-- ChatSessionManager.js
+|       |   |   `-- ChatStateMachine.js
+|       |   |-- textInput/
 |       |   |   |-- DecoderState.js
 |       |   |   |-- index.js
 |       |   |   |-- ModelLoader.js
 |       |   |   |-- ModelManager.js
-|       |   |   |-- ParakeetEngine.js
-|       |   |   |-- SherpaRuntime.js
-|       |   |   |-- STTConfiguration.js
-|       |   |   |-- STTEngine.js
-|       |   |   |-- STTErrors.js
-|       |   |   |-- STTEvents.js
-|       |   |   |-- TranscriptAssembler.js
-|       |   |   |-- TranscriptResult.js
-|       |   |   `-- TranscriptSegment.js
+|       |   |   |-- text modelEngine.js
+|       |   |   |-- text runtimeRuntime.js
+|       |   |   |-- text inputConfiguration.js
+|       |   |   |-- text inputEngine.js
+|       |   |   |-- text inputErrors.js
+|       |   |   |-- text inputEvents.js
+|       |   |   |-- Input TextAssembler.js
+|       |   |   |-- Input TextResult.js
+|       |   |   `-- Input TextSegment.js
 |       |   |-- ui/
 |       |   |   |-- index.js
-|       |   |   |-- TranscriptPublisher.js
-|       |   |   |-- VoiceAccessibility.js
-|       |   |   |-- VoiceAnimationController.js
-|       |   |   |-- VoiceConfiguration.js
-|       |   |   |-- VoiceOverlay.js
-|       |   |   |-- VoiceOverlayIPC.js
-|       |   |   |-- VoiceStateRenderer.js
-|       |   |   |-- VoiceStatusIndicator.js
-|       |   |   |-- VoiceTheme.js
-|       |   |   |-- VoiceUIErrors.js
-|       |   |   |-- VoiceUIEvents.js
-|       |   |   `-- VoiceWindowController.js
+|       |   |   |-- Input TextPublisher.js
+|       |   |   |-- ChatAccessibility.js
+|       |   |   |-- ChatAnimationController.js
+|       |   |   |-- ChatConfiguration.js
+|       |   |   |-- ChatOverlay.js
+|       |   |   |-- ChatOverlayIPC.js
+|       |   |   |-- ChatStateRenderer.js
+|       |   |   |-- ChatStatusIndicator.js
+|       |   |   |-- ChatTheme.js
+|       |   |   |-- ChatUIErrors.js
+|       |   |   |-- ChatUIEvents.js
+|       |   |   `-- ChatWindowController.js
 |       |   |-- index.js
-|       |   `-- tts.js
+|       |   `-- textOutput.js
 |       |-- permissions.js
 |       |-- preload.js
 |       |-- security-lock.js
@@ -1387,7 +1387,7 @@ OpenX/
 |   |   |   |-- PluginAdapter.js
 |   |   |   |-- SourceConfidenceCalculator.js
 |   |   |   |-- SourceNormalizer.js
-|   |   |   `-- VoiceAdapter.js
+|   |   |   `-- ChatAdapter.js
 |   |   |-- automation/
 |   |   |   |-- ActionRouter.js
 |   |   |   |-- AssistantExecutionStage.js
@@ -1990,7 +1990,7 @@ OpenX/
 |   |   |   |-- ResponseRegistry.js
 |   |   |   |-- SuggestionResponse.js
 |   |   |   |-- SummaryResponse.js
-|   |   |   `-- VoiceFormatter.js
+|   |   |   `-- ChatFormatter.js
 |   |   |-- semantic/
 |   |   |   |-- BaseSemanticAnalyzer.js
 |   |   |   |-- ConfidenceEngine.js
@@ -2373,7 +2373,7 @@ OpenX/
 |       `-- command-execution.md
 |-- graphify-out/ (contents omitted)
 |-- models/
-|   `-- parakeet/
+|   `-- text-model/
 |       |-- decoder.int8.onnx
 |       |-- encoder.int8.onnx
 |       |-- joiner.int8.onnx
@@ -2487,7 +2487,7 @@ OpenX/
 |   |   |-- security-lock.test.js
 |   |   |-- semantic-understanding.test.js
 |   |   |-- settings.test.js
-|   |   |-- tts.test.js
+|   |   |-- textOutput.test.js
 |   |   |-- utils.test.js
 |   |   |-- validation.test.js
 |   |   |-- verification-response.test.js
@@ -2498,7 +2498,7 @@ OpenX/
 |   |   |-- visual-memory-learning.test.js
 |   |   |-- visual-memory.test.js
 |   |   |-- visual-query.test.js
-|   |   `-- voice-subsystem.test.js
+|   |   `-- chat-subsystem.test.js
 |   |-- media-handling/
 |   |   `-- media-handling.test.js
 |   `-- ui/

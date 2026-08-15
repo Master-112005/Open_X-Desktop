@@ -308,7 +308,7 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('close chrome', 'voice');
+    const result = await router.process('close chrome', 'chat');
     assert.equal(result.intent, 'app.close');
     assert.equal(result.entities.appName, 'chrome');
   });
@@ -764,12 +764,12 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('chrome close please', 'voice');
+    const result = await router.process('chrome close please', 'chat');
     assert.equal(result.intent, 'app.close');
     assert.equal(result.entities.appName, 'chrome');
   });
 
-  it('should tolerate close-like speech recognition errors for app closing', async function() {
+  it('should tolerate close-like text recognition errors for app closing', async function() {
     const config = {
       permissions: {
         levels: {
@@ -784,7 +784,7 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('rose chrome', 'voice');
+    const result = await router.process('rose chrome', 'chat');
     assert.equal(result.intent, 'app.close');
     assert.equal(result.entities.appName, 'chrome');
   });
@@ -804,7 +804,7 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('close to terminal', 'voice');
+    const result = await router.process('close to terminal', 'chat');
 
     assert.equal(result.success, false);
     assert.notEqual(result.entities?.appName, 'cmd');
@@ -825,7 +825,7 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('close power paint', 'voice');
+    const result = await router.process('close power paint', 'chat');
 
     assert.equal(result.intent, 'app.close');
     assert.equal(result.entities.appName, 'powerpoint');
@@ -1014,7 +1014,7 @@ describe('Action Router', function() {
     assert.equal(result.entities.appName, 'chrome');
   });
 
-  it('should salvage app commands from noisy STT tokens', async function() {
+  it('should salvage app commands from noisy text input tokens', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -1025,9 +1025,9 @@ describe('Action Router', function() {
     };
     const router = new ActionRouter(config, stubEngine);
 
-    const misspelled = await router.process('ope chrome', 'voice');
-    const noisy = await router.process('sglkn open lsg chrome', 'voice');
-    const noisyMisspelled = await router.process('sglkn ope lsg chrome', 'voice');
+    const misspelled = await router.process('ope chrome', 'chat');
+    const noisy = await router.process('sglkn open lsg chrome', 'chat');
+    const noisyMisspelled = await router.process('sglkn ope lsg chrome', 'chat');
 
     assert.equal(misspelled.intent, 'app.open');
     assert.equal(misspelled.entities.appName, 'chrome');
@@ -1066,7 +1066,7 @@ describe('Action Router', function() {
     assert.equal(greeting.intent, 'greeting');
   });
 
-  it('should salvage utility commands from noisy STT tokens', async function() {
+  it('should salvage utility commands from noisy text input tokens', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -1076,7 +1076,7 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('sglkn increse lsg volum', 'voice');
+    const result = await router.process('sglkn increse lsg volum', 'chat');
 
     assert.equal(result.intent, 'volume.up');
   });
@@ -1091,13 +1091,13 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('i was just talking but please open chrome now', 'voice');
+    const result = await router.process('i was just talking but please open chrome now', 'chat');
 
     assert.equal(result.intent, 'app.open');
     assert.equal(result.entities.appName, 'chrome');
   });
 
-  it('should extract search, timer, and reminder commands from surrounding speech', async function() {
+  it('should extract search, timer, and reminder commands from surrounding text', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -1108,9 +1108,9 @@ describe('Action Router', function() {
     };
     const router = new ActionRouter(config, stubEngine);
 
-    const search = await router.process('i was saying please search for java tutorial okay', 'voice');
-    const timer = await router.process('there is background speech set timer for 5 minutes', 'voice');
-    const reminder = await router.process('i was talking remind me in 10 minutes to stand up', 'voice');
+    const search = await router.process('i was saying please search for java tutorial okay', 'chat');
+    const timer = await router.process('there is background text set timer for 5 minutes', 'chat');
+    const reminder = await router.process('i was talking remind me in 10 minutes to stand up', 'chat');
 
     assert.equal(search.intent, 'browser.search');
     assert.equal(search.entities.query, 'java tutorial');
@@ -1121,7 +1121,7 @@ describe('Action Router', function() {
     assert.equal(reminder.entities.reminderText, 'stand up');
   });
 
-  it('should preserve media commands when extracting from surrounding speech', async function() {
+  it('should preserve media commands when extracting from surrounding text', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -1131,7 +1131,7 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('i was saying stop music now', 'voice');
+    const result = await router.process('i was saying stop music now', 'chat');
 
     assert.equal(result.intent, 'media.stop');
   });
@@ -1146,7 +1146,7 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('i was just talking about chrome today', 'voice');
+    const result = await router.process('i was just talking about chrome today', 'chat');
 
     assert.equal(result.success, false);
     assert.equal(result.error, 'Could not determine intent');
@@ -1182,7 +1182,7 @@ describe('Action Router', function() {
     assert.equal(result.entities.filename, 'practice.java');
   });
 
-  it('should route spoken extension file open commands to file.open', async function() {
+  it('should route worded extension file open commands to file.open', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -1293,7 +1293,7 @@ describe('Action Router', function() {
     };
     const router = new ActionRouter(config, stubEngine);
 
-    const recorder = await router.process('open voice recorder', 'chat');
+    const recorder = await router.process('open chat recorder', 'chat');
     const store = await router.process('open microsoft store', 'chat');
     const deviceManager = await router.process('open device manager', 'chat');
     const updateSettings = await router.process('open update settings', 'chat');
@@ -2380,7 +2380,7 @@ describe('Action Router', function() {
     assert.equal(notify.entities.reminderText, 'submit the lab form');
   });
 
-  it('should route day-of-month reminder wording with spoken message text', async function() {
+  it('should route day-of-month reminder wording with worded message text', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -2876,7 +2876,7 @@ describe('Action Router', function() {
     assert.equal(result.entities.mediaPlatform, 'youtube');
   });
 
-  it('should preserve voice media playback names through media handling', async function() {
+  it('should preserve chat media playback names through media handling', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -2886,7 +2886,7 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('play dulander songs', 'voice');
+    const result = await router.process('play dulander songs', 'chat');
 
     assert.equal(result.intent, 'media.play');
     assert.equal(result.entities.mediaQuery, 'dulander songs');
@@ -2904,7 +2904,7 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('open youtube and play punjabi songs', 'voice');
+    const result = await router.process('open youtube and play punjabi songs', 'chat');
 
     assert.equal(result.intent, 'media.play');
     assert.equal(result.entities.mediaQuery, 'punjabi songs');
@@ -3863,7 +3863,7 @@ describe('Action Router', function() {
     assert.ok(executed.every(entry => entry.actionId === 'app.open'));
   });
 
-  it('should route browser counts, named tabs, another tabs, and joined speech', async function() {
+  it('should route browser counts, named tabs, another tabs, and joined text', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };

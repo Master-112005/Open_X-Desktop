@@ -6,8 +6,6 @@ const aboutButtons = Array.from(document.querySelectorAll('[data-about-trigger]'
 const aboutOverlay = document.getElementById('about-overlay');
 const aboutPanel = document.getElementById('about-panel');
 const aboutCloseBtn = document.getElementById('about-close-btn');
-const voiceStartBtn = document.getElementById('voice-start-btn');
-const assistantMuteBtn = document.getElementById('assistant-mute-btn');
 const settingsOverlay = document.getElementById('settings-overlay');
 const settingsCloseBtn = document.getElementById('settings-close-btn');
 const settingsNavEl = document.getElementById('settings-nav');
@@ -255,7 +253,6 @@ const REMOTE_ACTIONS_BY_PROFILE = Object.freeze({
   social: Object.freeze(['back', 'center', 'left', 'right']),
   default: Object.freeze(['back', 'center', 'fullscreen'])
 });
-const ASSISTANT_MUTED_STORAGE_KEY = 'openx-assistant-voice-muted-v1';
 const STORAGE_SAVE_DEBOUNCE_MS = 180;
 
 const PEOPLE_CHAT_FALLBACK_CONVERSATIONS = Object.freeze([
@@ -334,7 +331,6 @@ let conversationHistory = [];
 let conversationReady = false;
 let conversationReadyPromise = null;
 let scheduleSyncFailureToastAt = 0;
-let isAssistantMuted = false;
 let glassTintAnimationFrame = null;
 let pendingPhoneDeviceRemoval = null;
 let pendingSecurityUnlock = null;
@@ -360,8 +356,6 @@ const scheduleTimers = new Map();
 const fieldIds = {
   assistantDisplayName: 'assistant-display-name',
   assistantHonorific: 'assistant-honorific',
-  assistantTtsVolume: 'assistant-tts-volume',
-  assistantTtsRate: 'assistant-tts-rate',
   profileFullName: 'profile-full-name',
   profileEmail: 'profile-email',
   profilePhone: 'profile-phone',
@@ -663,7 +657,6 @@ function normalizeUiState(state = {}) {
     .filter(Boolean)
     .slice(0, MAX_NOTIFICATION_HISTORY);
   return {
-    assistantMuted: state.assistantMuted === true,
     schedules,
     notifications
   };
@@ -671,7 +664,6 @@ function normalizeUiState(state = {}) {
 
 function currentUiState() {
   return normalizeUiState({
-    assistantMuted: isAssistantMuted,
     schedules: scheduleItems,
     notifications: notificationHistory
   });
@@ -680,7 +672,6 @@ function currentUiState() {
 function loadLegacyUiState() {
   const packed = loadStoredObject(UI_STATE_STORAGE_KEY);
   return normalizeUiState({
-    assistantMuted: packed.assistantMuted === true || localStorage.getItem(ASSISTANT_MUTED_STORAGE_KEY) === 'true',
     schedules: [
       ...(Array.isArray(packed.schedules) ? packed.schedules : []),
       ...loadStoredList(SCHEDULE_STORAGE_KEY)
@@ -740,7 +731,6 @@ function saveUiState(options = {}) {
 async function loadUiState() {
   const legacy = loadLegacyUiState();
   if (!window.openx?.getUiState) {
-    isAssistantMuted = legacy.assistantMuted;
     scheduleItems = legacy.schedules;
     notificationHistory = legacy.notifications;
     return;
@@ -754,10 +744,10 @@ async function loadUiState() {
     stored = normalizeUiState();
   }
 
-  isAssistantMuted = stored.assistantMuted || legacy.assistantMuted;
+  isAssistantMuted = stored.assistantMuted;
   scheduleItems = stored.schedules.length > 0 ? stored.schedules : legacy.schedules;
   notificationHistory = stored.notifications.length > 0 ? stored.notifications : legacy.notifications;
-  if (legacy.schedules.length > 0 || legacy.notifications.length > 0 || legacy.assistantMuted) {
+  if (legacy.schedules.length > 0 || legacy.notifications.length > 0) {
     clearLegacyUiStateStorage();
     await saveUiState({ immediate: true });
   }
@@ -4194,36 +4184,6 @@ function addConfirmationPrompt(result) {
     'system',
     `${getAssistantDisplayName()} - confirmation required`
   );
-  speakAssistantResponse(result.response || `Please confirm this action, ${getHonorific()}.`);
-}
-
-function speakAssistantResponse(text) {
-  const spokenText = String(text || '').trim();
-  if (!isAssistantMuted && spokenText && window.openx?.speak) {
-    window.openx.speak(spokenText);
-  }
-}
-
-function updateAssistantMuteButton() {
-  assistantMuteBtn.classList.toggle('active', isAssistantMuted);
-  assistantMuteBtn.setAttribute('aria-pressed', String(isAssistantMuted));
-  assistantMuteBtn.setAttribute('aria-label', isAssistantMuted ? 'Unmute assistant voice' : 'Mute assistant voice');
-  assistantMuteBtn.title = isAssistantMuted ? 'Unmute assistant voice' : 'Mute assistant voice';
-  assistantMuteBtn.querySelector('.voice-icon').textContent = isAssistantMuted ? '\u{1F507}' : '\u{1F50A}';
-}
-
-async function toggleAssistantMute() {
-  isAssistantMuted = !isAssistantMuted;
-  saveUiState();
-  updateAssistantMuteButton();
-  if (isAssistantMuted && window.openx?.stopSpeaking) {
-    await window.openx.stopSpeaking();
-  }
-  showToast(
-    isAssistantMuted ? 'Assistant voice muted' : 'Assistant voice on',
-    isAssistantMuted ? 'Spoken replies are off. Other app audio is unchanged.' : 'Spoken assistant replies are enabled.',
-    'info'
-  );
 }
 
 async function runHeaderApp(button, operation) {
@@ -4238,20 +4198,6 @@ async function runHeaderApp(button, operation) {
       button.classList.remove('opening');
       button.removeAttribute('aria-busy');
     }, 180);
-  }
-}
-
-async function startVoiceFromChat() {
-  if (!window.openx?.startVoice) return;
-  voiceStartBtn.disabled = true;
-  voiceStartBtn.classList.add('active');
-  try {
-    await window.openx.startVoice();
-  } catch (error) {
-    addMessage(error?.message || 'Voice could not start.', 'system', `${getAssistantDisplayName()} - voice`);
-  } finally {
-    voiceStartBtn.disabled = false;
-    voiceStartBtn.classList.remove('active');
   }
 }
 
@@ -4280,7 +4226,7 @@ async function sendCommand(text) {
           choices: result.data?.choices,
           resultEntries: normalizeResultEntries(result)
         });
-        speakAssistantResponse(response);
+
       }
     } catch (err) {
       hideTyping();
@@ -4313,7 +4259,7 @@ async function sendCommand(text) {
       choices: result.data?.choices,
       resultEntries: normalizeResultEntries(result)
     });
-    speakAssistantResponse(response);
+
   } catch (err) {
     hideTyping();
     addMessage(`An error occurred, ${getHonorific()}.`, 'system', assistantMeta('error'));
@@ -4473,22 +4419,6 @@ function setFieldValue(id, value) {
   }
 }
 
-function updateTtsSliderLabels() {
-  const volumeEl = document.getElementById(fieldIds.assistantTtsVolume);
-  const rateEl = document.getElementById(fieldIds.assistantTtsRate);
-  const volumeValueEl = document.getElementById('assistant-tts-volume-value');
-  const rateValueEl = document.getElementById('assistant-tts-rate-value');
-
-  if (volumeEl && volumeValueEl) {
-    volumeValueEl.textContent = `${volumeEl.value || 100}%`;
-  }
-
-  if (rateEl && rateValueEl) {
-    const rate = Number(rateEl.value || 0);
-    rateValueEl.textContent = rate > 0 ? `+${rate}` : String(rate);
-  }
-}
-
 function getProfileValue(field) {
   const inputValue = field.fieldId ? document.getElementById(field.fieldId)?.value : '';
   const savedValue = settingsSnapshot?.settings?.userProfile?.[field.key];
@@ -4549,9 +4479,6 @@ function populateSettingsForm() {
 
   setFieldValue(fieldIds.assistantDisplayName, settings.assistant.displayName);
   setFieldValue(fieldIds.assistantHonorific, settings.assistant.honorific);
-  setFieldValue(fieldIds.assistantTtsVolume, String(settings.voice?.tts?.volume ?? 100));
-  setFieldValue(fieldIds.assistantTtsRate, String(settings.voice?.tts?.rate ?? 2));
-  updateTtsSliderLabels();
   setFieldValue(fieldIds.profileFullName, settings.userProfile.fullName);
   setFieldValue(fieldIds.profileEmail, settings.userProfile.email);
   setFieldValue(fieldIds.profilePhone, settings.userProfile.phone);
@@ -4903,12 +4830,6 @@ function collectSettingsPayload() {
       displayName: document.getElementById(fieldIds.assistantDisplayName).value.trim(),
       honorific: document.getElementById(fieldIds.assistantHonorific).value
     },
-    voice: {
-      tts: {
-        volume: Number(document.getElementById(fieldIds.assistantTtsVolume).value || 100),
-        rate: Number(document.getElementById(fieldIds.assistantTtsRate).value || 2)
-      }
-    },
     chat: {
       themeId: selectedThemeId,
       glassTint: Number(document.getElementById(fieldIds.glassTint).value || 42),
@@ -4954,7 +4875,7 @@ function updateSettingsSummary() {
   const theme = (settingsSnapshot?.availableThemes || []).find(entry => entry.id === selectedThemeId)
     || (settingsSnapshot?.availableThemes || [])[0];
   document.getElementById('settings-hero-name').textContent = assistantName;
-  document.getElementById('settings-hero-title').textContent = 'Configured for local automation, profile storage, voice, and theme.';
+  document.getElementById('settings-hero-title').textContent = 'Configured for local automation, profile storage, and theme.';
   document.getElementById('settings-hero-honorific').textContent = settingsSnapshot?.settings?.assistant?.honorific || 'sir';
   document.getElementById('settings-hero-theme').textContent = theme?.label || 'Theme';
   document.getElementById('settings-hero-learning').textContent = settingsSnapshot?.settings?.activeLearning?.enabled === false ? 'Disabled' : 'Enabled';
@@ -5853,8 +5774,6 @@ inputBox.addEventListener('keydown', (event) => {
   }
 });
 
-document.getElementById(fieldIds.assistantTtsVolume).addEventListener('input', updateTtsSliderLabels);
-document.getElementById(fieldIds.assistantTtsRate).addEventListener('input', updateTtsSliderLabels);
 document.getElementById(fieldIds.glassTint).addEventListener('input', event => scheduleGlassTintUpdate(event.target.value));
 profileEditBtn?.addEventListener('click', () => setProfileEditorOpen(!profileEditorOpen));
 PROFILE_SUMMARY_FIELDS.forEach(field => {
@@ -5958,8 +5877,6 @@ aboutButtons.forEach(button => {
   });
 });
 aboutCloseBtn?.addEventListener('click', closeAboutPanel);
-voiceStartBtn.addEventListener('click', startVoiceFromChat);
-assistantMuteBtn.addEventListener('click', toggleAssistantMute);
 settingsCloseBtn.addEventListener('click', closeSettingsPanel);
 settingsNavButtons.forEach(button => {
   button.addEventListener('click', () => {
@@ -6223,7 +6140,6 @@ async function initialize() {
   initializeCompactSettingsLayout();
   const conversationStart = ensureConversationReady();
   await loadUiState();
-  updateAssistantMuteButton();
   const settingsOnly = new URLSearchParams(window.location.search).get('settings') === '1';
   if (settingsOnly) {
     document.body.classList.add('settings-only');

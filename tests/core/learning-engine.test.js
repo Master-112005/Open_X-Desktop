@@ -185,7 +185,7 @@ describe('Assistant Learning Engine', function() {
     const storage = new LearningStorage({ baseDir: tempDir(), maxRecords: 10 });
     storage.commit([{
       category: 'feedback',
-      key: 'voice.reply',
+      key: 'chat.reply',
       value: 'good',
       confidence: 1,
       source: 'test',

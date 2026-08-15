@@ -72,57 +72,6 @@
   transform: translateY(-1px);
 }
 
-.voice-btn {
-  color: rgba(255, 255, 255, 0.82);
-  margin-left: 3px;
-}
-
-.voice-start-btn {
-  color: rgba(255, 255, 255, 0.9);
-  margin-left: 3px;
-  position: relative;
-}
-
-.voice-start-btn::after {
-  content: "";
-  position: absolute;
-  inset: 7px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--accent-color) 34%, transparent);
-  opacity: 0;
-  transform: scale(0.82);
-  transition: opacity 0.18s ease, transform 0.18s ease;
-  pointer-events: none;
-}
-
-.voice-start-btn:hover,
-.voice-start-btn:focus-visible,
-.voice-start-btn.active {
-  background: color-mix(in srgb, var(--accent-color) 20%, rgba(255, 255, 255, 0.1));
-  border-color: color-mix(in srgb, var(--accent-color) 42%, rgba(255, 255, 255, 0.18));
-}
-
-.voice-start-btn:hover::after,
-.voice-start-btn:focus-visible::after {
-  opacity: 1;
-  transform: scale(1);
-}
-
-.voice-start-btn:active {
-  transform: translateY(0) scale(0.95);
-}
-
-.voice-btn.active {
-  background: rgba(255, 92, 107, 0.15);
-  border-color: rgba(255, 123, 136, 0.3);
-  color: #ffc2c9;
-}
-
-.voice-icon {
-  font-size: 14px;
-  line-height: 1;
-}
-
 #messages {
   gap: 19px;
   padding: 24px 20px 18px;
@@ -1259,12 +1208,6 @@
   border-color: rgba(255, 255, 255, 0.11);
   border-radius: 14px;
   transition-duration: 0.25s;
-}
-
-.voice-btn.active {
-  background: rgba(255, 92, 107, 0.16);
-  border-color: rgba(255, 123, 136, 0.3);
-  color: #ffc2c9;
 }
 
 .message-bubble {
@@ -2933,73 +2876,6 @@ body {
   justify-content: center;
   line-height: 1;
   width: auto;
-}
-
-.composer-voice-btn {
-  align-items: center;
-  background:
-    radial-gradient(circle, color-mix(in srgb, var(--accent-color) 26%, transparent) 0 42%, transparent 43%),
-    color-mix(in srgb, var(--surface-bg) 82%, rgba(255, 255, 255, 0.08));
-  border: 1px solid color-mix(in srgb, var(--accent-color) 34%, var(--glass-line));
-  border-radius: 50%;
-  box-shadow:
-    0 10px 24px rgba(0, 0, 0, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
-  color: var(--text-color);
-  display: inline-flex;
-  flex: 0 0 38px;
-  height: 38px;
-  justify-content: center;
-  margin: 0;
-  min-width: 38px;
-  padding: 0;
-  position: relative;
-  width: 38px;
-  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
-}
-
-.composer-voice-btn::after {
-  content: none;
-}
-
-.composer-voice-btn .voice-start-ring {
-  border: 1px solid color-mix(in srgb, var(--accent-color) 62%, rgba(255, 255, 255, 0.28));
-  border-radius: 50%;
-  inset: 6px;
-  opacity: 0.74;
-  pointer-events: none;
-  position: absolute;
-}
-
-.composer-voice-btn .voice-start-ring.inner {
-  inset: 12px;
-  opacity: 0.46;
-}
-
-.composer-voice-btn .voice-start-symbol {
-  color: color-mix(in srgb, var(--accent-color) 74%, white);
-  font-size: 14px;
-  font-weight: 800;
-  line-height: 1;
-  position: relative;
-  z-index: 1;
-}
-
-.composer-voice-btn:hover,
-.composer-voice-btn:focus-visible,
-.composer-voice-btn.active {
-  background:
-    radial-gradient(circle, color-mix(in srgb, var(--accent-color) 40%, transparent) 0 44%, transparent 45%),
-    color-mix(in srgb, var(--accent-color) 20%, var(--surface-bg));
-  border-color: color-mix(in srgb, var(--accent-color) 62%, rgba(255, 255, 255, 0.2));
-  box-shadow:
-    0 14px 28px color-mix(in srgb, var(--accent-color) 18%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  transform: translateY(-1px);
-}
-
-.composer-voice-btn:active {
-  transform: translateY(0) scale(0.96);
 }
 
 .composer-mute-btn {
@@ -5737,13 +5613,7 @@ textarea:focus-visible {
     width: 38px;
   }
 
-  .composer-voice-btn {
-    flex-basis: 38px;
-    min-width: 38px;
-    width: 38px;
-  }
-
-  #send-btn span {
+    #send-btn span {
     display: none;
   }
 
@@ -5776,7 +5646,6 @@ textarea:focus-visible {
 #chat-shell { border-radius: 28px; border-color: rgba(255,255,255,.15); box-shadow: 0 28px 90px rgba(0,0,0,.38), inset 0 1px 1px rgba(255,255,255,.15); }
 #header { background: rgba(255,255,255,.055); backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%); border-bottom-color: rgba(255,255,255,.1); }
 .header-btn,.window-btn,.chip-btn { background: rgba(255,255,255,.075); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-color: rgba(255,255,255,.11); border-radius: 14px; transition-duration: .25s; }
-.voice-btn.active { background: rgba(255,92,107,.16); border-color: rgba(255,123,136,.3); color: #ffc2c9; }
 .message-bubble { background: rgba(255,255,255,.075); backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%); border-color: rgba(255,255,255,.13); border-radius: 8px 20px 20px 20px; box-shadow: 0 10px 30px rgba(0,0,0,.12), inset 0 1px 1px rgba(255,255,255,.1); padding: 12px 15px; }
 .message.user .message-bubble { border-radius: 20px 8px 20px 20px; }
 .composer-field { background: rgba(255,255,255,.08); backdrop-filter: blur(25px) saturate(150%); -webkit-backdrop-filter: blur(25px) saturate(150%); border-color: rgba(255,255,255,.14); border-radius: 20px; box-shadow: 0 10px 32px rgba(0,0,0,.12), inset 0 1px 0 rgba(255,255,255,.12); }
@@ -5847,9 +5716,6 @@ textarea:focus-visible {
 
 #header { background: rgba(255, 255, 255, 0.06); border-bottom-color: rgba(255, 255, 255, 0.12); }
 .header-btn,.window-btn,.chip-btn { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.13); border-radius: 14px; }
-.voice-btn.active { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.26); color: white; }
-.voice-icon { filter: grayscale(1); }
-
 .brand-mark,#send-btn,.primary-btn {
   background: rgba(255, 255, 255, 0.9);
   border-color: rgba(255, 255, 255, 0.62);
@@ -6318,8 +6184,7 @@ html[data-glass-theme="white-glass"] .mode-app-tab { color: #171719; }
 html[data-glass-contrast="dark-text"] .field-select option { background: #f4f4f5; color: #171719; }
 html[data-glass-contrast="light-text"] .field-select option { background: #202024; color: #fff; }
 html[data-glass-contrast="dark-text"] .danger-btn { color: #7a1722; }
-html[data-glass-contrast="dark-text"] .voice-btn.active { color: #171719; }
-html[data-glass-contrast] #header-title,
+html[data-glass-contrast="dark-text"] html[data-glass-contrast] #header-title,
 html[data-glass-contrast] #header-subtitle,
 html[data-glass-contrast] .panel-title,
 html[data-glass-contrast] .section-heading,

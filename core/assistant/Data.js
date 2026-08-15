@@ -115,7 +115,6 @@ function resolveLegacyDataRoot(config = {}) {
 function buildDataPaths(config = {}) {
   const root = resolveDataRoot(config);
   const runtimeDir = path.join(root, 'runtime');
-  const voiceDir = path.join(root, 'voice');
   const cloudDir = path.join(root, 'cloud');
   const securityDir = path.join(root, 'security');
   const visualMemoryDir = path.join(root, 'visual-memory');
@@ -168,8 +167,6 @@ function buildDataPaths(config = {}) {
     electronProfileDir: path.join(runtimeDir, 'electron-profile'),
     cacheDir: path.join(root, 'cache'),
     mediaProfileDir: path.join(runtimeDir, 'chrome-media-profile'),
-    voiceDir,
-    voiceDiagnosticsDir: path.join(voiceDir, 'diagnostics'),
     cloudDir,
     cloudLogPath: path.join(cloudDir, 'connection.log'),
     cloudReceivedDir,
@@ -243,7 +240,7 @@ function inferManagedRootFromPath(filePath) {
   let current = path.resolve(path.dirname(filePath));
   while (current && current !== path.dirname(current)) {
     const name = path.basename(current).toLowerCase();
-    if (['learning', 'home-learning', 'personal', 'runtime', 'cloud', 'voice', 'security', 'visual-memory'].includes(name)) {
+    if (['learning', 'home-learning', 'personal', 'runtime', 'cloud', 'security', 'visual-memory'].includes(name)) {
       return path.dirname(current);
     }
     current = path.dirname(current);
@@ -745,8 +742,6 @@ function ensureDataRoot(config = {}) {
     paths.cacheDir,
     paths.mediaProfileDir,
     paths.screenshotsDir,
-    paths.voiceDir,
-    paths.voiceDiagnosticsDir,
     paths.cloudDir,
     paths.cloudReceivedDir,
     paths.cloudTempDir,
@@ -892,12 +887,9 @@ const EventEmitter = require('events');
 
 const EVENTS = Object.freeze({
   COMMAND_RECEIVED: 'command.received',
-  VOICE_ACTIVATED: 'voice.activated',
   LISTENER_STARTED: 'listener.started',
   LISTENER_STOPPED: 'listener.stopped',
-  SPEECH_DETECTED: 'speech.detected',
   UTTERANCE_FINALIZED: 'utterance.finalized',
-  STT_COMPLETED: 'stt.completed',
   INTENT_DETECTED: 'intent.detected',
   COMMAND_EXECUTED: 'command.executed',
   RESPONSE_GENERATED: 'response.generated',
@@ -906,14 +898,6 @@ const EVENTS = Object.freeze({
   SCHEDULE_DUE: 'schedule.due',
   SCHEDULE_CHANGED: 'schedule.changed',
   UI_STATE_CHANGED: 'ui.state.changed',
-  VOICE_STATE_CHANGED: 'voice.state.changed',
-  VOICE_SESSION_STARTED: 'voice.sessionStarted',
-  VOICE_SESSION_ENDED: 'voice.sessionEnded',
-  VOICE_PARTIAL_TRANSCRIPT: 'voice.partialTranscript',
-  VOICE_FINAL_TRANSCRIPT: 'voice.finalTranscript',
-  VOICE_PROCESSING_STARTED: 'voice.processingStarted',
-  VOICE_PROCESSING_FINISHED: 'voice.processingFinished',
-  VOICE_ERROR: 'voice.error'
 });
 
 class AssistantEventBus extends EventEmitter {
@@ -972,8 +956,7 @@ const DEFAULT_MAX_LOG_SIZE = 10 * 1024 * 1024;
 const DEFAULT_MAX_LOG_FILES = 5;
 const SENSITIVE_KEY_PATTERN = /(?:password|passcode|pin|otp|verificationcode|developmentcode|token|secret|authorization|cookie|credential|private|key|api[_-]?key)/i;
 const PRIVATE_TEXT_KEYS = new Set(['audio', 'pcm', 'buffer', 'sample', 'samples', 'text', 'input', 'response']);
-const PRIVATE_TEXT_KEY_PATTERN = /(?:transcript|input(?:text)?|command(?:text)?|rawcommand|response|spokenresponse|pcm|buffer|samples?|utterance|speechtext)/i;
-const VOICE_PRIVATE_KEY_PATTERN = /(?:transcript|input|text|response|pcm|buffer|sample|samples)/i;
+const PRIVATE_TEXT_KEY_PATTERN = /(?:input(?:text)?|command(?:text)?|rawcommand|response|buffer)/i;
 
 function dateStamp(date = new Date()) {
   return date.toISOString().slice(0, 10);
@@ -1064,10 +1047,7 @@ class Logger {
       'frameIndex',
       'audioFrames',
       'processedFrames',
-      'sttFrames',
-      'partialTranscripts',
-      'finalTranscripts',
-      'endpointDetections',
+'endpointDetections',
       'droppedFrames',
       'error'
     ];
@@ -1087,9 +1067,6 @@ class Logger {
       const compactCounters = [
         ['audio', counters.audioFrames],
         ['processed', counters.processedFrames],
-        ['stt', counters.sttFrames],
-        ['partial', counters.partialTranscripts],
-        ['final', counters.finalTranscripts],
         ['busy', counters.audioFramesWhileBusy],
         ['stale', counters.staleAudioFrames],
         ['endpoints', counters.endpointDetections]
@@ -1115,7 +1092,7 @@ class Logger {
 
   _formatHumanValue(key, value) {
     const normalizedKey = String(key || '');
-    if ((PRIVATE_TEXT_KEYS.has(normalizedKey) || VOICE_PRIVATE_KEY_PATTERN.test(normalizedKey)) &&
+    if ((PRIVATE_TEXT_KEYS.has(normalizedKey)) &&
         value !== null &&
         typeof value !== 'number' &&
         typeof value !== 'boolean') {

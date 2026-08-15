@@ -36,8 +36,6 @@ describe('Assistant Data Root', function() {
     assert.equal(paths.logsDir, path.join(paths.root, 'logs'));
     assert.equal(paths.electronProfileDir, path.join(paths.root, 'runtime', 'electron-profile'));
     assert.equal(paths.mediaProfileDir, path.join(paths.root, 'runtime', 'chrome-media-profile'));
-    assert.equal(paths.voiceDir, path.join(paths.root, 'voice'));
-    assert.equal(paths.voiceDiagnosticsDir, path.join(paths.voiceDir, 'diagnostics'));
     assert.equal(paths.cloudDir, path.join(paths.root, 'cloud'));
     assert.equal(paths.cloudReceivedDir, path.join(dataRoot.resolveDocumentsDirectory(), 'OpenX'));
     assert.equal(paths.cloudTempDir, path.join(paths.root, 'runtime', 'cloud-transfer'));
@@ -78,7 +76,6 @@ describe('Assistant Data Root', function() {
     assert.ok(fs.existsSync(paths.cacheDir));
     assert.ok(fs.existsSync(paths.mediaProfileDir));
     assert.ok(fs.existsSync(paths.screenshotsDir));
-    assert.ok(fs.existsSync(paths.voiceDiagnosticsDir));
     assert.ok(fs.existsSync(paths.cloudDir));
     assert.ok(fs.existsSync(paths.cloudReceivedDir));
     assert.ok(fs.existsSync(paths.cloudTempDir));

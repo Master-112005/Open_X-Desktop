@@ -80,7 +80,7 @@ const CANCEL_PATTERNS = [
 
 const MAX_CHAT_VISUAL_RESULTS = 10;
 
-const SPOKEN_CHOICE_NUMBERS = Object.freeze({
+const CHOICE_NUMBER_WORDS = Object.freeze({
   one: 1,
   'this one': 1,
   'that one': 1,
@@ -411,10 +411,6 @@ class Assistant extends EventEmitter {
     }
   }
 
-  processVoiceInput(text) {
-    return this.processCommand(this._prepareVoiceInput(text), 'voice');
-  }
-
   async confirmAction(commandId, intentId, entities) {
     const pending = this.pendingConfirmation && this.pendingConfirmation.commandId === commandId
       ? this.pendingConfirmation
@@ -455,7 +451,7 @@ class Assistant extends EventEmitter {
     }, { source: pending.source || 'confirmation', result });
   }
 
-  expirePendingConfirmation(reason = 'timeout', source = 'voice') {
+  expirePendingConfirmation(reason = 'timeout', source = 'chat') {
     if (!this.pendingConfirmation) {
       return null;
     }
@@ -1856,14 +1852,14 @@ class Assistant extends EventEmitter {
       .replace(/\b(?:number|option|choice|folder|file|result|open|select|choose|pick|please|ok|okay|yes|yeah|yep|the|one\s+number)\b/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    if (SPOKEN_CHOICE_NUMBERS[cleaned]) return SPOKEN_CHOICE_NUMBERS[cleaned];
+    if (CHOICE_NUMBER_WORDS[cleaned]) return CHOICE_NUMBER_WORDS[cleaned];
 
     const words = cleaned.split(/\s+/).filter(Boolean);
     for (const word of words) {
-      if (SPOKEN_CHOICE_NUMBERS[word]) return SPOKEN_CHOICE_NUMBERS[word];
+      if (CHOICE_NUMBER_WORDS[word]) return CHOICE_NUMBER_WORDS[word];
     }
     const phraseMatch = cleaned.match(/\b(this\s+one|that\s+one|first\s+one|second\s+one|third\s+one|fourth\s+one|fifth\s+one|sixth\s+one|seventh\s+one|eighth\s+one)\b/);
-    return phraseMatch ? SPOKEN_CHOICE_NUMBERS[phraseMatch[1]] || 0 : 0;
+    return phraseMatch ? CHOICE_NUMBER_WORDS[phraseMatch[1]] || 0 : 0;
   }
 
   _looksLikeChoiceResponse(input, choices) {
@@ -2034,7 +2030,7 @@ class Assistant extends EventEmitter {
       /^(?:list|show|tell|display)\s+(?:them|those|these|it|that)\b/.test(normalized) ||
       /^(?:what|which)\s+(?:are|is)\s+(?:them|those|these|they|it|that)\b/.test(normalized);
     if (!listFollowUp) {
-      return this._resolveVoiceReference(input);
+      return this._resolveReference(input);
     }
 
     const lastFileList = this.context.getHistory(8)
@@ -2047,14 +2043,14 @@ class Assistant extends EventEmitter {
         .slice()
         .reverse()
         .find(entry => entry?.success && /^(?:file\.search|file\.smartFind)$/.test(entry?.intent || '') && entry?.input);
-      return lastFileSearch?.input || this._resolveVoiceReference(input);
+      return lastFileSearch?.input || this._resolveReference(input);
     }
 
     const entities = lastFileList.entities || {};
     const type = String(entities.fileType || '').trim();
     const path = String(entities.path || '').trim();
     if (!path) {
-      return this._resolveVoiceReference(input);
+      return this._resolveReference(input);
     }
 
     return `list ${type ? `${type} ` : ''}files in ${path}`;
@@ -2513,34 +2509,7 @@ class Assistant extends EventEmitter {
     })));
   }
 
-  _prepareVoiceInput(text) {
-    const raw = String(text || '').trim();
-    if (!raw || this.pendingConfirmation) {
-      return raw;
-    }
-
-    try {
-      const prepared = this.router?.nlp?.prepare?.(raw);
-      const useNoisyRepair = prepared?.repairedCommandText
-        && (
-          Number(prepared?.noiseTokenCount || 0) > 0
-          || Number(prepared?.repairContextTokenCount || 0) > 0
-        )
-        && Number(prepared?.actionTokenCount || 0) <= 1;
-      const candidate = String(
-        (useNoisyRepair ? prepared.repairedCommandText : '')
-        || prepared?.correctedText
-        || prepared?.normalizedText
-        || ''
-      ).trim();
-      return this._resolveVoiceReference(candidate || raw);
-    } catch (error) {
-      this.logger.warn('Voice NLP preparation failed', error.message);
-      return this._resolveVoiceReference(raw);
-    }
-  }
-
-  _resolveVoiceReference(input) {
+  _resolveReference(input) {
     const text = String(input || '').trim();
     if (!text) {
       return text;
@@ -2678,30 +2647,23 @@ class Assistant extends EventEmitter {
     const rawResponse = String(result.response || result.message || '').trim();
     const source = result.source || context.source || 'chat';
     const responseStyle = this.learning?.getPreference?.('responseStyle')?.value || '';
-    const spokenStyle = this.learning?.getPreference?.('spokenResponseStyle')?.value || responseStyle || '';
+
     const refined = this.responses.refineResponse(rawResponse, {
       ...context,
       result,
       input: context.input || result.input || '',
       source,
-      responseStyle,
-      spokenStyle
+      responseStyle
     });
     const response = refined.text || rawResponse;
-    const spokenResponse = result.spokenResponse || this.responses.createSpokenResponse(response, {
-      ...context,
-      source,
-      responseStyle,
-      spokenStyle,
-      result
-    });
+
     return {
       ...result,
       response,
       source,
       ...(refined.policy ? { responsePolicy: refined.policy } : {}),
       ...(refined.suggestions?.length ? { responseSuggestions: refined.suggestions } : {}),
-      ...(spokenResponse ? { spokenResponse } : {})
+
     };
   }
 }

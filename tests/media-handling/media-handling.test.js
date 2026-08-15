@@ -45,7 +45,7 @@ describe('Media Handling', function() {
     assert.equal(explicit.platform, 'youtube');
   });
 
-  it('should keep playdate as the requested media title when spoken as play date', function() {
+  it('should keep playdate as the requested media title when worded as play date', function() {
     const { MediaParser } = require('../../core/automation/media');
     const parser = new MediaParser();
 
@@ -56,11 +56,11 @@ describe('Media Handling', function() {
     assert.equal(parsed.platform, 'youtube');
   });
 
-  it('should preserve voice media names instead of correcting them', function() {
+  it('should preserve chat media names instead of correcting them', function() {
     const { MediaParser } = require('../../core/automation/media');
     const parser = new MediaParser();
 
-    const parsed = parser.parse('play dulander songs', { source: 'voice' });
+    const parsed = parser.parse('play dulander songs', { source: 'chat' });
 
     assert.equal(parsed.intent, 'media.play');
     assert.equal(parsed.query, 'dulander songs');
@@ -118,7 +118,7 @@ describe('Media Handling', function() {
     const router = new MediaCommandRouter();
 
     const routed = router.route('play music', {
-      source: 'voice-command',
+      source: 'chat-command',
       context: { activeApp: 'chrome.exe' }
     });
 
@@ -126,6 +126,6 @@ describe('Media Handling', function() {
     assert.equal(routed.payload.action, 'media.play');
     assert.equal(routed.payload.mediaPlatform, 'youtube');
     assert.equal(routed.payload.mediaQuery, 'music');
-    assert.equal(routed.payload.source, 'voice-command');
+    assert.equal(routed.payload.source, 'chat-command');
   });
 });

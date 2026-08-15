@@ -17,7 +17,6 @@ class ResponseContext {
     this.responseType = 'summary';
     this.parts = [];
     this.suggestions = [];
-    this.formattedVoiceResponse = '';
     this.formattedChatResponse = '';
     this.formattedNotification = '';
     this.diagnostics = new ResponseDiagnostics();
@@ -91,7 +90,6 @@ class ResponseContext {
     return new AssistantResponse({
       verificationResult: this.verificationResult,
       responseType: this.responseType,
-      formattedVoiceResponse: this.formattedVoiceResponse,
       formattedChatResponse: this.formattedChatResponse,
       formattedNotification: this.formattedNotification,
       suggestions: this.suggestions,

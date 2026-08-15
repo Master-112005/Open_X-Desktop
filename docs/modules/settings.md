@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This module persists assistant identity, user profile details, voice preferences, chat appearance, permission level, and app modes. It does not store contacts.
+This module persists assistant identity, user profile details, chat preferences, chat appearance, permission level, and app modes. It does not store contacts.
 
 ## Files
 
@@ -14,7 +14,7 @@ This module persists assistant identity, user profile details, voice preferences
 ## Workflow
 
 1. Electron builds runtime configuration from base configuration and persisted settings.
-2. The assistant and voice manager initialize from that configuration.
+2. The assistant and chat manager initialize from that configuration.
 3. The renderer loads a validated settings snapshot through IPC.
 4. Saving settings writes them locally and reloads runtime services when needed.
 

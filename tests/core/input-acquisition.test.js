@@ -6,7 +6,6 @@ describe('Assistant Input Acquisition Layer', function() {
     const manager = createDefaultInputSourceManager();
     const samples = [
       ['chat', 'open chrome', {}],
-      ['voice', { transcript: 'open chrome', confidence: 0.82, metadata: { speechDurationMs: 900 } }, {}],
       ['phone', 'send me resume file', { phoneContext: { deviceId: 'phone_1', deviceName: 'Pixel' } }],
       ['cloud', { payload: { command: 'open downloads' }, metadata: { cloudRequestId: 'cloud_1' } }, {}],
       ['plugin', 'run plugin action', { metadata: { pluginId: 'plugin.test' } }],
@@ -17,7 +16,7 @@ describe('Assistant Input Acquisition Layer', function() {
 
     const results = samples.map(([source, input, options]) => manager.acquire(input, source, options));
 
-    assert.equal(results.length, 8);
+    assert.equal(results.length, 7);
     results.forEach((rawInput, index) => {
       assert.ok(rawInput.id);
       assert.ok(rawInput.requestId);
@@ -30,41 +29,6 @@ describe('Assistant Input Acquisition Layer', function() {
       assert.ok(rawInput.metadata.processingTimestamp);
       assert.ok(Array.isArray(rawInput.diagnostics));
     });
-  });
-
-  it('keeps acquisition separate from NLP by forwarding unchanged text to the current assistant route', async function() {
-    const Assistant = require('../../core/assistant');
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-    const routed = [];
-    let acquired = null;
-    const inputSourceManager = createDefaultInputSourceManager();
-    const originalAcquire = inputSourceManager.acquire.bind(inputSourceManager);
-    inputSourceManager.acquire = (...args) => {
-      acquired = originalAcquire(...args);
-      return acquired;
-    };
-    const assistant = new Assistant({}, {
-      automation: {},
-      eventBus: { publish() {} },
-      inputSourceManager,
-      router: {
-        process: async (input, source, options) => {
-          routed.push({ input, source, options });
-          return { success: true, intent: 'browser.search', entities: { query: input }, response: input };
-        }
-      }
-    });
-
-    const result = await assistant.processCommand('Search for OpenX', 'voice', {
-      metadata: { voiceConfidence: 0.91, speechDurationMs: 1200 }
-    });
-
-    assert.equal(result.success, true);
-    assert.equal(acquired.rawText, 'Search for OpenX');
-    assert.equal(routed[0].input, 'search for openx');
-    assert.equal(routed[0].source, 'voice');
-    assert.equal(acquired.source, 'voice');
-    assert.equal(acquired.metadata.voiceConfidence, 0.91);
   });
 
   it('allows the pipeline to receive RawUserInput without changing the pass-through output', async function() {

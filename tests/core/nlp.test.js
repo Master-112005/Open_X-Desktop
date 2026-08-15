@@ -62,7 +62,7 @@ describe('NLP Processor', function() {
     );
   });
 
-  it('should recover common missing-space speech and chat commands', function() {
+  it('should recover common missing-space text and chat commands', function() {
     const nlp = new NlpProcessor(new IntentRegistry());
 
     assert.equal(nlp.prepare('hi howare you ok').correctedText, 'hi how are you ok');

@@ -65,7 +65,7 @@ class BaseInputAdapter {
 
   extractText(payload = {}) {
     if (typeof payload === 'string') return payload;
-    return String(payload.input ?? payload.text ?? payload.command ?? payload.message ?? payload.transcript ?? '');
+    return String(payload.input ?? payload.text ?? payload.command ?? payload.message ?? '');
   }
 
   normalizeMetadata(metadata = {}) {

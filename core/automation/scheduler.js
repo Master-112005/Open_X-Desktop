@@ -413,7 +413,7 @@ class SchedulerController {
   }
 
   _parseTimeExpression(input) {
-    const value = this._normalizeSpokenTime(String(input || ''))
+    const value = this._normalizeWordTime(String(input || ''))
       .trim()
       .toLowerCase()
       .replace(/^on\s+/, '')
@@ -730,7 +730,7 @@ class SchedulerController {
     return dueAt.getTime() > Date.now() ? dueAt : null;
   }
 
-  _normalizeSpokenTime(input) {
+  _normalizeWordTime(input) {
     const numbers = {
       one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
       seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12

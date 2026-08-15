@@ -10,7 +10,6 @@ const InputSourceManager = require('./InputSourceManager');
 const OCRAdapter = require('./OCRAdapter');
 const PhoneAdapter = require('./PhoneAdapter');
 const PluginAdapter = require('./PluginAdapter');
-const VoiceAdapter = require('./VoiceAdapter');
 
 const ACQUISITION_VERSION = '1.1.0';
 
@@ -18,7 +17,6 @@ function createDefaultInputSourceManager(options = {}) {
   const manager = new InputSourceManager(options);
   [
     new ChatAdapter(options),
-    new VoiceAdapter(options),
     new PhoneAdapter(options),
     new CloudAdapter(options),
     new PluginAdapter(options),
@@ -50,6 +48,5 @@ module.exports = {
   PhoneAdapter,
   PluginAdapter,
   SourceConfidenceCalculator: require('./SourceConfidenceCalculator'),
-  SourceNormalizer: require('./SourceNormalizer'),
-  VoiceAdapter
+  SourceNormalizer: require('./SourceNormalizer')
 };

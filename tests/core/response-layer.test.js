@@ -36,7 +36,6 @@ describe('Assistant Response Layer', function() {
 
   it('keeps AssistantResponse immutable, bounded, and metadata-safe', function() {
     const response = new AssistantResponse({
-      formattedVoiceResponse: 'voice '.repeat(400),
       formattedChatResponse: 'chat '.repeat(900),
       formattedNotification: 'notice '.repeat(80),
       suggestions: Array.from({ length: 12 }, (_, index) => ({ text: `suggest ${index}`, token: 'secret' })),
@@ -45,7 +44,6 @@ describe('Assistant Response Layer', function() {
     });
 
     assert.ok(Object.isFrozen(response));
-    assert.ok(response.formattedVoiceResponse.length <= 900);
     assert.ok(response.formattedChatResponse.length <= 2400);
     assert.ok(response.formattedNotification.length <= 180);
     assert.equal(response.suggestions.length, 8);
@@ -67,7 +65,7 @@ describe('Assistant Response Layer', function() {
     assert.deepEqual(context.suggestions.map(item => item.text), ['retry two']);
   });
 
-  it('formats clarification, error, voice, chat, and notification responses through the manager', async function() {
+  it('formats clarification, error, chat and notification responses through the manager', async function() {
     const manager = createDefaultResponseManager({
       configuration: { maxNotificationLength: 60 }
     });
@@ -239,7 +237,6 @@ describe('Assistant Response Layer', function() {
 
     assert.doesNotMatch(response.formattedChatResponse, /hunter2/i);
     assert.ok(response.formattedNotification.length <= 70);
-    assert.equal(response.formattedVoiceResponse, response.formattedNotification);
   });
 
   it('warns when a response generator exceeds the timing budget', async function() {

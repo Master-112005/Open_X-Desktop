@@ -269,78 +269,6 @@ describe('Media Controller', function() {
     assert.deepEqual(controller.sentMediaKeys, [179]);
   });
 
-  it('should pause a playing Windows media session for voice activation', function() {
-    const controller = createController();
-    controller._tryPauseSystemMediaSession = () => ({
-      hasSession: true,
-      playbackStatus: 'Playing',
-      afterStatus: 'Paused',
-      pauseSucceeded: true,
-      sourceAppUserModelId: 'SpotifyAB.SpotifyMusic'
-    });
-
-    const result = controller.quietForVoiceActivation();
-
-    assert.equal(result.success, true);
-    assert.equal(result.data.action, 'pause');
-    assert.equal(result.data.method, 'system-media-session');
-    assert.equal(result.data.sourceAppUserModelId, 'SpotifyAB.SpotifyMusic');
-    assert.equal(result.data.restore.action, 'resume');
-    assert.deepEqual(controller.sentMediaKeys, []);
-  });
-
-  it('should not toggle media controls when Windows reports media is not playing', function() {
-    const controller = createController();
-    controller._tryPauseSystemMediaSession = () => ({
-      hasSession: true,
-      playbackStatus: 'Paused',
-      pauseSucceeded: false
-    });
-
-    const result = controller.quietForVoiceActivation();
-
-    assert.equal(result.success, true);
-    assert.equal(result.data.action, 'none');
-    assert.equal(result.data.reason, 'media-not-playing');
-    assert.deepEqual(controller.sentMediaKeys, []);
-  });
-
-  it('should use the global media key fallback only when playback was confirmed playing', function() {
-    const controller = createController();
-    controller._tryPauseSystemMediaSession = () => ({
-      hasSession: true,
-      playbackStatus: 'Playing',
-      pauseSucceeded: false,
-      sourceAppUserModelId: 'Video.Player'
-    });
-
-    const result = controller.quietForVoiceActivation();
-
-    assert.equal(result.success, true);
-    assert.equal(result.data.action, 'pause');
-    assert.equal(result.data.method, 'global-media-key-fallback');
-    assert.equal(result.data.restore.action, 'resume');
-    assert.deepEqual(controller.sentMediaKeys, [179]);
-  });
-
-  it('should fall back to the known OpenX media session when Windows media state is unavailable', function() {
-    const controller = createController();
-    controller._tryPauseSystemMediaSession = () => ({ hasSession: false });
-    controller.activeSession = {
-      platform: 'youtube',
-      windowQuery: 'youtube'
-    };
-    controller.windowSession.sendKeys = () => ({ success: true, data: { matchedWindow: 'Track - YouTube' } });
-
-    const result = controller.quietForVoiceActivation();
-
-    assert.equal(result.success, true);
-    assert.equal(result.data.action, 'pause');
-    assert.equal(result.data.method, 'known-openx-media-session');
-    assert.equal(result.data.restore.action, 'resume');
-    assert.equal(result.data.fallback, true);
-  });
-
   it('should cool down repeated unavailable Windows media session checks', function() {
     const controller = createController();
     const logs = [];
@@ -363,50 +291,6 @@ describe('Media Controller', function() {
     assert.equal(calls, 1);
     assert.equal(logs.length, 1);
     assert.ok(!logs[0].includes('$ErrorActionPreference'));
-  });
-
-  it('should resume only media that was paused for voice activation', function() {
-    const controller = createController();
-    const quietingResult = {
-      data: {
-        action: 'pause',
-        method: 'system-media-session',
-        restore: {
-          action: 'resume',
-          method: 'system-media-session',
-          sourceAppUserModelId: 'SpotifyAB.SpotifyMusic'
-        }
-      }
-    };
-    controller._tryResumeSystemMediaSession = sourceAppUserModelId => ({
-      hasSession: true,
-      playbackStatus: 'Paused',
-      afterStatus: 'Playing',
-      playSucceeded: true,
-      sourceAppUserModelId
-    });
-
-    const result = controller.restoreAfterVoiceActivation(quietingResult);
-
-    assert.equal(result.success, true);
-    assert.equal(result.data.action, 'resume');
-    assert.equal(result.data.method, 'system-media-session');
-    assert.equal(result.data.sourceAppUserModelId, 'SpotifyAB.SpotifyMusic');
-  });
-
-  it('should not resume media when voice activation did not pause anything', function() {
-    const controller = createController();
-    let resumed = false;
-    controller._tryResumeSystemMediaSession = () => {
-      resumed = true;
-      return { playSucceeded: true };
-    };
-
-    const result = controller.restoreAfterVoiceActivation({ data: { action: 'none' } });
-
-    assert.equal(result.success, true);
-    assert.equal(result.data.action, 'none');
-    assert.equal(resumed, false);
   });
 
   it('should dispatch YouTube player shortcut controls with verification data', function() {

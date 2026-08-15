@@ -8,7 +8,7 @@ Package: `openx`
 
 Current version: `10.0.0`
 
-OpenX is a local-first Windows desktop assistant built with Electron, Node.js, and CommonJS. It combines deterministic assistant command routing, desktop automation, local voice, OpenX Chat, cloud/mobile pairing, local photo gallery, visual memory, learning, scheduling, security, and plugin execution into one desktop runtime.
+OpenX is a local-first Windows desktop assistant built with Electron, Node.js, and CommonJS. It combines deterministic assistant command routing, desktop automation, local chat, OpenX Chat, cloud/mobile pairing, local photo gallery, visual memory, learning, scheduling, security, and plugin execution into one desktop runtime.
 
 OpenX is designed around one rule: user data and assistant state belong in the local OpenX data root unless a feature explicitly requires a different user-facing location.
 
@@ -38,14 +38,14 @@ This README was updated from a filtered local scan of the OpenX repository.
 
 ## What OpenX Does
 
-- Understands typed, voice, cloud, and mobile commands through the same assistant pipeline.
+- Understands typed, chat, cloud, and mobile commands through the same assistant pipeline.
 - Opens, closes, switches, and verifies desktop apps and windows.
 - Controls browsers, media, folders, files, system settings, volume, brightness, screenshots, recording, reminders, alarms, timers, planner items, and schedules.
 - Supports natural multi-step commands such as opening multiple apps, closing recent app groups, and applying shared values to volume and brightness.
 - Provides local OpenX Chat for real user-to-user messaging through OpenX Chat Server.
 - Shows chat notifications and assistant actions through the Dynamic Island when the chat surface is not active.
 - Stores local chat state and bounded message history in `OpenX_Data`.
-- Provides local voice sessions with audio capture, preprocessing, STT, transcript normalization, Dynamic Island voice UI, and Windows SAPI TTS.
+- Provides local chat sessions with audio capture, preprocessing, text input, inputText normalization, Dynamic Island chat UI, and Windows SAPI text output.
 - Provides OpenX Gallery for local photos, favorites, recent photos, timeline browsing, people naming, relation metadata, and photo search.
 - Uses Visual Memory for local photo indexing, metadata filtering, semantic/visual search foundations, face memory, people grouping, duplicate suppression, and future model-backed retrieval.
 - Connects with OpenX Mobile and cloud relay for pairing, commands, presence, and file transfer.
@@ -60,8 +60,8 @@ This README was updated from a filtered local scan of the OpenX repository.
 | Application language | JavaScript, CommonJS |
 | Renderer UI | HTML, CSS, browser JavaScript |
 | Windows automation helpers | PowerShell, Windows APIs, Node child processes |
-| Voice STT | `sherpa-onnx-node` with local Parakeet ONNX files |
-| Voice TTS | Windows SAPI |
+| Chat text input | `text-runtime-onnx-node` with local text model ONNX files |
+| Chat text output | Windows SAPI |
 | Realtime/client networking | `ws` WebSocket client |
 | QR pairing | `qrcode` |
 | Fuzzy search | `fuse.js` |
@@ -77,8 +77,8 @@ OpenX uses local model files and local Windows runtimes where possible.
 
 | Model/runtime | Location | Purpose |
 |---|---|---|
-| Parakeet ONNX STT | `models/parakeet/encoder.int8.onnx`, `decoder.int8.onnx`, `joiner.int8.onnx`, `tokens.txt` | Local speech-to-text through Sherpa ONNX. |
-| Windows SAPI | Windows runtime | Text-to-speech output. |
+| text model ONNX text input | `models/text-model/encoder.int8.onnx`, `decoder.int8.onnx`, `joiner.int8.onnx`, `tokens.txt` | Local text-to-text through text runtime ONNX. |
+| Windows SAPI | Windows runtime | Text-to-text output. |
 | Windows FaceDetector bridge | `core/vision/runtime/windows-face-analysis.ps1` | Local face detection and face-region signal extraction through Windows APIs. |
 | SCRFD ONNX | `core/assistant/capabilities/visual-memory/runtime/models/scrfd/2.5g_bnkps.onnx` | Face detection model asset for visual-memory runtime paths. |
 | MobileFaceNet ONNX | `core/assistant/capabilities/visual-memory/runtime/models/mobilefacenet/` | Face embedding model asset for local face matching paths. |
@@ -91,10 +91,10 @@ OpenX uses local model files and local Windows runtimes where possible.
 |---|---|---|
 | `apps/desktop/electron/main.js` | `initializeAssistant`, `setupIPC`, `createChatWindow`, `createSettingsWindow`, `createPeopleChatWindow`, `createGalleryWindow`, `initializeCloudConnection`, `initializeCloudPairing`, `initializeCloudCommands`, `initializeCloudFileTransfers`, `startDesktopChatRegistration`, `sendDesktopChatMessage`, `sendDesktopChatMessageToContact`, `processDesktopChatIncomingEnvelope`, `syncDesktopChatMailbox`, `ensureVisualMemoryRuntime`, `getLazyVisualMemoryApi` | Electron main process, window lifecycle, IPC, assistant boot, cloud, desktop chat, gallery, dynamic island, data migration, and cleanup. |
 | `apps/desktop/electron/security.js` | IPC validators and channel allow-listing | Rejects invalid or unauthorized renderer payloads before they reach privileged main-process code. |
-| `apps/desktop/preload.js` | `contextBridge` APIs, voice overlay render helpers | Safe bridge from renderer windows to main process. |
+| `apps/desktop/preload.js` | `contextBridge` APIs, chat overlay render helpers | Safe bridge from renderer windows to main process. |
 | `apps/desktop/renderer/chat/index.js` | `sendMessage`, settings handlers, chat app handlers, people chat handlers | Main assistant renderer, settings UI, apps surface, activity, OpenX Chat UI, dynamic state rendering. |
 | `apps/desktop/renderer/gallery/index.js` | gallery view rendering, people scan, viewer, favorites, recent | Gallery renderer for photos, timeline, search, people, and image viewer. |
-| `core/assistant/index.js` | `Assistant`, `processCommand` | Public assistant facade used by desktop chat, voice, phone, cloud, and other command sources. |
+| `core/assistant/index.js` | `Assistant`, `processCommand` | Public assistant facade used by desktop chat, chat, phone, cloud, and other command sources. |
 | `core/assistant/automation/ActionRouter.js` | `ActionRouter`, `process` | Converts natural language into executable intents and multi-command plans. |
 | `core/automation/index.js` | `AutomationEngine`, `execute` | Dispatches validated intents to desktop automation controllers. |
 | `core/assistant/response/ResponseGenerator.js` | `ResponseGenerator` | Builds user-facing responses, confirmations, clarifications, and summaries. |
@@ -110,9 +110,9 @@ OpenX uses local model files and local Windows runtimes where possible.
 | `core/vision/engine/VisionEngine.js` | `VisionEngine` | Vision runtime facade. |
 | `core/vision/runtime/RuntimeManager.js` | `RuntimeManager` | Vision runtime selection and execution management. |
 | `core/vision/runtime/WindowsFaceRuntimeAdapter.js` | `WindowsFaceRuntimeAdapter` | Node adapter around the Windows face-analysis PowerShell bridge. |
-| `apps/desktop/voice/integration/VoiceAssistantBridge.js` | `VoiceAssistantBridge` | Sends voice transcripts into the assistant command path. |
-| `apps/desktop/voice/stt/STTEngine.js` | `STTEngine` | Local speech recognition engine. |
-| `apps/desktop/voice/tts.js` | `TextToSpeech` | Windows SAPI text-to-speech wrapper. |
+| `apps/desktop/chat/integration/ChatAssistantBridge.js` | `ChatAssistantBridge` | Sends chat inputTexts into the assistant command path. |
+| `apps/desktop/chat/textInput/text inputEngine.js` | `text inputEngine` | Local text recognition engine. |
+| `apps/desktop/chat/textOutput.js` | `TextToText` | Windows SAPI text-to-text wrapper. |
 
 ## Assistant Command Workflow
 
@@ -125,7 +125,7 @@ Assistant.processCommand(text, source, options)
 The command path is layered:
 
 ```text
-chat / voice / cloud / mobile
+chat / chat / cloud / mobile
   -> acquisition
   -> normalization
   -> linguistic understanding
@@ -139,7 +139,7 @@ chat / voice / cloud / mobile
   -> verification
   -> response generation
   -> context and learning update
-  -> renderer, voice, dynamic island, cloud, or chat response
+  -> renderer, chat, dynamic island, cloud, or chat response
 ```
 
 Important behavior:
@@ -150,7 +150,7 @@ Important behavior:
 - Validation and confirmation are separate from understanding.
 - Automation results are verified where possible.
 - Responses are human-readable and summarize partial success or failure.
-- Learning stores structured, bounded, local signals rather than raw private chat transcripts.
+- Learning stores structured, bounded, local signals rather than raw private chat inputTexts.
 
 ## OpenX Chat Workflow
 
@@ -180,25 +180,25 @@ Important desktop chat responsibilities:
 
 The chat server remains the transport and account authority. The desktop remains the local UI, local encryption, and local state owner.
 
-## Voice Workflow
+## Chat Workflow
 
 ```text
-Alt+Space or voice UI
+Alt+Space or chat UI
   -> audio capture
   -> preprocessing and VAD
-  -> Sherpa/Parakeet STT
-  -> transcript normalization
+  -> text runtime/text model text input
+  -> inputText normalization
   -> Assistant.processCommand
   -> response
-  -> Dynamic Island and optional TTS
+  -> Dynamic Island and optional text output
 ```
 
-Voice resource behavior:
+Chat resource behavior:
 
-- STT model files are validated at startup.
-- Heavy voice runtime prewarm is skipped until first use by default.
-- TTS uses Windows SAPI.
-- Voice diagnostics record health, latency, errors, and runtime state.
+- text input model files are validated at startup.
+- Heavy chat runtime prewarm is skipped until first use by default.
+- text output uses Windows SAPI.
+- Chat diagnostics record health, latency, errors, and runtime state.
 
 ## Visual Memory And Gallery Workflow
 
@@ -282,7 +282,7 @@ Important managed data areas:
 | Schedules, alarms, timers, reminders | `OpenX_Data/schedules.json` |
 | Learning | `OpenX_Data/learning/` |
 | Logs | `OpenX_Data/logs/` |
-| Voice diagnostics | `OpenX_Data/voice/diagnostics/` |
+| Chat diagnostics | `OpenX_Data/chat/diagnostics/` |
 | Cloud state | `OpenX_Data/cloud/` |
 | Chat state | `OpenX_Data/chat/` |
 | Runtime profiles | `OpenX_Data/runtime/` |
@@ -381,8 +381,8 @@ Packaged app details:
 - Product name: `OpenX`
 - Target: Windows x64 NSIS
 - ASAR enabled
-- Sherpa ONNX and Playwright modules unpacked
-- Parakeet model files included as extra files
+- text runtime ONNX and Playwright modules unpacked
+- text model model files included as extra files
 - Native Chrome host included in package resources
 
 ## Documentation Map
@@ -438,10 +438,10 @@ OpenX/
 |       |   |   |-- index.css
 |       |   |   |-- index.html
 |       |   |   `-- index.js
-|       |   `-- voice-capture/
+|       |   `-- chat-capture/
 |       |       |-- index.html
 |       |       `-- index.js
-|       |-- voice/
+|       |-- chat/
 |       |   |-- audio/
 |       |   |-- config/
 |       |   |-- diagnostics/
@@ -449,10 +449,10 @@ OpenX/
 |       |   |-- normalization/
 |       |   |-- preprocessing/
 |       |   |-- session/
-|       |   |-- stt/
+|       |   |-- textInput/
 |       |   |-- ui/
 |       |   |-- index.js
-|       |   `-- tts.js
+|       |   `-- textOutput.js
 |       |-- permissions.js
 |       |-- preload.js
 |       |-- security-lock.js
@@ -679,7 +679,7 @@ OpenX/
 |   `-- workflows/
 |-- graphify-out/
 |-- models/
-|   `-- parakeet/
+|   `-- text-model/
 |       |-- decoder.int8.onnx
 |       |-- encoder.int8.onnx
 |       |-- joiner.int8.onnx

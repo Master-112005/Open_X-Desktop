@@ -22,6 +22,6 @@ The NLP pipeline turns inconsistent natural language input into normalized, ling
 - Raw command text is preserved for entity extraction.
 - Corrected command text is used for intent scoring.
 - Word order mistakes are tolerated through overlap and bigram scoring.
-- Phrase normalization covers common speech variants such as `put on`, `start playing`, `full screen`, and British spellings like `minimise`.
+- Phrase normalization covers common text variants such as `put on`, `start playing`, `full screen`, and British spellings like `minimise`.
 - Search, open, media, and window commands also use explicit router guards where ambiguity is high.
 - Media entity extraction strips filler nouns such as `song`, `track`, and `video` so playback requests stay query-focused.

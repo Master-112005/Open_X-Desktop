@@ -341,37 +341,6 @@ describe('Context Awareness', function() {
     assert.ok(warnings.some(message => message.includes('Subscriber failed')));
   });
 
-  it('should update microphone activity in context snapshots', function() {
-    const { ContextEngine } = require('../../core/context-awareness/context-engine');
-    const signalRecorder = createSignalRecorder();
-    const subscriptions = new Map();
-    signalRecorder.subscribe = (event, callback) => {
-      if (!subscriptions.has(event)) subscriptions.set(event, []);
-      subscriptions.get(event).push(callback);
-      return () => {
-        const callbacks = subscriptions.get(event) || [];
-        const index = callbacks.indexOf(callback);
-        if (index !== -1) callbacks.splice(index, 1);
-      };
-    };
-    signalRecorder.emit = (event, payload) => {
-      signalRecorder.events.push({ event, payload });
-      const envelope = { event, payload, timestamp: Date.now() };
-      (subscriptions.get(event) || []).forEach(callback => callback(envelope));
-      return envelope;
-    };
-    const engine = new ContextEngine({
-      logger: silentLogger(),
-      signals: signalRecorder
-    });
-
-    engine.start();
-    signalRecorder.emit(signalRecorder.SIGNAL_EVENTS.MICROPHONE_ACTIVITY_CHANGED, { active: true });
-
-    assert.equal(engine.getSnapshot().microphoneActive, true);
-    engine.stop();
-  });
-
   it('should sanitize active context snapshots and preserve path and pid', function() {
     const { ContextEngine } = require('../../core/context-awareness/context-engine');
     const engine = new ContextEngine({

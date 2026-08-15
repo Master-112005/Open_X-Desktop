@@ -287,22 +287,6 @@ describe('Electron Security Boundary', function() {
     assert.throws(() => IPC_VALIDATORS['planner:addEntry']({ type: 'calendar', title: 'Bad', startTime: '9:30' }), /HH:MM/);
   });
 
-  it('should validate Dynamic Island collapse payloads', function() {
-    assert.deepEqual(
-      IPC_VALIDATORS['voiceOverlay:collapse']({ statusText: ' Snoozed ', icon: 'ok', hideAfterMs: 5000 }),
-      { statusText: 'Snoozed', icon: 'ok', hideAfterMs: 5000 }
-    );
-    assert.deepEqual(
-      IPC_VALIDATORS['voiceOverlay:collapse']({ presentationClass: 'schedule-live-compact' }),
-      { presentationClass: 'schedule-live-compact' }
-    );
-    assert.deepEqual(IPC_VALIDATORS['voiceOverlay:collapse'](), {});
-    assert.throws(
-      () => IPC_VALIDATORS['voiceOverlay:collapse']({ statusText: 'x'.repeat(81) }),
-      /exceeds/
-    );
-  });
-
   it('should validate external browser URLs for Dynamic Island result links', function() {
     assert.deepEqual(
       IPC_VALIDATORS['browser:openExternal']({ url: ' https://example.com/path?q=openx ' }),
@@ -375,9 +359,8 @@ describe('Electron Security Boundary', function() {
 
   it('should provide a validator for every registered IPC channel', function() {
     const expectedChannels = [
-      'command:process', 'command:confirm', 'assistant:status', 'tts:speak', 'tts:stop', 'voice:start',
+      'command:process', 'command:confirm', 'assistant:status',
       'browser:openExternal',
-      'voiceOverlay:collapse', 'voiceOverlay:expandLiveSchedule',
       'window:openChat', 'window:hideChat', 'window:openPeopleChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
       'window:openGallery', 'window:closeGallery',
       'config:get', 'settings:get',

@@ -282,15 +282,6 @@ function normalizeCloudRelayUrl(value, fallback = DEFAULT_CLOUD_RELAY_URL) {
   }
 }
 
-function normalizeTtsRate(value, fallback) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number === -1) {
-    return fallback;
-  }
-
-  return clampNumber(number, -10, 10, fallback);
-}
-
 class SettingsService {
   constructor(baseConfig) {
     this.baseConfig = deepClone(baseConfig || {});
@@ -327,15 +318,7 @@ class SettingsService {
         company: String(this.baseConfig?.assistant?.userProfile?.company || '').trim(),
         role: String(this.baseConfig?.assistant?.userProfile?.role || '').trim()
       },
-      voice: {
-        activationShortcut: normalizeActivationShortcut(this.baseConfig?.voice?.activationShortcut, 'Alt+Space'),
-        tts: {
-          rate: clampNumber(this.baseConfig?.voice?.tts?.rate, -10, 10, 0),
-          volume: clampNumber(this.baseConfig?.voice?.tts?.volume, 0, 100, 100),
-          voiceName: String(this.baseConfig?.voice?.tts?.voiceName || '').trim(),
-          naturalize: this.baseConfig?.voice?.tts?.naturalize !== false
-        }
-      },
+
       system: {
         volumeStep: clampNumber(this.baseConfig?.system?.volumeStep, 1, 20, 5),
         permissionLevel: 'medium'
@@ -440,14 +423,6 @@ class SettingsService {
     runtimeConfig.assistant.honorific = settings.assistant.honorific;
     runtimeConfig.assistant.userProfile = deepClone(settings.userProfile);
 
-    runtimeConfig.voice = runtimeConfig.voice || {};
-    runtimeConfig.voice.activationShortcut = settings.voice.activationShortcut || 'Alt+Space';
-    runtimeConfig.voice.activationFallbackShortcuts = this.baseConfig?.voice?.activationFallbackShortcuts || [];
-    runtimeConfig.voice.tts = runtimeConfig.voice.tts || {};
-    runtimeConfig.voice.tts.rate = settings.voice.tts.rate;
-    runtimeConfig.voice.tts.volume = settings.voice.tts.volume;
-    runtimeConfig.voice.tts.voiceName = settings.voice.tts.voiceName;
-    runtimeConfig.voice.tts.naturalize = settings.voice.tts.naturalize;
 
     runtimeConfig.system = runtimeConfig.system || {};
     runtimeConfig.system.volumeStep = settings.system.volumeStep;
@@ -499,18 +474,7 @@ class SettingsService {
         company: String(source.userProfile?.company || '').trim(),
         role: String(source.userProfile?.role || '').trim()
       },
-      voice: {
-        activationShortcut: normalizeActivationShortcut(
-          source.voice?.activationShortcut,
-          this.defaults.voice.activationShortcut
-        ),
-        tts: {
-          rate: normalizeTtsRate(source.voice?.tts?.rate, this.defaults.voice.tts.rate),
-          volume: clampNumber(source.voice?.tts?.volume, 0, 100, this.defaults.voice.tts.volume),
-          voiceName: String(source.voice?.tts?.voiceName || '').trim(),
-          naturalize: source.voice?.tts?.naturalize !== false
-        }
-      },
+
       system: {
         volumeStep: clampNumber(source.system?.volumeStep, 1, 20, this.defaults.system.volumeStep),
         permissionLevel: ['low', 'medium', 'high', 'critical'].includes(String(source.system?.permissionLevel || '').trim().toLowerCase())

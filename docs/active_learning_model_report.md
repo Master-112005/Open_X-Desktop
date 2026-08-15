@@ -113,7 +113,7 @@ The learning layer deliberately does not:
 - store private keys, passwords, OTPs, access tokens, API keys, card details, or banking data;
 - learn from private message bodies;
 - auto-grant automation permissions;
-- retrain speech, vision, face-recognition, or language models;
+- retrain text, vision, face-recognition, or language models;
 - fine-tune an LLM;
 - create cross-user shared behavior;
 - auto-name people in the gallery;
@@ -819,7 +819,7 @@ User corrects visual memory metadata
 ### Important Compatibility Details
 
 - The direct store and v3 learning engine coexist. The direct store currently affects live routing most immediately.
-- The v2 `PreferenceStore` uses a stricter list of preference kinds than the direct store. The direct store includes assistant-specific kinds such as `mediaPlatform`, `photoLibrary`, `responseStyle`, and `spokenResponseStyle`.
+- The v2 `PreferenceStore` uses a stricter list of preference kinds than the direct store. The direct store includes assistant-specific kinds such as `mediaPlatform`, `photoLibrary`, `responseStyle`, and `wordedResponseStyle`.
 - Direct assistant memory can store explicit safe phone/email facts. The v3 guard redacts or rejects broader private identifiers in event metadata.
 - Visual Memory ranking changes local ranking adjustments only. It does not change the underlying detector, face runtime, embedding model, or image parser.
 
@@ -1006,7 +1006,7 @@ It should be treated as a personalization and memory layer, not as a general int
 
 2. Preference taxonomy alignment
 
-   The direct store supports assistant-specific preference keys such as `mediaPlatform`, `photoLibrary`, `responseStyle`, and `spokenResponseStyle`. The v2 `PreferenceStore` uses a narrower fixed list. A future compatibility pass should align preference names or add an adapter.
+   The direct store supports assistant-specific preference keys such as `mediaPlatform`, `photoLibrary`, `responseStyle`, and `wordedResponseStyle`. The v2 `PreferenceStore` uses a narrower fixed list. A future compatibility pass should align preference names or add an adapter.
 
 3. User-facing learning dashboard
 

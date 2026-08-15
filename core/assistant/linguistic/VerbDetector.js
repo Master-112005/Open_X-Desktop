@@ -16,7 +16,6 @@ class VerbDetector extends BaseAnalyzer {
         clauseId: this._clauseForIndex(context, tag.index)?.id || null,
         polarity: this._hasNegationBefore(context, tag.index) ? 'negative' : 'positive',
         tense: /ed$/i.test(tag.value) ? 'past' : /ing$/i.test(tag.value) ? 'progressive' : 'unspecified',
-        voice: 'unspecified',
         aspect: /ing$/i.test(tag.value) ? 'progressive' : 'simple',
         mood: tag.tag === 'modal' ? 'modal' : 'indicative',
         confidence: tag.confidence

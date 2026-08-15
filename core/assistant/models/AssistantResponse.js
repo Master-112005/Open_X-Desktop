@@ -9,10 +9,9 @@ function compactText(value, limit = 4000) {
 }
 
 class AssistantResponse {
-  constructor({ success = false, response = '', result = null, metadata = {}, spokenResponse = '', chatResponse = '' } = {}) {
+  constructor({ success = false, response = '', result = null, metadata = {}, chatResponse = '' } = {}) {
     this.success = success === true;
-    this.response = compactText(response || result?.response || chatResponse || spokenResponse || '');
-    this.spokenResponse = compactText(spokenResponse || result?.spokenResponse || this.response, 900);
+    this.response = compactText(response || result?.response || chatResponse || '');
     this.chatResponse = compactText(chatResponse || result?.chatResponse || this.response, 4000);
     this.result = sanitizeDetails(result || null);
     this.metadata = sanitizeDetails(metadata || {});
@@ -28,7 +27,6 @@ class AssistantResponse {
     return {
       success: this.success,
       response: this.response,
-      spokenResponse: this.spokenResponse,
       chatResponse: this.chatResponse,
       result: this.result,
       metadata: this.metadata,

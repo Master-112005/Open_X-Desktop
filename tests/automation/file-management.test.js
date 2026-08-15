@@ -173,7 +173,7 @@ describe('File Management Automation', function() {
     assert.equal(fs.existsSync(targetPath), false);
   });
 
-  it('should preserve multi-word filenames and match partial spoken names', async function() {
+  it('should preserve multi-word filenames and match partial worded names', async function() {
     const targetPath = path.join(tempProfile, 'Desktop', 'FarmCast Complete Static Analysis.pdf');
     fs.writeFileSync(targetPath, 'pdf', 'utf8');
 
@@ -191,7 +191,7 @@ describe('File Management Automation', function() {
     assert.equal(fs.existsSync(targetPath), false);
   });
 
-  it('should fuzzy match spoken pdf names across common folders without an explicit location', function() {
+  it('should fuzzy match worded pdf names across common folders without an explicit location', function() {
     const targetPath = path.join(tempProfile, 'Desktop', 'FarmCast Complete Static Analysis.pdf');
     fs.writeFileSync(targetPath, 'pdf', 'utf8');
 

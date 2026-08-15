@@ -110,12 +110,12 @@ describe('Assistant Linguistic Understanding Layer', function() {
       }
     });
 
-    const result = await assistant.processCommand('opne chrome', 'voice', {
-      metadata: { voiceConfidence: 0.9 }
+    const result = await assistant.processCommand('opne chrome', 'chat', {
+      metadata: { chatConfidence: 0.9 }
     });
 
     assert.equal(result.success, true);
     assert.equal(routed[0].input, 'open chrome');
-    assert.equal(routed[0].source, 'voice');
+    assert.equal(routed[0].source, 'chat');
   });
 });

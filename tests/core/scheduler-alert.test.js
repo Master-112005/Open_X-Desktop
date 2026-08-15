@@ -187,8 +187,8 @@ describe('Scheduler Alert Delivery', function() {
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
-  it('should understand spoken clock expressions', function() {
-    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-spoken-clock-'));
+  it('should understand worded clock expressions', function() {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-worded-clock-'));
     const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
 
     assert.ok(scheduler._parseTimeExpression('seven am') instanceof Date);

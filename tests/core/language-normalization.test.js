@@ -5,8 +5,8 @@ describe('Assistant Language Normalization Layer', function() {
     const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
     const { createDefaultNormalizationManager, NormalizedInput } = require('../../core/assistant/normalization');
 
-    const rawUserInput = createDefaultInputSourceManager().acquire('  opne   chromee!!!  ', 'voice', {
-      metadata: { voiceConfidence: 0.9 }
+    const rawUserInput = createDefaultInputSourceManager().acquire('  opne   chromee!!!  ', 'chat', {
+      metadata: { chatConfidence: 0.9 }
     });
     const normalized = await createDefaultNormalizationManager().normalize(rawUserInput);
 
@@ -42,7 +42,7 @@ describe('Assistant Language Normalization Layer', function() {
     const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
     const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
 
-    const rawUserInput = createDefaultInputSourceManager().acquire('bro pls opne blue tooth settings at 8 p m for twenty-one mins', 'voice');
+    const rawUserInput = createDefaultInputSourceManager().acquire('bro pls opne blue tooth settings at 8 p m for twenty-one mins', 'chat');
     const normalized = await createDefaultNormalizationManager().normalize(rawUserInput);
     const observations = normalized.metadata.observations;
 
@@ -81,7 +81,7 @@ describe('Assistant Language Normalization Layer', function() {
     const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
     const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
 
-    const rawUserInput = createDefaultInputSourceManager().acquire('remind me every saturday and monday at 8pm for 15min', 'voice');
+    const rawUserInput = createDefaultInputSourceManager().acquire('remind me every saturday and monday at 8pm for 15min', 'chat');
     const normalized = await createDefaultNormalizationManager().normalize(rawUserInput);
     const observations = normalized.metadata.observations;
 
@@ -148,7 +148,7 @@ describe('Assistant Language Normalization Layer', function() {
       }
     });
 
-    const result = await assistant.processCommand('bro pls opne vs code', 'voice');
+    const result = await assistant.processCommand('bro pls opne vs code', 'chat');
 
     assert.equal(result.success, true);
     assert.equal(routed[0].input, 'open visual studio code');

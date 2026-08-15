@@ -4,7 +4,7 @@ const { clampConfidence } = require('./AcquisitionSanitizer');
 
 const BASE_CONFIDENCE = Object.freeze({
   chat: 0.99,
-  voice: 0.72,
+
   phone: 0.92,
   cloud: 0.86,
   plugin: 0.82,
@@ -15,7 +15,7 @@ const BASE_CONFIDENCE = Object.freeze({
 
 class SourceConfidenceCalculator {
   calculate({ source = 'chat', metadata = {}, explicitConfidence = null } = {}) {
-    const explicit = Number(explicitConfidence ?? metadata.confidence ?? metadata.voiceConfidence ?? metadata.ocrConfidence);
+    const explicit = Number(explicitConfidence ?? metadata.confidence ?? metadata.ocrConfidence);
     if (Number.isFinite(explicit)) return this.clamp(explicit);
     let confidence = BASE_CONFIDENCE[String(source || '').toLowerCase()] ?? 0.75;
     if (metadata.trusted === true) confidence += 0.05;

@@ -23,25 +23,24 @@ describe('Assistant Acquisition Layer', function() {
 
   it('acquires commands through aliases without changing raw text', function() {
     const manager = createDefaultInputSourceManager();
-    const raw = manager.acquire('Open Chrome exactly', 'speech', {
-      metadata: { voiceConfidence: 0.88 }
+    const raw = manager.acquire('Open Chrome exactly', 'desktop', {
+      metadata: { confidence: 0.88 }
     });
 
-    assert.equal(raw.source, 'voice');
+    assert.equal(raw.source, 'chat');
     assert.equal(raw.rawText, 'Open Chrome exactly');
-    assert.equal(raw.metadata.voiceConfidence, 0.88);
-    assert.equal(raw.metadata.partial, false);
+    assert.equal(raw.metadata.confidence, 0.88);
   });
 
   it('normalizes source aliases through the shared source normalizer', function() {
     const normalizer = new SourceNormalizer();
-    assert.equal(normalizer.normalize('speech'), 'voice');
+    assert.equal(normalizer.normalize('desktop'), 'chat');
     assert.equal(normalizer.normalize('screen-text'), 'ocr');
     assert.equal(normalizer.normalize('desktop'), 'chat');
   });
 
   it('sanitizes and compacts acquisition data through shared helpers', function() {
-    assert.equal(AcquisitionSanitizer.normalizeSourceName('Voice Input'), 'voice-input');
+    assert.equal(AcquisitionSanitizer.normalizeSourceName('Input'), 'input');
     assert.equal(AcquisitionSanitizer.clampConfidence(2), 1);
     assert.equal(AcquisitionSanitizer.sanitizeAcquisitionData({ token: 'hidden' }).token, '[redacted]');
   });

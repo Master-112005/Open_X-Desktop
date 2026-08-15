@@ -22,7 +22,7 @@ describe('Browser Command Language', function() {
     assert.equal(another.operation, 'new-tab');
   });
 
-  it('should parse named tabs and repair joined in-browser speech', function() {
+  it('should parse named tabs and repair joined in-browser text', function() {
     const named = language.parse('open jio hotstar tab in chrome');
     const joined = language.parse('open jiohotstarin chrome');
 

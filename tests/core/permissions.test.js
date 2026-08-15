@@ -101,7 +101,7 @@ describe('Permission Validator', function() {
     assert.equal(result.requiresConfirmation, true);
   });
 
-  it('should skip close confirmations for chat and phone while keeping them for voice', function() {
+  it('should skip close confirmations for chat and phone while keeping them for chat', function() {
     const validator = new PermissionValidator({
       permissions: {
         levels: {
@@ -113,7 +113,7 @@ describe('Permission Validator', function() {
 
     assert.equal(validator.validate(intent, { appName: 'chrome' }, 'chat').requiresConfirmation, false);
     assert.equal(validator.validate(intent, { appName: 'chrome' }, 'phone').requiresConfirmation, false);
-    assert.equal(validator.validate(intent, { appName: 'chrome' }, 'voice').requiresConfirmation, true);
+    assert.equal(validator.validate(intent, { appName: 'chrome' }, 'chat').requiresConfirmation, true);
     assert.equal(validator.validate(intent, { appName: 'chrome' }).requiresConfirmation, true);
   });
 

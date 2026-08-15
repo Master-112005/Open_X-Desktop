@@ -37,7 +37,7 @@ const APP_ALIASES = {
   'paint': 'mspaint',
   'snipping tool': 'snippingtool',
   'camera': 'camera',
-  'voice recorder': 'soundrecorder',
+
   'sound recorder': 'soundrecorder',
   'task manager': 'taskmgr',
   'device manager': 'devmgmt.msc',
@@ -175,8 +175,8 @@ const APP_ENTITY_BLOCKED_PREFIXES = new Set([
 
 const SCHEDULE_AMOUNT_PATTERN = String.raw`(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty(?:\s*five)?|sixty)`;
 const SCHEDULE_DURATION_PATTERN = String.raw`${SCHEDULE_AMOUNT_PATTERN}\s*(?:seconds?|secs?|minutes?|mins?|minits?|hours?|hrs?)`;
-const SCHEDULE_SPOKEN_HOUR_PATTERN = String.raw`(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)`;
-const SCHEDULE_CLOCK_PATTERN = String.raw`(?:\d{1,2}(?:(?::|\s+)\d{2})?|${SCHEDULE_SPOKEN_HOUR_PATTERN})\s*(?:am|pm)?(?:\s+(?:today|tomorrow))?`;
+const SCHEDULE_WORD_HOUR_PATTERN = String.raw`(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)`;
+const SCHEDULE_CLOCK_PATTERN = String.raw`(?:\d{1,2}(?:(?::|\s+)\d{2})?|${SCHEDULE_WORD_HOUR_PATTERN})\s*(?:am|pm)?(?:\s+(?:today|tomorrow))?`;
 const SCHEDULE_MONTH_NAME_PATTERN = String.raw`(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)`;
 const SCHEDULE_NUMERIC_DATE_PATTERN = String.raw`\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?`;
 const SCHEDULE_MONTH_DAY_PATTERN = String.raw`(?:the\s+)?(?:\d{1,2}(?:st|nd|rd|th)?(?:\s+(?:of\s+)?(?:this|next)\s+month|\s+(?:this|next)\s+month)|(?:this|next)\s+month\s+\d{1,2}(?:st|nd|rd|th)?|${SCHEDULE_MONTH_NAME_PATTERN}\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+(?:\d{2,4}|(?:of\s+)?(?:this|next)\s+year))?|\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?${SCHEDULE_MONTH_NAME_PATTERN}(?:,?\s+(?:\d{2,4}|(?:of\s+)?(?:this|next)\s+year))?|${SCHEDULE_NUMERIC_DATE_PATTERN})`;
@@ -1043,8 +1043,8 @@ class EntityExtractor {
     const date = addMatch('date', dateMatch);
     const clockWithPeriodPattern = String.raw`\d{1,2}(?:(?::|\s+)\d{1,2})?\s*(?:am|pm)`;
     const clockAfterTimePrepositionPattern = String.raw`\d{1,2}(?:(?::|\s+)\d{1,2})?\s*(?:am|pm)?`;
-    const explicitTimePattern = String.raw`(?:${clockWithPeriodPattern}|${SCHEDULE_SPOKEN_HOUR_PATTERN}\s*(?:am|pm)|noon|midnight|(?:half|quarter)\s+(?:past|to)\s+\w+)`;
-    const leadingTimeMatch = source.match(new RegExp(`\\b(?:at|by)\\s+(${clockAfterTimePrepositionPattern}|${SCHEDULE_SPOKEN_HOUR_PATTERN}\\s*(?:am|pm)?|noon|midnight|(?:half|quarter)\\s+(?:past|to)\\s+\\w+)\\b`, 'i'));
+    const explicitTimePattern = String.raw`(?:${clockWithPeriodPattern}|${SCHEDULE_WORD_HOUR_PATTERN}\s*(?:am|pm)|noon|midnight|(?:half|quarter)\s+(?:past|to)\s+\w+)`;
+    const leadingTimeMatch = source.match(new RegExp(`\\b(?:at|by)\\s+(${clockAfterTimePrepositionPattern}|${SCHEDULE_WORD_HOUR_PATTERN}\\s*(?:am|pm)?|noon|midnight|(?:half|quarter)\\s+(?:past|to)\\s+\\w+)\\b`, 'i'));
     const bareTimeMatch = source.match(new RegExp(`\\b(${explicitTimePattern})\\b`, 'i'));
     const dayPeriodTimeMatch = source.match(/\b(?:morning|afternoon|evening|night)\s+(?:at\s+)?(\d{1,2}(?::\d{2})?)\b/i);
     const timeMatch = leadingTimeMatch || bareTimeMatch || dayPeriodTimeMatch;

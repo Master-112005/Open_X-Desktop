@@ -53,7 +53,6 @@ const MODE_PROFILES = Object.freeze({
       verbosity: 'reduced',
       developerShortcuts: true,
       prioritizeSystemAutomation: true,
-      suppressSpeech: false,
       overlayNotifications: true
     })
   }),
@@ -61,11 +60,9 @@ const MODE_PROFILES = Object.freeze({
     rules: Object.freeze([
       Object.freeze({ activeApps: Object.freeze(['obs64.exe', 'streamlabs.exe']), score: 60 }),
       Object.freeze({ runningApps: Object.freeze(['obs64.exe', 'streamlabs.exe']), score: 45 }),
-      Object.freeze({ when: context => Boolean(context.microphoneActive), score: 20 }),
       Object.freeze({ when: (context, derived) => Boolean(context.fullscreen) && /stream|record|broadcast|obs/.test(derived.title), score: 15 })
     ]),
     behavior: Object.freeze({
-      muteAssistantSpeech: true,
       overlayNotificationsOnly: true,
       suppressInterruptions: true,
       noisyFeedback: false,
@@ -83,8 +80,6 @@ const MODE_PROFILES = Object.freeze({
     behavior: Object.freeze({
       reducePollingFrequency: true,
       disableOverlays: true,
-      suspendHeavyStt: true,
-      suppressSpeech: true,
       minimizeCpuUsage: true
     })
   }),
@@ -98,7 +93,6 @@ const MODE_PROFILES = Object.freeze({
       prioritizeMediaCommands: true,
       optimizeVolumeControls: true,
       reduceNotifications: true,
-      suppressSpeech: false,
       overlayNotifications: true
     })
   }),
@@ -106,12 +100,10 @@ const MODE_PROFILES = Object.freeze({
     rules: Object.freeze([
       Object.freeze({ activeApps: Object.freeze(['teams.exe', 'outlook.exe', 'zoom.exe', 'winword.exe', 'excel.exe']), score: 55 }),
       Object.freeze({ runningApps: Object.freeze(['Teams.exe', 'OUTLOOK.EXE', 'Zoom.exe']), score: 30 }),
-      Object.freeze({ titlePattern: /\b(meeting|calendar|inbox|document|spreadsheet|presentation)\b/, score: 15 }),
-      Object.freeze({ when: (context, derived) => Boolean(context.microphoneActive) && ['teams.exe', 'zoom.exe'].includes(derived.activeApp), score: 15 })
+      Object.freeze({ titlePattern: /\b(meeting|calendar|inbox|document|spreadsheet|presentation)\b/, score: 15 })
     ]),
     behavior: Object.freeze({
       reduceInterruptions: true,
-      suppressUnnecessarySpeech: true,
       productivityShortcuts: true,
       overlayNotifications: true,
       verbosity: 'reduced'
@@ -127,7 +119,6 @@ const MODE_PROFILES = Object.freeze({
       minimizeResponses: true,
       suppressNonEssentialNotifications: true,
       reduceVisualInterruptions: true,
-      suppressSpeech: true,
       verbosity: 'minimal'
     })
   })

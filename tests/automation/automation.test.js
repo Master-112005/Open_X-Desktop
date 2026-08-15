@@ -638,7 +638,7 @@ describe('Automation Engine', function() {
     }
   });
 
-  it('should constrain phone-origin file transfer searches to spoken locations', async function() {
+  it('should constrain phone-origin file transfer searches to worded locations', async function() {
     const previousUserProfile = process.env.USERPROFILE;
     const tempProfile = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-phone-location-'));
     const desktopFile = path.join(tempProfile, 'Desktop', 'resume.docx');

@@ -8,22 +8,6 @@ const WebSocket = require('ws');
 
 const BASE_CONFIG = require('../../../config');
 const Assistant = require('../../../core/assistant/index');
-const TextToSpeech = require('../voice/tts');
-const { VoiceTheme } = require('../voice/ui');
-const VOICE_INTEGRATION_EVENTS = require('../voice/integration/VoiceIntegrationEvents');
-const {
-  VoiceSessionManager,
-  VoiceAssistantBridge,
-  DiagnosticsManager,
-  VoiceOverlay,
-  VoiceWindowController,
-  AudioCapture,
-  AudioDeviceManager,
-  AudioPermissions,
-  STTEngine,
-  STTConfiguration,
-  SESSION_EVENTS
-} = require('../voice');
 const { SettingsService } = require('../settings');
 const { AssistantEventBus, EVENTS, Logger } = require('../../../core/assistant/Data');
 const {
@@ -54,7 +38,6 @@ const {
 const { selectHomeBluetoothDevice } = require('./home-bluetooth-selection');
 
 const RENDERER_ROOT = path.resolve(__dirname, '..', 'renderer');
-const VOICE_CAPTURE_FILE = path.join(RENDERER_ROOT, 'voice-capture', 'index.html');
 const PRELOAD_PATH = path.join(__dirname, '..', 'preload.js');
 const MAX_RENDERER_RESTARTS = 3;
 const RENDERER_RESTART_WINDOW_MS = 60 * 1000;
@@ -71,12 +54,6 @@ const RENDERER_RECOVERABLE_REASONS = new Set([
   'oom',
   'launch-failed',
   'integrity-failure'
-]);
-const REQUIRED_PARAKEET_MODEL_FILES = Object.freeze([
-  'encoder.int8.onnx',
-  'decoder.int8.onnx',
-  'joiner.int8.onnx',
-  'tokens.txt'
 ]);
 const TEMP_CLEANUP_STARTUP_DELAY_MS = 12 * 1000;
 const TEMP_CLEANUP_MAX_SCAN_ENTRIES = 1000;
@@ -299,45 +276,14 @@ let visualMemoryDefaultFoldersReady = false;
 let visualMemoryIndexPromise = null;
 let lazyVisualMemoryApi = null;
 let visualMemoryReadyLogged = false;
-let voiceSessionManager = null;
-let voiceAssistantBridge = null;
-let diagnosticsManager = null;
-let voiceOverlay = null;
-let voiceCaptureWindow = null;
-let voiceCaptureReady = false;
-let voiceCaptureShouldRun = false;
-let voiceCaptureRunId = 0;
-let voiceCaptureStartOptions = null;
-let voiceCaptureFrameReceiver = null;
-let voiceCaptureWarmupTimer = null;
-let voiceResourceWarmupTimer = null;
-let voiceResumeRecoveryTimer = null;
 let liveScheduleCollapseTimer = null;
 let activeLiveSchedulePayload = null;
-let voiceModelSummaryLogged = false;
-let voiceModelLoadingLogged = false;
-let voiceTtsSummary = null;
-let voiceSttSummary = null;
-let voiceStartInFlight = false;
-let voiceLastStartAt = 0;
-let voiceSpeakingStopTapAt = 0;
-let voiceSpeakingStopSessionId = null;
-let voiceMediaQuietingState = null;
 let powerRecoveryHandlersRegistered = false;
-let voiceCaptureFrameStats = {
-  received: 0,
-  delivered: 0,
-  dropped: 0,
-  bytes: 0,
-  lastLogAt: 0
-};
-let textToSpeech = null;
 let settingsService = null;
 let runtimeConfig = null;
 let eventBus = null;
 let registeredChatShortcuts = [];
 let ipcRegistered = false;
-let voiceCaptureIpcRegistered = false;
 let cleanupFinished = false;
 let cleanupPromise = null;
 let fatalErrorHandling = false;
@@ -380,13 +326,6 @@ const cloudFileTransferUiProgress = new Map();
 const rendererCrashHistory = new Map();
 const recoveryTimeouts = new Set();
 const unresponsiveTimeouts = new Map();
-const VOICE_SHORTCUT_DEBOUNCE_MS = 450;
-const VOICE_ACTIVE_CANCEL_GRACE_MS = 650;
-const VOICE_SPEAKING_DOUBLE_TAP_MS = 1400;
-const VOICE_IDLE_RUNTIME_PREWARM_DELAY_MS = 15 * 1000;
-const VOICE_IDLE_RESOURCE_WARMUP_DELAY_MS = 45 * 1000;
-const VOICE_RESUME_RUNTIME_PREWARM_DELAY_MS = 1200;
-const VOICE_RESUME_RESOURCE_WARMUP_DELAY_MS = 2500;
 const LIVE_SCHEDULE_INITIAL_EXPAND_MS = 5000;
 const DEFAULT_CHAT_API_BASE_URL = 'https://openx-chat-server.onrender.com';
 const LEGACY_CHAT_API_BASE_URLS = new Set([
@@ -420,12 +359,7 @@ const IPC_CHANNELS = [
   'command:process',
   'command:confirm',
   'assistant:status',
-  'tts:speak',
-  'tts:stop',
   'browser:openExternal',
-  'voice:start',
-  'voiceOverlay:collapse',
-  'voiceOverlay:expandLiveSchedule',
   'window:openChat',
   'window:hideChat',
   'window:openPeopleChat',
@@ -521,16 +455,6 @@ function disableSpellChecker() {
   }
 }
 
-function isVoiceCaptureRendererUrl(url) {
-  if (!isTrustedRendererUrl(url, RENDERER_ROOT)) return false;
-  try {
-    const { fileURLToPath } = require('url');
-    return path.resolve(fileURLToPath(url)) === path.resolve(VOICE_CAPTURE_FILE);
-  } catch (_) {
-    return false;
-  }
-}
-
 function isChatRendererUrl(url) {
   if (!isTrustedRendererUrl(url, RENDERER_ROOT)) return false;
   try {
@@ -539,12 +463,6 @@ function isChatRendererUrl(url) {
   } catch (_) {
     return false;
   }
-}
-
-function canGrantVoiceCapturePermission(webContents, permission, candidateUrl = '') {
-  if (!['media', 'microphone'].includes(String(permission || ''))) return false;
-  const contentsUrl = webContents?.getURL?.() || '';
-  return isVoiceCaptureRendererUrl(candidateUrl) || isVoiceCaptureRendererUrl(contentsUrl);
 }
 
 function canGrantHomeBluetoothPermission(webContents, permission, candidateUrl = '') {
@@ -614,11 +532,6 @@ function configureSessionSecurity() {
     const defaultSession = session.defaultSession;
     defaultSession?.setPermissionRequestHandler?.((webContents, permission, callback, details) => {
       const requestingUrl = details?.requestingUrl || webContents?.getURL?.() || '';
-      if (canGrantVoiceCapturePermission(webContents, permission, requestingUrl)) {
-        mainLogger.info('Allowed voice capture microphone permission', { permission, requestingUrl });
-        callback(true);
-        return;
-      }
       if (canGrantHomeBluetoothPermission(webContents, permission, requestingUrl)) {
         mainLogger.info('[HOME] Allowed Home Device Bluetooth permission', { permission, requestingUrl });
         callback(true);
@@ -631,9 +544,6 @@ function configureSessionSecurity() {
       callback(false);
     });
     defaultSession?.setPermissionCheckHandler?.((webContents, permission, requestingOrigin) => {
-      if (canGrantVoiceCapturePermission(webContents, permission, requestingOrigin)) {
-        return true;
-      }
       if (canGrantHomeBluetoothPermission(webContents, permission, requestingOrigin)) {
         return true;
       }
@@ -925,260 +835,6 @@ function createChatWindow() {
   if (process.argv.includes('--dev')) {
     chatWindow.webContents.openDevTools({ mode: 'detach' });
   }
-}
-
-function sendVoiceCaptureCommand(channel, payload = {}) {
-  if (!voiceCaptureWindow || voiceCaptureWindow.isDestroyed() || !voiceCaptureReady) return false;
-  voiceCaptureWindow.webContents.send(channel, payload);
-  return true;
-}
-
-function startVoiceCaptureStream(options = {}) {
-  voiceCaptureRunId += 1;
-  voiceCaptureShouldRun = true;
-  voiceCaptureStartOptions = {
-    sampleRate: options.sampleRate || 16000,
-    channels: options.channels || 1,
-    runId: voiceCaptureRunId
-  };
-  createVoiceCaptureWindow();
-  const sent = sendVoiceCaptureCommand('voiceCapture:start', voiceCaptureStartOptions);
-  mainLogger.info('Voice microphone capture requested', { sent, runId: voiceCaptureRunId });
-}
-
-function stopVoiceCaptureStream(reason = 'stop') {
-  if (!voiceCaptureShouldRun && !voiceCaptureStartOptions) {
-    mainLogger.info('Voice microphone capture stop skipped because capture is already stopped', { reason, runId: voiceCaptureRunId });
-    return false;
-  }
-  voiceCaptureRunId += 1;
-  voiceCaptureShouldRun = false;
-  voiceCaptureStartOptions = null;
-  voiceCaptureFrameReceiver = null;
-  const sent = sendVoiceCaptureCommand('voiceCapture:stop', { reason, runId: voiceCaptureRunId });
-  mainLogger.info('Voice microphone capture stop requested', { sent, reason, runId: voiceCaptureRunId });
-  return sent;
-}
-
-function resetVoiceCaptureFrameStats() {
-  voiceCaptureFrameStats = {
-    received: 0,
-    delivered: 0,
-    dropped: 0,
-    bytes: 0,
-    lastLogAt: Date.now()
-  };
-}
-
-function shouldLogVoiceFrameProgress() {
-  const now = Date.now();
-  if (voiceCaptureFrameStats.delivered <= 1) return true;
-  if (voiceCaptureFrameStats.delivered % 50 === 0) return true;
-  if (now - voiceCaptureFrameStats.lastLogAt >= 2500) return true;
-  return false;
-}
-
-function normalizeVoiceCaptureFrame(payload = {}) {
-  if (!isPlainObject(payload)) throw new TypeError('voice frame must be an object');
-  const sampleRate = Math.max(8000, Math.min(48000, Number(payload.sampleRate) || 16000));
-  const channels = Math.max(1, Math.min(2, Number(payload.channels) || 1));
-  const bitDepth = Number(payload.bitDepth) === 16 ? 16 : 16;
-  const frameIndex = Math.max(0, Number(payload.frameIndex) || 0);
-  const sampleCount = Math.max(1, Math.min(4800, Number(payload.sampleCount) || 320));
-  const durationMs = Math.max(1, Math.min(250, Number(payload.durationMs) || ((sampleCount / sampleRate) * 1000)));
-  const pcmInput = payload.pcm;
-  let pcm = null;
-  if (Buffer.isBuffer(pcmInput)) {
-    pcm = Buffer.from(pcmInput);
-  } else if (pcmInput instanceof Uint8Array) {
-    pcm = Buffer.from(pcmInput);
-  } else if (Array.isArray(pcmInput)) {
-    pcm = Buffer.from(pcmInput);
-  } else if (pcmInput instanceof ArrayBuffer) {
-    pcm = Buffer.from(new Uint8Array(pcmInput));
-  }
-  if (!pcm || pcm.length === 0) throw new TypeError('voice frame pcm is empty');
-  if (pcm.length > 9600) throw new RangeError('voice frame pcm is too large');
-  return {
-    frameIndex,
-    timestamp: payload.timestamp || new Date().toISOString(),
-    pcm,
-    sampleRate,
-    channels,
-    bitDepth,
-    sampleCount,
-    durationMs,
-    deviceId: 'desktop-default-microphone',
-    runId: Math.max(0, Number(payload.runId) || 0),
-    rms: Math.max(0, Math.min(1, Number(payload.rms) || 0))
-  };
-}
-
-function receiveVoiceCaptureFrame(payload = {}) {
-  voiceCaptureFrameStats.received += 1;
-  let frame;
-  try {
-    frame = normalizeVoiceCaptureFrame(payload);
-  } catch (error) {
-    voiceCaptureFrameStats.dropped += 1;
-    if (voiceCaptureFrameStats.dropped <= 3 || voiceCaptureFrameStats.dropped % 25 === 0) {
-      mainLogger.warn('Voice PCM frame rejected', { error: error.message, dropped: voiceCaptureFrameStats.dropped });
-    }
-    return;
-  }
-
-  if (!voiceCaptureShouldRun || frame.runId !== voiceCaptureRunId) {
-    voiceCaptureFrameStats.dropped += 1;
-    return;
-  }
-
-  if (typeof voiceCaptureFrameReceiver !== 'function') {
-    voiceCaptureFrameStats.dropped += 1;
-    if (voiceCaptureFrameStats.dropped <= 3 || voiceCaptureFrameStats.dropped % 25 === 0) {
-      mainLogger.warn('Voice PCM frame dropped because AudioCapture is not ready', {
-        frameIndex: frame.frameIndex,
-        dropped: voiceCaptureFrameStats.dropped
-      });
-    }
-    return;
-  }
-
-  try {
-    voiceCaptureFrameReceiver(frame);
-    voiceCaptureFrameStats.delivered += 1;
-    voiceCaptureFrameStats.bytes += frame.pcm.length;
-    if (shouldLogVoiceFrameProgress()) {
-      voiceCaptureFrameStats.lastLogAt = Date.now();
-      mainLogger.info('Voice PCM frames delivered to AudioCapture', {
-        received: voiceCaptureFrameStats.received,
-        delivered: voiceCaptureFrameStats.delivered,
-        dropped: voiceCaptureFrameStats.dropped,
-        bytes: voiceCaptureFrameStats.bytes,
-        lastFrameIndex: frame.frameIndex,
-        sampleRate: frame.sampleRate,
-        durationMs: frame.durationMs,
-        rms: frame.rms
-      });
-    }
-  } catch (error) {
-    voiceCaptureFrameStats.dropped += 1;
-    mainLogger.warn('Voice PCM frame delivery failed', { error: error.message, frameIndex: frame.frameIndex });
-  }
-}
-
-function createVoiceCaptureWindow() {
-  if (voiceCaptureWindow && !voiceCaptureWindow.isDestroyed()) return voiceCaptureWindow;
-
-  voiceCaptureReady = false;
-  voiceCaptureWindow = new BrowserWindow({
-    width: 1,
-    height: 1,
-    show: false,
-    frame: false,
-    transparent: true,
-    resizable: false,
-    movable: false,
-    skipTaskbar: true,
-    focusable: false,
-    webPreferences: createSecureWebPreferences(PRELOAD_PATH)
-  });
-
-  secureWindow(voiceCaptureWindow, {
-    windowType: 'voice-capture',
-    expectedFile: VOICE_CAPTURE_FILE,
-    createWindow: createVoiceCaptureWindow
-  });
-
-  voiceCaptureWindow.webContents.once('did-finish-load', () => {
-    voiceCaptureReady = true;
-    if (voiceCaptureShouldRun) {
-      sendVoiceCaptureCommand('voiceCapture:start', voiceCaptureStartOptions || {
-        sampleRate: 16000,
-        channels: 1,
-        runId: voiceCaptureRunId
-      });
-    }
-  });
-
-  voiceCaptureWindow.on('closed', () => {
-    voiceCaptureWindow = null;
-    voiceCaptureReady = false;
-  });
-
-  voiceCaptureWindow.loadFile(VOICE_CAPTURE_FILE).catch(error => {
-    mainLogger.error('Failed to load voice capture renderer', { error: error.message });
-  });
-
-  return voiceCaptureWindow;
-}
-
-function prewarmVoiceRuntime(reason = 'startup') {
-  if (cleanupFinished || cleanupPromise) return false;
-  try {
-    createVoiceCaptureWindow();
-    voiceOverlay?.windowController?.createWindow?.();
-    mainLogger.info('Voice runtime prewarmed', { reason, captureReady: voiceCaptureReady });
-    return true;
-  } catch (error) {
-    mainLogger.warn('Voice runtime prewarm failed', { reason, error: error.message });
-    return false;
-  }
-}
-
-function shouldPrewarmVoiceRuntime() {
-  return runtimeConfig?.voice?.preloadRuntime === true ||
-    process.env.OPENX_PREWARM_VOICE_RUNTIME === '1';
-}
-
-function scheduleVoiceRuntimePrewarm(reason = 'startup', delayMs = VOICE_IDLE_RUNTIME_PREWARM_DELAY_MS) {
-  if (voiceCaptureWarmupTimer) {
-    clearTimeout(voiceCaptureWarmupTimer);
-    voiceCaptureWarmupTimer = null;
-  }
-  if (!shouldPrewarmVoiceRuntime()) {
-    mainLogger.info('Voice runtime prewarm skipped until first use', { reason });
-    return false;
-  }
-  const warmupDelayMs = Math.max(0, Number(delayMs) || 0);
-  voiceCaptureWarmupTimer = setTimeout(() => {
-    voiceCaptureWarmupTimer = null;
-    prewarmVoiceRuntime(reason);
-  }, warmupDelayMs);
-  if (typeof voiceCaptureWarmupTimer.unref === 'function') {
-    voiceCaptureWarmupTimer.unref();
-  }
-  return true;
-}
-
-function shouldPrewarmVoiceResources() {
-  return runtimeConfig?.voice?.preloadResources === true ||
-    runtimeConfig?.voice?.preloadStt === true ||
-    process.env.OPENX_PREWARM_VOICE_STT === '1';
-}
-
-function scheduleVoiceResourceWarmup(reason = 'post-startup', delayMs = VOICE_IDLE_RESOURCE_WARMUP_DELAY_MS) {
-  if (voiceResourceWarmupTimer) {
-    clearTimeout(voiceResourceWarmupTimer);
-    voiceResourceWarmupTimer = null;
-  }
-  if (!shouldPrewarmVoiceResources()) {
-    mainLogger.info('Voice resource warm-up skipped until first use', { reason });
-    return false;
-  }
-  const warmupDelayMs = Math.max(0, Number(delayMs) || 0);
-  voiceResourceWarmupTimer = setTimeout(() => {
-    voiceResourceWarmupTimer = null;
-    if (!voiceSessionManager || cleanupFinished || cleanupPromise) return;
-    try {
-      voiceSessionManager.warmUpResources(reason);
-    } catch (error) {
-      mainLogger.warn('Voice resource warm-up failed', { error: error.message });
-    }
-  }, warmupDelayMs);
-  if (typeof voiceResourceWarmupTimer.unref === 'function') {
-    voiceResourceWarmupTimer.unref();
-  }
-  return true;
 }
 
 function buildSettingsSnapshot() {
@@ -3477,110 +3133,12 @@ function analyzeDesktopChatIncomingPrompt(preview = '', senderName = '') {
   };
 }
 
-function speakDesktopChatPrompt(prompt, metadata = {}) {
-  const text = normalizeDesktopChatText(prompt, 260);
-  if (!text || !textToSpeech || typeof textToSpeech.speak !== 'function') return false;
-  try {
-    if (readUiState().assistantMuted === true) return false;
-    textToSpeech.speak(text);
-    mainLogger.info('[CHAT] Assistant spoke an incoming chat prompt', {
-      senderName: metadata.senderName || null,
-      promptKind: metadata.kind || null
-    });
-    return true;
-  } catch (error) {
-    mainLogger.warn('[CHAT] Incoming chat TTS prompt failed', {
-      code: error.code || 'chat.tts_failed',
-      error: error.message
-    });
-    return false;
-  }
+function presentDesktopChatPrompt() {
+  return false;
 }
 
-function presentDesktopChatMessageInDynamicIsland(message = {}) {
-  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
-  if (isDesktopChatAppVisible()) {
-    mainLogger.info('[CHAT] Chat message notification suppressed because Chat is open', {
-      conversationId: normalizeDesktopChatSetupText(message.conversationId || '', 100) || null
-    });
-    return false;
-  }
-  const senderName = normalizeDesktopChatText(message.senderName || 'OpenX Chat', 80) || 'OpenX Chat';
-  const preview = normalizeDesktopChatText(message.preview || 'New message', DESKTOP_CHAT_NOTIFICATION_PREVIEW_MAX) || 'New message';
-  const conversationId = normalizeDesktopChatSetupText(message.conversationId || '', 100);
-  const messageId = normalizeDesktopChatSetupText(message.messageId || '', 100);
-  const assistantPrompt = analyzeDesktopChatIncomingPrompt(preview, senderName);
-  const actions = assistantPrompt && /^conv_[a-f0-9]{64}$/i.test(conversationId)
-    ? [
-        {
-          id: 'reply-ok',
-          label: 'Tell OK',
-          kind: 'desktop-chat-reply',
-          conversationId,
-          text: assistantPrompt.replyText,
-          primary: true
-        },
-        {
-          id: 'open-chat',
-          label: 'Open Chat',
-          kind: 'open-chat',
-          conversationId
-        },
-        {
-          id: 'dismiss',
-          label: 'Dismiss',
-          kind: 'dismiss'
-        }
-      ]
-    : [{
-        id: 'ok',
-        label: 'OK',
-        kind: 'dismiss',
-        primary: true
-      }];
-  if (assistantPrompt) {
-    speakDesktopChatPrompt(assistantPrompt.prompt, {
-      senderName,
-      kind: assistantPrompt.kind
-    });
-  }
-  try {
-    voiceOverlay.displayAssistantResult({
-      success: true,
-      intent: 'desktopChat.message',
-      response: assistantPrompt?.prompt || preview,
-      data: {
-        chatMessage: {
-          senderName,
-          preview,
-          conversationId,
-          messageId,
-          promptKind: assistantPrompt?.kind || null
-        },
-        actions,
-        resultEntries: [{
-          index: 1,
-          name: senderName,
-          type: 'OpenX Chat',
-          location: 'New message',
-          snippet: preview
-        }]
-      },
-      ui: {
-        icon: desktopChatSenderInitials(senderName),
-        previewStatus: `Chat from ${senderName}`.slice(0, 80),
-        preExpandDelayMs: 450,
-        autoHideMs: 15000,
-        persistUntilAction: false
-      }
-    });
-    return true;
-  } catch (error) {
-    mainLogger.warn('[CHAT] Dynamic Island chat notification failed', {
-      error: error.message
-    });
-    return false;
-  }
+function presentDesktopChatMessageInDynamicIsland() {
+  return false;
 }
 
 async function ensureDesktopChatConversationForEnvelope(manager, envelope = {}, registered = {}, senderName = '') {
@@ -4107,133 +3665,6 @@ function initializeSecurityLock() {
   return securityLockService;
 }
 
-function clearVoiceResumeRecoveryTimer() {
-  if (voiceResumeRecoveryTimer) {
-    clearTimeout(voiceResumeRecoveryTimer);
-    voiceResumeRecoveryTimer = null;
-  }
-}
-
-function resetVoiceRuntimeAfterPowerEvent(reason = 'system-power-event') {
-  voiceStartInFlight = false;
-  voiceSpeakingStopTapAt = 0;
-  voiceSpeakingStopSessionId = null;
-
-  try {
-    if (voiceSessionManager?.isActive?.()) {
-      voiceSessionManager.cancelSession(reason);
-    } else if (voiceSessionManager?.isBusy?.()) {
-      voiceSessionManager.reset();
-    }
-  } catch (error) {
-    mainLogger.warn('Voice session reset after power event failed', {
-      reason,
-      error: error.message
-    });
-  }
-
-  destroyVoiceCaptureWindow();
-}
-
-function scheduleVoiceResumeRecovery(reason = 'system-resume') {
-  clearVoiceResumeRecoveryTimer();
-  resetVoiceRuntimeAfterPowerEvent(reason);
-  voiceResumeRecoveryTimer = setTimeout(() => {
-    voiceResumeRecoveryTimer = null;
-    if (cleanupFinished || cleanupPromise) return;
-    mainLogger.info('Voice runtime recovery after system resume started', { reason });
-    scheduleVoiceRuntimePrewarm(reason, VOICE_RESUME_RUNTIME_PREWARM_DELAY_MS);
-    scheduleVoiceResourceWarmup(reason, VOICE_RESUME_RESOURCE_WARMUP_DELAY_MS);
-  }, VOICE_RESUME_RUNTIME_PREWARM_DELAY_MS);
-  if (typeof voiceResumeRecoveryTimer.unref === 'function') {
-    voiceResumeRecoveryTimer.unref();
-  }
-}
-
-function destroyVoiceCaptureWindow() {
-  clearVoiceResumeRecoveryTimer();
-  if (voiceCaptureWarmupTimer) {
-    clearTimeout(voiceCaptureWarmupTimer);
-    voiceCaptureWarmupTimer = null;
-  }
-  if (voiceResourceWarmupTimer) {
-    clearTimeout(voiceResourceWarmupTimer);
-    voiceResourceWarmupTimer = null;
-  }
-  stopVoiceCaptureStream('runtime-cleanup');
-  if (voiceCaptureWindow && !voiceCaptureWindow.isDestroyed()) {
-    voiceCaptureWindow.destroy();
-  }
-  voiceCaptureWindow = null;
-  voiceCaptureReady = false;
-  voiceCaptureShouldRun = false;
-  voiceCaptureStartOptions = null;
-  voiceStartInFlight = false;
-}
-
-function createDesktopMicrophoneBackend() {
-  const captureBackend = {
-    opened: false,
-    capturing: false,
-    configuration: null,
-    onFrame: null,
-    open: ({ configuration, onFrame } = {}) => {
-      captureBackend.opened = true;
-      captureBackend.configuration = configuration || null;
-      captureBackend.onFrame = typeof onFrame === 'function' ? onFrame : null;
-      voiceCaptureFrameReceiver = captureBackend.onFrame;
-      createVoiceCaptureWindow();
-    },
-    start: ({ configuration } = {}) => {
-      captureBackend.capturing = true;
-      captureBackend.configuration = configuration || captureBackend.configuration;
-      voiceCaptureFrameReceiver = captureBackend.onFrame;
-      resetVoiceCaptureFrameStats();
-      startVoiceCaptureStream({
-        sampleRate: captureBackend.configuration?.sampleRate || 16000,
-        channels: captureBackend.configuration?.channels || 1
-      });
-    },
-    stop: () => {
-      captureBackend.capturing = false;
-      stopVoiceCaptureStream('audio-stop');
-    },
-    pause: () => {
-      captureBackend.capturing = false;
-      stopVoiceCaptureStream('audio-pause');
-    },
-    resume: () => {
-      captureBackend.capturing = true;
-      voiceCaptureFrameReceiver = captureBackend.onFrame;
-      resetVoiceCaptureFrameStats();
-      startVoiceCaptureStream({
-        sampleRate: captureBackend.configuration?.sampleRate || 16000,
-        channels: captureBackend.configuration?.channels || 1
-      });
-    },
-    close: () => {
-      captureBackend.opened = false;
-      captureBackend.capturing = false;
-      if (voiceCaptureFrameReceiver === captureBackend.onFrame) {
-        voiceCaptureFrameReceiver = null;
-      }
-      captureBackend.onFrame = null;
-      stopVoiceCaptureStream('audio-close');
-    }
-  };
-  return captureBackend;
-}
-
-function hasCompleteParakeetModel(modelPath) {
-  if (!modelPath || typeof modelPath !== 'string') return false;
-  try {
-    return fs.existsSync(modelPath) &&
-      REQUIRED_PARAKEET_MODEL_FILES.every(fileName => fs.existsSync(path.join(modelPath, fileName)));
-  } catch (_) {
-    return false;
-  }
-}
-
 function uniqueExistingPathCandidates(candidates = []) {
   const seen = new Set();
   const unique = [];
@@ -4246,151 +3677,6 @@ function uniqueExistingPathCandidates(candidates = []) {
     unique.push(resolved);
   }
   return unique;
-}
-
-function resolveDesktopSttModelPath() {
-  const configuredPath = runtimeConfig?.voice?.recognition?.modelPath || runtimeConfig?.voice?.stt?.modelPath;
-  const envPath = process.env.OPENX_STT_MODEL_PATH;
-  const executableDir = process.execPath ? path.dirname(process.execPath) : '';
-  const appPath = typeof app.getAppPath === 'function' ? app.getAppPath() : '';
-  const appPathDir = appPath && path.extname(appPath).toLowerCase() === '.asar'
-    ? path.dirname(appPath)
-    : appPath;
-  const candidateRoots = uniqueExistingPathCandidates([
-    envPath,
-    configuredPath,
-    path.join(__dirname, '..', '..', '..', 'models', 'parakeet'),
-    path.join(process.cwd(), 'models', 'parakeet'),
-    appPath ? path.join(appPath, 'models', 'parakeet') : '',
-    appPathDir ? path.join(appPathDir, 'models', 'parakeet') : '',
-    process.resourcesPath ? path.join(process.resourcesPath, 'models', 'parakeet') : '',
-    process.resourcesPath ? path.join(path.dirname(process.resourcesPath), 'models', 'parakeet') : '',
-    executableDir ? path.join(executableDir, 'models', 'parakeet') : ''
-  ]);
-  const modelPath = candidateRoots.find(hasCompleteParakeetModel);
-  if (modelPath) {
-    mainLogger.info('[Voice Models] STT model location validated', {
-      model: 'nvidia-parakeet-tdt-v3',
-      engine: 'parakeet',
-      runtime: 'sherpa-onnx',
-      files: REQUIRED_PARAKEET_MODEL_FILES.length,
-      sourceCount: candidateRoots.length
-    });
-    return modelPath;
-  }
-
-  const fallbackPath = path.resolve(__dirname, '..', '..', '..', 'models', 'parakeet');
-  mainLogger.warn('[Voice Models] STT model location could not be validated; using fallback candidate', {
-    model: 'nvidia-parakeet-tdt-v3',
-    engine: 'parakeet',
-    runtime: 'sherpa-onnx',
-    checked: candidateRoots.length
-  });
-  return fallbackPath;
-}
-
-function modelPathStatus(modelPath) {
-  return hasCompleteParakeetModel(modelPath) ? 'validated' : 'fallback';
-}
-
-function buildVoiceSttSummary(modelPath) {
-  return {
-    role: 'speech-to-text',
-    engine: 'parakeet',
-    model: 'nvidia-parakeet-tdt-v3',
-    runtime: 'sherpa-onnx',
-    provider: runtimeConfig?.voice?.stt?.gpuEnabled === true ? 'cuda' : 'cpu',
-    language: runtimeConfig?.voice?.stt?.language || runtimeConfig?.voice?.recognition?.language || 'en-US',
-    modelStatus: modelPathStatus(modelPath),
-    files: REQUIRED_PARAKEET_MODEL_FILES.length,
-    preload: shouldPrewarmVoiceResources() ? 'idle-warmup' : 'first-use'
-  };
-}
-
-function logVoiceModelLoadingOnce(reason = 'startup') {
-  if (voiceModelLoadingLogged) return;
-  voiceModelLoadingLogged = true;
-  mainLogger.info('[Voice Models] Loading assistant voice models', {
-    reason,
-    stt: voiceSttSummary || 'pending',
-    tts: voiceTtsSummary || 'pending'
-  });
-}
-
-function logVoiceModelSummaryOnce(reason = 'startup') {
-  if (voiceModelSummaryLogged) return;
-  if (!voiceSttSummary || !voiceTtsSummary) return;
-  voiceModelSummaryLogged = true;
-  mainLogger.info('[Voice Models] Assistant model summary', {
-    reason,
-    stt: voiceSttSummary,
-    tts: voiceTtsSummary
-  });
-}
-
-function createDesktopVoiceResources() {
-  const microphoneDevice = {
-    id: 'desktop-default-microphone',
-    displayName: 'Default microphone',
-    isDefault: true,
-    connected: true,
-    sampleRates: [16000],
-    channels: 1,
-    kind: 'audioinput'
-  };
-  const permissionProvider = {
-    getMicrophonePermissionStatus: () => ({
-      granted: true,
-      state: 'granted',
-      reason: 'Desktop voice capture is enabled.'
-    }),
-    requestMicrophonePermission: () => ({
-      granted: true,
-      state: 'granted',
-      reason: 'Desktop voice capture is enabled.'
-    })
-  };
-  const deviceProvider = {
-    listInputDevices: () => [microphoneDevice],
-    getDefaultInputDeviceId: () => microphoneDevice.id
-  };
-  const captureBackend = createDesktopMicrophoneBackend();
-  const audioCapture = new AudioCapture({
-    deviceManager: new AudioDeviceManager({ provider: deviceProvider, defaultDeviceId: microphoneDevice.id, logger: mainLogger }),
-    permissions: new AudioPermissions({ provider: permissionProvider, logger: mainLogger }),
-    backend: captureBackend,
-    logger: mainLogger
-  });
-  const sttModelPath = resolveDesktopSttModelPath();
-  voiceSttSummary = buildVoiceSttSummary(sttModelPath);
-  logVoiceModelLoadingOnce('desktop-voice-resources');
-  const sttEngine = new STTEngine({
-    configuration: new STTConfiguration({
-      modelPath: sttModelPath
-    }),
-    logger: mainLogger
-  });
-
-  return {
-    audioCapture,
-    sttEngine
-  };
-}
-
-function createVoiceOverlayForManager(manager) {
-  const windowController = new VoiceWindowController({
-    BrowserWindow,
-    screen,
-    preloadPath: PRELOAD_PATH,
-    logger: mainLogger
-  });
-  const overlay = new VoiceOverlay({
-    windowController,
-    theme: new VoiceTheme({ settings: settingsService?.getSnapshot?.() || {} }),
-    logger: mainLogger
-  });
-  overlay.attachToSessionManager(manager);
-  return overlay;
 }
 
 function createSettingsWindow() {
@@ -5468,55 +4754,17 @@ function buildLiveSchedulePayload(schedule = {}) {
   };
 }
 
-function collapseLiveScheduleToCompact(schedule = activeLiveSchedulePayload?.data?.schedule || {}) {
+function collapseLiveScheduleToCompact() {
   clearLiveScheduleCollapseTimer();
-  if (!voiceOverlay?.windowController || typeof voiceOverlay.windowController.collapseAssistantResult !== 'function') return false;
-  const kind = String(schedule.kind || 'Schedule').toLowerCase();
-  voiceOverlay.windowController.collapseAssistantResult({
-    statusText: liveScheduleCompactStatus(schedule),
-    icon: liveScheduleIcon({ kind }),
-    presentationClass: 'schedule-live-compact'
-  });
-  return true;
+  return false;
 }
 
-function presentLiveScheduleInDynamicIsland(schedule = {}, options = {}) {
-  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
-  const kind = String(schedule.kind || '').toLowerCase();
-  if (!['timer', 'alarm'].includes(kind)) return false;
-  if (kind === 'timer') hideTimerWidget();
-  const dueAt = new Date(schedule.dueAt || 0).getTime();
-  if (!Number.isFinite(dueAt) || dueAt <= Date.now()) return false;
-  activeLiveSchedulePayload = buildLiveSchedulePayload(schedule);
-  clearLiveScheduleCollapseTimer();
-  try {
-    voiceOverlay.displayAssistantResult(activeLiveSchedulePayload);
-    const expandMs = Math.max(0, Math.min(30000, Number(options.expandMs ?? LIVE_SCHEDULE_INITIAL_EXPAND_MS)));
-    if (expandMs > 0) {
-      liveScheduleCollapseTimer = setTimeout(() => collapseLiveScheduleToCompact(schedule), expandMs);
-      if (typeof liveScheduleCollapseTimer.unref === 'function') liveScheduleCollapseTimer.unref();
-    }
-    return true;
-  } catch (error) {
-    mainLogger.warn('Dynamic Island live schedule popup failed', { error: error.message });
-    return false;
-  }
+function presentLiveScheduleInDynamicIsland() {
+  return false;
 }
 
 function expandLiveScheduleInDynamicIsland() {
-  if (!activeLiveSchedulePayload) return { success: false, error: 'No active live schedule' };
-  const schedule = activeLiveSchedulePayload.data?.schedule || {};
-  const dueAt = new Date(schedule.dueAt || 0).getTime();
-  if (!Number.isFinite(dueAt) || dueAt <= Date.now()) {
-    activeLiveSchedulePayload = null;
-    clearLiveScheduleCollapseTimer();
-    return { success: false, error: 'Live schedule is no longer active' };
-  }
-  clearLiveScheduleCollapseTimer();
-  voiceOverlay?.displayAssistantResult?.(activeLiveSchedulePayload);
-  liveScheduleCollapseTimer = setTimeout(() => collapseLiveScheduleToCompact(schedule), LIVE_SCHEDULE_INITIAL_EXPAND_MS);
-  if (typeof liveScheduleCollapseTimer.unref === 'function') liveScheduleCollapseTimer.unref();
-  return { success: true };
+  return { success: false, error: 'No active live schedule' };
 }
 
 function clearLiveScheduleActivity(schedule = null, options = {}) {
@@ -5524,12 +4772,7 @@ function clearLiveScheduleActivity(schedule = null, options = {}) {
   const shouldDismissOverlay = options.dismissOverlay === true;
   const dismissOverlay = () => {
     if (!shouldDismissOverlay) return;
-    if (typeof voiceOverlay?.windowController?.collapseAssistantResult !== 'function') return;
-    voiceOverlay.windowController.collapseAssistantResult({
-      statusText: 'OpenX',
-      icon: 'OX',
-      hideAfterMs: 1
-    });
+    return;
   };
   if (!schedule || !activeLiveSchedulePayload) {
     activeLiveSchedulePayload = null;
@@ -5564,41 +4807,8 @@ function restoreLiveScheduleInDynamicIsland() {
   return presentLiveScheduleInDynamicIsland(schedule, { expandMs: 0 }) && collapseLiveScheduleToCompact(schedule);
 }
 
-function presentScheduleInDynamicIsland(schedule = {}) {
-  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
-  clearLiveScheduleActivity(schedule);
-  const kind = String(schedule.kind || 'Schedule').trim() || 'Schedule';
-  if (kind.toLowerCase() === 'timer') hideTimerWidget();
-  const message = String(schedule.message || schedule.title || `${kind} is due`).trim();
-  const dueLabel = formatScheduleDueLabel(schedule);
-  const recurrenceLabel = formatScheduleRecurrenceLabel(schedule.recurrence);
-  try {
-    voiceOverlay.displayAssistantResult({
-      success: true,
-      intent: 'schedule.due',
-      response: message,
-      data: {
-        schedule: {
-          ...schedule,
-          dueLabel,
-          recurrenceLabel
-        },
-        actions: buildScheduleDynamicIslandActions(schedule),
-        resultEntries: []
-      },
-      ui: {
-        icon: kind.slice(0, 2).toUpperCase(),
-        previewStatus: `${kind} due`,
-        preExpandDelayMs: 1000,
-        autoHideMs: 0,
-        persistUntilAction: true
-      }
-    });
-    return true;
-  } catch (error) {
-    mainLogger.warn('Dynamic Island schedule popup failed', { error: error.message });
-    return false;
-  }
+function presentScheduleInDynamicIsland() {
+  return false;
 }
 
 function normalizePhoneNotification(notification = {}, metadata = {}) {
@@ -5656,58 +4866,9 @@ function phoneNotificationGroupKey(notification) {
 
 function displayPhoneNotificationGroup(groupKey) {
   const group = phoneNotificationGroups.get(groupKey);
-  if (!group) return false;
+  if (group?.timer) clearTimeout(group.timer);
   phoneNotificationGroups.delete(groupKey);
-  if (group.timer) clearTimeout(group.timer);
-  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
-
-  const notifications = [...group.notifications.values()]
-    .sort((left, right) => Number(right.receivedAt || 0) - Number(left.receivedAt || 0));
-  if (!notifications.length) return false;
-  const primary = notifications[0];
-  const totalCount = notifications.reduce((count, item) => count + Math.max(1, Number(item.repeatCount) || 1), 0);
-  const grouped = totalCount > 1 || notifications.length > 1;
-  const response = grouped
-    ? `${totalCount} ${primary.appName} notifications from ${primary.sourceName}`
-    : (primary.message || primary.title);
-  try {
-    voiceOverlay.displayAssistantResult({
-      success: true,
-      intent: 'phone.notification',
-      response,
-      data: {
-        notification: primary,
-        notificationCount: totalCount,
-        grouped,
-        actions: [{
-          id: 'ok',
-          label: 'OK',
-          kind: 'dismiss',
-          primary: true
-        }],
-        resultEntries: notifications.slice(0, PHONE_NOTIFICATION_MAX_GROUP_ITEMS).map((item, index) => ({
-          index: index + 1,
-          name: item.title,
-          type: item.appName,
-          location: item.repeatCount > 1 ? `${item.sourceName} (${item.repeatCount})` : item.sourceName,
-          snippet: item.message || 'Received from OpenX Mobile.'
-        }))
-      },
-      ui: {
-        icon: phoneNotificationInitials(primary.appName),
-        previewStatus: grouped
-          ? `${primary.appName} - ${totalCount} notifications`
-          : `${primary.appName} from ${primary.sourceName}`,
-        preExpandDelayMs: grouped ? 350 : 650,
-        autoHideMs: 15000,
-        persistUntilAction: false
-      }
-    });
-    return true;
-  } catch (error) {
-    mainLogger.warn('Dynamic Island phone notification failed', { error: error.message });
-    return false;
-  }
+  return false;
 }
 
 function trimPhoneNotificationGroup(group) {
@@ -5728,35 +4889,8 @@ function enforcePhoneNotificationGroupLimit() {
   }
 }
 
-function presentPhoneNotificationInDynamicIsland(notification = {}, metadata = {}) {
-  const normalized = normalizePhoneNotification(notification, metadata);
-  const key = phoneNotificationGroupKey(normalized);
-  const group = phoneNotificationGroups.get(key) || { notifications: new Map(), timer: null, lastUpdatedAt: 0 };
-  const existing = group.notifications.get(normalized.notificationId);
-  group.notifications.set(normalized.notificationId, existing
-    ? {
-        ...existing,
-        ...normalized,
-        repeatCount: Math.max(
-          Math.max(1, Number(existing.repeatCount) || 1),
-          Math.max(1, Number(normalized.repeatCount) || 1)
-        ),
-        receivedAt: Math.max(Number(existing.receivedAt) || 0, Number(normalized.receivedAt) || 0) || Date.now()
-      }
-    : normalized);
-  trimPhoneNotificationGroup(group);
-  if (group.timer) clearTimeout(group.timer);
-  group.timer = setTimeout(() => displayPhoneNotificationGroup(key), PHONE_NOTIFICATION_BURST_WINDOW_MS);
-  group.timer.unref?.();
-  group.lastUpdatedAt = Date.now();
-  phoneNotificationGroups.set(key, group);
-  enforcePhoneNotificationGroupLimit();
-  if (normalized.priority === 'critical') {
-    clearTimeout(group.timer);
-    group.timer = null;
-    return displayPhoneNotificationGroup(key);
-  }
-  return true;
+function presentPhoneNotificationInDynamicIsland() {
+  return false;
 }
 
 function formatTransferSize(bytes) {
@@ -5782,129 +4916,12 @@ function getCloudReceivedDirectory() {
     path.join(app.getPath('documents'), 'OpenX');
 }
 
-function presentCloudFileTransferPrompt(transfer = {}) {
-  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
-  const transferId = String(transfer.transferId || '').trim();
-  if (!transferId) return false;
-  const fileName = cloudTransferDisplayName(transfer);
-  const fileSize = formatTransferSize(transfer.fileSize);
-  const sourceLabel = String(transfer.sourceDeviceName || transfer.sourceDeviceId || 'OpenX Mobile')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 100) || 'OpenX Mobile';
-  try {
-    voiceOverlay.displayAssistantResult({
-      success: true,
-      intent: 'cloud.fileTransfer.incoming',
-      response: `${sourceLabel} wants to send ${fileName}.`,
-      data: {
-        transfer: {
-          transferId,
-          fileName,
-          fileSize: Math.max(0, Number(transfer.fileSize) || 0),
-          fileSizeLabel: fileSize,
-          sourceDeviceId: String(transfer.sourceDeviceId || '').slice(0, 128),
-          destination: getCloudReceivedDirectory()
-        },
-        actions: [
-          {
-            id: 'reject',
-            label: 'Reject',
-            kind: 'reject',
-            transferId
-          },
-          {
-            id: 'accept',
-            label: 'Accept',
-            kind: 'accept',
-            transferId,
-            primary: true
-          }
-        ],
-        resultEntries: [
-          {
-            index: 1,
-            name: fileName,
-            type: 'incoming file',
-            location: fileSize,
-            snippet: `Save to Documents\\OpenX`
-          }
-        ]
-      },
-      ui: {
-        icon: 'FI',
-        previewStatus: `Incoming file - ${fileSize}`,
-        preExpandDelayMs: 100,
-        autoHideMs: 0,
-        persistUntilAction: true
-      }
-    });
-    return true;
-  } catch (error) {
-    mainLogger.warn('[CLOUD-FILE] Dynamic Island transfer prompt failed', {
-      transferId,
-      error: error.message
-    });
-    return false;
-  }
+function presentCloudFileTransferPrompt() {
+  return false;
 }
 
-function presentCloudFileTransferStatus(transfer = {}, status = 'progress') {
-  if (!voiceOverlay || typeof voiceOverlay.displayAssistantResult !== 'function') return false;
-  const fileName = cloudTransferDisplayName(transfer);
-  const percent = Math.max(0, Math.min(100, Math.round(Number(transfer.percent) || 0)));
-  const filePath = String(transfer.filePath || transfer.destination || '').trim();
-  const direction = String(transfer.direction || '').toLowerCase();
-  const outgoingToMobile = direction === 'desktop-to-phone';
-  const completed = status === 'completed';
-  const failed = status === 'failed';
-  const response = completed
-    ? outgoingToMobile
-      ? `${fileName} was sent to mobile.`
-      : `${fileName} was saved to Documents\\OpenX.`
-    : failed
-      ? `${fileName} transfer failed.`
-      : outgoingToMobile
-        ? `Sending ${fileName}: ${percent}%.`
-        : `Receiving ${fileName}: ${percent}%.`;
-  try {
-    voiceOverlay.displayAssistantResult({
-      success: !failed,
-      intent: `cloud.fileTransfer.${status}`,
-      response,
-      data: {
-        resultEntries: [
-          {
-            index: 1,
-            name: fileName,
-            type: completed ? outgoingToMobile ? 'sent file' : 'saved file' : 'file transfer',
-            location: completed ? outgoingToMobile ? 'OpenX Mobile' : 'Documents\\OpenX' : `${percent}%`,
-            snippet: filePath || response
-          }
-        ],
-        actions: []
-      },
-      ui: {
-        icon: failed ? '!' : 'FI',
-        previewStatus: completed
-          ? outgoingToMobile ? 'File sent to mobile' : 'File received'
-          : failed
-            ? 'Transfer failed'
-            : outgoingToMobile ? `Sending ${percent}%` : `Receiving ${percent}%`,
-        preExpandDelayMs: completed || failed ? 600 : 0,
-        autoHideMs: completed ? outgoingToMobile ? 5000 : 8000 : failed ? 8000 : 0,
-        persistUntilAction: false
-      }
-    });
-    return true;
-  } catch (error) {
-    mainLogger.warn('[CLOUD-FILE] Dynamic Island transfer status failed', {
-      transferId: transfer.transferId || null,
-      status,
-      error: error.message
-    });
-    return false;
-  }
+function presentCloudFileTransferStatus() {
+  return false;
 }
 
 function shouldPresentCloudFileTransferProgress(transfer = {}) {
@@ -6662,9 +5679,7 @@ function registerIpcHandler(channel, handler) {
 
   ipcMain.handle(channel, async (event, payload) => {
     try {
-      if (!isTrustedVoiceOverlayIpcSender(event, channel)) {
-        assertTrustedIpcSender(event, RENDERER_ROOT);
-      }
+      assertTrustedIpcSender(event, RENDERER_ROOT);
       const validatedPayload = validator(payload);
       return await handler(event, validatedPayload);
     } catch (error) {
@@ -6673,8 +5688,6 @@ function registerIpcHandler(channel, handler) {
         sender: getIpcSenderUrl(event),
         senderWebContentsId: event?.sender?.id || null,
         senderWindowId: event?.sender ? BrowserWindow.fromWebContents(event.sender)?.id || null : null,
-        voiceOverlayWebContentsId: voiceOverlay?.windowController?.window?.webContents?.id || null,
-        trustedVoiceOverlaySender: isTrustedVoiceOverlayIpcSender(event, channel),
         error: error.message
       });
       throw new Error('Invalid or unauthorized IPC request');
@@ -6770,57 +5783,10 @@ function buildPublicRuntimeConfig() {
   return toIpcSafeValue(publicConfig);
 }
 
-function sanitizeVoiceCaptureReport(payload = {}) {
-  if (!isPlainObject(payload)) return { event: 'unknown', data: {} };
-  const event = String(payload.event || 'unknown').replace(/[^a-z0-9:_-]/gi, '').slice(0, 80) || 'unknown';
-  const data = isPlainObject(payload.data) ? payload.data : {};
-  return { event, data };
-}
-
-function setupVoiceCaptureIPC() {
-  if (voiceCaptureIpcRegistered) return;
-  ipcMain.on('voiceCapture:frame', (event, payload) => {
-    const sender = getIpcSenderUrl(event);
-    if (!isVoiceCaptureRendererUrl(sender)) {
-      mainLogger.warn('Rejected voice capture frame from untrusted sender', { sender });
-      return;
-    }
-    receiveVoiceCaptureFrame(payload);
-  });
-  ipcMain.handle('voiceCapture:report', async (event, payload) => {
-    const sender = getIpcSenderUrl(event);
-    if (!isVoiceCaptureRendererUrl(sender)) {
-      mainLogger.warn('Rejected voice capture report from untrusted sender', { sender });
-      throw new Error('Invalid or unauthorized IPC request');
-    }
-    const report = sanitizeVoiceCaptureReport(payload);
-    const reportRunId = Number(report.data?.runId) || 0;
-    if (report.event === 'frames' && (!voiceCaptureShouldRun || (reportRunId && reportRunId !== voiceCaptureRunId))) {
-      return { ok: true, ignored: true };
-    }
-    if (report.event === 'error') {
-      mainLogger.warn('Voice microphone capture failed', report.data);
-    } else {
-      mainLogger.info(`Voice microphone capture ${report.event}`, report.data);
-    }
-    return { ok: true };
-  });
-  voiceCaptureIpcRegistered = true;
-}
-
-function teardownVoiceCaptureIPC() {
-  if (!voiceCaptureIpcRegistered) return;
-  ipcMain.removeAllListeners('voiceCapture:frame');
-  ipcMain.removeHandler('voiceCapture:report');
-  voiceCaptureIpcRegistered = false;
-}
-
 function setupIPC() {
   if (ipcRegistered) {
     return;
   }
-  setupVoiceCaptureIPC();
-
   registerIpcHandler('command:process', async (_event, { input, source }) => {
     if (!assistant) return { success: false, response: 'Assistant not initialized' };
     const result = await assistant.processCommand(input, source);
@@ -6845,20 +5811,6 @@ function setupIPC() {
     return { ready: true, ...assistant.getStatus() };
   });
 
-  registerIpcHandler('tts:speak', async (_event, { text }) => {
-    if (textToSpeech) {
-      textToSpeech.speak(text);
-    }
-    return { success: true };
-  });
-
-  registerIpcHandler('tts:stop', async () => {
-    if (textToSpeech) {
-      textToSpeech.stop();
-    }
-    return { success: true };
-  });
-
   registerIpcHandler('browser:openExternal', async (_event, { url }) => {
     await shell.openExternal(url);
     return { success: true, url };
@@ -6878,8 +5830,6 @@ function setupIPC() {
   registerIpcHandler('window:openPeopleChat', async () => {
     return createPeopleChatWindow();
   });
-
-  registerIpcHandler('voice:start', async () => startVoiceListeningFromShortcut('chat-voice-button'));
 
   registerIpcHandler('window:openSettings', async () => {
     return createSettingsWindow();
@@ -7425,21 +6375,6 @@ function setupIPC() {
 
   registerIpcHandler('schedule:getSnapshot', async () => getScheduleSyncSnapshot());
 
-  registerIpcHandler('voiceOverlay:collapse', async (_event, options = {}) => {
-    try {
-      if (typeof voiceOverlay?.windowController?.collapseAssistantResult === 'function') {
-        return voiceOverlay.windowController.collapseAssistantResult(options);
-      }
-      voiceOverlay?.windowController?.updateAssistantResult?.({});
-      return { success: true };
-    } catch (error) {
-      mainLogger.warn('Dynamic Island collapse request failed', { error: error.message });
-      return { success: false, error: error.message };
-    }
-  });
-
-  registerIpcHandler('voiceOverlay:expandLiveSchedule', async () => expandLiveScheduleInDynamicIsland());
-
   registerIpcHandler('timerWidget:getState', async () => {
     return getTimerWidgetState(null, { includeStopwatch: timerWidgetMode === 'stopwatch' });
   });
@@ -7558,70 +6493,17 @@ function teardownIPC() {
     }
     ipcMain.removeAllListeners(channel);
   }
-  teardownVoiceCaptureIPC();
   ipcRegistered = false;
 }
 
 async function destroyAssistantInstance() {
-  if (diagnosticsManager) {
-    try {
-      diagnosticsManager.stop();
-    } catch (error) {
-      mainLogger.warn('Failed to stop voice diagnostics', { error: error.message });
-    }
-    diagnosticsManager = null;
-  }
-  if (voiceAssistantBridge) {
-    try {
-      voiceAssistantBridge.detach();
-    } catch (error) {
-      mainLogger.warn('Failed to detach voice assistant bridge', { error: error.message });
-    }
-    voiceAssistantBridge = null;
-  }
-  if (voiceOverlay) {
-    try {
-      voiceOverlay.detach();
-      voiceOverlay.windowController?.destroy?.();
-    } catch (error) {
-      mainLogger.warn('Failed to destroy voice overlay', { error: error.message });
-    }
-    voiceOverlay = null;
-  }
-  destroyVoiceCaptureWindow();
-  if (voiceSessionManager) {
-    try {
-      voiceSessionManager.destroy?.('assistant-destroy');
-    } catch (error) {
-      mainLogger.warn('Failed to destroy voice session resources', { error: error.message });
-    }
-  }
-  voiceSessionManager = null;
-
-  if (!assistant) {
-    return;
-  }
-
+  if (!assistant) return;
   const currentAssistant = assistant;
   assistant = null;
   try {
     await currentAssistant.destroy?.();
   } catch (error) {
     mainLogger.error('Assistant cleanup failed', { error: error.message });
-  }
-}
-
-function destroyTextToSpeech() {
-  if (!textToSpeech) {
-    return;
-  }
-
-  try {
-    textToSpeech.destroy();
-  } catch (error) {
-    mainLogger.error('TTS cleanup failed', { error: error.message });
-  } finally {
-    textToSpeech = null;
   }
 }
 
@@ -7694,7 +6576,6 @@ async function cleanupRuntime() {
         homeOnboardingManager = null;
       }
     }
-    destroyTextToSpeech();
     await destroyAssistantInstance();
     if (visualMemoryEngine) {
       try {
@@ -7714,7 +6595,6 @@ async function cleanupRuntime() {
     if (timerWidgetWindow && !timerWidgetWindow.isDestroyed()) timerWidgetWindow.destroy();
     if (plannerWindow && !plannerWindow.isDestroyed()) plannerWindow.destroy();
     if (galleryWindow && !galleryWindow.isDestroyed()) galleryWindow.destroy();
-    destroyVoiceCaptureWindow();
     if (tray) {
       tray.destroy();
       tray = null;
@@ -7750,16 +6630,6 @@ function getChatShortcuts() {
     .filter(shortcut => shortcut !== 'Alt+Space');
 }
 
-function getVoiceShortcuts() {
-  const primary = runtimeConfig?.voice?.activationShortcut || BASE_CONFIG.voice?.activationShortcut || 'Alt+Space';
-  const fallbacks = runtimeConfig?.voice?.activationFallbackShortcuts
-    || BASE_CONFIG.voice?.activationFallbackShortcuts
-    || [];
-
-  return [...new Set([primary, ...fallbacks].filter(Boolean))]
-    .filter(shortcut => shortcut !== 'Control+Space');
-}
-
 function toggleChatFromShortcut(shortcut = '') {
   if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible()) {
     chatWindow.hide();
@@ -7769,207 +6639,6 @@ function toggleChatFromShortcut(shortcut = '') {
   createChatWindow();
   mainLogger.info('Chat shortcut opened chat', { shortcut });
   return { success: true, visible: true };
-}
-
-function quietMediaForVoiceActivation(shortcut = '') {
-  const mediaController = assistant?.automation?.media;
-  if (!mediaController || typeof mediaController.quietForVoiceActivation !== 'function') {
-    return { success: true, skipped: true, reason: 'media-controller-unavailable' };
-  }
-
-  try {
-    const result = mediaController.quietForVoiceActivation('voice-hotkey');
-    const action = result?.data?.action || 'unknown';
-    if (result?.success && action !== 'none') {
-      if (result.data?.restore?.action) {
-        voiceMediaQuietingState = {
-          result,
-          shortcut,
-          startedAt: Date.now()
-        };
-      }
-      mainLogger.info('Media quieted for voice listening', {
-        shortcut,
-        action,
-        method: result.data?.method,
-        playbackStatus: result.data?.playbackStatus,
-        sourceAppUserModelId: result.data?.sourceAppUserModelId
-      });
-    } else if (!result?.success) {
-      mainLogger.warn('Media quieting for voice listening failed', {
-        shortcut,
-        error: result?.error || 'Unknown media quieting failure',
-        method: result?.data?.method
-      });
-    }
-    return result || { success: true, skipped: true, reason: 'empty-media-result' };
-  } catch (error) {
-    mainLogger.warn('Media quieting for voice listening crashed safely', {
-      shortcut,
-      error: error.message
-    });
-    return { success: false, error: error.message };
-  }
-}
-
-function restoreMediaAfterVoiceSession(reason = 'voice-session-closed') {
-  const state = voiceMediaQuietingState;
-  voiceMediaQuietingState = null;
-  if (!state?.result?.data?.restore?.action) {
-    return { success: true, skipped: true, reason: 'no-media-quieting-state' };
-  }
-
-  const mediaController = assistant?.automation?.media;
-  if (!mediaController || typeof mediaController.restoreAfterVoiceActivation !== 'function') {
-    return { success: false, error: 'Media controller unavailable for restore' };
-  }
-
-  try {
-    const result = mediaController.restoreAfterVoiceActivation(state.result, reason);
-    const action = result?.data?.action || 'unknown';
-    if (result?.success && action !== 'none') {
-      mainLogger.info('Media restored after voice listening', {
-        action,
-        method: result.data?.method,
-        reason,
-        sourceAppUserModelId: result.data?.sourceAppUserModelId,
-        quietedForMs: Math.max(0, Date.now() - Number(state.startedAt || Date.now()))
-      });
-    } else if (!result?.success) {
-      mainLogger.warn('Media restore after voice listening failed', {
-        reason,
-        error: result?.error || 'Unknown media restore failure',
-        method: result?.data?.method
-      });
-    }
-    return result || { success: true, skipped: true, reason: 'empty-media-restore-result' };
-  } catch (error) {
-    mainLogger.warn('Media restore after voice listening crashed safely', {
-      reason,
-      error: error.message
-    });
-    return { success: false, error: error.message };
-  }
-}
-
-function isVoiceAssistantSpeaking() {
-  return Boolean(
-    textToSpeech?.isSpeaking ||
-    textToSpeech?.activeProcess
-  );
-}
-
-function handleVoiceShortcutDuringSpeaking(shortcut = '') {
-  const state = voiceSessionManager?.getCurrentState?.();
-  if (state !== 'SPEAKING' && !isVoiceAssistantSpeaking()) return null;
-
-  const now = Date.now();
-  const sessionId = voiceSessionManager?.getSession?.()?.sessionId || 'voice-session';
-  const isSecondTap = voiceSpeakingStopSessionId === sessionId &&
-    now - voiceSpeakingStopTapAt <= VOICE_SPEAKING_DOUBLE_TAP_MS;
-
-  if (isSecondTap) {
-    voiceSpeakingStopTapAt = 0;
-    voiceSpeakingStopSessionId = null;
-    const cancelled = voiceSessionManager.cancelSession('Voice shortcut double tapped while assistant was speaking.');
-    mainLogger.info('Voice shortcut cancelled speaking session on second tap', { shortcut, sessionId });
-    return { success: true, cancelled: true, stoppedSpeaking: true, state: cancelled.state };
-  }
-
-  voiceSpeakingStopTapAt = now;
-  voiceSpeakingStopSessionId = sessionId;
-  const stopped = voiceAssistantBridge?.coordinator?.stopSpeaking?.('voice-shortcut-stop-speaking')
-    || { stopped: false };
-  if (!stopped.stopped && textToSpeech) {
-    textToSpeech.stop();
-  }
-  mainLogger.info('Voice shortcut stopped assistant speech', {
-    shortcut,
-    sessionId,
-    stopped: Boolean(stopped.stopped)
-  });
-  return { success: true, stoppedSpeaking: true, cancelled: false, state };
-}
-
-function startVoiceListeningFromShortcut(shortcut = '') {
-  if (!voiceSessionManager) {
-    mainLogger.warn('Voice shortcut ignored because voice session manager is unavailable', { shortcut });
-    return { success: false, error: 'Voice unavailable' };
-  }
-
-  try {
-    const dismissedSearchResult = voiceOverlay?.windowController?.dismissAssistantResultForIntent?.('browser.search', {
-      statusText: 'Search closed',
-      icon: 'SE',
-      hideAfterMs: 0
-    });
-    if (dismissedSearchResult?.dismissed) {
-      mainLogger.info('Voice shortcut dismissed persistent browser search result', { shortcut });
-    }
-
-    const speakingAction = handleVoiceShortcutDuringSpeaking(shortcut);
-    if (speakingAction) return speakingAction;
-
-    const now = Date.now();
-    if (voiceSessionManager.isActive()) {
-      if ((now - voiceLastStartAt) < VOICE_ACTIVE_CANCEL_GRACE_MS) {
-        mainLogger.info('Voice shortcut ignored during initial activation grace window', {
-          shortcut,
-          elapsedMs: now - voiceLastStartAt
-        });
-        return { success: false, ignored: true, reason: 'voice-activation-grace-window' };
-      }
-      voiceSpeakingStopTapAt = 0;
-      voiceSpeakingStopSessionId = null;
-      const cancelled = voiceSessionManager.cancelSession('Voice shortcut pressed while listening.');
-      mainLogger.info('Voice shortcut cancelled active listening session', { shortcut });
-      return { success: true, cancelled: true, state: cancelled.state };
-    }
-
-    if (voiceStartInFlight || (now - voiceLastStartAt) < VOICE_SHORTCUT_DEBOUNCE_MS) {
-      mainLogger.info('Voice shortcut ignored while startup is settling', {
-        shortcut,
-        inFlight: voiceStartInFlight,
-        elapsedMs: now - voiceLastStartAt
-      });
-      return { success: false, ignored: true, reason: 'voice-startup-in-flight' };
-    }
-
-    voiceStartInFlight = true;
-    voiceLastStartAt = now;
-    voiceSpeakingStopTapAt = 0;
-    voiceSpeakingStopSessionId = null;
-    if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible()) {
-      chatWindow.hide();
-    }
-
-    prewarmVoiceRuntime('voice-shortcut');
-    const started = voiceSessionManager.startSession({ id: `voice-shortcut-${Date.now()}` });
-    try {
-      quietMediaForVoiceActivation(shortcut);
-      voiceSessionManager.startSpeechToText();
-      voiceSessionManager.startAudioCapture();
-    } catch (captureError) {
-      mainLogger.warn('Voice shortcut started session but capture could not start', {
-        shortcut,
-        error: captureError.message
-      });
-      voiceSessionManager.failSession(captureError);
-      return { success: false, state: voiceSessionManager.getCurrentState(), error: captureError.message };
-    }
-    mainLogger.info('Voice shortcut started listening', { shortcut });
-    return { success: true, state: started.state };
-  } catch (error) {
-    mainLogger.error('Voice shortcut failed', { shortcut, error: error.message });
-    try {
-      voiceSessionManager?.reset?.();
-    } catch (resetError) {
-      mainLogger.warn('Voice shortcut recovery reset failed', { error: resetError.message });
-    }
-    return { success: false, error: error.message };
-  } finally {
-    voiceStartInFlight = false;
-  }
 }
 
 function registerChatShortcut() {
@@ -7994,24 +6663,6 @@ function registerChatShortcut() {
     }
   }
 
-  for (const shortcut of getVoiceShortcuts()) {
-    try {
-      const registered = globalShortcut.register(shortcut, () => {
-        mainLogger.info('Voice shortcut pressed', { shortcut });
-        startVoiceListeningFromShortcut(shortcut);
-      });
-
-      if (!registered) {
-        mainLogger.error('Failed to register voice shortcut', { shortcut });
-        continue;
-      }
-
-      registeredChatShortcuts.push(shortcut);
-      mainLogger.info('Registered voice shortcut', { shortcut });
-    } catch (error) {
-      mainLogger.error('Invalid voice shortcut', { shortcut, error: error.message });
-    }
-  }
 }
 
 async function initializeAssistant() {
@@ -8031,67 +6682,6 @@ async function initializeAssistant() {
   assistant.router.permissionValidator.setUserLevel(
     settingsService.getSettings().system.permissionLevel
   );
-
-  textToSpeech = new TextToSpeech(runtimeConfig);
-  textToSpeech.initialize()
-    .then(result => {
-      voiceTtsSummary = result && typeof result === 'object'
-        ? result
-        : {
-          role: 'text-to-speech',
-          engine: 'windows-sapi',
-          voice: textToSpeech?.voiceName || 'unknown',
-          voiceCount: textToSpeech?.availableVoices?.length || 0
-        };
-      logVoiceModelSummaryOnce('tts-ready');
-    })
-    .catch(err => {
-      voiceTtsSummary = {
-        role: 'text-to-speech',
-        engine: 'windows-sapi',
-        ready: false,
-        error: err.message
-      };
-      mainLogger.warn('TTS initialization failed (non-fatal)', { error: err.message });
-      logVoiceModelSummaryOnce('tts-failed');
-    });
-
-  const voiceResources = createDesktopVoiceResources();
-  logVoiceModelSummaryOnce('assistant-startup');
-  voiceSessionManager = new VoiceSessionManager({
-    logger: mainLogger,
-    resources: voiceResources
-  });
-  voiceSessionManager.on(SESSION_EVENTS.VOICE_SESSION_CLOSED, event => {
-    restoreMediaAfterVoiceSession(event?.session?.currentState || event?.state || 'voice-session-closed');
-  });
-  voiceOverlay = createVoiceOverlayForManager(voiceSessionManager);
-  voiceAssistantBridge = new VoiceAssistantBridge({
-    manager: voiceSessionManager,
-    assistant,
-    textToSpeech,
-    logger: mainLogger
-  });
-  voiceAssistantBridge.on(VOICE_INTEGRATION_EVENTS.VOICE_RESPONSE_READY, event => {
-    try {
-      voiceOverlay?.displayAssistantResult?.(event?.result || {});
-    } catch (error) {
-      mainLogger.warn('Voice overlay assistant result display failed', { error: error.message });
-    }
-  });
-  diagnosticsManager = new DiagnosticsManager({
-    logger: mainLogger,
-    configuration: {
-      ...(runtimeConfig?.voice?.diagnostics || {}),
-      storageRoot: runtimeConfig.app.dataPaths.voiceDiagnosticsDir
-    }
-  });
-  diagnosticsManager.start({
-    sessionManager: voiceSessionManager,
-    resources: { sessionManager: voiceSessionManager, ...voiceResources }
-  });
-  scheduleVoiceRuntimePrewarm('assistant-idle-prewarm');
-  scheduleVoiceResourceWarmup('desktop-idle-warmup');
 
   registerChatShortcut();
   mainLogger.info('Assistant initialized', {
@@ -8119,7 +6709,6 @@ function initializeCloudMobileRuntime() {
 async function reloadRuntimeServices() {
   runtimeConfig = settingsService.buildRuntimeConfig();
 
-  destroyTextToSpeech();
   await destroyAssistantInstance();
   await initializeAssistant();
 
@@ -8138,34 +6727,6 @@ function registerPowerRecoveryHandlers() {
   if (powerRecoveryHandlersRegistered || !powerMonitor || typeof powerMonitor.on !== 'function') return;
   powerRecoveryHandlersRegistered = true;
 
-  powerMonitor.on('suspend', () => {
-    mainLogger.info('System suspend detected; pausing voice runtime');
-    resetVoiceRuntimeAfterPowerEvent('system-suspend');
-  });
-
-  powerMonitor.on('resume', () => {
-    mainLogger.info('System resume detected; scheduling voice recovery');
-    scheduleVoiceResumeRecovery('system-resume');
-  });
-
-  powerMonitor.on('unlock-screen', () => {
-    mainLogger.info('Screen unlock detected; refreshing voice runtime');
-    scheduleVoiceResumeRecovery('screen-unlock');
-  });
-}
-
-function isTrustedVoiceOverlayIpcSender(event, channel) {
-  if (![
-    'schedule:alertAction',
-    'cloud:fileTransferAction',
-    'desktopChat:quickReply',
-    'voiceOverlay:collapse',
-    'voiceOverlay:expandLiveSchedule'
-  ].includes(channel)) return false;
-  const overlayContents = voiceOverlay?.windowController?.window?.webContents;
-  if (!overlayContents || event?.sender?.id !== overlayContents.id) return false;
-  const senderUrl = getIpcSenderUrl(event);
-  return typeof senderUrl === 'string' && senderUrl.startsWith('data:text/html');
 }
 
 function normalizeError(reason) {
@@ -8187,10 +6748,8 @@ function buildCrashRecoveryMetadata(origin, error, component = 'main-process') {
     uptimeMs: Math.round(process.uptime() * 1000),
     memory: process.memoryUsage?.() || null,
     assistantInitialized: Boolean(assistant),
-    voiceState: voiceSessionManager?.getCurrentState?.() || '',
     windows: {
       chat: Boolean(chatWindow && !chatWindow.isDestroyed()),
-      voice: Boolean(voiceOverlay?.windowController?.window && !voiceOverlay.windowController.window.isDestroyed()),
       planner: Boolean(plannerWindow && !plannerWindow.isDestroyed()),
       gallery: Boolean(galleryWindow && !galleryWindow.isDestroyed()),
       timer: Boolean(timerWidgetWindow && !timerWidgetWindow.isDestroyed())
@@ -8268,14 +6827,6 @@ app.on('child-process-gone', (_event, details) => {
   const error = new Error(`${details.type || 'Electron child'} process exited: ${details.reason}`);
   Logger.writeCrashSync(error, { type: 'child-process', details }, BASE_CONFIG.logging);
   mainLogger.error('Electron child process exited unexpectedly', { details });
-  if (activeLiveSchedulePayload && String(details.type || '').toLowerCase().includes('renderer')) {
-    const token = setTimeout(() => {
-      recoveryTimeouts.delete(token);
-      restoreLiveScheduleInDynamicIsland();
-    }, 1200);
-    recoveryTimeouts.add(token);
-    if (typeof token.unref === 'function') token.unref();
-  }
 });
 
 app.whenReady().then(async () => {

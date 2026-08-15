@@ -75,7 +75,6 @@ class ContextEngine {
       activePath: null,
       activePid: null,
       runningApps: [],
-      microphoneActive: false,
       fullscreen: false,
       currentMode: null,
       timestamp: this.now(),
@@ -92,7 +91,6 @@ class ContextEngine {
       this.signals.subscribe(events.ACTIVE_WINDOW_CHANGED, envelope => this._handleActiveWindow(envelope.payload)),
       this.signals.subscribe(events.PROCESS_STARTED, envelope => this._handleProcessStarted(envelope.payload)),
       this.signals.subscribe(events.PROCESS_STOPPED, envelope => this._handleProcessStopped(envelope.payload)),
-      this.signals.subscribe(events.MICROPHONE_ACTIVITY_CHANGED, envelope => this._handleMicrophoneActivityChanged(envelope.payload)),
       this.signals.subscribe(events.MODE_CHANGED, envelope => this.updateMode(envelope.payload?.to ?? envelope.payload?.currentMode))
     ];
   }
@@ -170,7 +168,6 @@ class ContextEngine {
       activePath: this.state.activePath,
       activePid: this.state.activePid,
       runningApps: [...this.state.runningApps],
-      microphoneActive: this.state.microphoneActive,
       fullscreen: this.state.fullscreen,
       timestamp: this.state.timestamp,
       currentMode: this.state.currentMode,
@@ -211,12 +208,6 @@ class ContextEngine {
     }, 'process-stopped');
   }
 
-  _handleMicrophoneActivityChanged(payload = {}) {
-    this.update({
-      microphoneActive: Boolean(payload?.active ?? payload?.microphoneActive)
-    }, 'microphone-activity');
-  }
-
   _normalizePartial(partial = {}, timestamp = this.now()) {
     const normalized = { ...partial };
 
@@ -237,9 +228,6 @@ class ContextEngine {
     }
     if (Object.prototype.hasOwnProperty.call(normalized, 'fullscreen')) {
       normalized.fullscreen = Boolean(normalized.fullscreen);
-    }
-    if (Object.prototype.hasOwnProperty.call(normalized, 'microphoneActive')) {
-      normalized.microphoneActive = Boolean(normalized.microphoneActive);
     }
     normalized.timestamp = timestamp;
 

@@ -187,7 +187,7 @@ class HomeAutomationManager {
       deviceId: targetDevice.deviceId,
       ownerId: this.ownerId,
       action: command.action,
-      // Do not forward the spoken/parsed phrase as the firmware relay
+      // Do not forward the parsed phrase as the firmware relay
       // channel name: it reflects whatever the user renamed the *device*
       // to (e.g. "bed_light"), which has no relationship to the relay's
       // own internal channel names. The device to target was already

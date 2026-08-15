@@ -21,17 +21,6 @@ const CONFIG = {
     migrateCwdPlanner: true
   },
 
-  voice: {
-    activationShortcut: 'Alt+Space',
-    activationFallbackShortcuts: [],
-    tts: {
-      rate: 2,
-      volume: 100,
-      voiceName: '',
-      naturalize: true
-    }
-  },
-
   assistant: {
     displayName: 'OpenX',
     title: 'Desktop Assistant',

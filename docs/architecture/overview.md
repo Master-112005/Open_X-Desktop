@@ -7,7 +7,7 @@ OpenX follows a deterministic, local-first desktop assistant architecture. The p
 Current command flow:
 
 ```text
-Chat / phone / voice / cloud / plugin input
+Chat / phone / chat / cloud / plugin input
   -> Assistant.processCommand()
   -> AssistantEngine
   -> InputSourceManager
@@ -61,7 +61,7 @@ Forms, YouTube, Chrome, Discord, and communication-specific adapters live under 
 ## Layer Definitions
 
 ### 1. Input and Acquisition
-- Chat, phone, voice, cloud, plugin, API, OCR, and clipboard inputs
+- Chat, phone, chat, cloud, plugin, API, OCR, and clipboard inputs
 - Standard `RawUserInput` contract
 
 ### 2. Intelligence Pipeline
@@ -86,13 +86,13 @@ Forms, YouTube, Chrome, Discord, and communication-specific adapters live under 
 - Responsible local learning
 
 ### 5. Data and Event Layer (`core/assistant/Data.js`)
-- Shared event bus for voice, assistant, and UI modules
+- Shared event bus for chat, assistant, and UI modules
 - Standard lifecycle events including:
   - `wakeword.detected`
   - `listener.started`
-  - `speech.detected`
+  - `text.detected`
   - `utterance.finalized`
-  - `stt.completed`
+  - `textInput.completed`
   - `intent.detected`
   - `command.executed`
   - `response.generated`
@@ -101,13 +101,13 @@ Forms, YouTube, Chrome, Discord, and communication-specific adapters live under 
 ### 6. Desktop UI Layer (`apps/desktop/renderer/`)
 - Electron renderer surfaces own chat, settings, notifications, and schedule alerts
 - UI never executes automation directly
-- Voice and chat stay as presentation surfaces over the same backend
+- Chat and chat stay as presentation surfaces over the same backend
 
 ## Key Design Rules
 
 - **UI never executes automation directly**: all commands go through the router
-- **Voice and chat share the same assistant boundary**: identical backend execution path
+- **Chat and chat share the same assistant boundary**: identical backend execution path
 - **No LLM dependencies**: purely deterministic pattern matching and routing
 - **Modular automation**: each capability is isolated in its own module
-- **Event-driven coordination**: voice, assistant, and UI communicate through lifecycle events
-- **Explicit speech states**: idle, wake detected, listening, hearing speech, processing, responding, error
+- **Event-driven coordination**: chat, assistant, and UI communicate through lifecycle events
+- **Explicit text states**: idle, wake detected, listening, hearing text, processing, responding, error

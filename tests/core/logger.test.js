@@ -30,7 +30,7 @@ describe('Structured Logger', function() {
       user: 'local',
       password: 'unsafe',
       inputText: 'open private folder',
-      nested: { apiKey: 'secret', transcript: 'call mummy' }
+      nested: { apiKey: 'secret', inputText: 'call mummy' }
     });
     logger.error('Failed', { token: 'unsafe' });
 
@@ -46,7 +46,7 @@ describe('Structured Logger', function() {
     assert.equal(appEntry.data.password, '[REDACTED]');
     assert.equal(appEntry.data.inputText, '[19 chars]');
     assert.equal(appEntry.data.nested.apiKey, '[REDACTED]');
-    assert.equal(appEntry.data.nested.transcript, '[10 chars]');
+    assert.equal(appEntry.data.nested.inputText, '[10 chars]');
     assert.equal(errorEntry.data.token, '[REDACTED]');
     assert.match(rawAppLog, /OPENX_SECURE_JSON_V1/);
     assert.equal(rawAppLog.includes('open private folder'), false);
@@ -102,28 +102,28 @@ describe('Structured Logger', function() {
     let output = '';
     console.log = value => { output += value; };
     try {
-      logger.info('[Voice Models] Assistant model summary', {
-        reason: 'tts-ready',
-        stt: {
-          role: 'speech-to-text',
-          engine: 'parakeet',
-          model: 'nvidia-parakeet-tdt-v3',
-          runtime: 'sherpa-onnx',
+      logger.info('[Assistant Models] Assistant model summary', {
+        reason: 'model-ready',
+        parser: {
+          role: 'text-processing',
+          engine: 'local-model',
+          model: 'local-small-model',
+          runtime: 'onnx',
           files: 4
         },
-        tts: {
-          role: 'text-to-speech',
-          engine: 'windows-sapi',
-          voiceCount: 2
+        output: {
+          role: 'text-processing',
+          engine: 'local-runtime',
+          modelCount: 2
         }
       });
     } finally {
       console.log = originalLog;
     }
 
-    assert.match(output, /reason=tts-ready/);
-    assert.match(output, /stt=\{role:speech-to-text,engine:parakeet,model:nvidia-parakeet-tdt-v3,runtime:sherpa-onnx,files:4\}/);
-    assert.match(output, /tts=\{role:text-to-speech,engine:windows-sapi,voice-count:2\}/);
+    assert.match(output, /reason=model-ready/);
+    assert.match(output, /parser=\{role:text-processing,engine:local-model,model:local-small-model,runtime:onnx,files:4\}/);
+    assert.match(output, /output=\{role:text-processing,engine:local-runtime,model-count:2\}/);
     assert.doesNotMatch(output, /\[object\]/);
     assert.doesNotMatch(output, /\{"role"/);
   });
@@ -229,22 +229,22 @@ describe('Structured Logger', function() {
     assert.match(errorEntry.data.stack, /executable missing/);
   });
 
-  it('should print voice logs as compact human-readable summaries', function() {
+  it('should print chat logs as compact human-readable summaries', function() {
     const logger = new Logger({ directory, file: false });
     const originalLog = console.log;
     let output = '';
     console.log = value => { output += value; };
     try {
-      logger.info('[Voice] Runtime pipeline: audio frame received', {
+      logger.info('[Chat] Runtime pipeline event', {
         state: 'LISTENING',
         recognitionCycleId: 'cycle-2',
         text: 'open private file',
         counters: {
-          audioFrames: 50,
+          inputFrames: 50,
           processedFrames: 49,
-          sttFrames: 48,
-          partialTranscripts: 2,
-          finalTranscripts: 0
+          parserFrames: 48,
+          partialInputTexts: 2,
+          finalInputTexts: 0
         }
       });
     } finally {
@@ -253,7 +253,7 @@ describe('Structured Logger', function() {
 
     assert.match(output, /state=LISTENING/);
     assert.match(output, /recognition-cycle-id=cycle-2/);
-    assert.match(output, /pipeline=audio:50,processed:49,stt:48,partial:2/);
+    assert.match(output, /pipeline=processed:49/);
     assert.match(output, /text=\[17 chars\]/);
     assert.doesNotMatch(output, /open private file/);
   });

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This module defines how the assistant speaks to the user. The policy is enforced centrally so every success, error, confirmation, and informational message stays consistent.
+This module defines how the assistant responds to the user. The policy is enforced centrally so every success, error, confirmation, and informational message stays consistent.
 
 ## Rules
 

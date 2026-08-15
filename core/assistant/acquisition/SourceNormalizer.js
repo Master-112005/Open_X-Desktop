@@ -6,7 +6,7 @@ const SOURCE_ALIASES = Object.freeze({
   android: 'phone',
   copy: 'clipboard',
   desktop: 'chat',
-  dictation: 'voice',
+
   extension: 'plugin',
   'image-text': 'ocr',
   ios: 'phone',
@@ -19,10 +19,10 @@ const SOURCE_ALIASES = Object.freeze({
   rest: 'api',
   screen: 'ocr',
   'screen-text': 'ocr',
-  speach: 'voice',
-  speech: 'voice',
+
+
   text: 'chat',
-  voce: 'voice'
+
 });
 
 class SourceNormalizer {

@@ -18,7 +18,6 @@ module.exports = {
   SuggestionResponse: require('./SuggestionResponse'),
   ResponseStyleManager: require('./ResponseStyleManager'),
   ResponseQualityEvaluator: require('./ResponseQualityEvaluator'),
-  VoiceFormatter: require('./VoiceFormatter'),
   ChatFormatter: require('./ChatFormatter'),
   NotificationFormatter: require('./NotificationFormatter'),
   NaturalLanguageFormatter: require('./NaturalLanguageFormatter'),

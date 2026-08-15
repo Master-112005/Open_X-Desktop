@@ -11,7 +11,6 @@ const SuggestionResponse = require('./SuggestionResponse');
 const ResponseStyleManager = require('./ResponseStyleManager');
 const ResponseQualityEvaluator = require('./ResponseQualityEvaluator');
 const NaturalLanguageFormatter = require('./NaturalLanguageFormatter');
-const VoiceFormatter = require('./VoiceFormatter');
 const ChatFormatter = require('./ChatFormatter');
 const NotificationFormatter = require('./NotificationFormatter');
 
@@ -36,7 +35,6 @@ class ResponseManager {
       [ResponseStyleManager, 'response.styleManager', 55],
       [ResponseQualityEvaluator, 'response.qualityEvaluator', 57],
       [NaturalLanguageFormatter, 'response.naturalLanguageFormatter', 60],
-      [VoiceFormatter, 'response.voiceFormatter', 70],
       [ChatFormatter, 'response.chatFormatter', 80],
       [NotificationFormatter, 'response.notificationFormatter', 90]
     ].forEach(([Ctor, id, priority]) => {

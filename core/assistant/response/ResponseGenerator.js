@@ -234,16 +234,6 @@ function escapeRegExp(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function stripTechnicalSpeechNoise(text) {
-  return String(text || '')
-    .replace(/\bSource:\s*[^.]+\.?/gi, '')
-    .replace(/\bhttps?:\/\/\S+/gi, '')
-    .replace(/\b[A-Z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]*/g, match => basenameOrValue(match) || 'that file')
-    .replace(/\s*;\s*/g, ', ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function buildReadableSearchSummary({ count, entries, query, searchStats, kind = 'item' }) {
   const numericCount = Number(count || 0);
   if (!numericCount) {
@@ -1853,69 +1843,6 @@ class ResponseGenerator {
     const result = clampText(String(text || '').replace(/\s+/g, ' ').trim(), this.config?.assistant?.maxResponseLength || 1200);
     if (!result) return '';
     return applyFormalAddress(result, this.config);
-  }
-
-  createSpokenResponse(response, context = {}) {
-    const source = String(context.source || '').toLowerCase();
-    const intent = String(context.intent || context.result?.intent || '').trim();
-    const style = String(context.spokenStyle || context.responseStyle || this.config?.assistant?.spokenResponseStyle || '').trim().toLowerCase();
-    let text = stripTechnicalSpeechNoise(response);
-    if (!text) return '';
-
-    if (source !== 'voice' && context.force !== true) {
-      return text;
-    }
-
-    const data = context.result?.data || {};
-    const entities = context.result?.entities || {};
-
-    if (/^(?:file|folder)\.search$/.test(intent)) {
-      const count = Number(data.count ?? entities.count ?? 0);
-      const query = data.query || entities.query || '';
-      if (!count) {
-        return query ? `I could not find "${query}".` : 'I could not find a matching item.';
-      }
-      const entries = Array.isArray(data.entries) ? data.entries : [];
-      const names = entries.slice(0, 2).map(entry => entry.name || basenameOrValue(entry.path)).filter(Boolean);
-      const more = count > names.length ? `, and ${count - names.length} more` : '';
-      return names.length
-        ? `I found ${count}: ${names.join(', ')}${more}.`
-        : `I found ${count} matching item${count === 1 ? '' : 's'}.`;
-    }
-
-    if (intent === 'browser.search') {
-      const answer = data.answer?.text || data.searchSummary?.text || data.results?.[0]?.snippet || '';
-      if (answer) return clampText(stripTechnicalSpeechNoise(answer), 180);
-    }
-
-    if (/^browser\.listTabs$/.test(intent)) {
-      const count = Number(data.count || 0);
-      return count ? `You have ${count} open browser tab${count === 1 ? '' : 's'}.` : text;
-    }
-
-    if (/^(?:media\.play|media\.search)$/.test(intent)) {
-      const query = data.query || data.mediaQuery || entities.mediaQuery || '';
-      const platform = data.platform || data.mediaPlatform || entities.mediaPlatform || 'media';
-      return query ? `${query} is ready on ${platform}.` : text;
-    }
-
-    const sentences = sentenceSplit(text);
-    if (style !== 'detailed' && sentences.length > 1) {
-      const important = sentences.find(sentence =>
-        /\b(?:found|opened|opening|set|added|sent|done|ready|could not|need|confirm|cancelled|remind|alarm|timer|playing|verified)\b/i.test(sentence)
-      ) || sentences[0];
-      text = important;
-    }
-
-    if (style === 'concise') {
-      return clampText(text, 140);
-    }
-
-    if (style === 'detailed') {
-      return clampText(text, 320);
-    }
-
-    return clampText(text, 220);
   }
 
   refineResponse(response, context = {}) {

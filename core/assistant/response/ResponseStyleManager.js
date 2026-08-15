@@ -187,7 +187,6 @@ function inferDetailMode({ text, result, source, responseStyle }) {
   const style = String(responseStyle || '').toLowerCase();
   if (['short', 'concise'].includes(style)) return 'short';
   if (['detailed', 'detail', 'verbose'].includes(style)) return 'detailed';
-  if (String(source || '').toLowerCase() === 'voice') return 'short';
   if (result?.needsClarification || result?.requiresConfirmation) return 'short';
   if (String(result?.intent || '').startsWith('help') || /\b(?:explain|how|why|steps|setup)\b/i.test(text)) {
     return 'detailed';
@@ -354,7 +353,6 @@ class ResponseStyleManager extends BaseResponseGenerator {
       },
       modality: {
         source: source || 'chat',
-        voiceReady: true,
         notificationReady: true
       }
     };

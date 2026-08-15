@@ -8,7 +8,6 @@ const SIGNAL_EVENTS = Object.freeze({
   ACTIVE_WINDOW_CHANGED: 'active-window-changed',
   PROCESS_STARTED: 'process-started',
   PROCESS_STOPPED: 'process-stopped',
-  MICROPHONE_ACTIVITY_CHANGED: 'microphone-activity-changed',
   MODE_ENTERED: 'mode-entered',
   MODE_EXITED: 'mode-exited',
   MODE_CHANGED: 'mode-changed'

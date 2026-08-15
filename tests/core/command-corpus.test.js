@@ -22,7 +22,7 @@ const FALLBACK_COMMANDS = [
   'Clone this repository',
   'Shuffle my playlist',
   'Show unread messages',
-  'Join my voice channel',
+  'Join my chat channel',
   'Share my screen',
   'Restore all windows',
   'Switch to Chrome',

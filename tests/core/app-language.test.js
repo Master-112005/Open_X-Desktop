@@ -17,7 +17,7 @@ describe('App Command Language', function() {
     assert.equal(another.requestedOperation, 'open-new-window');
   });
 
-  it('should understand corrected app-command speech', function() {
+  it('should understand corrected app-command text', function() {
     const corrected = language.parse('opne anther notpad', 'open another notepad');
 
     assert.equal(corrected.targetText, 'notepad');

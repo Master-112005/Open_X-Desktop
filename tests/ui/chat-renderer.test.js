@@ -22,7 +22,7 @@ describe('Chat Renderer UI', function() {
     assert.match(headerActions, /id="chat-view-btn"[\s\S]*id="activity-view-btn"[\s\S]*id="apps-view-btn"[\s\S]*id="remote-view-btn"[\s\S]*id="close-btn"/);
     assert.doesNotMatch(viewSwitcher, /id="remote-view-btn"|>Remote</);
     assert.match(headerActions, /class="window-btn remote-header-btn" id="remote-view-btn"[\s\S]*class="remote-header-icon"/);
-    assert.doesNotMatch(headerActions, /assistant-mute-btn|voice-start-btn/);
+    assert.doesNotMatch(headerActions, /assistant-mute-btn|chat-start-btn/);
     assert.match(script, /const viewSwitcherEl = document\.getElementById\('view-switcher'\)/);
     assert.match(script, /viewSwitcherEl\.dataset\.activeView = activeSwitcherView/);
     assert.match(css, /\.view-switcher::before/);
@@ -32,9 +32,6 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /\.view-switcher\[data-active-view="apps"\]::before\s*\{[\s\S]*left:\s*calc\(66\.666667% - 1px\)/);
     assert.doesNotMatch(css, /\.view-switcher\[data-active-view="remote"\]/);
     assert.match(css, /\.remote-header-btn\.active/);
-    assert.match(html, /class="composer-field"[\s\S]*id="voice-start-btn"[\s\S]*voice-start-symbol[\s\S]*&#10022;[\s\S]*id="input-box"[\s\S]*id="send-btn"/);
-    assert.match(html, /class="composer-field"[\s\S]*id="send-btn"[\s\S]*<\/div>[\s\S]*class="composer-mute-btn voice-btn" id="assistant-mute-btn"/);
-    assert.doesNotMatch(html, /voice-start-icon|&#127908;/);
     assert.doesNotMatch(html, /id="quick-actions"|class="chip-btn"|Downloads|Volume up|System status|What can you do\?/);
     assert.match(html, /class="icon-btn about-btn settings-about-btn" id="about-btn"[\s\S]*id="settings-close-btn"/);
     assert.match(script, /panelHeader\.insertBefore\(panelActions, settingsCloseBtn\)/);
@@ -53,10 +50,7 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /const aboutButtons = Array\.from\(document\.querySelectorAll\('\[data-about-trigger\]'\)\)/);
     assert.match(css, /#header-left/);
     assert.match(css, /\.header-about-btn/);
-    assert.match(css, /\.composer-voice-btn/);
     assert.match(css, /\.composer-mute-btn/);
-    assert.match(css, /\.voice-start-ring/);
-    assert.match(css, /\.voice-start-symbol/);
     assert.match(css, /#send-btn\s*\{[\s\S]*border-radius:\s*50%/);
     assert.match(css, /#send-btn span\s*\{[\s\S]*display:\s*none/);
     assert.match(css, /\.app-card/);
@@ -379,13 +373,6 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /showToast\('Schedule sync unavailable'/);
   });
 
-  it('should provide a dedicated assistant-only voice mute control', function() {
-    assert.match(html, /id="assistant-mute-btn"/);
-    assert.match(script, /ASSISTANT_MUTED_STORAGE_KEY/);
-    assert.match(script, /window\.openx\?\.stopSpeaking/);
-    assert.match(script, /if \(!isAssistantMuted && spokenText/);
-  });
-
   it('should keep settings compact without contact-storage controls', function() {
     assert.doesNotMatch(html, /id="minimize-btn"/);
     assert.doesNotMatch(html, /data-section-target="contacts"/);
@@ -623,7 +610,7 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /Last seen/);
     assert.match(script, /latestManagedDevices = Array\.isArray\(devices\) \? devices\.slice\(\) : \[\]/);
     assert.match(script, /mobileConnectedDeviceNameEl\.textContent = device\?\.friendlyName \|\| device\?\.deviceName/);
-    assert.doesNotMatch(script, /Assistant Access|File Transfer|Receive Files|Send Files|Desktop Control|Clipboard|Future Screen Sharing|Future Camera|Future Microphone/);
+    assert.doesNotMatch(script, /Assistant Access|File Transfer|Receive Files|Send Files|Desktop Control|Clipboard|Future Screen Sharing|Future Camera|Future Sensors/);
     assert.doesNotMatch(script, /Save Permissions|updatePhonePermissions/);
     assert.match(script, /Remove/);
     assert.doesNotMatch(script, /disconnectPhoneDevice/);
