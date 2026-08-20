@@ -13,11 +13,10 @@ describe('Chat Renderer UI', function() {
   it('should provide dedicated chat, activity, apps, notification, and info surfaces', function() {
     const headerActions = html.match(/<div id="header-actions">([\s\S]*?)<\/div>/)?.[1] || '';
     const viewSwitcher = html.match(/<nav class="view-switcher" id="view-switcher"[\s\S]*?<\/nav>/)?.[0] || '';
-    ['conversation-view', 'people-chat-view', 'activity-view', 'apps-view', 'reminders-view', 'remote-view', 'mobile-view', 'toast-region', 'schedule-list', 'notification-list', 'people-chat-app-btn', 'calendar-app-btn', 'reminders-app-btn', 'gallery-app-btn', 'mobile-app-btn', 'settings-app-btn', 'header-about-btn', 'about-btn']
+    ['conversation-view', 'people-chat-view', 'activity-view', 'apps-view', 'reminders-view', 'remote-view', 'mobile-view', 'toast-region', 'schedule-list', 'notification-list', 'people-chat-app-btn', 'calendar-app-btn', 'reminders-app-btn', 'mobile-app-btn', 'settings-app-btn']
       .forEach(id => assert.match(html, new RegExp(`id="${id}"`)));
     assert.doesNotMatch(html, /id="alarm-overlay"/);
     assert.doesNotMatch(script, /alarmOverlay|alarm-dismiss-btn|alarm-snooze-btn/);
-    assert.match(html, /id="header-about-btn"[\s\S]*id="header-title"/);
     assert.match(headerActions, /class="view-switcher" id="view-switcher"[\s\S]*data-active-view="chat"/);
     assert.match(headerActions, /id="chat-view-btn"[\s\S]*id="activity-view-btn"[\s\S]*id="apps-view-btn"[\s\S]*id="remote-view-btn"[\s\S]*id="close-btn"/);
     assert.doesNotMatch(viewSwitcher, /id="remote-view-btn"|>Remote</);
@@ -33,12 +32,10 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(css, /\.view-switcher\[data-active-view="remote"\]/);
     assert.match(css, /\.remote-header-btn\.active/);
     assert.doesNotMatch(html, /id="quick-actions"|class="chip-btn"|Downloads|Volume up|System status|What can you do\?/);
-    assert.match(html, /class="icon-btn about-btn settings-about-btn" id="about-btn"[\s\S]*id="settings-close-btn"/);
     assert.match(script, /panelHeader\.insertBefore\(panelActions, settingsCloseBtn\)/);
     assert.match(html, /Alarms & reminders/);
     assert.doesNotMatch(html, /Upcoming alarms, timers, reminders, and recent assistant notices\./);
     assert.match(script, /runHeaderApp\(calendarAppBtn, \(\) => window\.openx\?\.openPlanner\?\.\('calendar'\)\)/);
-    assert.match(script, /runHeaderApp\(galleryAppBtn, \(\) => window\.openx\?\.openGallery\?\.\('timeline'\)\)/);
     assert.doesNotMatch(script, /ACTIVITY_SCHEDULE_WINDOW_MS/);
     assert.doesNotMatch(script, /ACTIVITY_RECURRING_WINDOW_MS/);
     assert.match(script, /function isSameLocalDay\(value, reference = Date\.now\(\)\)/);
@@ -47,9 +44,7 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /window\.openx\?\.getScheduleSnapshot/);
     assert.match(script, /window\.openx\.onScheduleChanged/);
     assert.match(script, /function replaceScheduleItemsFromRuntime\(items = \[\]\)/);
-    assert.match(script, /const aboutButtons = Array\.from\(document\.querySelectorAll\('\[data-about-trigger\]'\)\)/);
     assert.match(css, /#header-left/);
-    assert.match(css, /\.header-about-btn/);
     assert.match(css, /\.composer-mute-btn/);
     assert.match(css, /#send-btn\s*\{[\s\S]*border-radius:\s*50%/);
     assert.match(css, /#send-btn span\s*\{[\s\S]*display:\s*none/);
@@ -239,33 +234,6 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /\.message-result\s*\{/);
     assert.match(css, /\.message-result-icon\s*\{/);
     assert.match(css, /\.message-result-path\s*\{/);
-  });
-
-  it('should render visual memory results as a horizontal photo strip', function() {
-    assert.match(html, /img-src 'self' file: data:/);
-    assert.match(script, /const visualResults = Array\.isArray\(result\?\.data\?\.visualResults\)/);
-    assert.match(script, /MAX_CHAT_VISUAL_RESULTS\s*=\s*10/);
-    assert.match(script, /visualResults\.slice\(0, MAX_CHAT_VISUAL_RESULTS\)/);
-    assert.match(script, /message-bubble--visual-results/);
-    assert.match(script, /type: 'photo'/);
-    assert.match(script, /function addVisualResultCards\(bubble, resultEntries\)/);
-    assert.match(script, /className = 'visual-result-strip'/);
-    assert.match(script, /className = 'visual-result-card'/);
-    assert.match(script, /window\.openx\?\.getGalleryImageData\?\.\(photoId\)/);
-    assert.match(script, /function openChatImagePreview\(entry\)/);
-    assert.match(script, /card\.addEventListener\('click', \(\) => openChatImagePreview\(entry\)\)/);
-    assert.match(script, /window\.openx\?\.showGalleryPhoto\?\.\(photoId\)/);
-    assert.match(css, /\.visual-result-strip\s*\{/);
-    assert.match(css, /overflow-x:\s*auto/);
-    assert.match(css, /\.message\.assistant \.message-bubble--visual-results\s*\{/);
-    assert.match(css, /\.message-bubble--visual-results \.visual-result-strip\s*\{/);
-    assert.match(css, /\.visual-result-strip::-webkit-scrollbar\s*\{[\s\S]*display:\s*block/);
-    assert.match(css, /\.visual-result-strip::-webkit-scrollbar-thumb\s*\{/);
-    assert.match(css, /\.visual-result-card\s*\{/);
-    assert.match(css, /scroll-snap-align:\s*start/);
-    assert.match(css, /#chat-image-preview-overlay/);
-    assert.match(css, /\.chat-image-preview-close/);
-    assert.match(css, /\.chat-image-preview-primary/);
   });
 
   it('should render web search sources as result cards', function() {

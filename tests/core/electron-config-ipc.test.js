@@ -13,7 +13,6 @@ describe('Electron Config IPC', function() {
     assert.match(mainScript, /if \(type === 'undefined' \|\| type === 'function' \|\| type === 'symbol'\) return undefined;/);
     assert.match(mainScript, /function buildPublicRuntimeConfig\(\) \{/);
     assert.match(mainScript, /delete publicConfig\.desktopActions;/);
-    assert.match(mainScript, /delete publicConfig\.visualMemoryApi;/);
     assert.match(mainScript, /return toIpcSafeValue\(publicConfig\);/);
     assert.match(mainScript, /registerIpcHandler\('config:get', async \(\) => \{\s*return buildPublicRuntimeConfig\(\);\s*\}\);/);
     assert.doesNotMatch(mainScript, /registerIpcHandler\('config:get', async \(\) => \{\s*return runtimeConfig;\s*\}\);/);

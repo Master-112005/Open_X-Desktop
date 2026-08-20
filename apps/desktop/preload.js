@@ -50,12 +50,6 @@ const openxApi = {
   closePlanner: () =>
     ipcRenderer.invoke('window:closePlanner'),
 
-  openGallery: (view = 'timeline') =>
-    ipcRenderer.invoke('window:openGallery', { view }),
-
-  closeGallery: () =>
-    ipcRenderer.invoke('window:closeGallery'),
-
   getConfig: () =>
     ipcRenderer.invoke('config:get'),
 
@@ -263,45 +257,6 @@ const openxApi = {
   deletePlannerEntry: (id) =>
     ipcRenderer.invoke('planner:deleteEntry', { id }),
 
-  getGalleryPhotos: (query = {}) =>
-    ipcRenderer.invoke('gallery:getPhotos', query),
-
-  getGalleryView: (view = 'timeline', query = {}) =>
-    ipcRenderer.invoke('gallery:getView', { ...query, view }),
-
-  getGalleryImageData: (photoId) =>
-    ipcRenderer.invoke('gallery:getImageData', { photoId }),
-
-  openGalleryPhoto: (photoId) =>
-    ipcRenderer.invoke('gallery:openPhoto', { photoId }),
-
-  showGalleryPhoto: (photoId) =>
-    ipcRenderer.invoke('gallery:showPhoto', { photoId }),
-
-  toggleGalleryFavorite: (photoId, favorite = null) =>
-    ipcRenderer.invoke('gallery:toggleFavorite', { photoId, favorite }),
-
-  nameGalleryFace: (clusterId, name, relationship = '') =>
-    ipcRenderer.invoke('gallery:nameFace', { clusterId, name, relationship }),
-
-  setGalleryFaceRelationship: (identityId, relationship = '') =>
-    ipcRenderer.invoke('gallery:setFaceRelationship', { identityId, relationship }),
-
-  updateGalleryFacePerson: (identityId, name, relationship = '') =>
-    ipcRenderer.invoke('gallery:updateFacePerson', { identityId, name, relationship }),
-
-  deleteGalleryFacePerson: (identityId) =>
-    ipcRenderer.invoke('gallery:deleteFacePerson', { identityId }),
-
-  addGalleryFaceToPerson: (clusterId, identityId) =>
-    ipcRenderer.invoke('gallery:addFaceToPerson', { clusterId, identityId }),
-
-  removeGalleryFaceCluster: (clusterId) =>
-    ipcRenderer.invoke('gallery:removeFaceCluster', { clusterId }),
-
-  scanGalleryPeople: (options = {}) =>
-    ipcRenderer.invoke('gallery:scanPeople', options),
-
   quit: () =>
     ipcRenderer.invoke('app:quit'),
 
@@ -458,32 +413,6 @@ const openxApi = {
     return () => ipcRenderer.removeListener('planner:entriesChanged', handler);
   },
 
-  onGalleryView: (callback) => {
-    if (typeof callback !== 'function') {
-      throw new TypeError('Gallery view listener must be a function');
-    }
-    const handler = (_event, view) => callback(view);
-    ipcRenderer.on('gallery:view', handler);
-    return () => ipcRenderer.removeListener('gallery:view', handler);
-  },
-
-  onGalleryOpenPhoto: (callback) => {
-    if (typeof callback !== 'function') {
-      throw new TypeError('Gallery photo listener must be a function');
-    }
-    const handler = (_event, payload) => callback(payload);
-    ipcRenderer.on('gallery:openPhoto', handler);
-    return () => ipcRenderer.removeListener('gallery:openPhoto', handler);
-  },
-
-  onGalleryPeopleScanProgress: (callback) => {
-    if (typeof callback !== 'function') {
-      throw new TypeError('Gallery people scan listener must be a function');
-    }
-    const handler = (_event, payload) => callback(payload);
-    ipcRenderer.on('gallery:peopleScanProgress', handler);
-    return () => ipcRenderer.removeListener('gallery:peopleScanProgress', handler);
-  }
 };
 
 contextBridge.exposeInMainWorld('openx', openxApi);

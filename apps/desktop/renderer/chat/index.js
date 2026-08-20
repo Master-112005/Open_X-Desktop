@@ -2,10 +2,6 @@ const messagesEl = document.getElementById('messages');
 const inputBox = document.getElementById('input-box');
 const sendBtn = document.getElementById('send-btn');
 const closeBtn = document.getElementById('close-btn');
-const aboutButtons = Array.from(document.querySelectorAll('[data-about-trigger]'));
-const aboutOverlay = document.getElementById('about-overlay');
-const aboutPanel = document.getElementById('about-panel');
-const aboutCloseBtn = document.getElementById('about-close-btn');
 const settingsOverlay = document.getElementById('settings-overlay');
 const settingsCloseBtn = document.getElementById('settings-close-btn');
 const settingsNavEl = document.getElementById('settings-nav');
@@ -33,7 +29,6 @@ const cloudLastConnectedEl = document.getElementById('cloud-last-connected');
 const cloudDurationEl = document.getElementById('cloud-duration');
 const cloudPingEl = document.getElementById('cloud-ping');
 const cloudReconnectAttemptsEl = document.getElementById('cloud-reconnect-attempts');
-const cloudVersionEl = document.getElementById('cloud-version');
 const cloudConnectBtn = document.getElementById('cloud-connect-btn');
 const cloudFriendlyStatusEl = document.getElementById('cloud-friendly-status');
 const cloudGenerateQrBtn = document.getElementById('cloud-generate-qr-btn');
@@ -84,7 +79,6 @@ const remoteViewBtn = document.getElementById('remote-view-btn');
 const peopleChatAppBtn = document.getElementById('people-chat-app-btn');
 const calendarAppBtn = document.getElementById('calendar-app-btn');
 const remindersAppBtn = document.getElementById('reminders-app-btn');
-const galleryAppBtn = document.getElementById('gallery-app-btn');
 const mobileAppBtn = document.getElementById('mobile-app-btn');
 const homeAutomationAppBtn = document.getElementById('home-automation-app-btn');
 const settingsAppBtn = document.getElementById('settings-app-btn');
@@ -222,7 +216,6 @@ const DEFAULT_CHAT_HISTORY_LIMIT = 300;
 const MIN_CHAT_HISTORY_LIMIT = 50;
 const MAX_CHAT_HISTORY_LIMIT = 1000;
 const MAX_RENDERED_MESSAGES = MAX_CHAT_HISTORY_LIMIT;
-const MAX_CHAT_VISUAL_RESULTS = 10;
 const PEOPLE_CHAT_LIMIT = 30;
 const PEOPLE_CHAT_HISTORY_LIMIT = 300;
 const PEOPLE_CHAT_SEARCH_DEBOUNCE_MS = 220;
@@ -290,7 +283,6 @@ let selectedModeIndex = 0;
 const selectedModeApps = new Map();
 let activeWorkspaceView = 'chat';
 let activeRemindersTab = 'reminders';
-let activeAboutTrigger = null;
 let remoteTargets = [];
 let selectedRemoteTargetKey = '';
 let remoteTargetsLoading = false;
@@ -344,9 +336,7 @@ let cloudPairingCountdownHandle = null;
 let settingsStatusPollHandle = null;
 let settingsStatusPollInFlight = false;
 let latestCloudStatus = null;
-let imagePreviewOverlay = null;
 let imagePreviewKeydownHandler = null;
-let imagePreviewState = null;
 let chatHistorySaveQueue = Promise.resolve();
 let uiStateSaveQueue = Promise.resolve();
 let chatHistorySaveTimer = null;
@@ -397,39 +387,6 @@ function getAssistantDisplayName() {
 
 function getHonorific() {
   return settingsSnapshot?.settings?.assistant?.honorific || 'sir';
-}
-
-function setAboutText(id, value) {
-  const element = document.getElementById(id);
-  if (element) element.textContent = value || '--';
-}
-
-function aboutCloudLabel() {
-  if (!latestCloudStatus) return 'Not loaded';
-  return latestCloudStatus.connected ? 'Connected' : 'Disconnected';
-}
-
-async function readAboutVersion() {
-  if (!window.openx?.getConfig) return null;
-  try {
-    const config = await window.openx.getConfig();
-    return config?.app?.version || null;
-  } catch (_) {
-    return null;
-  }
-}
-
-async function refreshAboutPanel() {
-  const assistantName = getAssistantDisplayName();
-  const cloudSettings = settingsSnapshot?.settings?.cloud || {};
-  setAboutText('about-assistant', assistantName);
-  setAboutText('about-cloud', aboutCloudLabel());
-  setAboutText('about-relay', latestCloudStatus?.relayUrl || cloudSettings.relayUrl || '--');
-  setAboutText('about-platform', window.navigator?.platform || 'Desktop');
-  setAboutText('about-version', 'Loading...');
-
-  const version = await readAboutVersion();
-  setAboutText('about-version', version || '--');
 }
 
 function assistantMeta(label = 'just now') {
@@ -788,20 +745,6 @@ function repaintConversationIfBlank() {
 
 function normalizeResultEntries(result) {
   const intent = String(result?.intent || '');
-  const visualResults = Array.isArray(result?.data?.visualResults) ? result.data.visualResults : [];
-  if (visualResults.length > 0) {
-    return visualResults.slice(0, MAX_CHAT_VISUAL_RESULTS).map((entry, index) => ({
-      index: index + 1,
-      name: String(entry?.title || entry?.fileName || `Photo ${index + 1}`),
-      type: 'photo',
-      photoId: String(entry?.photoId || ''),
-      path: String(entry?.path || ''),
-      location: String(entry?.fileName || ''),
-      createdAt: String(entry?.createdAt || ''),
-      sizeMB: 0,
-      matchScore: Number(entry?.confidence || 0) * 100
-    })).filter(entry => entry.photoId);
-  }
   if (intent === 'browser.search') {
     const sources = Array.isArray(result?.data?.searchSummary?.sources)
       ? result.data.searchSummary.sources
@@ -849,180 +792,8 @@ function normalizeResultEntries(result) {
   }));
 }
 
-async function hydrateVisualResultCard(card, photoId) {
-  if (!card || !photoId || card.dataset.loaded === 'true') return;
-  try {
-    const result = await window.openx?.getGalleryImageData?.(photoId);
-    const src = result?.data?.src || '';
-    if (!src) return;
-    const image = card.querySelector('img');
-    if (!image) return;
-    image.src = src;
-    image.addEventListener('load', () => {
-      card.dataset.loaded = 'true';
-    }, { once: true });
-    if (image.complete) card.dataset.loaded = 'true';
-  } catch {
-    // Keep the metadata card visible if preview loading fails.
-  }
-}
-
-function ensureImagePreviewOverlay() {
-  if (imagePreviewOverlay) return imagePreviewOverlay;
-  const overlay = document.createElement('div');
-  overlay.id = 'chat-image-preview-overlay';
-  overlay.hidden = true;
-  const panel = document.createElement('section');
-  panel.className = 'chat-image-preview-panel';
-  panel.setAttribute('role', 'dialog');
-  panel.setAttribute('aria-modal', 'true');
-  panel.setAttribute('aria-labelledby', 'chat-image-preview-title');
-  panel.tabIndex = -1;
-
-  const closeButton = document.createElement('button');
-  closeButton.className = 'chat-image-preview-close';
-  closeButton.type = 'button';
-  closeButton.setAttribute('aria-label', 'Close image preview');
-  closeButton.textContent = 'x';
-
-  const media = document.createElement('div');
-  media.className = 'chat-image-preview-media';
-  const image = document.createElement('img');
-  image.alt = '';
-  image.decoding = 'async';
-  const empty = document.createElement('div');
-  empty.className = 'chat-image-preview-empty';
-  empty.textContent = 'Preview unavailable';
-  media.append(image, empty);
-
-  const copy = document.createElement('div');
-  copy.className = 'chat-image-preview-copy';
-  const title = document.createElement('strong');
-  title.id = 'chat-image-preview-title';
-  title.textContent = 'Photo Memory';
-  const meta = document.createElement('span');
-  meta.id = 'chat-image-preview-meta';
-  copy.append(title, meta);
-
-  const actions = document.createElement('div');
-  actions.className = 'chat-image-preview-actions';
-  const secondaryButton = document.createElement('button');
-  secondaryButton.className = 'chat-image-preview-secondary';
-  secondaryButton.type = 'button';
-  secondaryButton.textContent = 'Close';
-  const primaryButton = document.createElement('button');
-  primaryButton.className = 'chat-image-preview-primary';
-  primaryButton.type = 'button';
-  primaryButton.textContent = 'Open in Gallery';
-  actions.append(secondaryButton, primaryButton);
-
-  panel.append(closeButton, media, copy, actions);
-  overlay.appendChild(panel);
-  const close = () => closeChatImagePreview();
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) close();
-  });
-  closeButton.addEventListener('click', close);
-  secondaryButton.addEventListener('click', close);
-  primaryButton.addEventListener('click', () => {
-    const photoId = imagePreviewState?.photoId;
-    if (photoId) {
-      window.openx?.showGalleryPhoto?.(photoId);
-    }
-  });
-  imagePreviewKeydownHandler = (event) => {
-    if (event.key === 'Escape' && !overlay.hidden) close();
-  };
-  document.addEventListener('keydown', imagePreviewKeydownHandler);
-  document.body.appendChild(overlay);
-  imagePreviewOverlay = overlay;
-  return overlay;
-}
-
-function closeChatImagePreview() {
-  if (!imagePreviewOverlay) return;
-  imagePreviewOverlay.hidden = true;
-  imagePreviewOverlay.classList.remove('visible');
-  imagePreviewState = null;
-}
-
-async function openChatImagePreview(entry) {
-  const photoId = String(entry?.photoId || '').trim();
-  if (!photoId) return;
-  const overlay = ensureImagePreviewOverlay();
-  const panel = overlay.querySelector('.chat-image-preview-panel');
-  const image = overlay.querySelector('.chat-image-preview-media img');
-  const empty = overlay.querySelector('.chat-image-preview-empty');
-  const title = overlay.querySelector('#chat-image-preview-title');
-  const meta = overlay.querySelector('#chat-image-preview-meta');
-  const primary = overlay.querySelector('.chat-image-preview-primary');
-  imagePreviewState = { ...entry, photoId };
-  title.textContent = entry?.name || 'Photo Memory';
-  meta.textContent = [entry?.matchScore > 0 ? `${Math.round(entry.matchScore)}% match` : '', entry?.createdAt || '', entry?.location || entry?.path || '']
-    .filter(Boolean)
-    .join(' - ');
-  image.removeAttribute('src');
-  image.alt = entry?.name || 'Photo preview';
-  image.hidden = true;
-  empty.hidden = false;
-  empty.textContent = 'Loading preview...';
-  primary.disabled = false;
-  overlay.hidden = false;
-  requestAnimationFrame(() => overlay.classList.add('visible'));
-  panel?.focus?.();
-  try {
-    const result = await window.openx?.getGalleryImageData?.(photoId);
-    const src = result?.data?.src || '';
-    if (!src || imagePreviewState?.photoId !== photoId) {
-      empty.textContent = 'Preview unavailable';
-      return;
-    }
-    image.src = src;
-    image.hidden = false;
-    empty.hidden = true;
-  } catch {
-    empty.textContent = 'Preview unavailable';
-  }
-}
-
-function addVisualResultCards(bubble, resultEntries) {
-  const strip = document.createElement('div');
-  strip.className = 'visual-result-strip';
-  strip.setAttribute('aria-label', 'Visual memory search results');
-  for (const entry of resultEntries) {
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'visual-result-card';
-    card.dataset.photoId = entry.photoId;
-    card.setAttribute('aria-label', `Open ${entry.name}`);
-
-    const image = document.createElement('img');
-    image.alt = entry.name;
-    image.loading = 'lazy';
-    image.decoding = 'async';
-
-    const meta = document.createElement('span');
-    meta.className = 'visual-result-meta';
-    const title = document.createElement('strong');
-    title.textContent = entry.name;
-    const confidence = document.createElement('small');
-    confidence.textContent = entry.matchScore > 0 ? `${Math.round(entry.matchScore)}% match` : 'Possible match';
-    meta.append(title, confidence);
-    card.append(image, meta);
-    card.addEventListener('click', () => openChatImagePreview(entry));
-    strip.appendChild(card);
-    hydrateVisualResultCard(card, entry.photoId);
-  }
-  bubble.appendChild(strip);
-}
-
 function addResultCards(bubble, resultEntries) {
   if (!Array.isArray(resultEntries) || resultEntries.length === 0) return;
-  const visualEntries = resultEntries.filter(entry => entry.type === 'photo');
-  if (visualEntries.length > 0) {
-    addVisualResultCards(bubble, visualEntries);
-    return;
-  }
   const list = document.createElement('ol');
   list.className = 'message-result-list';
   for (const entry of resultEntries) {
@@ -1079,10 +850,6 @@ function addMessage(text, type, meta, options = {}) {
   bubble.className = 'message-bubble';
   bubble.textContent = safeText;
   const resultEntries = Array.isArray(options.resultEntries) ? options.resultEntries : [];
-  const hasVisualResultEntries = type === 'assistant' && resultEntries.some(entry => entry?.type === 'photo');
-  if (hasVisualResultEntries) {
-    bubble.classList.add('message-bubble--visual-results');
-  }
   if (type === 'assistant' && resultEntries.length > 0) {
     addResultCards(bubble, resultEntries);
   }
@@ -4893,22 +4660,6 @@ function updateSettingsSummary() {
   document.getElementById('settings-hero-learning').textContent = settingsSnapshot?.settings?.activeLearning?.enabled === false ? 'Disabled' : 'Enabled';
 }
 
-async function openAboutPanel() {
-  if (!aboutOverlay) return;
-  aboutOverlay.hidden = false;
-  aboutButtons.forEach(button => button.setAttribute('aria-expanded', 'true'));
-  aboutPanel?.focus?.({ preventScroll: true });
-  await refreshAboutPanel();
-}
-
-function closeAboutPanel() {
-  if (!aboutOverlay || aboutOverlay.hidden) return;
-  aboutOverlay.hidden = true;
-  aboutButtons.forEach(button => button.setAttribute('aria-expanded', 'false'));
-  activeAboutTrigger?.focus?.({ preventScroll: true });
-  activeAboutTrigger = null;
-}
-
 function ensureWelcomeMessage() {
   if (hasRenderedWelcome) {
     return;
@@ -5256,9 +5007,8 @@ function updateMobileAppPresentation() {
     mobileConnectedDeviceNameEl.textContent = device?.friendlyName || device?.deviceName || 'OpenX Mobile';
   }
   if (mobileConnectedDeviceMetaEl) {
-    const version = device?.softwareVersion ? ` - v${device.softwareVersion}` : '';
     mobileConnectedDeviceMetaEl.textContent = connected
-      ? `Connected${version}`
+      ? 'Connected'
       : 'Scan a QR code from OpenX Mobile to pair this desktop.';
   }
 }
@@ -5275,9 +5025,6 @@ function renderCloudStatus(status) {
   if (cloudDurationEl) cloudDurationEl.textContent = formatCloudDuration(safeStatus.connectionDurationMs);
   if (cloudPingEl) cloudPingEl.textContent = Number.isFinite(Number(safeStatus.pingMs)) ? `${Math.round(Number(safeStatus.pingMs))} ms` : 'Pending';
   if (cloudReconnectAttemptsEl) cloudReconnectAttemptsEl.textContent = String(Number(safeStatus.reconnectAttempts) || 0);
-  if (cloudVersionEl) {
-    cloudVersionEl.textContent = safeStatus.serverVersion || '--';
-  }
   if (cloudFriendlyStatusEl) {
     cloudFriendlyStatusEl.textContent = safeStatus.friendlyMessage || 'Cloud mode is disconnected. Local mode is active.';
   }
@@ -5288,9 +5035,6 @@ function renderCloudStatus(status) {
   }
   if (cloudGenerateQrBtn) {
     cloudGenerateQrBtn.disabled = safeStatus.connected !== true;
-  }
-  if (aboutOverlay && !aboutOverlay.hidden) {
-    refreshAboutPanel();
   }
   if (safeStatus.connected !== true && cloudPairingStatusEl) {
     cloudPairingStatusEl.textContent = 'Connect to Relay Server first.';
@@ -5631,7 +5375,6 @@ function createManagedPhoneDeviceCard(device) {
   [
     ['Status', isConnected ? 'Connected' : 'Offline'],
     ['Trust', device.trusted === true ? 'Trusted' : 'Untrusted'],
-    ['Version', device.softwareVersion || 'Unknown'],
     ['Last seen', formatCompactDeviceDate(device.lastSeen)]
   ].forEach(([label, value]) => {
     const item = document.createElement('div');
@@ -5837,9 +5580,6 @@ remindersAppBtn?.addEventListener('click', () => {
   openRemindersApp();
   window.setTimeout(() => remindersAppBtn.classList.remove('opening'), 180);
 });
-galleryAppBtn?.addEventListener('click', () => {
-  runHeaderApp(galleryAppBtn, () => window.openx?.openGallery?.('timeline'));
-});
 mobileAppBtn?.addEventListener('click', () => {
   mobileAppBtn.classList.add('opening');
   openMobileApp();
@@ -5899,17 +5639,6 @@ document.getElementById('clear-notifications-btn').addEventListener('click', () 
   renderNotifications();
 });
 closeBtn.addEventListener('click', closeChatWindow);
-aboutButtons.forEach(button => {
-  button.addEventListener('click', () => {
-    activeAboutTrigger = button;
-    if (aboutOverlay && !aboutOverlay.hidden) {
-      closeAboutPanel();
-    } else {
-      openAboutPanel();
-    }
-  });
-});
-aboutCloseBtn?.addEventListener('click', closeAboutPanel);
 settingsCloseBtn.addEventListener('click', closeSettingsPanel);
 settingsNavButtons.forEach(button => {
   button.addEventListener('click', () => {
@@ -6069,11 +5798,6 @@ settingsOverlay.addEventListener('click', (event) => {
     closeSettingsPanel();
   }
 });
-aboutOverlay?.addEventListener('click', (event) => {
-  if (event.target === aboutOverlay) {
-    closeAboutPanel();
-  }
-});
 phoneDeviceRemoveCancel?.addEventListener('click', closePhoneDeviceRemoveDialog);
 phoneDeviceRemoveConfirm?.addEventListener('click', confirmPhoneDeviceRemoval);
 securityUnlockCancel?.addEventListener('click', () => closeSecurityUnlockDialog(''));
@@ -6093,10 +5817,6 @@ securityUnlockDialog?.addEventListener('click', (event) => {
   if (event.target === securityUnlockDialog) closeSecurityUnlockDialog('');
 });
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && aboutOverlay && !aboutOverlay.hidden) {
-    closeAboutPanel();
-    return;
-  }
   if (event.key === 'Escape' && securityUnlockDialog && !securityUnlockDialog.hidden) {
     closeSecurityUnlockDialog('');
     return;

@@ -79,7 +79,6 @@ const CANCEL_PATTERNS = [
   /\b(?:do\s+not|dont)\s+(?:continue|do|proceed|run|execute|close|delete|shutdown|restart)\b/
 ];
 
-const MAX_CHAT_VISUAL_RESULTS = 10;
 const LOCAL_LLM_CONVERSATION_INTENTS = new Set([
   'greeting',
   'thanks',
@@ -143,8 +142,7 @@ class Assistant extends EventEmitter {
     };
     this.automation = dependencies.automation || new AutomationEngine({
       ...(config || {}),
-      eventBus: this.eventBus,
-      visualMemoryApi: dependencies.visualMemoryApi || config?.visualMemoryApi || null
+      eventBus: this.eventBus
     });
     this.router = dependencies.router || new ActionRouter(routerConfig, this.automation);
     if (this.router && !this.router.learningStore) {
@@ -195,7 +193,6 @@ class Assistant extends EventEmitter {
       normalization: config?.assistantIntelligence?.normalization || config?.assistant?.normalization || {},
       linguistic: config?.assistantIntelligence?.linguistic || config?.assistant?.linguistic || {},
       semantic: config?.assistantIntelligence?.semantic || config?.assistant?.semantic || {},
-      visualMemoryApi: dependencies.visualMemoryApi || config?.visualMemoryApi || null,
       commandExecutor: (nextInput, nextSource, nextOptions) => this._processCommandDirect(nextInput, nextSource, nextOptions),
       logger: this.logger
     });
@@ -297,7 +294,6 @@ class Assistant extends EventEmitter {
         signal,
         executionContext
       }), { input, routedInput, source, stage: 'router.process', signal: options.signal });
-      this._attachVisualMemorySearchResults(result, pipelineContext);
       const localLlmResult = await this._tryLocalLlmFallback(input, routedInput, source, result);
       if (localLlmResult) {
         result = localLlmResult;
@@ -2449,57 +2445,6 @@ class Assistant extends EventEmitter {
         });
       }
     }
-  }
-
-  _attachVisualMemorySearchResults(result, pipelineContext = null) {
-    const intent = String(result?.intent || '');
-    if (!['visualMemory.openGallery', 'visualMemory.search'].includes(intent)) {
-      return result;
-    }
-    const visualSearch = pipelineContext?.visualMemorySearch ||
-      pipelineContext?.get?.('assistant.visualMemorySearch') ||
-      pipelineContext?.visualMemoryCapability?.result?.data ||
-      null;
-    const results = Array.isArray(visualSearch?.results) ? visualSearch.results : [];
-    if (!result || results.length === 0) return result;
-
-    const visualResults = results.slice(0, MAX_CHAT_VISUAL_RESULTS).map((entry, index) => {
-      const photo = entry?.candidate?.photo || {};
-      const metadata = entry?.candidate?.metadata || {};
-      const path = String(entry?.path || photo.filePath || metadata.filePath || '');
-      const fileName = String(photo.fileName || path.split(/[\\/]/).filter(Boolean).pop() || entry?.title || `Photo ${index + 1}`);
-      return {
-        index: index + 1,
-        photoId: String(entry?.photoId || photo.id || metadata.photoId || ''),
-        title: String(entry?.title || fileName),
-        fileName,
-        path,
-        createdAt: entry?.createdAt || photo.createdAt || metadata.createdAt || '',
-        confidence: Number(entry?.confidence || 0),
-        type: String(entry?.type || 'photo')
-      };
-    }).filter(entry => entry.photoId);
-
-    if (visualResults.length === 0) return result;
-    result.data = {
-      ...(result.data || {}),
-      visualSearch: {
-        success: visualSearch.success === true,
-        total: Number(visualSearch.total || results.length),
-        shown: visualResults.length,
-        strategies: visualSearch.reasoning?.strategies || [],
-        continuationToken: visualSearch.continuationToken || null
-      },
-      visualResults
-    };
-    const shownCount = visualResults.length;
-    const totalCount = Number(visualSearch.total || results.length || shownCount);
-    result.response = shownCount === 1
-      ? 'I found 1 possible photo.'
-      : (Number.isFinite(totalCount) && totalCount > shownCount
-        ? `I found the best ${shownCount} photo matches.`
-        : `I found ${shownCount} possible photos.`);
-    return result;
   }
 
   _resolveScheduleFollowUp(normalized) {

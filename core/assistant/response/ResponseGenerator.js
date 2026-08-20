@@ -1,7 +1,6 @@
 const path = require('path');
 const ResponseStyleManager = require('./ResponseStyleManager');
 
-const MAX_CHAT_VISUAL_RESULTS = 10;
 
 const { applyFormalAddress } = (() => {
 const ALLOWED_HONORIFICS = new Set(['sir', 'master', 'boss', 'commander']);
@@ -1342,25 +1341,6 @@ const RESPONSE_BUILDERS = {
       'Your timetable is open.',
       'Bringing up the timetable.'
     ]),
-    'visualMemory.openGallery': context => chooseVariant(responseSeed(context, 'visualMemory.openGallery'), [
-      'Opening OpenX Gallery.',
-      'OpenX Gallery is ready.',
-      'Bringing up your OpenX Gallery.'
-    ]),
-    'visualMemory.search': context => {
-      const visualSearch = valueFromContext(context, 'visualSearch', null);
-      const shown = Number(visualSearch?.shown || 0);
-      const rawCount = shown || Number(valueFromContext(context, 'count', 0));
-      const total = Number(visualSearch?.total || rawCount || 0);
-      const count = rawCount > MAX_CHAT_VISUAL_RESULTS ? MAX_CHAT_VISUAL_RESULTS : rawCount;
-      if (count > 0) {
-        if (count === 1) return 'I found 1 possible photo.';
-        return Number.isFinite(total) && total > count
-          ? `I found the best ${count} photo matches.`
-          : `I found ${count} possible photos.`;
-      }
-      return 'I searched your photo memories.';
-    },
     'calendar.add': context => {
       const entry = valueFromContext(context, 'entry', {});
       const title = entry?.title || valueFromContext(context, 'plannerText', 'that item');

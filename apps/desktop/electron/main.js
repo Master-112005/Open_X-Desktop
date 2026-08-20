@@ -18,7 +18,6 @@ const {
   readSecureJsonFile: readJsonFile,
   writeSecureJsonAtomic: writeJsonAtomic
 } = require('../../../core/assistant/Data');
-const { VisualMemoryEngine } = require('../../../core/assistant/capabilities/visual-memory');
 const { ConversationManager } = require('../../../core/chat/conversations');
 const { CryptoManager } = require('../../../core/chat/crypto');
 const { MessageManager } = require('../../../core/chat/messages');
@@ -280,14 +279,8 @@ let pendingIslandItems = [];
 let timerWidgetWindow = null;
 let timerWidgetMode = null;
 let plannerWindow = null;
-let galleryWindow = null;
 let tray = null;
 let assistant = null;
-let visualMemoryEngine = null;
-let visualMemoryDefaultFoldersReady = false;
-let visualMemoryIndexPromise = null;
-let lazyVisualMemoryApi = null;
-let visualMemoryReadyLogged = false;
 let powerRecoveryHandlersRegistered = false;
 let settingsService = null;
 let runtimeConfig = null;
@@ -383,8 +376,6 @@ const IPC_CHANNELS = [
   'window:openSettings',
   'window:openPlanner',
   'window:closePlanner',
-  'window:openGallery',
-  'window:closeGallery',
   'config:get',
   'settings:get',
   'assistantChatHistory:get',
@@ -440,19 +431,6 @@ const IPC_CHANNELS = [
   'planner:getEntries',
   'planner:addEntry',
   'planner:deleteEntry',
-  'gallery:getView',
-  'gallery:getPhotos',
-  'gallery:getImageData',
-  'gallery:openPhoto',
-  'gallery:showPhoto',
-  'gallery:toggleFavorite',
-  'gallery:nameFace',
-  'gallery:setFaceRelationship',
-  'gallery:updateFacePerson',
-  'gallery:deleteFacePerson',
-  'gallery:addFaceToPerson',
-  'gallery:removeFaceCluster',
-  'gallery:scanPeople',
   'app:quit'
 ];
 
@@ -4458,455 +4436,6 @@ function createPlannerWindow(initialView = 'calendar', options = {}) {
   });
 }
 
-async function ensureVisualMemoryRuntime() {
-  if (!visualMemoryEngine) {
-    const dataDir = runtimeConfig?.app?.dataPaths?.visualMemoryDir || BASE_CONFIG.app.dataPaths.visualMemoryDir;
-    mainLogger.info('[Gallery] Preparing OpenX Visual Memory runtime.', { dataDir });
-    visualMemoryEngine = new VisualMemoryEngine({
-      dataDir,
-      logging: { console: false, file: false },
-      logger: mainLogger
-    });
-  }
-  await visualMemoryEngine.api.start();
-  if (!visualMemoryReadyLogged) {
-    visualMemoryReadyLogged = true;
-    mainLogger.info('[Gallery] Visual Memory runtime is ready for photos, people, and memory search.', {
-      state: visualMemoryEngine.getStatus?.().lifecycle?.state,
-      localOnly: visualMemoryEngine.getStatus?.().localOnly
-    });
-  }
-  if (!visualMemoryDefaultFoldersReady) {
-    try {
-      await visualMemoryEngine.api.addDefaultFolders();
-      visualMemoryDefaultFoldersReady = true;
-      mainLogger.info('[Gallery] Windows Pictures folders registered for Gallery access.');
-    } catch (error) {
-      mainLogger.warn('[Gallery] Windows Pictures folders could not be registered for Gallery access.', { error: error.message });
-    }
-  }
-  return visualMemoryEngine;
-}
-
-function getLazyVisualMemoryApi() {
-  if (lazyVisualMemoryApi) return lazyVisualMemoryApi;
-  lazyVisualMemoryApi = new Proxy({}, {
-    get(_target, property) {
-      if (property === 'then') return undefined;
-      return async (...args) => {
-        const engine = await ensureVisualMemoryRuntime();
-        const member = engine.api[property];
-        if (typeof member === 'function') return member.apply(engine.api, args);
-        return member;
-      };
-    }
-  });
-  return lazyVisualMemoryApi;
-}
-
-async function ensureVisualMemoryGalleryIndexed() {
-  if (visualMemoryIndexPromise) return visualMemoryIndexPromise;
-  visualMemoryIndexPromise = (async () => {
-    const engine = await ensureVisualMemoryRuntime();
-    const folders = engine.api.listFolders();
-    const needsIndex = folders.some(folder => folder?.enabled !== false && !folder.lastIndexedAt);
-    const existingTotal = Object.keys(engine.database.getTable('photos') || {}).length;
-    if (!needsIndex && existingTotal > 0) {
-      mainLogger.info('[Gallery] Photo index is already fresh; using existing Gallery library.', { totalPhotos: existingTotal });
-      return { skipped: true, total: existingTotal };
-    }
-    mainLogger.info('[Gallery] Photo indexing started in the background.', {
-      folders: folders.filter(folder => folder?.enabled !== false).length,
-      existingPhotos: existingTotal
-    });
-    return engine.api.refreshGallery({
-      maxDepth: runtimeConfig?.visualMemory?.performance?.maxIndexDepth || 8,
-      maxFiles: runtimeConfig?.visualMemory?.performance?.maxIndexFiles || 50000
-    });
-  })().finally(() => {
-    visualMemoryIndexPromise = null;
-  });
-  return visualMemoryIndexPromise;
-}
-
-function isVisualMemoryIndexing() {
-  return Boolean(visualMemoryIndexPromise);
-}
-
-function createGalleryWindow(initialView = 'timeline', options = {}) {
-  const view = ['timeline', 'photos', 'favorites', 'recent', 'people'].includes(String(initialView || '').toLowerCase())
-    ? String(initialView || 'timeline').toLowerCase()
-    : 'timeline';
-  if (galleryWindow && !galleryWindow.isDestroyed()) {
-    galleryWindow.show();
-    galleryWindow.focus();
-    galleryWindow.webContents.send('gallery:view', view);
-    if (options.lowerChat) lowerChatWindowForPlanner();
-    return { success: true, view };
-  }
-
-  galleryWindow = new BrowserWindow({
-    width: 1160,
-    height: 760,
-    minWidth: 900,
-    minHeight: 620,
-    transparent: true,
-    frame: false,
-    resizable: true,
-    skipTaskbar: false,
-    alwaysOnTop: false,
-    hasShadow: true,
-    show: false,
-    paintWhenInitiallyHidden: true,
-    backgroundColor: '#00000000',
-    webPreferences: createSecureWebPreferences(PRELOAD_PATH)
-  });
-
-  const galleryFile = path.join(RENDERER_ROOT, 'gallery', 'index.html');
-  secureWindow(galleryWindow, {
-    windowType: 'gallery',
-    expectedFile: galleryFile,
-    createWindow: () => createGalleryWindow(view, options)
-  });
-  let didRevealGallery = false;
-  const revealGallery = () => {
-    if (didRevealGallery || !galleryWindow || galleryWindow.isDestroyed()) return;
-    didRevealGallery = true;
-    galleryWindow.center();
-    galleryWindow.show();
-    galleryWindow.focus();
-    if (options.lowerChat) lowerChatWindowForPlanner();
-  };
-  galleryWindow.once('ready-to-show', revealGallery);
-  galleryWindow.loadFile(galleryFile).then(() => {
-    if (galleryWindow && !galleryWindow.isDestroyed()) {
-      galleryWindow.webContents.send('gallery:view', view);
-      revealGallery();
-    }
-  }).catch(error => {
-    mainLogger.error('Failed to load gallery renderer', { error: error.message });
-  });
-  galleryWindow.on('closed', () => {
-    galleryWindow = null;
-    restoreChatWindowPriority();
-  });
-  return { success: true, view };
-}
-
-function sendGalleryOpenPhoto(photoId, viewer = null) {
-  if (!galleryWindow || galleryWindow.isDestroyed()) return;
-  const send = () => {
-    if (!galleryWindow || galleryWindow.isDestroyed()) return;
-    galleryWindow.webContents.send('gallery:openPhoto', { photoId, viewer });
-  };
-  if (galleryWindow.webContents.isLoading()) {
-    galleryWindow.webContents.once('did-finish-load', () => setTimeout(send, 50));
-  } else {
-    send();
-  }
-}
-
-function sendGalleryPeopleScanProgress(payload = {}) {
-  if (!galleryWindow || galleryWindow.isDestroyed()) return;
-  galleryWindow.webContents.send('gallery:peopleScanProgress', {
-    stage: String(payload.stage || 'scan'),
-    message: String(payload.message || ''),
-    detail: String(payload.detail || ''),
-    success: payload.success,
-    reason: String(payload.reason || ''),
-    scanned: Number(payload.scanned || 0),
-    total: Number(payload.total || 0),
-    percent: payload.percent === null ? null : Number(payload.percent || 0),
-    indexedPhotos: Number(payload.indexedPhotos || 0),
-    alreadyKnownPhotos: Number(payload.alreadyKnownPhotos || 0),
-    detectedFaces: Number(payload.detectedFaces || 0),
-    verifiedFaces: Number(payload.verifiedFaces || 0),
-    newUnnamedPeople: Number(payload.newUnnamedPeople || 0),
-    namedPeople: Number(payload.namedPeople || 0),
-    readyToName: Number(payload.readyToName || 0),
-    matchedKnownPeople: Number(payload.matchedKnownPeople || 0),
-    duplicateFacesSkipped: Number(payload.duplicateFacesSkipped || 0),
-    duplicatePeopleMerged: Number(payload.duplicatePeopleMerged || 0),
-    unclearFacesRemoved: Number(payload.unclearFacesRemoved || 0),
-    skipped: Number(payload.skipped || 0),
-    warnings: Number(payload.warnings || 0),
-    durationMs: Number(payload.durationMs || 0),
-    timestamp: String(payload.timestamp || new Date().toISOString())
-  });
-}
-
-function mimeTypeForImage(filePath) {
-  const extension = path.extname(String(filePath || '')).toLowerCase();
-  if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg';
-  if (extension === '.png') return 'image/png';
-  if (extension === '.gif') return 'image/gif';
-  if (extension === '.webp') return 'image/webp';
-  if (extension === '.bmp') return 'image/bmp';
-  return 'application/octet-stream';
-}
-
-async function getGalleryPhotoData(query = {}) {
-  const engine = await ensureVisualMemoryRuntime();
-  const folders = engine.api.listFolders();
-  const existingTotal = Object.keys(engine.database.getTable('photos') || {}).length;
-  const needsIndex = folders.some(folder => folder?.enabled !== false && !folder.lastIndexedAt) || existingTotal === 0;
-  if (needsIndex && !isVisualMemoryIndexing()) {
-    mainLogger.info('[Gallery] Gallery needs a photo index refresh; starting background scan.');
-    ensureVisualMemoryGalleryIndexed().catch(error => {
-      mainLogger.warn('[Gallery] Background Gallery photo indexing failed.', { error: error.message });
-    });
-  }
-  const result = engine.api.getPhotos({
-    page: query.page,
-    pageSize: query.pageSize,
-    sortBy: 'createdAt',
-    sortDirection: 'desc'
-  });
-  const metadata = engine.database.getTable('metadata');
-  const items = (result.items || []).map(photo => ({
-    id: photo.id,
-    fileName: photo.fileName,
-    filePath: photo.filePath,
-    fileType: photo.fileType,
-    fileSize: photo.fileSize || 0,
-    createdAt: photo.createdAt || metadata[photo.id]?.createdAt || photo.indexedAt || null,
-    modifiedAt: photo.modifiedAt || null,
-    width: metadata[photo.id]?.width || null,
-    height: metadata[photo.id]?.height || null,
-    city: metadata[photo.id]?.city || '',
-    folderId: photo.folderId || '',
-    thumbnailReady: Boolean(photo.thumbnail)
-  }));
-  return {
-    success: true,
-    data: {
-      items,
-      page: result.page,
-      pageSize: result.pageSize,
-      total: result.total,
-      hasMore: result.hasMore,
-      indexing: isVisualMemoryIndexing()
-    }
-  };
-}
-
-function normalizeGalleryPhotoItem(photo, metadata = {}, extra = {}) {
-  return {
-    id: photo.id,
-    fileName: photo.fileName,
-    filePath: photo.filePath,
-    fileType: photo.fileType,
-    fileSize: photo.fileSize || 0,
-    createdAt: photo.createdAt || metadata?.createdAt || photo.indexedAt || null,
-    modifiedAt: photo.modifiedAt || null,
-    width: metadata?.width || null,
-    height: metadata?.height || null,
-    city: metadata?.city || '',
-    folderId: photo.folderId || '',
-    thumbnailReady: Boolean(photo.thumbnail),
-    ...extra
-  };
-}
-
-async function getGalleryViewData(view = 'timeline', query = {}) {
-  const normalizedView = String(view || 'timeline').toLowerCase();
-  if (normalizedView === 'timeline' || normalizedView === 'photos') return getGalleryPhotoData(query);
-  const engine = await ensureVisualMemoryRuntime();
-  if (normalizedView === 'people') {
-    mainLogger.info('[Gallery] Loading People view from verified face memory.');
-    const people = await engine.api.getOpenXGalleryPeople();
-    return { success: true, data: people };
-  }
-
-  const metadata = engine.database.getTable('metadata');
-  const source = normalizedView === 'favorites'
-    ? await engine.api.getOpenXGalleryFavorites('images')
-    : normalizedView === 'recent'
-      ? await engine.api.getOpenXGalleryRecent('images')
-      : { items: [] };
-  const items = (source.items || [])
-    .map(entry => {
-      const photoId = entry.photoId || entry.id;
-      const photo = engine.api.getPhoto(photoId);
-      if (!photo?.id) return null;
-      return normalizeGalleryPhotoItem(photo, metadata[photo.id] || photo.metadata || {}, {
-        favorite: normalizedView === 'favorites' || entry.favorite === true,
-        favoritedAt: entry.favoritedAt || null,
-        viewedAt: entry.viewedAt || null
-      });
-    })
-    .filter(Boolean);
-  return {
-    success: true,
-    data: {
-      view: normalizedView,
-      items,
-      page: 1,
-      pageSize: items.length,
-      total: items.length,
-      hasMore: false,
-      indexing: isVisualMemoryIndexing()
-    }
-  };
-}
-
-async function getGalleryImageData(photoId) {
-  const engine = await ensureVisualMemoryRuntime();
-  const photo = engine.api.getPhoto(photoId);
-  if (!photo?.filePath) return { success: false, error: 'Photo not found' };
-  const resolved = path.resolve(photo.filePath);
-  if (!fs.existsSync(resolved)) return { success: false, error: 'Image file is missing' };
-  const favorites = await engine.api.getOpenXGalleryFavorites('images');
-  const favorite = Array.isArray(favorites?.items) && favorites.items.some(item => item.id === photo.id);
-  return {
-    success: true,
-    data: {
-      photoId: photo.id,
-      mimeType: mimeTypeForImage(resolved),
-      favorite,
-      src: pathToFileURL(resolved).href
-    }
-  };
-}
-
-async function openGalleryPhotoViewer(photoId) {
-  const engine = await ensureVisualMemoryRuntime();
-  const viewer = await engine.api.openOpenXGalleryViewer(photoId);
-  const favorites = await engine.api.getOpenXGalleryFavorites('images');
-  const favorite = Array.isArray(favorites?.items) && favorites.items.some(item => item.id === photoId);
-  return { ...viewer, favorite };
-}
-
-async function showGalleryPhoto(photoId) {
-  const viewer = await openGalleryPhotoViewer(photoId);
-  createGalleryWindow('timeline', { lowerChat: true });
-  sendGalleryOpenPhoto(photoId, viewer);
-  return { success: true, data: viewer };
-}
-
-async function toggleGalleryPhotoFavorite(photoId, value = null) {
-  const engine = await ensureVisualMemoryRuntime();
-  const favorite = await engine.api.toggleOpenXGalleryFavorite('images', photoId, value);
-  mainLogger.info(favorite?.favorite === false
-    ? '[Gallery] Photo removed from Favorites.'
-    : '[Gallery] Photo added to Favorites.', { photoId });
-  return { success: true, data: favorite };
-}
-
-async function nameGalleryFace(clusterId, name, relationship = '') {
-  const engine = await ensureVisualMemoryRuntime();
-  mainLogger.info('[Gallery] Saving a name for a detected person.', {
-    clusterId,
-    hasName: Boolean(String(name || '').trim()),
-    relationship: relationship || ''
-  });
-  const status = await engine.api.getFaceMemoryStatus();
-  if (!status?.consent?.enabled && status?.enabled !== true) {
-    await engine.api.enableFaceMemory({ acceptedBy: 'gallery-person-naming' });
-  }
-  const result = await engine.api.enrollFaceCluster({ clusterId, name, relationship });
-  mainLogger.info('[Gallery] Person name saved in Face Memory.', {
-    clusterId,
-    identityId: result?.identity?.id || result?.identityId || null,
-    name: result?.identity?.name || name
-  });
-  return { success: true, data: result };
-}
-
-async function setGalleryFaceRelationship(identityId, relationship = '') {
-  const engine = await ensureVisualMemoryRuntime();
-  mainLogger.info('[Gallery] Updating a saved person relationship.', {
-    identityId,
-    relationship: relationship || ''
-  });
-  const result = await engine.api.setFaceRelationship(identityId, relationship, 'gallery-people-relation');
-  mainLogger.info('[Gallery] Saved person relationship updated.', {
-    identityId,
-    relationship: result?.relationship || relationship || ''
-  });
-  return { success: true, data: result };
-}
-
-async function updateGalleryFacePerson(identityId, name, relationship = '') {
-  const engine = await ensureVisualMemoryRuntime();
-  mainLogger.info('[Gallery] Updating a saved person.', {
-    identityId,
-    hasName: Boolean(String(name || '').trim()),
-    relationship: relationship || ''
-  });
-  const result = await engine.api.updateFaceIdentity(identityId, { name, relationship }, 'gallery-people-edit');
-  mainLogger.info('[Gallery] Saved person updated.', {
-    identityId,
-    name: result?.identity?.name || name,
-    relationship: result?.identity?.relationship || relationship || ''
-  });
-  return { success: true, data: result };
-}
-
-async function deleteGalleryFacePerson(identityId) {
-  const engine = await ensureVisualMemoryRuntime();
-  mainLogger.info('[Gallery] Deleting a saved person from Face Memory.', { identityId });
-  const deleted = await engine.api.deleteFaceIdentity(identityId);
-  mainLogger.info(deleted
-    ? '[Gallery] Saved person deleted from Face Memory.'
-    : '[Gallery] Saved person was already removed.', { identityId });
-  return { success: Boolean(deleted), data: { identityId, deleted: Boolean(deleted) } };
-}
-
-async function addGalleryFaceToPerson(clusterId, identityId) {
-  const engine = await ensureVisualMemoryRuntime();
-  mainLogger.info('[Gallery] Adding an unnamed detected face to an existing person.', { clusterId, identityId });
-  const result = await engine.api.addFaceClusterToIdentity({ clusterId, identityId });
-  mainLogger.info('[Gallery] Detected face added to existing person.', {
-    clusterId,
-    identityId,
-    name: result?.identity?.name || result?.profile?.name || ''
-  });
-  return { success: true, data: result };
-}
-
-async function removeGalleryFaceCluster(clusterId) {
-  const engine = await ensureVisualMemoryRuntime();
-  mainLogger.info('[Gallery] Removing an unwanted unnamed face from People.', { clusterId });
-  const removed = await engine.api.deleteFaceCluster(clusterId);
-  mainLogger.info(removed
-    ? '[Gallery] Unwanted face removed from People.'
-    : '[Gallery] Unwanted face was already removed.', { clusterId });
-  return { success: Boolean(removed), data: { clusterId, removed: Boolean(removed) } };
-}
-
-async function scanGalleryPeople(options = {}) {
-  const engine = await ensureVisualMemoryRuntime();
-  mainLogger.info('[Gallery] People scan requested from the Gallery UI.', {
-    maxPhotos: options.maxPhotos || null,
-    scanMode: options.rescan === true ? 'full-rescan' : options.incremental === false ? 'all-without-reset' : 'incremental'
-  });
-  const result = await engine.api.scanGalleryPeople({
-    maxPhotos: options.maxPhotos,
-    rescan: options.rescan === true,
-    incremental: options.incremental === false ? false : true,
-    acceptedBy: 'gallery-people-scan',
-    onProgress: sendGalleryPeopleScanProgress
-  });
-  if (result.success === false) {
-    mainLogger.warn('[Gallery] People scan could not run.', {
-      reason: result.reason,
-      warnings: result.warnings?.length || 0
-    });
-  } else {
-    mainLogger.info('[Gallery] People scan completed and the People view is updated.', {
-      scanned: result.scanned,
-      detectedFaces: result.detectedFaces,
-      verifiedFaces: result.verifiedFaces,
-      grouped: result.grouped,
-      skippedAlreadyScannedPhotos: result.skippedAlreadyScannedPhotos,
-      skipped: result.skipped,
-      warnings: result.warnings?.length || 0
-    });
-  }
-  return { success: result.success !== false, data: result };
-}
-
 function cloudTransferDisplayName(transfer = {}) {
   return String(transfer.fileName || 'file').replace(/\s+/g, ' ').trim().slice(0, 160) || 'file';
 }
@@ -5723,7 +5252,6 @@ function toIpcSafeValue(value, seen = new WeakMap()) {
 function buildPublicRuntimeConfig() {
   const publicConfig = { ...(runtimeConfig || {}) };
   delete publicConfig.desktopActions;
-  delete publicConfig.visualMemoryApi;
   return toIpcSafeValue(publicConfig);
 }
 
@@ -5835,15 +5363,6 @@ function setupIPC() {
 
   registerIpcHandler('window:closePlanner', async () => {
     if (plannerWindow && !plannerWindow.isDestroyed()) plannerWindow.close();
-    return { success: true };
-  });
-
-  registerIpcHandler('window:openGallery', async (_event, { view }) => {
-    return createGalleryWindow(view, { lowerChat: true });
-  });
-
-  registerIpcHandler('window:closeGallery', async () => {
-    if (galleryWindow && !galleryWindow.isDestroyed()) galleryWindow.close();
     return { success: true };
   });
 
@@ -6421,59 +5940,6 @@ function setupIPC() {
     return result;
   });
 
-  registerIpcHandler('gallery:getView', async (_event, payload) => {
-    return getGalleryViewData(payload.view, payload);
-  });
-
-  registerIpcHandler('gallery:getPhotos', async (_event, payload) => {
-    return getGalleryPhotoData(payload);
-  });
-
-  registerIpcHandler('gallery:getImageData', async (_event, { photoId }) => {
-    return getGalleryImageData(photoId);
-  });
-
-  registerIpcHandler('gallery:openPhoto', async (_event, { photoId }) => {
-    const viewer = await openGalleryPhotoViewer(photoId);
-    return { success: true, data: viewer };
-  });
-
-  registerIpcHandler('gallery:showPhoto', async (_event, { photoId }) => {
-    return showGalleryPhoto(photoId);
-  });
-
-  registerIpcHandler('gallery:toggleFavorite', async (_event, { photoId, favorite }) => {
-    return toggleGalleryPhotoFavorite(photoId, favorite);
-  });
-
-  registerIpcHandler('gallery:nameFace', async (_event, { clusterId, name, relationship }) => {
-    return nameGalleryFace(clusterId, name, relationship);
-  });
-
-  registerIpcHandler('gallery:setFaceRelationship', async (_event, { identityId, relationship }) => {
-    return setGalleryFaceRelationship(identityId, relationship);
-  });
-
-  registerIpcHandler('gallery:updateFacePerson', async (_event, { identityId, name, relationship }) => {
-    return updateGalleryFacePerson(identityId, name, relationship);
-  });
-
-  registerIpcHandler('gallery:deleteFacePerson', async (_event, { identityId }) => {
-    return deleteGalleryFacePerson(identityId);
-  });
-
-  registerIpcHandler('gallery:addFaceToPerson', async (_event, { clusterId, identityId }) => {
-    return addGalleryFaceToPerson(clusterId, identityId);
-  });
-
-  registerIpcHandler('gallery:removeFaceCluster', async (_event, { clusterId }) => {
-    return removeGalleryFaceCluster(clusterId);
-  });
-
-  registerIpcHandler('gallery:scanPeople', async (_event, payload) => {
-    return scanGalleryPeople(payload);
-  });
-
   registerIpcHandler('app:quit', async () => {
     app.quit();
   });
@@ -6579,26 +6045,12 @@ async function cleanupRuntime() {
       }
     }
     await destroyAssistantInstance();
-    if (visualMemoryEngine) {
-      try {
-        await visualMemoryEngine.api.shutdown();
-      } catch (error) {
-        mainLogger.error('[VISUAL-MEMORY] Cleanup failed', { error: error.message });
-      } finally {
-        visualMemoryEngine = null;
-        visualMemoryDefaultFoldersReady = false;
-        visualMemoryIndexPromise = null;
-        lazyVisualMemoryApi = null;
-        visualMemoryReadyLogged = false;
-      }
-    }
     eventBus?.removeAllListeners?.();
     if (chatWindow && !chatWindow.isDestroyed()) chatWindow.destroy();
     if (voiceWindow && !voiceWindow.isDestroyed()) voiceWindow.destroy();
     if (islandWindow && !islandWindow.isDestroyed()) islandWindow.destroy();
     if (timerWidgetWindow && !timerWidgetWindow.isDestroyed()) timerWidgetWindow.destroy();
     if (plannerWindow && !plannerWindow.isDestroyed()) plannerWindow.destroy();
-    if (galleryWindow && !galleryWindow.isDestroyed()) galleryWindow.destroy();
     if (tray) {
       tray.destroy();
       tray = null;
@@ -6715,13 +6167,11 @@ async function initializeAssistant() {
     ...runtimeConfig,
     desktopActions: {
       ...(runtimeConfig.desktopActions || {}),
-      openGallery: (view = 'timeline') => createGalleryWindow(view, { lowerChat: true }),
       openPeopleChat: () => createPeopleChatWindow(),
       sendOpenXChatMessage: payload => sendDesktopChatMessageToContact(payload || {})
-    },
-    visualMemoryApi: getLazyVisualMemoryApi()
+    }
   };
-  assistant = new Assistant(runtimeConfig, { eventBus, visualMemoryApi: runtimeConfig.visualMemoryApi });
+  assistant = new Assistant(runtimeConfig, { eventBus });
   assistant.router.permissionValidator.setUserLevel(
     settingsService.getSettings().system.permissionLevel
   );
@@ -6799,7 +6249,6 @@ function buildCrashRecoveryMetadata(origin, error, component = 'main-process') {
     windows: {
       chat: Boolean(chatWindow && !chatWindow.isDestroyed()),
       planner: Boolean(plannerWindow && !plannerWindow.isDestroyed()),
-      gallery: Boolean(galleryWindow && !galleryWindow.isDestroyed()),
       timer: Boolean(timerWidgetWindow && !timerWidgetWindow.isDestroyed())
     }
   };

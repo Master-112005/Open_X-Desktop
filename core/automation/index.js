@@ -217,8 +217,6 @@ class AutomationEngine {
       'schedule.list': (entities) => this._listScheduleSummary(entities),
       'calendar.open': () => this.planner.open('calendar'),
       'timetable.open': () => this.planner.open('timetable'),
-      'visualMemory.openGallery': (entities) => this._openVisualMemoryGallery(entities),
-      'visualMemory.search': (entities) => this._searchVisualMemory(entities),
       'calendar.add': (entities, context) => this.planner.addCalendarEntry(entities, context),
       'timetable.add': (entities, context) => this.planner.addTimetableEntry(entities, context),
       'system.shutdown': () => this.windows.shutdown(),
@@ -1575,23 +1573,6 @@ class AutomationEngine {
     };
   }
 
-  _openVisualMemoryGallery(entities = {}) {
-    const opener = this.config?.desktopActions?.openGallery;
-    if (typeof opener !== 'function') {
-      return { success: false, error: 'OpenX Gallery is not available in this runtime' };
-    }
-    const result = opener(entities.view || 'timeline') || {};
-    return {
-      success: result.success !== false,
-      data: {
-        action: 'openGallery',
-        app: 'OpenX Gallery',
-        view: result.view || entities.view || 'timeline'
-      },
-      error: result.success === false ? result.error : undefined
-    };
-  }
-
   _isOpenXChatTarget(value) {
     const normalized = Normalizer.normalizeText(value);
     return normalized === 'chat' || normalized === 'openx chat' || normalized === 'open x chat';
@@ -1612,17 +1593,6 @@ class AutomationEngine {
         launchMethod: 'openx-desktop'
       },
       error: result.success === false ? result.error : undefined
-    };
-  }
-
-  _searchVisualMemory(entities = {}) {
-    return {
-      success: true,
-      data: {
-        action: 'visualMemory.search',
-        query: String(entities.query || '').trim(),
-        personalSearchType: entities.personalSearchType || 'photo'
-      }
     };
   }
 

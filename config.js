@@ -144,13 +144,6 @@ const CONFIG = {
     operationTimeoutMs: 8000
   },
 
-  visualMemory: {
-    performance: {
-      maxIndexDepth: 8,
-      maxIndexFiles: 50000
-    }
-  },
-
   logging: {
     level: 'info',
     maxFileSize: 10485760,

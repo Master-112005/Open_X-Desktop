@@ -85,12 +85,6 @@ describe('Crash Recovery Policy', function() {
       recoveryAction: 'recreate-window',
       details: { type: 'renderer', reason: 'crashed', exitCode: 9 }
     });
-    policy.recordRendererFailure(1100, {
-      windowType: 'gallery',
-      reason: 'renderer remained unresponsive',
-      eventType: 'unresponsive',
-      recoveryAction: 'reloadIgnoringCache'
-    });
     policy.recordRendererFailure(1200, {
       windowType: 'planner',
       reason: 'preload failed',
@@ -102,7 +96,6 @@ describe('Crash Recovery Policy', function() {
     assert.equal(diagnostics.crashCount, 0);
     assert.equal(diagnostics.remainingRestarts, 1);
     assert.equal(diagnostics.rendererCrashRecords.length, 2);
-    assert.equal(diagnostics.rendererCrashRecords[0].windowType, 'gallery');
     assert.equal(diagnostics.lastRendererCrash.windowType, 'planner');
     assert.equal(diagnostics.lastRendererCrash.recoveryAction, 'recreate-window');
   });
@@ -160,7 +153,7 @@ describe('Crash Recovery Policy', function() {
       uptimeMs: 4567,
       assistantInitialized: true,
       chatState: 'LISTENING',
-      windows: { chat: true, chat: true, planner: false, gallery: true, timer: false },
+      windows: { chat: true, chat: true, planner: false, timer: false },
       memory: { rss: 10, heapUsed: 20, external: 30 }
     }), true);
 
@@ -173,7 +166,7 @@ describe('Crash Recovery Policy', function() {
     assert.equal(state.lastCrash.pid, 123);
     assert.equal(state.lastCrash.assistantInitialized, true);
     assert.equal(state.lastCrash.chatState, 'LISTENING');
-    assert.deepEqual(state.lastCrash.windows, { chat: true, chat: true, planner: false, gallery: true, timer: false });
+    assert.deepEqual(state.lastCrash.windows, { chat: true, chat: true, planner: false, timer: false });
     assert.deepEqual(state.lastCrash.memory, { rss: 10, heapUsed: 20, external: 30 });
   });
 

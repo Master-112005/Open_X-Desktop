@@ -11,7 +11,7 @@ const {
 
 const NON_PERSON_TERMS = new Set([
   'all', 'any', 'camera', 'favorite', 'favorites', 'favourite', 'favourites',
-  'face', 'faces', 'gallery', 'image', 'images', 'latest', 'memory', 'photo',
+  'face', 'faces', 'image', 'images', 'latest', 'memory', 'photo',
   'photos', 'pic', 'pics', 'picture', 'pictures', 'recent', 'screenshot',
   'screenshots', 'selfie', 'the', 'this', 'that', 'these', 'those', 'where',
   'which', 'who', 'what', 'when', 'from', 'with', 'and', 'near', 'inside',

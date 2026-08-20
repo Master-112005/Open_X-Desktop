@@ -620,116 +620,6 @@ function validatePlannerView(payload) {
   return { view };
 }
 
-function validateGalleryView(payload) {
-  requirePlainObject(payload);
-  const view = requireString(payload.view || 'timeline', 'view', { maxLength: 20 });
-  if (!['timeline', 'photos', 'favorites', 'recent', 'people'].includes(view)) throw new TypeError('gallery view is not supported');
-  return { view };
-}
-
-function validateGalleryViewQuery(payload) {
-  const data = validateGalleryView(payload);
-  return {
-    ...data,
-    page: Math.max(1, Math.min(10000, Number(payload.page) || 1)),
-    pageSize: Math.max(1, Math.min(120, Number(payload.pageSize) || 80))
-  };
-}
-
-function validateGalleryPhotosQuery(payload) {
-  if (payload === undefined) return { page: 1, pageSize: 80 };
-  requirePlainObject(payload);
-  return {
-    page: Math.max(1, Math.min(10000, Number(payload.page) || 1)),
-    pageSize: Math.max(1, Math.min(120, Number(payload.pageSize) || 80))
-  };
-}
-
-function validateGalleryPhoto(payload) {
-  requirePlainObject(payload);
-  const photoId = requireString(payload.photoId, 'photoId', { maxLength: 160 });
-  if (!/^[A-Za-z0-9._:-]+$/.test(photoId)) throw new TypeError('photoId is invalid');
-  return { photoId };
-}
-
-function validateGalleryFavorite(payload) {
-  const data = validateGalleryPhoto(payload);
-  return {
-    ...data,
-    favorite: typeof payload.favorite === 'boolean' ? payload.favorite : null
-  };
-}
-
-function validateGalleryFaceName(payload) {
-  requirePlainObject(payload);
-  const clusterId = requireString(payload.clusterId, 'clusterId', { maxLength: 160 });
-  const name = requireString(payload.name, 'name', { maxLength: 120 }).replace(/\s+/g, ' ').trim();
-  if (!/^[A-Za-z0-9._:-]+$/.test(clusterId)) throw new TypeError('clusterId is invalid');
-  if (!name) throw new TypeError('name is required');
-  return {
-    clusterId,
-    name,
-    relationship: typeof payload.relationship === 'string'
-      ? payload.relationship.replace(/\s+/g, ' ').trim().slice(0, 80)
-      : ''
-  };
-}
-
-function validateGalleryFaceAssign(payload) {
-  requirePlainObject(payload);
-  const clusterId = requireString(payload.clusterId, 'clusterId', { maxLength: 160 });
-  const identityId = requireString(payload.identityId, 'identityId', { maxLength: 160 });
-  if (!/^[A-Za-z0-9._:-]+$/.test(clusterId)) throw new TypeError('clusterId is invalid');
-  if (!/^[A-Za-z0-9._:-]+$/.test(identityId)) throw new TypeError('identityId is invalid');
-  return { clusterId, identityId };
-}
-
-function validateGalleryFaceRelationship(payload) {
-  requirePlainObject(payload);
-  const identityId = requireString(payload.identityId, 'identityId', { maxLength: 160 });
-  if (!/^[A-Za-z0-9._:-]+$/.test(identityId)) throw new TypeError('identityId is invalid');
-  return {
-    identityId,
-    relationship: typeof payload.relationship === 'string'
-      ? payload.relationship.replace(/\s+/g, ' ').trim().slice(0, 80)
-      : ''
-  };
-}
-
-function validateGalleryFacePersonUpdate(payload) {
-  const data = validateGalleryFaceRelationship(payload);
-  const name = requireString(payload.name, 'name', { maxLength: 120 }).replace(/\s+/g, ' ').trim();
-  if (!name) throw new TypeError('name is required');
-  return { ...data, name };
-}
-
-function validateGalleryFaceIdentity(payload) {
-  requirePlainObject(payload);
-  const identityId = requireString(payload.identityId, 'identityId', { maxLength: 160 });
-  if (!/^[A-Za-z0-9._:-]+$/.test(identityId)) throw new TypeError('identityId is invalid');
-  return { identityId };
-}
-
-function validateGalleryFaceCluster(payload) {
-  requirePlainObject(payload);
-  const clusterId = requireString(payload.clusterId, 'clusterId', { maxLength: 160 });
-  if (!/^[A-Za-z0-9._:-]+$/.test(clusterId)) throw new TypeError('clusterId is invalid');
-  return { clusterId };
-}
-
-function validateGalleryPeopleScan(payload = {}) {
-  if (payload === undefined) return { maxPhotos: null };
-  requirePlainObject(payload);
-  const requestedMaxPhotos = Number(payload.maxPhotos);
-  return {
-    maxPhotos: Number.isFinite(requestedMaxPhotos) && requestedMaxPhotos > 0
-      ? Math.max(1, Math.min(500000, Math.floor(requestedMaxPhotos)))
-      : null,
-    rescan: payload.rescan === true,
-    incremental: payload.incremental === false ? false : true
-  };
-}
-
 function validatePlannerEntry(payload) {
   requirePlainObject(payload);
   const type = requireString(payload.type || 'calendar', 'type', { maxLength: 20 });
@@ -792,8 +682,6 @@ const IPC_VALIDATORS = Object.freeze({
   'window:openSettings': validateEmpty,
   'window:openPlanner': validatePlannerView,
   'window:closePlanner': validateEmpty,
-  'window:openGallery': validateGalleryView,
-  'window:closeGallery': validateEmpty,
   'config:get': validateEmpty,
   'settings:get': validateEmpty,
   'assistantChatHistory:get': validateEmpty,
@@ -863,19 +751,6 @@ const IPC_VALIDATORS = Object.freeze({
   'planner:getEntries': validateEmpty,
   'planner:addEntry': validatePlannerEntry,
   'planner:deleteEntry': validatePlannerDelete,
-  'gallery:getView': validateGalleryViewQuery,
-  'gallery:getPhotos': validateGalleryPhotosQuery,
-  'gallery:getImageData': validateGalleryPhoto,
-  'gallery:openPhoto': validateGalleryPhoto,
-  'gallery:showPhoto': validateGalleryPhoto,
-  'gallery:toggleFavorite': validateGalleryFavorite,
-  'gallery:nameFace': validateGalleryFaceName,
-  'gallery:setFaceRelationship': validateGalleryFaceRelationship,
-  'gallery:updateFacePerson': validateGalleryFacePersonUpdate,
-  'gallery:deleteFacePerson': validateGalleryFaceIdentity,
-  'gallery:addFaceToPerson': validateGalleryFaceAssign,
-  'gallery:removeFaceCluster': validateGalleryFaceCluster,
-  'gallery:scanPeople': validateGalleryPeopleScan,
   'app:quit': validateEmpty
 });
 

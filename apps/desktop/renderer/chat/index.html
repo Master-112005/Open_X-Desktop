@@ -12,7 +12,6 @@
   <div id="chat-shell">
     <div id="header">
       <div id="header-left">
-        <button class="window-btn about-btn header-about-btn" id="header-about-btn" type="button" title="About OpenX" aria-label="About OpenX" aria-expanded="false" aria-controls="about-panel" data-about-trigger>i</button>
         <div id="header-info">
           <div class="brand-copy">
             <div id="header-title">Assistant</div>
@@ -38,41 +37,6 @@
         </button>
         <button class="window-btn close" id="close-btn" title="Close" aria-label="Close">&#10005;</button>
       </div>
-    </div>
-
-    <div id="about-overlay" hidden>
-      <section id="about-panel" role="dialog" aria-modal="true" aria-labelledby="about-title" tabindex="-1">
-        <div class="about-header">
-          <div>
-            <div class="about-eyebrow">About</div>
-            <h2 id="about-title">OpenX</h2>
-          </div>
-          <button class="window-btn about-close-btn" id="about-close-btn" type="button" title="Close about" aria-label="Close about">&#10005;</button>
-        </div>
-        <p class="about-summary" id="about-summary">Local-first desktop assistant for automation and cloud mobile connection.</p>
-        <dl class="about-details">
-          <div>
-            <dt>Version</dt>
-            <dd id="about-version">--</dd>
-          </div>
-          <div>
-            <dt>Assistant</dt>
-            <dd id="about-assistant">OpenX</dd>
-          </div>
-          <div>
-            <dt>Cloud</dt>
-            <dd id="about-cloud">--</dd>
-          </div>
-          <div>
-            <dt>Relay</dt>
-            <dd id="about-relay">--</dd>
-          </div>
-          <div>
-            <dt>Platform</dt>
-            <dd id="about-platform">Desktop</dd>
-          </div>
-        </dl>
-      </section>
     </div>
 
     <main id="workspace">
@@ -456,10 +420,6 @@
                     <span>Reconnect Attempts</span>
                     <strong id="cloud-reconnect-attempts">0</strong>
                   </div>
-                  <div class="phone-server-item">
-                    <span>Server Version</span>
-                    <strong id="cloud-version">--</strong>
-                  </div>
                 </div>
               </div>
             </section>
@@ -652,19 +612,6 @@
                 <small>Reminders and alarms</small>
               </span>
             </button>
-            <button class="app-card" id="gallery-app-btn" type="button">
-              <span class="app-card-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" focusable="false">
-                  <rect x="3" y="5" width="18" height="14" rx="2"/>
-                  <circle cx="8" cy="10" r="1.5"/>
-                  <path d="m5 17 4.5-4.5L13 16l2.5-2.5L19 17"/>
-                </svg>
-              </span>
-              <span class="app-card-copy">
-                <strong>Gallery</strong>
-                <small>Photos and people</small>
-              </span>
-            </button>
             <button class="app-card" id="mobile-app-btn" type="button">
               <span class="app-card-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" focusable="false">
@@ -718,7 +665,6 @@
             <div class="panel-title">Settings</div>
             <div class="panel-subtitle">Personalize how your assistant looks, sounds, and works.</div>
           </div>
-          <button class="icon-btn about-btn settings-about-btn" id="about-btn" type="button" title="About OpenX" aria-label="About OpenX" aria-expanded="false" aria-controls="about-panel" data-about-trigger>i</button>
           <button class="icon-btn" id="settings-close-btn" title="Close settings" aria-label="Close settings">&#10005;</button>
         </div>
 

@@ -39,9 +39,6 @@ describe('Assistant Data Root', function() {
     assert.equal(paths.cloudDir, path.join(paths.root, 'cloud'));
     assert.equal(paths.cloudReceivedDir, path.join(dataRoot.resolveDocumentsDirectory(), 'OpenX'));
     assert.equal(paths.cloudTempDir, path.join(paths.root, 'runtime', 'cloud-transfer'));
-    assert.equal(paths.visualMemoryDir, path.join(paths.root, 'visual-memory'));
-    assert.equal(paths.visualMemoryDatabasePath, path.join(paths.visualMemoryDir, 'visual-memory-db.json'));
-    assert.equal(paths.visualMemoryThumbnailDir, path.join(paths.visualMemoryDir, 'thumbnails'));
     assert.equal(paths.legacyPhoneDir, undefined);
   });
 
@@ -79,8 +76,6 @@ describe('Assistant Data Root', function() {
     assert.ok(fs.existsSync(paths.cloudDir));
     assert.ok(fs.existsSync(paths.cloudReceivedDir));
     assert.ok(fs.existsSync(paths.cloudTempDir));
-    assert.ok(fs.existsSync(paths.visualMemoryDir));
-    assert.ok(fs.existsSync(paths.visualMemoryThumbnailDir));
     assert.equal(fs.existsSync(path.join(paths.root, 'phone')), false);
   });
 

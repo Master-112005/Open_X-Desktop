@@ -8,7 +8,7 @@ const ACTION_PROFILES = Object.freeze({
     family: 'application',
     entities: ['applications', 'websites', 'browsers'],
     contexts: ['context.application', 'context.reference'],
-    targetWords: /\b(?:app|application|program|chrome|youtube|settings|gallery|calendar|reminders?|powerpoint|ppt)\b/
+    targetWords: /\b(?:app|application|program|chrome|youtube|settings|calendar|reminders?|powerpoint|ppt)\b/,
   },
   CLOSE_APPLICATION: {
     family: 'application',

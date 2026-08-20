@@ -16,7 +16,6 @@ const { CommandFrameParser } = require('../linguistic/InputParser');
 const NaturalLanguageRouter = require('../semantic/NaturalLanguageRouter');
 const { AppCommandLanguage, BrowserCommandLanguage } = NaturalLanguageRouter;
 const ResponseGenerator = require('../response/ResponseGenerator');
-const { findVisualConcepts } = require('../capabilities/visual-memory/runtime/utils/VisualConceptLexicon');
 const {
   isCancellationError,
   throwIfAborted
@@ -412,8 +411,6 @@ class ActionRouter {
       ['_resolveExplicitMediaControlIntent', () => this._resolveExplicitMediaControlIntent(rawCommandText, preparedInput)],
       ['_resolveMediaIntent', () => this._resolveMediaIntent(rawCommandText, source)],
       ['_resolveExplicitMediaIntent', () => this._resolveExplicitMediaIntent(rawCommandText, preparedInput)],
-      ['_resolvePersonalPhotoIntent', () => this._resolvePersonalPhotoIntent(rawCommandText, preparedInput)],
-      ['_resolveVisualPhotoSearchIntent', () => this._resolveVisualPhotoSearchIntent(rawCommandText, preparedInput)],
       ['_resolveSmartFileIntent', () => this._resolveSmartFileIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitFileIntent', () => this._resolveExplicitFileIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitFolderIntent', () => this._resolveExplicitFolderIntent(rawCommandText, preparedInput)],
@@ -638,13 +635,6 @@ class ActionRouter {
     };
     const search = (query, confidence = 0.94) => route('browser.search', { query: String(query || raw || corrected).trim() }, confidence);
     const openApp = (appName, confidence = 0.95) => route('app.open', { appName }, confidence);
-
-    if (!this._looksLikeNonOpenXPhotoSurface(input) && (
-      /\b(?:open|show|view|launch)\b.*\b(?:openx\s+)?(?:gallery|galary|gallary|galleary|photos?|photo\s+library|memories)\b/.test(input) ||
-      /\b(?:openx\s+)?(?:gallery|galary|gallary|galleary)\b/.test(input)
-    )) {
-      return route('visualMemory.openGallery', { view: 'timeline' }, 0.99);
-    }
 
     if (/\bumbrella\b/.test(input) &&
       /\b(?:need|take|bring|carry|rain|raining|weather|forecast)\b/.test(input)) {
@@ -4806,13 +4796,6 @@ class ActionRouter {
         ? { intent: appIntent, confidence: 1, entities: { appName: 'photos' } }
         : null;
     }
-    if (this._looksLikeOpenXGalleryTarget(requestedTarget, rawText)) {
-      const visualIntent = this.intentRegistry.get('visualMemory.openGallery');
-      return visualIntent
-        ? { intent: visualIntent, confidence: 1, entities: { view: 'timeline' } }
-        : null;
-    }
-
     const query = preparedInput?.semanticFrame?.webTarget ||
       this._normalizeKnownWebTarget(framedTarget) ||
       this._normalizeKnownWebTarget(matchedTarget);
@@ -4926,15 +4909,6 @@ class ActionRouter {
   _hasExplicitWebCue(input) {
     return /\b(?:website|web\s+app|site|in\s+(?:chrome|browser|edge|firefox)|on\s+(?:chrome|browser|edge|firefox)|go\s+to|pull\s+up)\b/i
       .test(String(input || ''));
-  }
-
-  _looksLikeOpenXGalleryTarget(target, rawText) {
-    const normalizedTarget = this._normalizePhotoSurfaceText(target);
-    const normalizedRaw = this._normalizePhotoSurfaceText(rawText);
-    if (this._looksLikeNonOpenXPhotoSurface(`${normalizedTarget} ${normalizedRaw}`)) {
-      return false;
-    }
-    return /\b(?:openx\s+)?(?:gallery|galary|gallary|galleary|photos?|pictures?|photo\s+library|memories)\b/.test(normalizedTarget);
   }
 
   _looksLikeLocalPhotosTarget(target, rawText) {
@@ -6834,27 +6808,12 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
       return null;
     }
 
-    if (/^(?:open|show|view|launch|display)\s+(?:my\s+)?(?:openx\s+)?(?:gallery|galary|gallary|galleary|photos?|pictures?|photo\s+library|memories)$/.test(input)) {
-      const intent = this.intentRegistry.get('visualMemory.openGallery');
-      return intent ? { intent, confidence: 0.99, entities: { view: 'timeline' } } : null;
-    }
-
     const hasVisualTarget = this._hasVisualPhotoSearchTarget(input);
     if (!hasVisualTarget && /\b(?:file|folder|directory|path)\b/.test(input)) {
       return null;
     }
 
-    const intent = this.intentRegistry.get('visualMemory.search');
-    return intent
-      ? {
-          intent,
-          confidence: hasVisualTarget ? 0.95 : 0.9,
-          entities: {
-            query: this._extractVisualPhotoSearchQuery(queryInput),
-            personalSearchType: 'photo'
-          }
-        }
-      : null;
+    return null;
   }
 
   _normalizePhotoSearchText(value) {
@@ -6884,9 +6843,6 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
       return true;
     }
     if (/\b(?:of|with|containing|contains?|showing|near|at|in|from)\s+[a-z0-9]/.test(text)) {
-      return true;
-    }
-    if (findVisualConcepts(text).length > 0) {
       return true;
     }
     return false;
@@ -6943,18 +6899,6 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     if (wantsWindowsPhotos) {
       const intent = this.intentRegistry.get('app.open');
       return intent ? { intent, confidence: 0.92, entities: { appName: 'photos' } } : null;
-    }
-
-    const visualIntent = this.intentRegistry.get('visualMemory.search');
-    if (visualIntent) {
-      return {
-        intent: visualIntent,
-        confidence: 0.96,
-        entities: {
-          query: this._extractPersonalPhotoQuery(input),
-          personalSearchType: 'photo'
-        }
-      };
     }
 
     const intent = this.intentRegistry.get('file.search');

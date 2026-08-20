@@ -117,7 +117,6 @@ function buildDataPaths(config = {}) {
   const runtimeDir = path.join(root, 'runtime');
   const cloudDir = path.join(root, 'cloud');
   const securityDir = path.join(root, 'security');
-  const visualMemoryDir = path.join(root, 'visual-memory');
   const personalDir = path.join(root, 'personal');
   const homeLearningDir = path.join(root, 'home-learning');
   const configuredReceivedDir = String(config?.app?.cloudReceivedDir || process.env.OPENX_RECEIVED_FILES_DIR || '').trim();
@@ -172,10 +171,7 @@ function buildDataPaths(config = {}) {
     cloudReceivedDir,
     cloudTempDir: path.join(runtimeDir, 'cloud-transfer'),
     securityDir,
-    dataEncryptionKeyPath: path.join(securityDir, 'openx-data.key'),
-    visualMemoryDir,
-    visualMemoryDatabasePath: path.join(visualMemoryDir, 'visual-memory-db.json'),
-    visualMemoryThumbnailDir: path.join(visualMemoryDir, 'thumbnails')
+    dataEncryptionKeyPath: path.join(securityDir, 'openx-data.key')
   };
 }
 
@@ -240,7 +236,7 @@ function inferManagedRootFromPath(filePath) {
   let current = path.resolve(path.dirname(filePath));
   while (current && current !== path.dirname(current)) {
     const name = path.basename(current).toLowerCase();
-    if (['learning', 'home-learning', 'personal', 'runtime', 'cloud', 'security', 'visual-memory'].includes(name)) {
+    if (['learning', 'home-learning', 'personal', 'runtime', 'cloud', 'security'].includes(name)) {
       return path.dirname(current);
     }
     current = path.dirname(current);
@@ -747,9 +743,7 @@ function ensureDataRoot(config = {}) {
     paths.cloudTempDir,
     paths.securityDir,
     paths.personalDir,
-    paths.homeLearningDir,
-    paths.visualMemoryDir,
-    paths.visualMemoryThumbnailDir
+    paths.homeLearningDir
   ].forEach(ensureDirectory);
   purgeDeprecatedContactStorage(paths.root);
   return paths;

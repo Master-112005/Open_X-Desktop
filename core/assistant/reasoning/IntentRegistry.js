@@ -732,25 +732,6 @@ const INTENT_DEFINITIONS = [
     description: 'Open the assistant timetable'
   },
   {
-    id: 'visualMemory.openGallery',
-    patterns: ['open openx gallery', 'show openx gallery', 'open gallery', 'show gallery', 'open my photos', 'show my photos'],
-    permissionLevel: 'low',
-    action: 'visualMemory.openGallery',
-    entities: [],
-    description: 'Open the OpenX photo gallery'
-  },
-  {
-    id: 'visualMemory.search',
-    patterns: ['find photos', 'find pictures', 'find images', 'search photos', 'search pictures', 'show matching photos'],
-    permissionLevel: 'low',
-    action: 'visualMemory.search',
-    entities: [
-      { name: 'query', type: 'string', required: false },
-      { name: 'personalSearchType', type: 'string', required: false }
-    ],
-    description: 'Search OpenX visual memory and return matching photo memories inside chat'
-  },
-  {
     id: 'calendar.add',
     patterns: ['add to calendar', 'update this in calendar', 'put this in calendar', 'schedule this in calendar'],
     permissionLevel: 'low',

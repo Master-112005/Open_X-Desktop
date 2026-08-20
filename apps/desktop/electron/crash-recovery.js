@@ -46,7 +46,6 @@ function compactCrashMetadata(metadata = {}) {
         ? {
           chat: metadata.windows.chat === true,
           planner: metadata.windows.planner === true,
-          gallery: metadata.windows.gallery === true,
           timer: metadata.windows.timer === true
       }
     : null,
