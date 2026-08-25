@@ -6,11 +6,12 @@ describe('Assistant Local LLM Fallback', function() {
   let Assistant;
   let stripLeadingPrivateContext;
   let buildSystemPrompt;
+  let buildTurnPrompt;
 
   before(function() {
     Assistant = require('../../core/assistant/index');
     ({ stripLeadingPrivateContext } = require('../../core/assistant/llm/LeakGuard'));
-    ({ buildSystemPrompt } = require('../../core/assistant/llm/prompt'));
+    ({ buildSystemPrompt, buildTurnPrompt } = require('../../core/assistant/llm/prompt'));
   });
 
   function createAssistant(router, localLlm) {
@@ -58,8 +59,8 @@ describe('Assistant Local LLM Fallback', function() {
     assert.equal(result.data.routedFallback.error, 'Could not determine intent');
   });
 
-  it('does not replace successful deterministic routing with the LLM', async function() {
-    let llmCalled = false;
+  it('phrases successful task replies through the local LLM while keeping routing metadata', async function() {
+    let llmOptions = null;
     const assistant = createAssistant({
       process: async () => ({
         commandId: 'cmd-open',
@@ -71,9 +72,13 @@ describe('Assistant Local LLM Fallback', function() {
     }, {
       isEnabled: () => true,
       validate: () => ({ success: true, modelName: 'test.gguf' }),
-      reply: async () => {
-        llmCalled = true;
-        return { success: true, response: 'wrong path' };
+      reply: async (input, options) => {
+        llmOptions = options;
+        return {
+          success: true,
+          response: 'Chrome is open and ready for you.',
+          data: { localLlm: { modelName: 'test.gguf' } }
+        };
       }
     });
 
@@ -81,8 +86,12 @@ describe('Assistant Local LLM Fallback', function() {
 
     assert.equal(result.success, true);
     assert.equal(result.intent, 'app.open');
-    assert.equal(llmCalled, false);
-    assert.match(result.response, /^Opened Chrome\./);
+    assert.match(result.response, /^Chrome is open/);
+    assert.equal(result.data.nlpTemplateResponse, 'Opened Chrome.');
+    assert.equal(result.data.localLlmReply.mode, 'task-reply');
+    assert.equal(llmOptions.taskOutcome.kind, 'task');
+    assert.equal(llmOptions.taskOutcome.intent, 'app.open');
+    assert.equal(llmOptions.taskOutcome.success, true);
   });
 
   it('uses the local LLM for conversational greeting replies', async function() {
@@ -116,8 +125,8 @@ describe('Assistant Local LLM Fallback', function() {
     assert.equal(result.data.routedFallback.reason, 'conversation');
   });
 
-  it('keeps failed real intents out of the LLM fallback', async function() {
-    let llmCalled = false;
+  it('phrases failed task replies through the local LLM without flipping the failure state', async function() {
+    let llmOptions = null;
     const assistant = createAssistant({
       process: async () => ({
         commandId: 'cmd-close',
@@ -130,9 +139,13 @@ describe('Assistant Local LLM Fallback', function() {
     }, {
       isEnabled: () => true,
       validate: () => ({ success: true, modelName: 'test.gguf' }),
-      reply: async () => {
-        llmCalled = true;
-        return { success: true, response: 'wrong path' };
+      reply: async (input, options) => {
+        llmOptions = options;
+        return {
+          success: true,
+          response: 'I could not close Chrome. It may already be stopped.',
+          data: { localLlm: { modelName: 'test.gguf' } }
+        };
       }
     });
 
@@ -140,7 +153,8 @@ describe('Assistant Local LLM Fallback', function() {
 
     assert.equal(result.success, false);
     assert.equal(result.intent, 'app.close');
-    assert.equal(llmCalled, false);
+    assert.equal(llmOptions.taskOutcome.success, false);
+    assert.equal(llmOptions.taskOutcome.error, 'Could not close Chrome');
   });
 
   it('uses the local LLM for unimplemented assistant capability marker replies', async function() {
@@ -181,5 +195,35 @@ describe('Assistant Local LLM Fallback', function() {
     assert.match(prompt, /deterministic command router/);
     assert.match(prompt, /Do not claim you opened, closed, deleted, sent, scheduled, clicked, changed, or verified anything/);
     assert.match(prompt, /Voice transcripts may contain mistakes/);
+  });
+
+  it('grounds the turn prompt on executed task outcomes', function() {
+    const prompt = buildTurnPrompt('open chrome', {
+      taskOutcome: {
+        kind: 'task',
+        intent: 'app.open',
+        success: true,
+        error: null,
+        draftReply: 'Opened Chrome.',
+        details: 'appName=Chrome, launchMethod=start-menu'
+      }
+    });
+    assert.match(prompt, /Executed-task report/);
+    assert.match(prompt, /Intent: app\.open \| Outcome: success/);
+    assert.match(prompt, /appName=Chrome/);
+    assert.match(prompt, /Confirm this exact completed outcome naturally/);
+  });
+
+  it('marks grounded answers as verified facts', function() {
+    const prompt = buildTurnPrompt('what was my last command', {
+      taskOutcome: {
+        kind: 'answer',
+        intent: 'assistant.context',
+        success: true,
+        draftReply: 'Your last command was: open chrome.'
+      }
+    });
+    assert.match(prompt, /verified answer computed by OpenX/);
+    assert.match(prompt, /keep every fact exactly as given/);
   });
 });

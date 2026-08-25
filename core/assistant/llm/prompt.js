@@ -37,6 +37,7 @@ function buildSystemPrompt(memorySummary, assistantName = 'OpenX', responseStyle
     languageInstruction(language),
     '',
     'OpenX has already tried its deterministic command router before this model was called.',
+    'When a turn includes an executed-task report or a verified answer, base your reply on that report and never contradict it.',
     'Do not claim you opened, closed, deleted, sent, scheduled, clicked, changed, or verified anything unless the user only asked for an explanation and no action is required.',
     'If the user asks for a real desktop action, say that the action router did not find a safe command match and ask for a clearer command.',
     'For general questions, explanations, writing, reasoning, and casual conversation, answer directly.',
@@ -51,6 +52,40 @@ function buildSystemPrompt(memorySummary, assistantName = 'OpenX', responseStyle
   ].join('\n');
 }
 
+function buildTaskOutcomeBlock(taskOutcome = {}) {
+  const lines = ['[Executed-task report from the OpenX action router. Ground your reply strictly on this report.]'];
+  const details = sanitizePromptValue(taskOutcome.details || '', 500);
+  lines.push(
+    `Intent: ${sanitizePromptValue(taskOutcome.intent || 'unknown', 80)} | ` +
+    `Outcome: ${taskOutcome.success ? 'success' : 'failure'}` +
+    (taskOutcome.error ? ` | Error: ${sanitizePromptValue(taskOutcome.error, 300)}` : '')
+  );
+  if (details) {
+    lines.push(`Details: ${details}`);
+  }
+  if (taskOutcome.kind === 'answer') {
+    lines.push(
+      'This is a verified answer computed by OpenX, not an action.',
+      `Verified answer to convey: "${sanitizePromptValue(taskOutcome.draftReply || '', 600)}"`,
+      'Rephrase it naturally in your own words but keep every fact exactly as given. Do not add, drop, or alter facts.'
+    );
+    return lines;
+  }
+  if (taskOutcome.requiresConfirmation) {
+    lines.push('The action is WAITING FOR USER CONFIRMATION and has NOT run yet. Confirm what will happen and ask the user to approve or cancel.');
+  } else if (taskOutcome.needsClarification) {
+    lines.push(`The action needs more information from the user. Ask for it naturally based on: "${sanitizePromptValue(taskOutcome.draftReply || '', 600)}"`);
+  } else {
+    lines.push(
+      `Router draft reply: "${sanitizePromptValue(taskOutcome.draftReply || '', 400)}"`,
+      taskOutcome.success
+        ? 'Confirm this exact completed outcome naturally. Do not claim any additional actions beyond this report.'
+        : 'Explain the failure naturally and suggest a practical next step. Do not claim anything succeeded.'
+    );
+  }
+  return lines;
+}
+
 function buildTurnPrompt(userText, context = {}) {
   const lines = [];
   const now = context.now ? sanitizePromptValue(context.now, 80) : new Date().toISOString();
@@ -61,12 +96,16 @@ function buildTurnPrompt(userText, context = {}) {
   if (context.conversationSummary) {
     lines.push(`[Recent conversation: ${sanitizePromptValue(context.conversationSummary, 1200)}]`);
   }
+  if (context.taskOutcome && typeof context.taskOutcome === 'object') {
+    lines.push(...buildTaskOutcomeBlock(context.taskOutcome));
+  }
   lines.push(String(userText || '').trim());
   return lines.join('\n');
 }
 
 module.exports = {
   buildSystemPrompt,
+  buildTaskOutcomeBlock,
   buildTurnPrompt,
   languageInstruction,
   responseStyleInstruction,

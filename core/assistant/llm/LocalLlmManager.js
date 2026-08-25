@@ -58,6 +58,10 @@ function log(logger, level, message, data = {}) {
   }
 }
 
+function llmDisabledByEnv() {
+  return process.env.OPENX_SKIP_LLM === '1';
+}
+
 class LocalLlmManager {
   constructor(config = {}, dependencies = {}) {
     this.config = config || {};
@@ -70,6 +74,23 @@ class LocalLlmManager {
   }
 
   getSettings() {
+    if (llmDisabledByEnv()) {
+      const rootSettings = this.config?.localLlm || {};
+      return {
+        enabled: false,
+        modelPath: rootSettings.modelPath || '',
+        contextMin: undefined,
+        contextMax: undefined,
+        maxReplyTokens: undefined,
+        loadTimeoutMs: undefined,
+        requestTimeoutMs: undefined,
+        nodePath: undefined,
+        runtime: 'auto',
+        warmupOnStartup: false,
+        responseStyle: 'concise',
+        language: 'system'
+      };
+    }
     const assistantSettings = this.config?.assistant?.localLlm || {};
     const rootSettings = this.config?.localLlm || {};
     return {
@@ -96,8 +117,7 @@ class LocalLlmManager {
     const settings = this.getSettings();
     if (!settings.enabled) {
       return { success: false, reason: 'disabled' };
-    }
-    if (!settings.modelPath || !fs.existsSync(settings.modelPath)) {
+    }    if (!settings.modelPath || !fs.existsSync(settings.modelPath)) {
       return { success: false, reason: 'missing-model', modelPath: settings.modelPath };
     }
     const stat = fs.statSync(settings.modelPath);
@@ -206,6 +226,7 @@ class LocalLlmManager {
     const turnPrompt = buildTurnPrompt(userText, {
       memorySummary: options.memorySummary || '',
       conversationSummary: options.conversationSummary || '',
+      taskOutcome: options.taskOutcome || null,
       now: options.now
     });
     const result = await engine.reply(turnPrompt, chunk => leakGuard.feed(chunk));

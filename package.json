@@ -1,6 +1,6 @@
 {
   "name": "openx",
-  "version": "10.3.33",
+  "version": "10.3.44",
   "private": true,
   "productName": "OpenX",
   "description": "Deterministic, local-first Windows desktop assistant",
@@ -42,6 +42,7 @@
     "archiver": "^8.0.0",
     "fuse.js": "7.4.1",
     "node-llama-cpp": "^3.20.0",
+    "onnxruntime-node": "^1.27.0",
     "playwright": "^1.61.1",
     "qrcode": "^1.5.4",
     "ws": "^8.21.0"
@@ -65,6 +66,7 @@
       "core/assistant/llm/**/*",
       "node_modules/@node-llama-cpp/win-x64*/**/*",
       "node_modules/node-llama-cpp/**/*",
+      "node_modules/onnxruntime-node/**/*",
       "node_modules/playwright/**/*",
       "node_modules/playwright-core/**/*"
     ],

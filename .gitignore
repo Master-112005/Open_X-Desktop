@@ -1,15 +1,11 @@
-node_modules/
-graphify-out/
+.code-review-graph/
+.playwright-mcp/
 .cursor/
 .codex/
-.code-review-graph/
-models/whisper/*.bin
-dist/
-dist-voice-check/
-.playwright-mcp/
+node_modules/
+graphify-out/
 models/
+dist/
+RULES.md
 AGENTS.md
 commands.md
-RULES.md
-district
-# Visual Memory models

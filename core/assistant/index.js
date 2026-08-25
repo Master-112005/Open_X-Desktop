@@ -270,13 +270,15 @@ class Assistant extends EventEmitter {
         this._answerTimeUntilQuestion(input, source) ||
         this._answerUnsupportedPersonalIntegration(input, source);
       if (sessionContextResult) {
-        this.context.record(input, {}, sessionContextResult);
-        return this._finalizeAssistantResult(sessionContextResult, { input, source });
+        const groundedSessionResult = await this._applyLocalLlmAnswerReply(input, source, sessionContextResult);
+        this.context.record(input, {}, groundedSessionResult);
+        return this._finalizeAssistantResult(groundedSessionResult, { input, source });
       }
 
       const memoryResult = this._answerPersonalMemoryQuestion(input, source);
       if (memoryResult) {
-        return this._finalizeAssistantResult(memoryResult, { input, source });
+        const groundedMemoryResult = await this._applyLocalLlmAnswerReply(input, source, memoryResult);
+        return this._finalizeAssistantResult(groundedMemoryResult, { input, source });
       }
 
       const routedInput = this._buildRoutedInput(input);
@@ -297,6 +299,8 @@ class Assistant extends EventEmitter {
       const localLlmResult = await this._tryLocalLlmFallback(input, routedInput, source, result);
       if (localLlmResult) {
         result = localLlmResult;
+      } else {
+        result = await this._applyLocalLlmTaskReply(input, routedInput, source, result);
       }
       this.context.record(input, result.entities || {}, result);
       this._recordLearningOutcome(input, routedInput, result);
@@ -458,9 +462,15 @@ class Assistant extends EventEmitter {
     if (result.success && pending?.multiCommand) {
       return this._continuePendingMultiCommand(pending, result, pending.source || 'chat');
     }
+    const groundedResult = await this._applyLocalLlmTaskReply(
+      pending.originalInput || '',
+      pending.multiCommand?.confirmedInput || pending.originalInput || '',
+      pending.source || 'confirmation',
+      result
+    );
     return this._finalizeAssistantResult({
-      ...result,
-      response: this.personality.applyToResponse(result.response || '')
+      ...groundedResult,
+      response: this.personality.applyToResponse(groundedResult.response || '')
     }, { source: pending.source || 'confirmation', result });
   }
 
@@ -977,6 +987,174 @@ class Assistant extends EventEmitter {
       this.logger.warn('Local LLM fallback failed', error?.message || error);
       return null;
     }
+  }
+
+  _localLlmUnavailableReason() {
+    if (!this.localLlm || typeof this.localLlm.reply !== 'function') {
+      return 'unavailable';
+    }
+    if (typeof this.localLlm.isEnabled === 'function' && !this.localLlm.isEnabled()) {
+      return 'disabled';
+    }
+    const validation = typeof this.localLlm.validate === 'function'
+      ? this.localLlm.validate()
+      : { success: true };
+    if (validation && validation.success === false) {
+      return validation.reason || 'invalid';
+    }
+    return null;
+  }
+
+  async _generateGroundedLlmText(input, routedInput, source, taskOutcome) {
+    const reason = this._localLlmUnavailableReason();
+    if (reason) {
+      if (reason !== 'disabled') {
+        this.logger.warn('Local LLM reply unavailable', reason);
+      }
+      return null;
+    }
+
+    try {
+      const conversation = this.context.buildConversationDigest({ limit: 6 });
+      const responseStyle = this.learning?.getPreference?.('responseStyle')?.value ||
+        this.config?.assistant?.localLlm?.responseStyle ||
+        this.config?.localLlm?.responseStyle ||
+        'concise';
+      const llmResult = await this.localLlm.reply(routedInput || input, {
+        memorySummary: this._buildLocalLlmMemorySummary(),
+        conversationSummary: conversation?.summaryText || '',
+        assistantName: this.config?.assistant?.displayName || 'OpenX',
+        responseStyle,
+        language: this.config?.assistant?.localLlm?.language || this.config?.localLlm?.language || 'system',
+        source,
+        now: new Date().toISOString(),
+        taskOutcome
+      });
+      const response = String(llmResult?.response || llmResult?.text || '').trim();
+      if (!response) {
+        return null;
+      }
+      return {
+        response,
+        modelName: llmResult?.data?.localLlm?.modelName || null,
+        status: llmResult?.data?.localLlm?.status || null
+      };
+    } catch (error) {
+      this.logger.warn('Local LLM reply generation failed', error?.message || error);
+      return null;
+    }
+  }
+
+  static _summarizeTaskEntities(entities = {}) {
+    const interestingKeys = [
+      'appName', 'query', 'folderName', 'fileName', 'filePath', 'mediaQuery',
+      'contactName', 'messagePreview', 'url', 'siteName', 'browserName',
+      'reminderText', 'timeExpression', 'recurrence', 'volume', 'brightness',
+      'value', 'direction', 'windowTitle'
+    ];
+    const parts = interestingKeys
+      .filter(key => entities[key] !== undefined && entities[key] !== null && String(entities[key]).trim() !== '')
+      .map(key => `${key}=${String(entities[key]).trim().slice(0, 120)}`);
+    return parts.join(', ');
+  }
+
+  async _applyLocalLlmTaskReply(input, routedInput, source, result = {}) {
+    if (!result || typeof result !== 'object') {
+      return result;
+    }
+    if (result.intent === 'assistant.llm' || result.data?.routedFallback) {
+      return result;
+    }
+    if (!result.intent && !result.response) {
+      return result;
+    }
+    if (result.needsClarification) {
+      return result;
+    }
+
+    const detailsParts = [];
+    const entitySummary = Assistant._summarizeTaskEntities(result.entities || {});
+    if (entitySummary) {
+      detailsParts.push(entitySummary);
+    }
+    const launchMethod = result.data?.launchMethod || result.launchMethod || null;
+    if (launchMethod) {
+      detailsParts.push(`launchMethod=${launchMethod}`);
+    }
+    const matchedWindow = result.data?.matchedWindow || result.matchedWindow || null;
+    if (matchedWindow) {
+      detailsParts.push(`matchedWindow=${matchedWindow}`);
+    }
+    const verification = result.verification || result.data?.verification || null;
+    if (verification) {
+      detailsParts.push(`verification=${typeof verification === 'string' ? verification : verification.status || verification.state || 'recorded'}`);
+    }
+    if (Array.isArray(result.steps) && result.steps.length > 0) {
+      detailsParts.push(`steps=${result.steps.length} completed=${result.steps.filter(step => step.success).length}`);
+    }
+
+    const grounded = await this._generateGroundedLlmText(input, routedInput, source, {
+      kind: 'task',
+      intent: result.intent || 'unknown',
+      success: Boolean(result.success),
+      error: result.error || null,
+      requiresConfirmation: Boolean(result.requiresConfirmation),
+      needsClarification: false,
+      draftReply: result.confirmationMessage || result.response || '',
+      details: detailsParts.join(', ')
+    });
+    if (!grounded) {
+      return result;
+    }
+
+    return {
+      ...result,
+      response: grounded.response,
+      data: {
+        ...(result.data || {}),
+        nlpTemplateResponse: result.response || null,
+        localLlmReply: {
+          mode: result.requiresConfirmation ? 'confirmation-prompt' : 'task-reply',
+          modelName: grounded.modelName,
+          status: grounded.status
+        }
+      }
+    };
+  }
+
+  async _applyLocalLlmAnswerReply(input, source, directResult = {}) {
+    if (!directResult || typeof directResult !== 'object' || !directResult.response) {
+      return directResult;
+    }
+    if (directResult.data?.routedFallback || directResult.intent === 'assistant.llm') {
+      return directResult;
+    }
+
+    const grounded = await this._generateGroundedLlmText(input, input, source, {
+      kind: 'answer',
+      intent: directResult.intent || 'assistant.context',
+      success: true,
+      error: null,
+      draftReply: directResult.response,
+      details: ''
+    });
+    if (!grounded) {
+      return directResult;
+    }
+
+    return {
+      ...directResult,
+      response: grounded.response,
+      data: {
+        ...(directResult.data || {}),
+        nlpTemplateResponse: directResult.response || null,
+        localLlmReply: {
+          mode: 'grounded-answer',
+          modelName: grounded.modelName,
+          status: grounded.status
+        }
+      }
+    };
   }
 
   _buildLocalLlmMemorySummary() {
@@ -1606,10 +1784,16 @@ class Assistant extends EventEmitter {
       if (pending.multiCommand) {
         return this._continuePendingMultiCommand(pending, result, source);
       }
-      const response = this.personality.applyToResponse(result.response || '');
-      this.context.record(pending.originalInput || input, result.entities || {}, result);
+      const executedResult = await this._applyLocalLlmTaskReply(
+        pending.originalInput || input,
+        pending.multiCommand?.confirmedInput || pending.originalInput || input,
+        source,
+        result
+      );
+      const response = this.personality.applyToResponse(executedResult.response || '');
+      this.context.record(pending.originalInput || input, executedResult.entities || {}, executedResult);
       return {
-        ...result,
+        ...executedResult,
         response,
         source
       };
