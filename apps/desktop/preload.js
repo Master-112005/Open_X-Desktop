@@ -38,9 +38,6 @@ const openxApi = {
   processVoiceCommand: (input) =>
     ipcRenderer.invoke('command:process', { input, source: 'voice' }),
 
-  openDesktopChatApp: () =>
-    ipcRenderer.invoke('window:openPeopleChat'),
-
   openSettings: () =>
     ipcRenderer.invoke('window:openSettings'),
 
@@ -76,48 +73,6 @@ const openxApi = {
 
   clearAssistantChatHistory: () =>
     ipcRenderer.invoke('assistantChatHistory:clear'),
-
-  listDesktopChatConversations: (query = {}) =>
-    ipcRenderer.invoke('desktopChat:list', query),
-
-  openDesktopChatConversation: (conversationId) =>
-    ipcRenderer.invoke('desktopChat:open', { conversationId }),
-
-  createDesktopChatConversation: (conversation = {}) =>
-    ipcRenderer.invoke('desktopChat:create', conversation),
-
-  updateDesktopChatConversation: (conversation = {}) =>
-    ipcRenderer.invoke('desktopChat:update', conversation),
-
-  deleteDesktopChatConversation: (conversationId) =>
-    ipcRenderer.invoke('desktopChat:delete', { conversationId }),
-
-  sendDesktopChatMessage: (message = {}) =>
-    ipcRenderer.invoke('desktopChat:send', message),
-
-  listDesktopChatContacts: () =>
-    ipcRenderer.invoke('desktopChat:contacts:list'),
-
-  acceptDesktopChatContactRequest: (request = {}) =>
-    ipcRenderer.invoke('desktopChat:contacts:accept', request),
-
-  deleteDesktopChatContactRequest: (request = {}) =>
-    ipcRenderer.invoke('desktopChat:contacts:delete', request),
-
-  cancelDesktopChatContactRequest: (request = {}) =>
-    ipcRenderer.invoke('desktopChat:contacts:cancel', request),
-
-  getDesktopChatRegistration: () =>
-    ipcRenderer.invoke('desktopChat:registration:get'),
-
-  startDesktopChatRegistration: (registration = {}) =>
-    ipcRenderer.invoke('desktopChat:registration:start', registration),
-
-  updateDesktopChatPassword: (passwords = {}) =>
-    ipcRenderer.invoke('desktopChat:profile:password', passwords),
-
-  setDesktopChatUiState: (state = {}) =>
-    ipcRenderer.invoke('desktopChat:uiState', state),
 
   listRemoteTargets: () =>
     ipcRenderer.invoke('remote:listTargets'),
@@ -312,33 +267,6 @@ const openxApi = {
     const handler = () => callback();
     ipcRenderer.on('settings:open', handler);
     return () => ipcRenderer.removeListener('settings:open', handler);
-  },
-
-  onOpenDesktopChat: (callback) => {
-    if (typeof callback !== 'function') {
-      throw new TypeError('Desktop chat open listener must be a function');
-    }
-    const handler = () => callback();
-    ipcRenderer.on('desktopChat:open', handler);
-    return () => ipcRenderer.removeListener('desktopChat:open', handler);
-  },
-
-  onDesktopChatChanged: (callback) => {
-    if (typeof callback !== 'function') {
-      throw new TypeError('Desktop chat listener must be a function');
-    }
-    const handler = (_event, payload) => callback(payload || {});
-    ipcRenderer.on('desktopChat:changed', handler);
-    return () => ipcRenderer.removeListener('desktopChat:changed', handler);
-  },
-
-  onDesktopChatRegistrationChanged: (callback) => {
-    if (typeof callback !== 'function') {
-      throw new TypeError('Desktop chat registration listener must be a function');
-    }
-    const handler = (_event, payload) => callback(payload || {});
-    ipcRenderer.on('desktopChat:registrationChanged', handler);
-    return () => ipcRenderer.removeListener('desktopChat:registrationChanged', handler);
   },
 
   onScheduleDue: (callback) => {
