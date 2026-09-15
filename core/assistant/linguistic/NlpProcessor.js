@@ -18,7 +18,6 @@ const {
   scorePreparedPattern
 } = require('../reasoning/IntentPatternScorer');
 const { normalizeWebTarget } = require('../semantic/WebTargets');
-const { parseLearningDirective } = require('../learning/LearningLanguage');
 const { analyzeDiscourse, parseIntentPhrase, splitCommandClauses } = require('./LanguageAnalysis');
 
 const PREPARE_CACHE_LIMIT = 4096;
@@ -190,7 +189,6 @@ class NlpProcessor {
     const repairContextTokenCount = this._countRepairContextTokens(correctedTokens);
     const bigrams = buildBigrams(correctedTokens);
     const intentBigrams = buildBigrams(intentTokens);
-    const learningDirective = parseLearningDirective(text);
     const discourse = analyzeDiscourse(text);
     const intentPhrase = parseIntentPhrase(text);
     const commandClauses = splitCommandClauses(commandText || correctedText);
@@ -208,7 +206,6 @@ class NlpProcessor {
       intentText,
       tokens: correctedTokens,
       intentTokens,
-      learningDirective,
       discourse,
       intentPhrase,
       commandClauses,

@@ -1,34 +1,12 @@
 'use strict';
 
-const { ReasoningManager, createDefaultReasoningManager } = require('./ReasoningManager');
 const REASONING_VERSION = '8.0.0';
+const ReasoningCore = require('./ReasoningCore');
 
 module.exports = {
   REASONING_VERSION,
-  ReasoningPipeline: require('./ReasoningPipeline'),
-  ReasoningManager,
-  createDefaultReasoningManager,
-  ReasoningContext: require('./ReasoningContext'),
-  ReasoningRegistry: require('./ReasoningRegistry'),
-  BaseReasoner: require('./BaseReasoner'),
-  InferenceEngine: require('./InferenceEngine'),
-  CognitiveReasoner: require('./CognitiveReasoner'),
+  ...ReasoningCore,
   IntentPatternScorer: require('./IntentPatternScorer'),
   IntentRegistry: require('./IntentRegistry'),
-  GoalReasoner: require('./GoalReasoner'),
-  IntentReasoner: require('./IntentReasoner'),
-  ActionReasoner: require('./ActionReasoner'),
-  TaskReasoner: require('./TaskReasoner'),
-  ContextReasoner: require('./ContextReasoner'),
-  DeliberationReasoner: require('./DeliberationReasoner'),
-  ClarificationEngine: require('./ClarificationEngine'),
-  ConfidenceManager: require('./ConfidenceManager'),
-  ConflictResolver: require('./ConflictResolver'),
-  ReasoningGraphBuilder: require('./ReasoningGraphBuilder'),
-  ReasoningResult: require('./ReasoningResult'),
-  ReasoningDiagnostics: require('./ReasoningDiagnostics'),
-  ReasoningLogger: require('./ReasoningLogger'),
-  ReasoningConfiguration: require('./ReasoningConfiguration'),
-  GoalIntentReasoningStage: require('./GoalIntentReasoningStage'),
-  ...require('./ReasoningErrors')
+  ReasoningDiagnostics: require('./ReasoningDiagnostics')
 };

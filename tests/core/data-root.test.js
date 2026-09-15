@@ -28,11 +28,9 @@ describe('Assistant Data Root', function() {
     assert.equal(paths.chatCryptoSecretsPath, path.join(paths.root, 'chat-crypto-secrets.json'));
     assert.equal(paths.chatRequestNicknamesPath, path.join(paths.root, 'chat-request-nicknames.json'));
     assert.equal(paths.uiStatePath, path.join(paths.root, 'ui-state.json'));
-    assert.equal(paths.learningPath, path.join(paths.root, 'learning.json'));
     assert.equal(paths.schedulesPath, path.join(paths.root, 'schedules.json'));
     assert.equal(paths.plannerPath, path.join(paths.root, 'planner.json'));
     assert.equal(paths.screenshotsDir, path.join(paths.root, 'screenshots'));
-    assert.equal(paths.learningDir, path.join(paths.root, 'learning'));
     assert.equal(paths.logsDir, path.join(paths.root, 'logs'));
     assert.equal(paths.electronProfileDir, path.join(paths.root, 'runtime', 'electron-profile'));
     assert.equal(paths.mediaProfileDir, path.join(paths.root, 'runtime', 'chrome-media-profile'));
@@ -67,7 +65,6 @@ describe('Assistant Data Root', function() {
     assert.equal(paths.root, tempDir);
     assert.ok(fs.existsSync(paths.root));
     assert.ok(fs.existsSync(paths.logsDir));
-    assert.ok(fs.existsSync(paths.learningDir));
     assert.ok(fs.existsSync(paths.runtimeDir));
     assert.ok(fs.existsSync(paths.electronProfileDir));
     assert.ok(fs.existsSync(paths.cacheDir));
@@ -151,7 +148,6 @@ describe('Assistant Data Root', function() {
     fs.writeFileSync(path.join(legacyDir, 'settings.json'), '{"assistant":{"displayName":"Old"}}', 'utf8');
     fs.writeFileSync(path.join(legacyDir, 'chat-history.json'), '[{"text":"old chat","type":"user"}]', 'utf8');
     fs.writeFileSync(path.join(legacyDir, 'ui-state.json'), '{"assistantMuted":true}', 'utf8');
-    fs.writeFileSync(path.join(legacyDir, 'learning.json'), '{"version":1}', 'utf8');
     fs.writeFileSync(path.join(legacyDir, 'schedules.json'), '[]', 'utf8');
     fs.writeFileSync(path.join(legacyDir, 'planner.json'), '[]', 'utf8');
 
@@ -163,13 +159,12 @@ describe('Assistant Data Root', function() {
       }
     });
 
-    assert.equal(result.migrated.filter(entry => entry.reason !== 'legacy-root-quarantined').length, 6);
+    assert.equal(result.migrated.filter(entry => entry.reason !== 'legacy-root-quarantined').length, 5);
     assert.equal(result.migrated.some(entry => entry.reason === 'legacy-root-quarantined'), true);
     assert.ok(fs.existsSync(path.join(dataDir, 'settings.json')));
     assert.ok(fs.existsSync(path.join(dataDir, 'assistant-chat-history.json')));
     assert.equal(fs.existsSync(path.join(dataDir, 'chat-history.json')), false);
     assert.ok(fs.existsSync(path.join(dataDir, 'ui-state.json')));
-    assert.ok(fs.existsSync(path.join(dataDir, 'learning.json')));
     assert.ok(fs.existsSync(path.join(dataDir, 'schedules.json')));
     assert.ok(fs.existsSync(path.join(dataDir, 'planner.json')));
     assert.equal(fs.existsSync(legacyDir), false);

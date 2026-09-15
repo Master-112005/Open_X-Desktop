@@ -260,6 +260,15 @@ const openxApi = {
     return () => ipcRenderer.removeListener('schedule:changed', handler);
   },
 
+  onConversationAppend: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Conversation listener must be a function');
+    }
+    const handler = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('conversation:append', handler);
+    return () => ipcRenderer.removeListener('conversation:append', handler);
+  },
+
   onOpenSettings: (callback) => {
     if (typeof callback !== 'function') {
       throw new TypeError('Settings open listener must be a function');

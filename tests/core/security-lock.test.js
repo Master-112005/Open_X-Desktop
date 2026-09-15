@@ -2,6 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { readSecureJsonFile } = require('../../core/assistant/Data');
 
 describe('OpenX Security Lock', function() {
   let OpenXSecurityLock;
@@ -30,8 +31,8 @@ describe('OpenX Security Lock', function() {
     assert.equal(lock.verify('wrong password').success, false);
 
     const raw = fs.readFileSync(path.join(tempDir, 'assistant-lock.json'), 'utf8');
-    assert.doesNotMatch(raw, /correct horse battery/);
-    const record = JSON.parse(raw);
+    assert.doesNotMatch(raw, /correct horse battery|pbkdf2/s);
+    const record = readSecureJsonFile(path.join(tempDir, 'assistant-lock.json'));
     assert.equal(record.algorithm, 'pbkdf2');
     assert.ok(record.passwordHash);
     assert.ok(record.salt);

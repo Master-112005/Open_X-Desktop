@@ -511,7 +511,7 @@ const INTENT_DEFINITIONS = [
   },
   {
     id: 'system.time',
-    patterns: ['what time is it', 'current time', 'tell me the time', 'time now'],
+    patterns: ['what time is it', 'current time', 'tell me the time', 'time now', 'what is time'],
     permissionLevel: 'low',
     action: 'system.time',
     entities: [],
@@ -876,17 +876,6 @@ const INTENT_DEFINITIONS = [
     action: 'window.close',
     entities: [{ name: 'windowName', type: 'string', required: false }],
     description: 'Close active window'
-  },
-  {
-    id: 'assistant.learningRepair',
-    patterns: ['this learning is wrong', 'what you learned is wrong', 'wrong learning'],
-    permissionLevel: 'low',
-    action: 'assistant.learningRepair',
-    entities: [
-      { name: 'repairKind', type: 'string', required: false },
-      { name: 'correction', type: 'string', required: false }
-    ],
-    description: 'Request correction of the latest active-learning record'
   },
   {
     id: 'assistant.identity',

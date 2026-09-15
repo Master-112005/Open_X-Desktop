@@ -39,6 +39,7 @@ const APP_ALIASES = {
   'camera': 'camera',
 
   'sound recorder': 'soundrecorder',
+  'chat recorder': 'soundrecorder',
   'task manager': 'taskmgr',
   'device manager': 'devmgmt.msc',
   'disk management': 'diskmgmt.msc',

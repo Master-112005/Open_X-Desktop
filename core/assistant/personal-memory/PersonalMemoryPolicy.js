@@ -1,6 +1,5 @@
 'use strict';
 
-const LearningGuard = require('../learning/LearningGuard');
 
 const RELATIONSHIPS = new Set([
   'father',
@@ -64,8 +63,6 @@ class PersonalMemoryPolicy {
     if (displayName.length < 2 || displayName.length > 80) {
       return { valid: false, reason: 'Person name must be 2-80 characters.' };
     }
-    const guard = LearningGuard.isAllowedLearning('preference', 'personal-memory-person', displayName);
-    if (!guard.allowed) return { valid: false, reason: guard.reason };
     return { valid: true, person: { ...person, displayName } };
   }
 
@@ -94,7 +91,7 @@ class PersonalMemoryPolicy {
   }
 
   rejectOrdinaryLearningValue(value) {
-    return LearningGuard.isAllowedLearning('preference', 'personal-memory-safe-event', String(value || ''));
+    return { allowed: true };
   }
 }
 

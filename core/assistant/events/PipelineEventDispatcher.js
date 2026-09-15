@@ -1,9 +1,7 @@
 'use strict';
 
 const EventEmitter = require('events');
-const IdGenerator = require('../utils/IdGenerator');
-const deepFreeze = require('../utils/ObjectFreeze');
-const { serializeError } = require('../utils/ErrorHelpers');
+const { IdGenerator, deepFreeze, serializeError } = require('../utils');
 const PipelineEvents = require('./PipelineEvents');
 
 const idGenerator = new IdGenerator({ prefix: 'event' });

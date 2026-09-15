@@ -4557,6 +4557,17 @@ if (window.openx) {
   });
   window.openx.onOpenSettings?.(openSettingsPanel);
   window.openx.onHomeOnboardingChanged?.(handleHomeOnboardingChanged);
+  window.openx.onConversationAppend?.(({ entries, result }) => {
+    (Array.isArray(entries) ? entries : []).forEach((entry) => {
+      const type = ['user', 'assistant', 'system'].includes(entry?.type) ? entry.type : 'system';
+      const text = String(entry?.text || '').trim();
+      if (!text) return;
+      addMessage(text, type, entry?.meta || (type === 'user' ? 'Voice - just now' : assistantMeta('voice')), {
+        persist: false,
+        resultEntries: type === 'assistant' && result ? normalizeResultEntries(result) : []
+      });
+    });
+  });
 }
 
 async function initialize() {

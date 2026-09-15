@@ -1,31 +1,66 @@
 'use strict';
 
-const { PlanningManager, createDefaultPlanningManager } = require('./PlanningManager');
-const ExecutionBlueprint = require('./ExecutionBlueprint');
+const {
+  PlanningConfiguration,
+  PlanningDiagnostics,
+  PlanningLogger,
+  PlanningRegistry,
+  PlanningPipeline,
+  PlanningManager,
+  PlanningContext,
+  TaskPlanningStage,
+  ExecutionBlueprint,
+  createDefaultPlanningManager,
+  PlanningError,
+  WorkflowPlanningError,
+  DependencyError,
+  OptimizationError,
+  ExecutionBlueprintError,
+  ConfigurationError,
+  PlannerExecutionError
+} = require('./PlanningCore');
+const {
+  BasePlanner,
+  TaskPlanner,
+  ExecutionPlanner,
+  WorkflowPlanner,
+  DependencyPlanner,
+  ParallelPlanner,
+  RecoveryPlanner,
+  PlannerOptimizer,
+  TaskGraphBuilder,
+  ExecutionGraphBuilder
+} = require('./Planners');
 
 const PLANNING_VERSION = '9.0.0';
 
 module.exports = {
   PLANNING_VERSION,
-  PlanningPipeline: require('./PlanningPipeline'),
+  PlanningPipeline,
   PlanningManager,
   createDefaultPlanningManager,
-  PlanningContext: require('./PlanningContext'),
-  PlanningRegistry: require('./PlanningRegistry'),
-  BasePlanner: require('./BasePlanner'),
-  TaskPlanner: require('./TaskPlanner'),
-  ExecutionPlanner: require('./ExecutionPlanner'),
-  WorkflowPlanner: require('./WorkflowPlanner'),
-  DependencyPlanner: require('./DependencyPlanner'),
-  ParallelPlanner: require('./ParallelPlanner'),
-  RecoveryPlanner: require('./RecoveryPlanner'),
-  PlannerOptimizer: require('./PlannerOptimizer'),
-  TaskGraphBuilder: require('./TaskGraphBuilder'),
-  ExecutionGraphBuilder: require('./ExecutionGraphBuilder'),
+  PlanningContext,
+  PlanningRegistry,
+  BasePlanner,
+  TaskPlanner,
+  ExecutionPlanner,
+  WorkflowPlanner,
+  DependencyPlanner,
+  ParallelPlanner,
+  RecoveryPlanner,
+  PlannerOptimizer,
+  TaskGraphBuilder,
+  ExecutionGraphBuilder,
   ExecutionBlueprint,
-  PlanningConfiguration: require('./PlanningConfiguration'),
-  PlanningDiagnostics: require('./PlanningDiagnostics'),
-  PlanningLogger: require('./PlanningLogger'),
-  TaskPlanningStage: require('./TaskPlanningStage'),
-  ...require('./PlanningErrors')
+  PlanningConfiguration,
+  PlanningDiagnostics,
+  PlanningLogger,
+  TaskPlanningStage,
+  PlanningError,
+  WorkflowPlanningError,
+  DependencyError,
+  OptimizationError,
+  ExecutionBlueprintError,
+  ConfigurationError,
+  PlannerExecutionError
 };

@@ -329,13 +329,6 @@ describe('OpenX Chat Desktop Conversations Phase 13', () => {
     }
   });
 
-  it('serializes old server-mailbox handoff records as sent instead of queued', async function() {
-    const main = await fs.readFile(path.join(__dirname, '..', '..', 'apps', 'desktop', 'electron', 'main.js'), 'utf8');
-    assert.match(main, /direction === 'outgoing' && isPlainObject\(entry\.delivery\)[\s\S]*\? summarizeDesktopChatDelivery\(entry\.delivery\)/);
-    assert.match(main, /const DESKTOP_CHAT_SYNC_OVERLAP = 50;/);
-    assert.match(main, /const afterSequence = Math\.max\(0, Number\(cursor\.lastAck \|\| 0\) - DESKTOP_CHAT_SYNC_OVERLAP\);/);
-  });
-
   it('orders pinned and recent conversations, enforces pin limit, and paginates large lists', async () => {
     const harness = await createManager();
     try {

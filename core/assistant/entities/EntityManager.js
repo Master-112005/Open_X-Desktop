@@ -1,29 +1,35 @@
 'use strict';
 
-const EntityConfiguration = require('./EntityConfiguration');
-const EntityRegistry = require('./EntityRegistry');
-const EntityPipeline = require('./EntityPipeline');
-const ApplicationExtractor = require('./ApplicationExtractor');
-const BrowserExtractor = require('./BrowserExtractor');
-const WebsiteExtractor = require('./WebsiteExtractor');
-const FileExtractor = require('./FileExtractor');
-const FolderExtractor = require('./FolderExtractor');
-const PathExtractor = require('./PathExtractor');
-const MediaExtractor = require('./MediaExtractor');
-const ContactExtractor = require('./ContactExtractor');
-const PersonExtractor = require('./PersonExtractor');
-const DeviceExtractor = require('./DeviceExtractor');
-const LocationExtractor = require('./LocationExtractor');
-const DateExtractor = require('./DateExtractor');
-const TimeExtractor = require('./TimeExtractor');
-const DurationExtractor = require('./DurationExtractor');
-const ReminderExtractor = require('./ReminderExtractor');
-const AlarmExtractor = require('./AlarmExtractor');
-const TimerExtractor = require('./TimerExtractor');
-const WindowExtractor = require('./WindowExtractor');
-const NetworkExtractor = require('./NetworkExtractor');
-const VolumeExtractor = require('./VolumeExtractor');
-const BrightnessExtractor = require('./BrightnessExtractor');
+const {
+  EntityConfiguration,
+  EntityRegistry,
+  EntityPipeline
+} = require('./EntityCore');
+const {
+  ApplicationExtractor,
+  BrowserExtractor,
+  WebsiteExtractor,
+  FileExtractor,
+  FolderExtractor,
+  PathExtractor,
+  MediaExtractor,
+  ContactExtractor,
+  PersonExtractor,
+  DeviceExtractor,
+  LocationExtractor,
+  DateExtractor,
+  TimeExtractor,
+  DurationExtractor,
+  ReminderExtractor,
+  AlarmExtractor,
+  TimerExtractor,
+  WindowExtractor,
+  NetworkExtractor,
+  VolumeExtractor,
+  BrightnessExtractor
+} = require('./EntityExtractors');
+const PipelineStage = require('../pipeline/PipelineStage');
+const StageResult = require('../pipeline/StageResult');
 
 class EntityManager {
   constructor(options = {}) {
@@ -111,4 +117,48 @@ function createDefaultEntityManager(options = {}) {
   return new EntityManager(options);
 }
 
-module.exports = { EntityManager, createDefaultEntityManager };
+class EntityUnderstandingStage extends PipelineStage {
+  constructor(options = {}) {
+    super({
+      id: options.id || 'assistant.entity.understanding',
+      name: options.name || 'Assistant Entity Understanding',
+      order: Number.isFinite(options.order) ? options.order : -10,
+      enabled: options.enabled !== false
+    });
+    this.manager = options.manager || createDefaultEntityManager({
+      configuration: options.configuration || {},
+      logger: options.logger || null
+    });
+  }
+
+  async execute(context) {
+    if (!context.semanticRepresentation) {
+      return StageResult.skipped(this.id, 'No SemanticRepresentation available.');
+    }
+    const structuredEntities = await this.manager.understand(context.semanticRepresentation, {
+      metadata: context.metadata
+    });
+    context.structuredEntities = structuredEntities;
+    context.set('assistant.structuredEntities', structuredEntities);
+    const entityTypes = Object.fromEntries(
+      structuredEntities.entityGraph.nodes.reduce((counts, node) => {
+        counts.set(node.type, (counts.get(node.type) || 0) + 1);
+        return counts;
+      }, new Map())
+    );
+    return StageResult.ok(this.id, {
+      entityCount: structuredEntities.entityGraph.nodes.length,
+      relationshipCount: structuredEntities.relationships.length,
+      entityTypes,
+      confidence: structuredEntities.confidence,
+      version: structuredEntities.version
+    });
+  }
+
+  async destroy() {
+    if (typeof this.manager?.destroy === 'function') this.manager.destroy();
+    return super.destroy();
+  }
+}
+
+module.exports = { EntityManager, createDefaultEntityManager, EntityUnderstandingStage };

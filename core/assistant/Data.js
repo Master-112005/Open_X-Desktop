@@ -118,7 +118,6 @@ function buildDataPaths(config = {}) {
   const cloudDir = path.join(root, 'cloud');
   const securityDir = path.join(root, 'security');
   const personalDir = path.join(root, 'personal');
-  const homeLearningDir = path.join(root, 'home-learning');
   const configuredReceivedDir = String(config?.app?.cloudReceivedDir || process.env.OPENX_RECEIVED_FILES_DIR || '').trim();
   const cloudReceivedDir = path.resolve(configuredReceivedDir || path.join(resolveDocumentsDirectory(), 'OpenX'));
 
@@ -138,29 +137,14 @@ function buildDataPaths(config = {}) {
     chatCryptoSecretsPath: path.join(root, 'chat-crypto-secrets.json'),
     chatRequestNicknamesPath: path.join(root, 'chat-request-nicknames.json'),
     uiStatePath: path.join(root, 'ui-state.json'),
-    learningPath: path.join(root, 'learning.json'),
     schedulesPath: path.join(root, 'schedules.json'),
     plannerPath: path.join(root, 'planner.json'),
     screenshotsDir: path.join(root, 'screenshots'),
-    learningDir: path.join(root, 'learning'),
-    learningAliasesPath: path.join(root, 'learning', 'aliases.json'),
-    learningPreferencesPath: path.join(root, 'learning', 'preferences.json'),
-    learningCorrectionsPath: path.join(root, 'learning', 'corrections.json'),
-    learningWorkflowsPath: path.join(root, 'learning', 'workflows.json'),
-    learningUsageStatsPath: path.join(root, 'learning', 'usage_stats.json'),
     personalDir,
     personalVaultPath: path.join(personalDir, 'personal-vault.db'),
     personalVaultKeyPath: path.join(personalDir, 'personal-vault.key'),
-    homeLearningDir,
-    homeLearningDatabasePath: path.join(homeLearningDir, 'home-learning.db'),
-    homeLearningDeviceRegistryPath: path.join(homeLearningDir, 'devices.json'),
-    homeLearningPatternPath: path.join(homeLearningDir, 'patterns.json'),
-    homeLearningSequencePath: path.join(homeLearningDir, 'sequences.json'),
     homeDevicesPath: path.join(root, 'home-devices.json'),
     homeOwnerIdPath: path.join(root, 'home-owner-id.json'),
-    routineLearningDir: path.join(root, 'learning', 'routines'),
-    routineObservationPath: path.join(root, 'learning', 'routines', 'observations.jsonl'),
-    routineSummaryPath: path.join(root, 'learning', 'routines', 'summaries.json'),
     logsDir: path.join(root, 'logs'),
     runtimeDir,
     electronProfileDir: path.join(runtimeDir, 'electron-profile'),
@@ -211,7 +195,6 @@ function isSecureJsonEnvelope(value) {
 function inferManagedRootFromPath(filePath) {
   const basename = path.basename(filePath).toLowerCase();
   if ([
-    'learning.json',
     'assistant-chat-history.json',
     'settings.json',
     'schedules.json',
@@ -236,7 +219,7 @@ function inferManagedRootFromPath(filePath) {
   let current = path.resolve(path.dirname(filePath));
   while (current && current !== path.dirname(current)) {
     const name = path.basename(current).toLowerCase();
-    if (['learning', 'home-learning', 'personal', 'runtime', 'cloud', 'security'].includes(name)) {
+    if (['personal', 'runtime', 'cloud', 'security'].includes(name)) {
       return path.dirname(current);
     }
     current = path.dirname(current);
@@ -732,7 +715,6 @@ function ensureDataRoot(config = {}) {
   [
     paths.root,
     paths.logsDir,
-    paths.learningDir,
     paths.runtimeDir,
     paths.electronProfileDir,
     paths.cacheDir,
@@ -742,8 +724,7 @@ function ensureDataRoot(config = {}) {
     paths.cloudReceivedDir,
     paths.cloudTempDir,
     paths.securityDir,
-    paths.personalDir,
-    paths.homeLearningDir
+    paths.personalDir
   ].forEach(ensureDirectory);
   purgeDeprecatedContactStorage(paths.root);
   return paths;
@@ -833,7 +814,6 @@ function migrateLegacyData(config = {}) {
   copyFileIfMissing(path.join(legacyRoot, 'assistant-chat-history.json'), paths.assistantChatHistoryPath, migrated, skipped);
   copyFileIfMissing(path.join(legacyRoot, 'chat-history.json'), paths.assistantChatHistoryPath, migrated, skipped);
   copyFileIfMissing(path.join(legacyRoot, 'ui-state.json'), paths.uiStatePath, migrated, skipped);
-  copyFileIfMissing(path.join(legacyRoot, 'learning.json'), paths.learningPath, migrated, skipped);
   copyFileIfMissing(path.join(legacyRoot, 'schedules.json'), paths.schedulesPath, migrated, skipped);
   copyFileIfMissing(path.join(legacyRoot, 'planner.json'), paths.plannerPath, migrated, skipped);
 

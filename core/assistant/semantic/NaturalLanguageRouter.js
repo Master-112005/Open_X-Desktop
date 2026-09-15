@@ -1,7 +1,6 @@
 const { Normalizer } = require('../Data');
 const EntityExtractor = require('../entities/EntityExtractor');
 const { FILLER_WORDS } = require('../normalization/CommandPreprocessor');
-const { parseLearningDirective } = require('../learning/LearningLanguage');
 const { analyzeDiscourse, buildWordRelations, parseIntentPhrase, splitCommandClauses } = require('../linguistic/LanguageAnalysis');
 
 const ACTION_ALIASES = new Map([
@@ -169,28 +168,7 @@ class NaturalLanguageRouter {
     const tokens = Array.isArray(prepared?.tokens) && prepared.tokens.length
       ? prepared.tokens
       : Normalizer.tokenize(correctedText);
-    const learningDirective = prepared?.learningDirective || parseLearningDirective(clause);
     const intentPhrase = prepared?.intentPhrase || parseIntentPhrase(clause);
-    if (learningDirective?.kind === 'repair-learning') {
-      return {
-        index,
-        text: clause,
-        correctedText,
-        tokens,
-        tokenRoles: tokens.map(token => ({ token, role: 'learning-feedback' })),
-        action: 'repair',
-        actionToken: 'wrong learning',
-        targetText: learningDirective.correction,
-        domain: 'active-learning',
-        intentId: 'assistant.learningRepair',
-        entities: {
-          repairKind: learningDirective.kind,
-          ...(learningDirective.correction ? { correction: learningDirective.correction } : {})
-        },
-        confidence: 1,
-        validation: { status: 'passed', reason: 'Active-learning repair request detected' }
-      };
-    }
     const action = this._findAction(tokens, correctedText);
     const value = this._extractValue(correctedText);
     const inferredDomain = this._inferDomain(tokens, correctedText, action?.verb || '', value);

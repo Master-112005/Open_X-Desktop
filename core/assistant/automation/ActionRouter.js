@@ -5,7 +5,7 @@ const IntentRegistry = require('../reasoning/IntentRegistry').IntentRegistry;
 const InputParser = require('../linguistic/InputParser');
 const EntityExtractor = require('../entities/EntityExtractor');
 const PermissionValidator = require('../../../apps/desktop/permissions');
-const NaturalLanguageExecution = require('./NaturalLanguageExecution');
+const { NaturalLanguageExecution } = require('./AutomationRuntime');
 const ActionValidation = require('../../automation/common/action-velidation');
 const ActionConfirmation = require('../../automation/common/action-confirm');
 const NlpProcessor = require('../linguistic/NlpProcessor');
@@ -19,7 +19,7 @@ const ResponseGenerator = require('../response/ResponseGenerator');
 const {
   isCancellationError,
   throwIfAborted
-} = require('../utils/Cancellation');
+} = require('../utils');
 
 const CONFIDENCE_THRESHOLD = 0.5;
 const PHONE_TRANSFER_ACTION_PATTERN = /^(?:(?:please|can\s+you|could\s+you|would\s+you|can\s+u)\s+)?(?:send|share|transfer|copy|export|push|move|give|get|bring|send\s+over|send\s+across)\b/i;
@@ -27,6 +27,9 @@ const PHONE_ORIGIN_FETCH_PATTERN = /^(?:(?:please|can\s+you|could\s+you|would\s+
 const PHONE_TRANSFER_TRAILING_TARGET_PATTERN = /\s+(?:to|with|onto|on|into|over\s+to|across\s+to|here\s+on)\s+(?:my\s+)?(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset|this\s+phone|this\s+device)\s*$/i;
 const PHONE_TRANSFER_TARGET_WORD_PATTERN = /\b(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset)\b/i;
 const PHONE_TRANSFER_FILE_EVIDENCE_PATTERN = /\b(?:file|files|folder|folders|directory|document|documents|pdf|pdfs|docx?|xlsx?|pptx?|csv|json|txt|log|zip|rar|7z|apk|image|images|photo|photos|picture|pictures|pic|pics|screenshot|screenshots|video|videos|audio|music|downloads?|documents?|desktop|resume|report|presentation|spreadsheet|sheet|archive)\b|[^\s]+\.[a-z0-9]{1,10}\b/i;
+const LOCAL_FILE_NOUN_STR = '(?:resume|resumes|cv|cvs|invoice|invoices|letter|letters|notes|budget|budgets|assignment|assignments|essay|essays|report|reports|presentation|presentations|slides|spreadsheet|spreadsheets|syllabus|summary|summaries|memo|memos)';
+const LOCAL_FILE_NOUN_PATTERN = new RegExp(`\\b${LOCAL_FILE_NOUN_STR}\\b`, 'i');
+const FILE_SEARCH_PHRASE_PATTERN = new RegExp(`\\b(?:locate|search(?:\\s+for)?|find(?:ing)?|show\\s+me|where\\s+(?:is|are))\\s+(?:my\\s+)?${LOCAL_FILE_NOUN_STR}\\b`, 'i');
 const EXPLICIT_APP_DOMAIN_PATTERN = /\b(?:app|apps|application|applications|program|programs|software)\b|\bnot\s+(?:a\s+|an\s+|the\s+)?(?:file|folder|document|pdf|docx?)\b/i;
 const EXPLICIT_NOT_APP_PATTERN = /\bnot\s+(?:a\s+|an\s+|the\s+)?(?:app|application|program|software)\b/i;
 
@@ -120,7 +123,6 @@ class ActionRouter {
     this.appCommandLanguage = new AppCommandLanguage();
     this.browserCommandLanguage = new BrowserCommandLanguage();
     this.responseGenerator = new ResponseGenerator(config);
-    this.learningStore = config?.learningStore || null;
     this.mediaRouter = new MediaCommandRouter({
       logging: config?.logging,
       contextProvider: config?.contextEngine || config?.contextProvider || null
@@ -216,11 +218,9 @@ class ActionRouter {
       rawCommandText
     );
 
-    const commandLooksLikeLearningRepair = preparedInput.learningDirective?.kind === 'repair-learning';
     const capabilityAllowsMulti = this._capabilityCommandAllowsMulti(commandLooksLikeCapability, rawCommandText);
     if (options.allowMulti !== false &&
-      (!commandLooksLikeCapability || capabilityAllowsMulti) &&
-      !commandLooksLikeLearningRepair) {
+      (!commandLooksLikeCapability || capabilityAllowsMulti)) {
       const multiPlan = this._buildMultiCommandPlan(rawCommandText, source);
       if (multiPlan) {
         return this._executeMultiCommand(commandId, multiPlan, source, options);
@@ -232,14 +232,6 @@ class ActionRouter {
     const minAcceptableConfidence = 0.3;
 
     if (!intentResult) {
-      this._recordRoutingEvidence({
-        input: rawCommandText,
-        source,
-        intent: null,
-        success: false,
-        preparedInput,
-        validationStatus: 'unknown'
-      });
       if (this._isIncompleteCommand(rawCommandText, preparedInput)) {
         return {
           commandId,
@@ -311,8 +303,7 @@ class ActionRouter {
         repairedCommandText: correctedText,
         intentText: correctedText,
         tokens: correctedText ? correctedText.toLowerCase().split(/\s+/).filter(Boolean) : [],
-        semanticFrame: null,
-        learningDirective: null
+        semanticFrame: null
       };
     }
   }
@@ -374,7 +365,6 @@ class ActionRouter {
     }
 
     return this._runResolverChain([
-      ['_resolveLearningRepairIntent', () => this._resolveLearningRepairIntent(rawCommandText, preparedInput)],
       ['_resolveLocalInfoIntent', () => this._resolveLocalInfoIntent(rawCommandText, preparedInput)],
       ['_resolveHomeDeviceListIntent', () => this._resolveHomeDeviceListIntent(rawCommandText, preparedInput)],
       ['_resolveScheduleListIntent', () => this._resolveScheduleListIntent(rawCommandText, preparedInput)],
@@ -521,6 +511,9 @@ class ActionRouter {
       /\b(?:today|todays|today's)\s+(?:schedule|agenda)\b/.test(input)
     );
     if (!asksLocalSchedule) return null;
+    if (!/\b(?:schedule|agenda|calendar|timetable)\b/.test(input) && /\b(?:alarms?|timers?|reminders?)\b/.test(input)) {
+      return null;
+    }
     const intent = this.intentRegistry.get('schedule.list');
     if (!intent) return null;
     const scope = /\b(?:today|todays|today's)\b/.test(input) ? 'today' : 'active';
@@ -1425,12 +1418,6 @@ class ActionRouter {
         entities: {}
       };
     }
-    if (this.learningStore?.adaptEntities) {
-      entities = this.learningStore.adaptEntities(intentResult.intent.id, entities, {
-        rawCommandText,
-        source
-      });
-    }
     let actionValidation;
     try {
       actionValidation = this.actionValidation.validate(intentResult.intent, entities);
@@ -1459,14 +1446,6 @@ class ActionRouter {
     );
 
     if (missingRequired.length > 0) {
-      this._recordRoutingEvidence({
-        input: rawCommandText,
-        source,
-        intent: intentResult.intent.id,
-        success: false,
-        preparedInput,
-        validationStatus: 'incomplete'
-      });
       const isCommunicationIntent = ['message.send', 'email.compose', 'call.start'].includes(intentResult.intent.id);
       const capability = isCommunicationIntent
         ? null
@@ -1497,14 +1476,6 @@ class ActionRouter {
         ? actionValidation.errors[0]
         : null;
       const message = firstError?.message || 'The command details are not valid.';
-      this._recordRoutingEvidence({
-        input: rawCommandText,
-        source,
-        intent: intentResult.intent.id,
-        success: false,
-        preparedInput,
-        validationStatus: 'failed'
-      });
 
       return {
         commandId,
@@ -2025,7 +1996,7 @@ class ActionRouter {
         if (verbsThatCanCarry.has(verbMatch[1])) {
           carriedVerb = verbMatch[1];
         }
-        return corrected;
+        return this._normalizeMultiClauseAppTarget(verbMatch[1], corrected);
       }
 
       if (carriedVerb && /^[a-z0-9][a-z0-9\s.-]*$/i.test(corrected)) {
@@ -2038,6 +2009,34 @@ class ActionRouter {
 
       return corrected;
     });
+  }
+
+  _normalizeMultiClauseAppTarget(verb, clauseText) {
+    const normalVerbs = new Set(['open','launch','start','run','close','quit','exit','terminate','switch','focus','minimize','maximize']);
+    if (!normalVerbs.has(String(verb || '').toLowerCase())) {
+      return clauseText;
+    }
+    const match = String(clauseText || '').trim().match(
+      /^(open|launch|start|run|close|quit|exit|terminate|switch|focus)\s+(.+)$/i
+    );
+    if (!match) {
+      return clauseText;
+    }
+    const target = match[2].trim();
+    if (!target || target.split(/\s+/).length > 5 || /\b(?:on|in|at|to|the|a|an)\s*$/i.test(target)) {
+      return clauseText;
+    }
+    try {
+      const appIntent = this.intentRegistry.get('app.open');
+      if (!appIntent) return clauseText;
+      const extracted = this.entityExtractor.extract(appIntent, clauseText);
+      if (extracted && extracted.appName && extracted.appName.toLowerCase() !== target.toLowerCase()) {
+        return `${verb} ${extracted.appName}`;
+      }
+    } catch (_) {
+      // Swallow extraction failures and return the original clause unchanged.
+    }
+    return clauseText;
   }
 
   _extractModeCommandsFromData(data) {
@@ -2531,26 +2530,6 @@ class ActionRouter {
     return `${clean.slice(0, -1).join(', ')}, and ${clean[clean.length - 1]}`;
   }
 
-  _recordRoutingEvidence(entry = {}) {
-    if (!this.learningStore?.recordRoutingEvidence) {
-      return null;
-    }
-
-    const semanticParse = entry.semanticParse ||
-      entry.preparedInput?.semanticParse ||
-      entry.languageUnderstanding?.semanticParse ||
-      null;
-    return this.learningStore.recordRoutingEvidence({
-      input: entry.input,
-      source: entry.source,
-      intent: entry.intent,
-      success: entry.success,
-      routeSource: entry.routeSource,
-      validationStatus: entry.validationStatus,
-      semanticParse
-    });
-  }
-
   async confirmAndExecute(commandId, intentId, entities, options = {}) {
     const intent = this.intentRegistry.get(intentId);
     if (!intent) {
@@ -2642,6 +2621,7 @@ class ActionRouter {
     try {
       const signal = executionOptions.signal || executionOptions.executionContext?.signal || null;
       throwIfAborted(signal);
+      entities = this._adaptIntentEntities(intentResult?.intent?.id, entities);
       if (intentResult.intent.id === 'assistant.capability') {
         let capabilityData = { action: 'capability.recognized', ...entities };
         if (this.automationEngine && typeof this.automationEngine.execute === 'function') {
@@ -2662,15 +2642,6 @@ class ActionRouter {
             this.logger.warn('Capability marker execution failed', { error: error.message, input: rawCommandText });
           }
         }
-        this._recordRoutingEvidence({
-          input: rawCommandText,
-          source,
-          intent: intentResult.intent.id,
-          success: true,
-          languageUnderstanding,
-          routeSource: entities?.routeSource || null,
-          validationStatus: 'recognized'
-        });
         return {
           commandId,
           success: true,
@@ -2716,15 +2687,6 @@ class ActionRouter {
         verification: result.verification?.status || result.data?.verification?.status || null,
         launchMethod: result.data?.launchMethod || null,
         matchedWindow: result.data?.matchedWindow || null
-      });
-      this._recordRoutingEvidence({
-        input: rawCommandText,
-        source,
-        intent: intentResult.intent.id,
-        success: Boolean(result.success),
-        languageUnderstanding,
-        routeSource: entities?.routeSource || (intentResult.semanticFrame ? 'natural-language-router' : null),
-        validationStatus: result.success ? 'passed' : 'execution-failed'
       });
       this._rememberPresentationContextFromResult(intentResult.intent.id, entities, result, source);
 
@@ -3207,7 +3169,8 @@ class ActionRouter {
       return null;
     }
 
-    if (/\b(?:my\s+resume|resume\s+(?:file|document|docx|pdf)|where\s+did.*\bresume\b|find.*\bresume\b|open.*\bresume\b)\b/.test(textToUse)) {
+    if (/\b(?:my\s+resume|resume\s+(?:file|document|docx|pdf)|where\s+did.*\bresume\b|find.*\bresume\b|open.*\bresume\b)\b/.test(textToUse) ||
+      FILE_SEARCH_PHRASE_PATTERN.test(textToUse)) {
       return null;
     }
 
@@ -3368,7 +3331,8 @@ class ActionRouter {
       return null;
     }
 
-    if (/\b(?:my\s+resume|resume\s+(?:file|document|docx|pdf)|where\s+did.*\bresume\b|find.*\bresume\b|open.*\bresume\b)\b/i.test(String(rawText || ''))) {
+    if (/\b(?:my\s+resume|resume\s+(?:file|document|docx|pdf)|where\s+did.*\bresume\b|find.*\bresume\b|open.*\bresume\b)\b/i.test(String(rawText || '')) ||
+      FILE_SEARCH_PHRASE_PATTERN.test(String(rawText || ''))) {
       return null;
     }
 
@@ -3999,17 +3963,73 @@ class ActionRouter {
       : '';
     const url = this._extractUrl(rawText || corrected);
 
+    const entities = {
+      action,
+      command: rawText,
+      url,
+      targetForm
+    };
+    const userFacts = this._collectUserFacts();
+    if (userFacts) {
+      entities.userFacts = userFacts;
+    }
+
     return {
       intent,
       confidence: 1,
-      entities: {
-        action,
-        command: rawText,
-        url,
-        targetForm,
-        userFacts: this.learningStore?.getAllUserFacts?.() || {}
-      }
+      entities
     };
+  }
+
+  _adaptIntentEntities(intentId, entities) {
+    if (!intentId || !entities || typeof entities !== 'object') {
+      return entities;
+    }
+    const config = this.config || {};
+    const candidates = [
+      config.adaptEntitiesProvider,
+      config.learningStore?.adaptEntities,
+      config.contextManager?.adaptEntities,
+      config.contextEngine?.adaptEntities
+    ];
+    for (const adapter of candidates) {
+      if (typeof adapter !== 'function') {
+        continue;
+      }
+      try {
+        const adapted = adapter.call(config, intentId, { ...entities });
+        if (adapted && typeof adapted === 'object') {
+          return adapted;
+        }
+      } catch {
+        // Ignore a failing adapter and fall through to the next one.
+      }
+    }
+    return entities;
+  }
+
+  _collectUserFacts() {
+    const config = this.config || {};
+    const candidates = [
+      config.userFactsProvider,
+      config.learningStore?.getAllUserFacts,
+      config.contextManager?.getAllUserFacts,
+      config.contextEngine?.getAllUserFacts
+    ];
+    for (const provider of candidates) {
+      if (typeof provider !== 'function') {
+        continue;
+      }
+      try {
+        const facts = provider.call(config);
+        if (facts && typeof facts === 'object' && Object.keys(facts).length > 0) {
+          return facts;
+        }
+      } catch {
+        // Ignore a failing facts provider and fall through to the next one.
+      }
+    }
+    return null;
   }
 
   _buildSmartFileEntities(input) {
@@ -4305,7 +4325,7 @@ class ActionRouter {
     ];
 
     const canBeImplicitLocate = /^(?:locate)\b/.test(input) && this._extractLocalFileSearchQuery(rawText || input, input);
-    if (!canBeImplicitLocate && !/\b(?:file|location|path)\b|[^\s]+\.[A-Za-z0-9]{1,10}\b/i.test(`${input} ${rawText || ''}`)) {
+    if (!canBeImplicitLocate && !/\b(?:file|location|path)\b|[^\s]+\.[A-Za-z0-9]{1,10}\b/i.test(`${input} ${rawText || ''}`) && !LOCAL_FILE_NOUN_PATTERN.test(`${input} ${rawText || ''}`)) {
       return null;
     }
 
@@ -4629,21 +4649,6 @@ class ActionRouter {
         ...frame,
         domain: 'app',
         intentId
-      }
-    };
-  }
-
-  _resolveLearningRepairIntent(rawCommandText, preparedInput) {
-    const directive = preparedInput?.learningDirective;
-    if (directive?.kind !== 'repair-learning') return null;
-    const intent = this.intentRegistry.get('assistant.learningRepair');
-    if (!intent) return null;
-    return {
-      intent,
-      confidence: 1,
-      entities: {
-        repairKind: directive.kind,
-        ...(directive.correction ? { correction: directive.correction } : {})
       }
     };
   }
@@ -5154,7 +5159,8 @@ class ActionRouter {
     const fileName = String(filename || '').trim();
     const text = String(rawText || fileName || '').toLowerCase();
     return /\.[A-Za-z0-9]{1,10}$/.test(fileName) ||
-      /\b(?:file|document|pdf|docx?|xlsx?|pptx?|txt|csv|json|js|ts|html|css|java|py|md|png|jpe?g|gif|mp4|mp3)\b/i.test(text);
+      /\b(?:file|document|pdf|docx?|xlsx?|pptx?|txt|csv|json|js|ts|html|css|java|py|md|png|jpe?g|gif|mp4|mp3)\b/i.test(text) ||
+      LOCAL_FILE_NOUN_PATTERN.test(text);
   }
 
   _extractOpenInBrowserSearch(rawText, preparedInput) {
@@ -6414,6 +6420,9 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
 
   _resolveLocalInfoIntent(rawText, preparedInput) {
     const input = this._normalizeSystemCommandText(preparedInput?.correctedText || rawText);
+    if (/\b(?:tabs?|tabbed|tabbing)\b/.test(input) && /\b(?:chrome|browser|edge|firefox)\b/.test(input)) {
+      return null;
+    }
     const publicKnowledgeContext = /\b(?:ipl|cricket|fifa|world\s+cup|match(?:es)?|fixtures?|schedule|score|scores|winner|winners|champion|champions|event|release|released|premiere|price|news|movie|movies)\b/.test(input);
     const systemTimeIntent = this.intentRegistry.get('system.time');
     const systemDateIntent = this.intentRegistry.get('system.date');
@@ -6429,14 +6438,23 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     }
 
     if (!publicKnowledgeContext && /\b(?:date|day|today)\b/.test(input) && /^(?:what|which|tell|show|current|date|day)\b/.test(input)) {
+      if (/\b(?:screenshot|screenshots?|photo|photos?|picture|pictures?|image|images?|file|files?|document|documents?|resume|cv|pdf|pdfs?|forecast)\b/.test(input)) {
+        return null;
+      }
       return systemDateIntent ? { intent: systemDateIntent, confidence: 1, entities: {} } : null;
     }
 
     if (/\b(?:cpu|processor)\b/.test(input) && /\b(?:usage|status|use|using|load|percent|percentage|how\s+much|current)\b/.test(input)) {
+      if (/\b(?:app|process|application|program)\b.*\bmost\b|\bconsuming\s+the\s+most\b/.test(input)) {
+        return null;
+      }
       return systemCpuIntent ? { intent: systemCpuIntent, confidence: 1, entities: {} } : null;
     }
 
     if (/\b(?:ram|memory)\b/.test(input) && /\b(?:usage|status|use|using|used|available|free|left|about|how\s+much|current)\b/.test(input)) {
+      if (/\b(?:app|process|application|program)\b.*\bmost\b|\busing\s+the\s+most\b|\bconsuming\s+the\s+most\b/.test(input)) {
+        return null;
+      }
       return systemMemoryIntent ? { intent: systemMemoryIntent, confidence: 1, entities: {} } : null;
     }
 
@@ -6445,6 +6463,9 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     }
 
     if (/\b(?:disk|storage|drive|space)\b/.test(input) && /\b(?:space|storage|disk|drive|free|left|available|usage|used|status|how\s+much)\b/.test(input)) {
+      if (/\btaking\s+up\s+space\b|\bstorage\s+usage\b|\bwhat\s+uses\s+space\b/.test(input)) {
+        return null;
+      }
       return systemDiskIntent ? { intent: systemDiskIntent, confidence: 1, entities: {} } : null;
     }
 
@@ -6474,6 +6495,9 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     }
 
     if (/\b(?:system|computer|pc|laptop|machine)\b/.test(input) && /\b(?:status|health|usage|running|about|info|information|performance|condition|doing)\b/.test(input)) {
+      if (/\bfan\s+(?:running|spinning)\b|\bslowing\s+down\b/.test(input)) {
+        return null;
+      }
       return systemStatusIntent ? { intent: systemStatusIntent, confidence: 1, entities: {} } : null;
     }
 
@@ -6731,7 +6755,8 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     const fileEvidence = `${input} ${rawText || ''}`;
     const hasLocalFileEvidence =
       /\b(?:file|files|folder|folders|directory|location|path|pdf|pdfs|document|documents|docx?|xlsx?|pptx?|csv|json|image|images|photo|photos|picture|pictures|video|videos|screenshot|screenshots|downloaded|downloads|duplicate|duplicates)\b/i.test(fileEvidence) ||
-      /[^\s]+\.[A-Za-z0-9]{1,10}\b/i.test(fileEvidence);
+      /[^\s]+\.[A-Za-z0-9]{1,10}\b/i.test(fileEvidence) ||
+      LOCAL_FILE_NOUN_PATTERN.test(fileEvidence);
     if (!/^(?:locate)\b/i.test(input) && !hasLocalFileEvidence) {
       return null;
     }
@@ -6876,7 +6901,7 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
       return null;
     }
 
-    const photoLibrary = this.learningStore?.getPreference?.('photoLibrary')?.value || '';
+    const photoLibrary = '';
     const selfOrRelationshipCue = relationshipCue || /\b(?:me|myself|mine|family)\b/.test(input);
     const wantsGooglePhotos = this._isExplicitExternalPhotoSurface(input) ||
       (photoLibrary === 'googlePhotos' && !selfOrRelationshipCue);

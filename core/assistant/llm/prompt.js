@@ -98,8 +98,34 @@ function buildTurnPrompt(userText, context = {}) {
   }
   if (context.taskOutcome && typeof context.taskOutcome === 'object') {
     lines.push(...buildTaskOutcomeBlock(context.taskOutcome));
+  } else {
+    lines.push(
+      'This is not a computer command to execute. The user is asking a question or chatting; answer them directly and naturally from your own knowledge.'
+    );
   }
+  lines.push('If you genuinely do not know an answer, say you do not know it. Never invent times, dates, weather, prices, numbers, names, or events that were not provided to you.');
   lines.push(String(userText || '').trim());
+  return lines.join('\n');
+}
+
+function buildCasualChatTurnPrompt(userText, context = {}) {
+  const safeUser = String(userText || '').trim();
+  const safeName = sanitizePromptValue(context.assistantName || 'OpenX', 80);
+  const lines = [
+    `[Casual chat mode. You are ${safeName}, a friendly local desktop assistant having a chat with the user.]`,
+    'Rules:',
+    '- Keep the reply to 1-2 short sentences.',
+    '- Do not repeat, rephrase, or echo what the user said back to them.',
+    '- Never acknowledge formally with "Noted, sir" or "I will remember that". Just chat naturally.',
+    '- Answer the user directly. Ask a follow-up question only when it fits naturally.',
+    '- Vary your wording. Do not repeat earlier replies.',
+    `- If the user asks your name, say it is ${safeName}. If asked who you are, say you are ${safeName}, their local desktop assistant.`,
+    '- If the user reports their day, mood, or life is fine or good, acknowledge it simply, for example: "That is good to hear." Only do this when they actually described how they are - a greeting alone like "hi" is not a report.',
+    '- If asked for a joke, tell one short joke.',
+    '- If you genuinely do not know something, say you do not know it instead of guessing.',
+    'Now reply to the user:',
+    safeUser
+  ];
   return lines.join('\n');
 }
 
@@ -107,6 +133,7 @@ module.exports = {
   buildSystemPrompt,
   buildTaskOutcomeBlock,
   buildTurnPrompt,
+  buildCasualChatTurnPrompt,
   languageInstruction,
   responseStyleInstruction,
   sanitizePromptValue

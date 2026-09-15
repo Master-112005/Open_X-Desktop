@@ -5,7 +5,7 @@ const path = require('path');
 const { ExternalLlmEngine, shouldUseExternalRuntime } = require('./ExternalLlmEngine');
 const { createLeakGuard } = require('./LeakGuard');
 const { LlamaEngine } = require('./LlamaEngine');
-const { buildTurnPrompt } = require('./prompt');
+const { buildTurnPrompt, buildCasualChatTurnPrompt } = require('./prompt');
 
 const DEFAULT_MODEL_RELATIVE_PATH = path.join('models', 'Llama-3.2-1B', 'Llama-3.2-1B-Instruct-Q4_K_M.gguf');
 
@@ -223,12 +223,19 @@ class LocalLlmManager {
       source: options.source || 'assistant',
       model: validation.modelName
     });
-    const turnPrompt = buildTurnPrompt(userText, {
-      memorySummary: options.memorySummary || '',
-      conversationSummary: options.conversationSummary || '',
-      taskOutcome: options.taskOutcome || null,
-      now: options.now
-    });
+    const turnPrompt = options.turn === 'casualChat'
+      ? buildCasualChatTurnPrompt(userText, {
+        memorySummary: options.memorySummary || '',
+        conversationSummary: options.conversationSummary || '',
+        assistantName: options.assistantName || this.config?.assistant?.displayName || 'OpenX',
+        now: options.now
+      })
+      : buildTurnPrompt(userText, {
+        memorySummary: options.memorySummary || '',
+        conversationSummary: options.conversationSummary || '',
+        taskOutcome: options.taskOutcome || null,
+        now: options.now
+      });
     const result = await engine.reply(turnPrompt, chunk => leakGuard.feed(chunk));
     const response = leakGuard.finalize(result?.text || '');
     log(this.logger, 'info', '[LLM] Local LLM reply completed', {

@@ -42,6 +42,7 @@ function compactCrashMetadata(metadata = {}) {
     pid: Number(metadata.pid) || null,
     uptimeMs: Math.max(0, Math.round(Number(metadata.uptimeMs) || 0)),
     assistantInitialized: metadata.assistantInitialized === true,
+    chatState: String(metadata.chatState || '').slice(0, 40),
     windows: metadata.windows && typeof metadata.windows === 'object'
         ? {
           chat: metadata.windows.chat === true,

@@ -197,7 +197,7 @@ describe('Assistant Memory and Context Layer', function() {
       BaseMemoryProvider,
       createDefaultMemoryManager
     } = require('../../core/assistant/memory/index.js');
-    const { sleep } = require('../../core/assistant/utils/AsyncHelpers');
+    const { sleep } = require('../../core/assistant/utils');
 
     class SlowMemoryProvider extends BaseMemoryProvider {
       async apply(context) {

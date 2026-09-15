@@ -1,6 +1,6 @@
 'use strict';
 
-const { sanitizeAcquisitionData } = require('./AcquisitionSanitizer');
+const { sanitizeAcquisitionData } = require('./InputSourceUtilities');
 
 class AcquisitionError extends Error {
   constructor(message, options = {}) {

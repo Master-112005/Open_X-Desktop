@@ -1,7 +1,6 @@
 const Normalizer = require('../Data').Normalizer;
 const Logger = require('../Data').Logger;
 const { stripLeadIns } = require('../normalization/CommandPreprocessor');
-const { parseLearningDirective } = require('../learning/LearningLanguage');
 const { analyzeDiscourse, buildWordRelations, parseIntentPhrase, splitCommandClauses } = require('./LanguageAnalysis');
 
 class InputParser {
@@ -28,7 +27,6 @@ class InputParser {
     const commandText = stripLeadIns(normalized);
     const rawCommandText = this._stripLeadInRaw(raw);
     const hasCommand = rawCommandText.length > 0;
-    const learningDirective = parseLearningDirective(rawCommandText);
     const discourse = analyzeDiscourse(rawCommandText);
     const intentPhrase = parseIntentPhrase(rawCommandText);
     const commandTokens = Normalizer.tokenize(commandText);
@@ -41,7 +39,6 @@ class InputParser {
       commandText,
       rawCommandText,
       hasCommand,
-      learningDirective,
       discourse,
       intentPhrase,
       isCorrection: discourse.isCorrection === true,
@@ -112,7 +109,6 @@ module.exports = InputParser;
 
 const CommandFrameParser = (() => {
 const { Normalizer } = require('../Data');
-const { parseLearningDirective } = require('../learning/LearningLanguage');
 const { analyzeDiscourse, buildWordRelations, parseIntentPhrase, splitCommandClauses } = require('./LanguageAnalysis');
 
 const ACTION_ALIASES = new Map([
@@ -238,26 +234,7 @@ class CommandFrameParser {
     const tokens = Array.isArray(preparedInput?.tokens) && preparedInput.tokens.length
       ? preparedInput.tokens.map(token => String(token || '').toLowerCase()).filter(Boolean)
       : Normalizer.tokenize(corrected || raw);
-    const learningDirective = preparedInput?.learningDirective || parseLearningDirective(raw);
     const intentPhrase = preparedInput?.intentPhrase || parseIntentPhrase(raw);
-
-    if (learningDirective?.kind === 'repair-learning') {
-      return {
-        rawText: raw,
-        correctedText: corrected,
-        tokens,
-        tokenRoles: tokens.map(token => ({ token, role: 'learning-feedback' })),
-        action: 'repair',
-        actionToken: 'wrong learning',
-        actionIndex: -1,
-        targetTokens: [],
-        targetText: learningDirective.correction,
-        domain: 'active-learning',
-        appRouteAllowed: false,
-        learningDirective,
-        validation: { status: 'passed', reason: 'Active-learning repair request detected' }
-      };
-    }
 
     const actionIndex = tokens.findIndex(token => ACTION_ALIASES.has(token));
     const actionToken = actionIndex >= 0 ? tokens[actionIndex] : '';

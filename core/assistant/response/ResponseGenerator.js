@@ -1,5 +1,5 @@
 const path = require('path');
-const ResponseStyleManager = require('./ResponseStyleManager');
+const { ResponseStyleManager } = require('./ResponseCore');
 
 
 const { applyFormalAddress } = (() => {
@@ -822,9 +822,7 @@ const RESPONSE_BUILDERS = {
 
       if (searchSummary?.text) {
         const source = searchSummary.sourceTitle || searchSummary.sourceDomain || '';
-        return source
-          ? `Most relevant result for "${query}": ${searchSummary.text} Source: ${source}.`
-          : `Most relevant result for "${query}": ${searchSummary.text}`;
+        return searchSummary.text + (source ? ` (Source: ${source})` : '');
       }
 
       const results = valueFromContext(context, 'results', []);
@@ -833,7 +831,7 @@ const RESPONSE_BUILDERS = {
         const snippet = top.snippet || top.title || '';
         const source = top.sourceDomain || top.title || '';
         return snippet
-          ? `Most relevant result for "${query}": ${snippet}${source ? ` Source: ${source}.` : ''}`
+          ? `${snippet}${source ? ` (Source: ${source})` : ''}`
           : `I found results for "${query}".`;
       }
 
@@ -947,30 +945,30 @@ const RESPONSE_BUILDERS = {
       const seed = responseSeed(context, `media.play:${displayName}:${query}:${method}:${replacedExisting}`);
       if (targetType === 'search' || (!verified && String(rawPlatform).toLowerCase() === 'youtube')) {
         return chooseVariant(seed, [
-          `I could not lock onto a direct YouTube video for "${query}", so I opened the YouTube results for you.`,
-          `YouTube results are open for "${query}". Pick the result you want and it will play there.`,
-          `I opened YouTube search results for "${query}" because a direct playable result was not verified.`
+          `Opening "${query}" on ${displayName} via the search results.`,
+          `I opened ${displayName} with results for "${query}" - take your pick.`,
+          `${displayName} is pulling up results for "${query}" so you can choose and play.`
         ]);
       }
       if (method === 'existing-window') {
         if (verified) {
           return chooseVariant(seed, replacedExisting
             ? [
-                `Started "${query}" on ${displayName} and replaced the previous playback.`,
-                `${displayName} is now playing "${query}" in the existing session.`,
-                `I switched ${displayName} to "${query}".`
+                `Switched ${displayName} to "${query}" and replaced the previous playback.`,
+                `Started "${query}" on ${displayName} - the old playback made way for it.`,
+                `Now playing "${query}" on ${displayName}, replacing what was on before.`
               ]
             : [
                 `Started "${query}" on ${displayName}.`,
                 `${displayName} is playing "${query}" now.`,
-                `I set the active ${displayName} session to "${query}".`
+                `You're all set - "${query}" is up on ${displayName}.`
               ]);
         }
         return chooseVariant(seed, replacedExisting
           ? [
               `I replaced the current playback with "${query}" on ${displayName}.`,
-              `${displayName} was switched to "${query}".`,
-              `The active ${displayName} session is being used for "${query}".`
+              `${displayName} was switched over to "${query}".`,
+              `The active ${displayName} session is now on "${query}".`
             ]
           : [
               `Switched the ${displayName} session to "${query}".`,
@@ -982,7 +980,7 @@ const RESPONSE_BUILDERS = {
         return chooseVariant(seed, [
           `Started "${query}" on ${displayName}.`,
           `${displayName} is playing "${query}" now.`,
-          `I opened ${displayName} directly for "${query}".`
+          `There you go - "${query}" is up on ${displayName}.`
         ]);
       }
       if (method === 'browser') {
@@ -995,7 +993,7 @@ const RESPONSE_BUILDERS = {
       return chooseVariant(seed, [
         `"${query}" is now playing on ${displayName}.`,
         `Started "${query}" on ${displayName}.`,
-        `${displayName} is starting "${query}".`
+        `Here's "${query}" for you on ${displayName}.`
       ]);
     },
     'media.next': context => chooseVariant(responseSeed(context, 'media.next'), [
@@ -1611,15 +1609,9 @@ const RESPONSE_BUILDERS = {
       };
       return chooseVariant(responseSeed(context, `assistant.wellbeing:${kind}`), variantsByKind[kind] || variantsByKind.emotional);
     },
-    'assistant.capability': context => {
+      'assistant.capability': context => {
       const capability = valueFromContext(context, 'capability', 'that');
       return `I understood this as a ${capability} request, but this capability is not connected to an automation controller yet.`;
-    },
-    'assistant.learningRepair': context => {
-      const correction = valueFromContext(context, 'correction', '');
-      return correction
-        ? `I understood the corrected learning as "${correction}".`
-        : 'Tell me what I should learn instead.';
     },
     'window.minimize': context => {
       const win = valueFromContext(context, 'matchedWindow', 'the window');

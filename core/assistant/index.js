@@ -8,15 +8,10 @@ const {
 const ActionRouter = require('./automation/ActionRouter');
 const AutomationEngine = require('../automation/index');
 const ContextManager = require('./context/ContextManager');
-const ActiveLearningStore = require('./learning/ActiveLearningStore');
 const Personality = require('./response/Personality');
 const ResponseGenerator = require('./response/ResponseGenerator');
 const PluginManager = require('../../plugins/plugin-controller');
-const {
-  extractReplacement,
-  parseLearningDirective
-} = require('./learning/LearningLanguage');
-const { classifyHumanState } = require('./semantic/HumanStateLanguage');
+const { classifyHumanState } = require('./semantic').HumanStateLanguage;
 const AssistantEngine = require('./AssistantEngine');
 const { PipelineManager } = require('./pipeline');
 const { createDefaultInputSourceManager } = require('./acquisition');
@@ -24,7 +19,7 @@ const {
   abortController,
   createCancellationError,
   linkAbortSignal
-} = require('./utils/Cancellation');
+} = require('./utils');
 const { createDefaultLocalLlmManager } = require('./llm');
 
 const CONFIRM_PHRASES = [
@@ -86,6 +81,49 @@ const LOCAL_LLM_CONVERSATION_INTENTS = new Set([
   'assistant.wellbeing'
 ]);
 
+const CONVERSATION_FIRST_PATTERNS = [
+  /^(?:hi|hii+|hello|hey|heya|yo|hola|namaste|salaam|welcome|greetings)(?:\s+(?:there|openx|boss|sir|madam|maam|mam|friend|dude|bro|guys?))?[\s.,!]*$/,
+  /^(?:good\s+(?:morning|afternoon|evening|day|night))\s*$/,
+  /^(?:how\s+are\s+you(?:\s+doing)?|how\s+(?:are|r)\s+u\b|how(?:'|’)?s\s+(?:it\s+going|everything|your\s+day|it\s+been|life|it\s+going\s+(?:openx|sir|boss))|how\s+do\s+you\s+do|what(?:'|’)?s\s+up\b|what\s+is\s+up\b|sup\b|wassup\b|what\s+up\s+dude|hey\s+there)\s*$/,
+  /^how(?:'s| is| was)\s+(?:your\s+|ur\s+)?(?:day|morning|afternoon|evening|week|weekend|night)(?:\s+going(?:\s+on)?)?\s*$/,
+  /^(?:my\s+|the\s+|today(?:'s)?\s*)?day(?:'s| is| was| has been| went)?\s+(?:going(?:\s+on)?\s+)?(?:completely\s+|very\s+|pretty\s+)?(?:fine|good|great|well|okay|ok|nice|awesome|better|bad|badly|rough|roughly|horrible|busy)\b/,
+  /^i(?:'m| am)\s+(?:doing\s+|feeling\s+)?(?:completely\s+|very\s+|pretty\s+|super\s+)?(?:fine|good|well|great|okay|ok|alright|awesome|tired|happy|sad|bored|busy|hungry|sleepy|excited)\b/,
+  /^(?:everything|all|things)\s+(?:is|are)\s+(?:going\s+)?(?:completely\s+|very\s+|pretty\s+)?(?:fine|good|well|great|okay|ok)\b/,
+  /^(?:how|what)\s+about\s+you(?:rself)?\s*$|^wbu\s*$|^and\s+you\b|^you\s+too\b/,
+  /^(?:thanks|thank\s+you|thank\s+u|thx|ty|tysm|much\s+appreciated|appreciate\s+it|i\s+appreciate\s+you)\b/,
+  /^(?:ok|okay|k|\bfine|gotcha|got\s+it|alright|alrighty|sure|yes|yeah|yep|yup|nice|wow|awesome|cool)\s*$/,
+  /^(?:bye|byee|goodbye|good\s+night|see\s+(?:you|ya)|talk\s+(?:to\s+you\s+)?later|take\s+care|catch\s+(?:ya|you)\s+later)\b/,
+  /^(?:what\s+are\s+(?:you|u)\s+doing|what\s+(?:are|r)\s+(?:you|u)\s+up\s+to|what\s+are\s+we\s+doing|whatch?u\s+doing|wa?sup)\s*$/,
+  /^(?:tell\s+me\s+a\s+joke|make\s+me\s+laugh|say\s+something\s+funny|crack\s+one)\b/,
+  /^(?:what(?:'s| is)\s+(?:up|new|happening|going\s+on))\s*$|^any(?:thing)?\s+(?:new|news|update|plans?)\s*$/,
+  /^(?:where\s+are\s+you|could\s+you\s+hear\s+me|can\s+you\s+hear\s+me|are\s+you\s+there)\s*$/,
+  /^(?:who\s+are\s+you|what\s+is\s+your\s+name|what\s+should\s+i\s+call\s+you|tell\s+me\s+about\s+yourself)\s*$/
+];
+
+const CLEAR_TASK_VERBS = '(?:open|close|launch|start|play|pause|resume|stop|quit|exit|shut\\s*down|restart|mute|unmute|set|create|make|delete|remove|rename|move|copy|find|search|send|write|compose|call|remind|schedule|cancel|install|uninstall|update|run|execute|enable|disable|switch|change|turn\\s+on|turn\\s+off|take\\s+(?:a\\s+)?screenshot|screenshot|download|upload|scan|join|leave|stopwatch|lock)\\b';
+
+const CLEAR_COMMAND_LEADERS = new RegExp(`^${CLEAR_TASK_VERBS}`, 'i');
+
+const CLEAR_POLITE_COMMANDS = new RegExp(
+  '^(?:please|can\\s+you|could\\s+you|will\\s+you|would\\s+you|hey\\s+openx)\\s+' +
+  CLEAR_TASK_VERBS,
+  'i'
+);
+
+const CLEAR_INTENT_COMMANDS = new RegExp(
+  '(?:i\\s+(?:want|need)\\s+(?:you\\s+to\\s+)?|please\\s+)' +
+  CLEAR_TASK_VERBS,
+  'i'
+);
+
+const CLEAR_TASK_NOUNS = /\b(?:reminder|remind\s+me|alarm|timer|stopwatch|screenshot|playlist|backup\s+my\s+(?:files?|data|pc)|schedule|shut\s*down|restart\s+(?:the\s+)?(?:pc|computer|laptop|system))\b/i;
+
+const CLEAR_DATA_QUERIES = /\b(?:what\s+(?:is|'s)\s+the\s+(?:time|date|day|weather|temperature|forecast)|what\s+time\s+is\s+it\b|what\s+(?:day|date)\s+is\s+it\b|today'?s\s+(?:date|day)\b|how'?s\s+the\s+weather|weather\s+(?:today|now|outside|tonight|tomorrow)|temperature\s+(?:now|today|outside)|calculate|convert\s+\d+|stock\s+price)\b/i;
+
+const SMALL_TALK_HINTS = /\b(?:how\s+(?:are\s+you|r\s+u|'?s\s+everything|'?s\s+it\s+going|'?s\s+your\s+day)|what\s+(?:are\s+you\s+doing|are\s+u\s+doing|r\s+u\s+doing|'?s\s+up)|i\s+(?:am|'m)\s+(?:doing\s+)?(?:fine|good|great|ok(?:ay)?)\b|my\s+day\b|thank\s+you\b|thanks\b|you\s+too\b|tell\s+me\s+a\s+joke\b|who\s+are\s+you\b|what\s+is\s+your\s+name\b|what\s+should\s+i\s+call\s+you\b|good\s+(?:morning|afternoon|evening|night)\b|how\s+about\s+you\b|are\s+you\s+there\b)\b/i;
+
+const LIVE_DATA_QUERIES = /\b(?:what(?:'s|\s+is)\s+(?:the\s+)?(?:weather|forecast|temperature)\b|weather\s+(?:in|at|today|tonight|tomorrow|now|outside)\b|(?:latest|today'?s|breaking|top)\s+news\b|news\s+(?:today|now|headlines|updates)\b|headlines\b|sports?\s+score|score\s+(?:of|for|today)\b|who\s+won\b|match\s+result|stock\s+(?:price|market)\b|share\s+price\b|bitcoin\s+price\b|gold\s+price\b|crypto(?:currency)?\s+price\b|(?:price of|price for|cost of)\s+(?:bitcoin|crypto(?:currency)?|gold|silver|stocks?|shares?|a\s+share)\b|how\s+much\s+(?:is|are)\s+(?:bitcoin|btc|ethereum|eth|crypto|gold|silver)\b|how\s+is\s+the\s+market\b|what\s+happened\s+(?:today|yesterday|last\s+night|this\s+week)\b|what(?:'s|\s+is)\s+(?:going\s+on|happening)\s+(?:today|right\s+now|in\s+the\s+world)\b|current\s+events\b|breaking\s+(?:news|story)\b|election\s+(?:results|updates|news)\b|live\s+(?:scores?|updates?|results?)\b|latest\s+updates?\b)\b/i;
+
 const CHOICE_NUMBER_WORDS = Object.freeze({
   one: 1,
   'this one': 1,
@@ -135,19 +173,11 @@ class Assistant extends EventEmitter {
     this.logger = new Logger(config?.logging || { level: 'info' });
     this.config = config;
     this.eventBus = dependencies.eventBus || config?.eventBus || new AssistantEventBus();
-    this.learning = dependencies.learning || new ActiveLearningStore(config);
-    const routerConfig = {
-      ...(config || {}),
-      learningStore: this.learning
-    };
     this.automation = dependencies.automation || new AutomationEngine({
       ...(config || {}),
       eventBus: this.eventBus
     });
-    this.router = dependencies.router || new ActionRouter(routerConfig, this.automation);
-    if (this.router && !this.router.learningStore) {
-      this.router.learningStore = this.learning;
-    }
+    this.router = dependencies.router || new ActionRouter(config, this.automation);
     this.context = new ContextManager(config);
     this.personality = new Personality(config);
     this.responses = new ResponseGenerator(config);
@@ -183,8 +213,6 @@ class Assistant extends EventEmitter {
     this.pendingClarification = null;
     this.pendingScheduleCompletion = null;
     this.pendingFeedback = null;
-    this.pendingLearningCorrection = null;
-    this.pendingLearningRepair = null;
     this.commandTimeoutMs = Number.isFinite(config?.assistant?.commandTimeoutMs)
       ? Math.max(25, config.assistant.commandTimeoutMs)
       : DEFAULT_COMMAND_TIMEOUT_MS;
@@ -209,9 +237,7 @@ class Assistant extends EventEmitter {
   async processCommand(input, source = 'chat', options = {}) {
     if (this.pendingConfirmation ||
       this.pendingClarification ||
-      this.pendingScheduleCompletion ||
-      this.pendingLearningCorrection ||
-      this.pendingLearningRepair) {
+      this.pendingScheduleCompletion) {
       return this._processCommandDirect(input, source, options);
     }
     return this.engine.processCommand(input, source, options);
@@ -248,19 +274,6 @@ class Assistant extends EventEmitter {
         return this._finalizeAssistantResult(scheduleCompletion, { input, source });
       }
 
-      const wellbeingResult = this._answerWellbeingStatus(input, source);
-      if (wellbeingResult) {
-        const localLlmResult = await this._tryLocalLlmFallback(input, input, source, wellbeingResult);
-        const finalWellbeingResult = localLlmResult || wellbeingResult;
-        this.context.record(input, {}, finalWellbeingResult);
-        return this._finalizeAssistantResult(finalWellbeingResult, { input, source });
-      }
-
-      const learningResult = await this._handleLearningInput(input, source);
-      if (learningResult) {
-        return this._finalizeAssistantResult(learningResult, { input, source });
-      }
-
       const newScheduleClarification = this._startScheduleClarification(input, source);
       if (newScheduleClarification) {
         return this._finalizeAssistantResult(newScheduleClarification, { input, source });
@@ -275,10 +288,23 @@ class Assistant extends EventEmitter {
         return this._finalizeAssistantResult(groundedSessionResult, { input, source });
       }
 
-      const memoryResult = this._answerPersonalMemoryQuestion(input, source);
-      if (memoryResult) {
-        const groundedMemoryResult = await this._applyLocalLlmAnswerReply(input, source, memoryResult);
-        return this._finalizeAssistantResult(groundedMemoryResult, { input, source });
+      const identityResult = this._answerIdentityQuestion(input, source);
+      if (identityResult) {
+        return this._finalizeAssistantResult(identityResult, { input, source });
+      }
+
+      const conversationFirstResult = await this._tryConversationFirstReply(input, source);
+      if (conversationFirstResult) {
+        this.context.record(input, {}, conversationFirstResult);
+        return this._finalizeAssistantResult(conversationFirstResult, { input, source });
+      }
+
+      const wellbeingResult = this._answerWellbeingStatus(input, source);
+      if (wellbeingResult) {
+        const localLlmResult = await this._tryLocalLlmFallback(input, input, source, wellbeingResult);
+        const finalWellbeingResult = localLlmResult || wellbeingResult;
+        this.context.record(input, {}, finalWellbeingResult);
+        return this._finalizeAssistantResult(finalWellbeingResult, { input, source });
       }
 
       const routedInput = this._buildRoutedInput(input);
@@ -303,7 +329,6 @@ class Assistant extends EventEmitter {
         result = await this._applyLocalLlmTaskReply(input, routedInput, source, result);
       }
       this.context.record(input, result.entities || {}, result);
-      this._recordLearningOutcome(input, routedInput, result);
 
       let response = result.response || '';
       const duplicateReminderNote = this._duplicateReminderNote(result);
@@ -316,7 +341,7 @@ class Assistant extends EventEmitter {
         response = contextAwareError;
       }
       if (!contextAwareError && !incompleteSchedulePrompt) {
-        response = this._appendLearningPrompt(response, input, routedInput, result);
+        // Learning prompt removed
       }
       if (duplicateReminderNote && !contextAwareError && !incompleteSchedulePrompt) {
         response = `${response} ${duplicateReminderNote}`.trim();
@@ -530,12 +555,6 @@ class Assistant extends EventEmitter {
     }
 
     try {
-      this.learning?.flush?.();
-    } catch (error) {
-      this.logger.warn('Failed to flush learning store during shutdown', error.message);
-    }
-
-    try {
       await this.automation?.destroy?.();
     } catch (error) {
       this.logger.warn('Failed to destroy automation engine', error.message);
@@ -575,10 +594,7 @@ class Assistant extends EventEmitter {
     }
 
     if (/^(?:what\s+did\s+we\s+talk\s+about\s+last\s+time|what\s+did\s+you\s+remember\s+from\s+(?:the\s+)?last\s+(?:chat|conversation))\b/.test(normalized)) {
-      const remembered = this.learning?.getUserFact?.('last_conversation_summary');
-      return this._directContextResult(source, remembered?.value
-        ? remembered.value
-        : 'I do not have a saved previous conversation summary yet.');
+      return this._directContextResult(source, 'I do not have a saved previous conversation summary yet.');
     }
 
     const saidAboutMatch = normalized.match(/^what\s+did\s+i\s+(?:say|ask|tell\s+you)\s+about\s+(.+)$/);
@@ -763,6 +779,55 @@ class Assistant extends EventEmitter {
     };
   }
 
+  _answerIdentityQuestion(input, source) {
+    const raw = String(input || '').replace(/\s+/g, ' ').trim();
+    const lowered = raw.toLowerCase();
+    const name = this.config?.assistant?.displayName || 'OpenX';
+    const wordCount = lowered ? lowered.split(/\s+/).length : 0;
+    let response = null;
+
+    const nameAsk =
+      /\bwhat(?:'s| is| were) (?:your|ur|openx'?s) (?:name|called)\b/.test(lowered) ||
+      /\bwhat (?:do|should|would) i (?:call|address) you\b/.test(lowered) ||
+      /\btell me your name\b/.test(lowered) ||
+      /\byour name again\b/.test(lowered) ||
+      /\bdo you (?:even )?have a name\b/.test(lowered) ||
+      (/\byour name\b/.test(lowered) && wordCount <= 6 && !/\bmy\b/.test(lowered));
+    if (nameAsk) {
+      response = `My name is ${name}.`;
+    }
+
+    if (!response) {
+      const whoAreYou = /^(?:who|what) are (?:you|u)\s*[.!?]*$/.test(lowered) ||
+        (/\bwho are (?:you|u)\b/.test(lowered) && wordCount <= 8);
+      if (whoAreYou) {
+        response = `I am ${name}, your local Windows desktop assistant. I run entirely on this PC, so your data stays on your machine.`;
+      }
+    }
+
+    if (!response && /^are you\s+(?:a\s+)?(?:openx|the\s+openx\s+assistant|my\s+assistant)\s*[.!?]*$/.test(lowered)) {
+      response = `Yes, my name is ${name}.`;
+    } else if (!response && /^are you\s+(?:a\s+)?(?:robot|bot|machine|ai|chatbot)\s*[.!?]*$/.test(lowered)) {
+      response = `I am ${name}, a local AI assistant running on this PC - not a physical robot.`;
+    } else if (!response && /^are you\s+(?:a\s+)?(?:human|real\s+person)\s*[.!?]*$/.test(lowered)) {
+      response = `No, I am not a human. I am ${name}, an AI assistant that runs locally on this PC.`;
+    }
+
+    if (!response) {
+      return null;
+    }
+    return {
+      commandId: null,
+      success: true,
+      intent: 'assistant.identity',
+      confidence: 1,
+      entities: { name },
+      data: { deterministic: true },
+      response: this.personality.applyToResponse(response),
+      source
+    };
+  }
+
   _directContextResult(source, response) {
     return {
       commandId: null,
@@ -854,7 +919,13 @@ class Assistant extends EventEmitter {
       return false;
     }
     const data = result.data || {};
-    return data.executed !== true && data.actionExecuted !== true;
+    if (data.executed === true || data.actionExecuted === true) {
+      const executedIntent = data.executedIntent || result.intent;
+      if (!LOCAL_LLM_CONVERSATION_INTENTS.has(String(executedIntent || ''))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   _isUnimplementedCapabilityResult(result = {}) {
@@ -923,6 +994,9 @@ class Assistant extends EventEmitter {
   }
 
   async _tryLocalLlmFallback(input, routedInput, source, routedResult = {}) {
+    if (this._looksLikeLiveDataQuery(input) && !this._isLocalLlmConversationResult(routedResult)) {
+      return null;
+    }
     if (!this._isLocalLlmFallbackCandidate(routedResult) || !this.localLlm) {
       return null;
     }
@@ -942,11 +1016,12 @@ class Assistant extends EventEmitter {
 
     try {
       const conversation = this.context.buildConversationDigest({ limit: 6 });
-      const responseStyle = this.learning?.getPreference?.('responseStyle')?.value ||
-        this.config?.assistant?.localLlm?.responseStyle ||
+      const responseStyle = this.config?.assistant?.localLlm?.responseStyle ||
         this.config?.localLlm?.responseStyle ||
         'concise';
+      const fallbackIsCasual = this._isLocalLlmConversationResult(routedResult);
       const llmResult = await this.localLlm.reply(routedInput || input, {
+        turn: fallbackIsCasual ? 'casualChat' : undefined,
         memorySummary: this._buildLocalLlmMemorySummary(),
         conversationSummary: conversation?.summaryText || '',
         assistantName: this.config?.assistant?.displayName || 'OpenX',
@@ -989,6 +1064,120 @@ class Assistant extends EventEmitter {
     }
   }
 
+  _isConversationFirstCandidate(inputText) {
+    const text = String(inputText || '').trim();
+    if (!text) return false;
+    if (text.length > 160) {
+      return false;
+    }
+    const lowered = text.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (LIVE_DATA_QUERIES.test(lowered)) {
+      return false;
+    }
+    if (CONVERSATION_FIRST_PATTERNS.some(pattern => pattern.test(lowered))) {
+      return true;
+    }
+    return !this._looksLikeClearCommand(lowered);
+  }
+
+  _looksLikeLiveDataQuery(inputText) {
+    const text = String(inputText || '').trim();
+    if (!text) return false;
+    return LIVE_DATA_QUERIES.test(text.toLowerCase().replace(/\s+/g, ' ').trim());
+  }
+
+  _looksLikeClearCommand(lowered) {
+    if (!lowered) {
+      return true;
+    }
+    if (CLEAR_COMMAND_LEADERS.test(lowered)) {
+      return true;
+    }
+    if (CLEAR_POLITE_COMMANDS.test(lowered)) {
+      return true;
+    }
+    if (CLEAR_INTENT_COMMANDS.test(lowered)) {
+      return true;
+    }
+    if (CLEAR_TASK_NOUNS.test(lowered)) {
+      return true;
+    }
+    if (CLEAR_DATA_QUERIES.test(lowered)) {
+      return true;
+    }
+    return false;
+  }
+
+  _looksLikeSmallTalk(lowered) {
+    if (!lowered) {
+      return false;
+    }
+    if (CONVERSATION_FIRST_PATTERNS.some(pattern => pattern.test(lowered))) {
+      return true;
+    }
+    return SMALL_TALK_HINTS.test(lowered);
+  }
+
+  async _tryConversationFirstReply(input, source) {
+    if (!this._isConversationFirstCandidate(input)) {
+      return null;
+    }
+    if (!this.localLlm || typeof this.localLlm.reply !== 'function') {
+      return null;
+    }
+    if (typeof this.localLlm.isEnabled === 'function' && !this.localLlm.isEnabled()) {
+      return null;
+    }
+    const gateValidation = typeof this.localLlm.validate === 'function'
+      ? this.localLlm.validate()
+      : { success: true };
+    if (gateValidation && gateValidation.success === false) {
+      return null;
+    }
+
+    try {
+      const conversation = this.context.buildConversationDigest({ limit: 5 });
+      const responseStyle = this.config?.assistant?.localLlm?.responseStyle ||
+        this.config?.localLlm?.responseStyle ||
+        'concise';
+      const lowered = String(input || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const llmResult = await this.localLlm.reply(input, {
+        turn: this._looksLikeSmallTalk(lowered) ? 'casualChat' : undefined,
+        memorySummary: this._buildLocalLlmMemorySummary(),
+        conversationSummary: conversation?.summaryText || '',
+        assistantName: this.config?.assistant?.displayName || 'OpenX',
+        responseStyle,
+        language: this.config?.assistant?.localLlm?.language || this.config?.localLlm?.language || 'system',
+        source,
+        now: new Date().toISOString()
+      });
+      const response = String(llmResult?.response || llmResult?.text || '').trim();
+      if (!response) {
+        return null;
+      }
+      return {
+        commandId: `chat-${Date.now()}`,
+        success: true,
+        intent: 'assistant.chat',
+        confidence: 0.85,
+        entities: {},
+        response,
+        source,
+        data: {
+          conversational: true,
+          localLlmReply: {
+            mode: 'conversation-first',
+            modelName: llmResult?.data?.localLlm?.modelName || null,
+            status: llmResult?.data?.localLlm?.status || null
+          }
+        }
+      };
+    } catch (error) {
+      this.logger.warn('Conversation-first LLM reply failed', error?.message || error);
+      return null;
+    }
+  }
+
   _localLlmUnavailableReason() {
     if (!this.localLlm || typeof this.localLlm.reply !== 'function') {
       return 'unavailable';
@@ -1016,8 +1205,7 @@ class Assistant extends EventEmitter {
 
     try {
       const conversation = this.context.buildConversationDigest({ limit: 6 });
-      const responseStyle = this.learning?.getPreference?.('responseStyle')?.value ||
-        this.config?.assistant?.localLlm?.responseStyle ||
+      const responseStyle = this.config?.assistant?.localLlm?.responseStyle ||
         this.config?.localLlm?.responseStyle ||
         'concise';
       const llmResult = await this.localLlm.reply(routedInput || input, {
@@ -1107,9 +1295,21 @@ class Assistant extends EventEmitter {
       return result;
     }
 
+    const groundedResponse = String(grounded.response || '').trim();
+    if (result.success && groundedResponse &&
+      (/\b(?:couldn'?t|could not|no information|unable to|not found|cannot find|did not find|could not find|failed|failure|no results|nothing found)\b/i.test(groundedResponse) ||
+        /\b(?:action router|executed.?.task report|internal (?:command|pipeline)|openx action|jarvis desktop|system prompt)\b/i.test(groundedResponse))) {
+      this.logger.warn('Rejected contradictory LLM reply for executed task', {
+        intent: result.intent,
+        llm: groundedResponse.slice(0, 140),
+        fallback: String(result.response || '').slice(0, 140)
+      });
+      return result;
+    }
+
     return {
       ...result,
-      response: grounded.response,
+      response: groundedResponse,
       data: {
         ...(result.data || {}),
         nlpTemplateResponse: result.response || null,
@@ -1159,22 +1359,6 @@ class Assistant extends EventEmitter {
 
   _buildLocalLlmMemorySummary() {
     const lines = [];
-    const identity = this.learning?.getUserIdentitySummary?.();
-    if (identity && identity !== 'no personal facts stored') {
-      lines.push(`User identity: ${identity}`);
-    }
-
-    const snapshot = this.learning?.getSnapshot?.();
-    const preferences = snapshot?.preferences && typeof snapshot.preferences === 'object'
-      ? Object.entries(snapshot.preferences)
-        .filter(([, record]) => record?.value)
-        .slice(0, 12)
-        .map(([key, record]) => `${key}: ${record.value}`)
-      : [];
-    if (preferences.length > 0) {
-      lines.push(`Preferences: ${preferences.join('; ')}`);
-    }
-
     const recent = this.context.getHistory?.(4) || [];
     const recentLines = recent
       .filter(entry => entry?.input)
@@ -1198,11 +1382,8 @@ class Assistant extends EventEmitter {
     const routingInput = unresolvedPronounRewrite ? clockNormalizedInput : normalizedInput;
     const personalSource = contextualChanged ? '' : this._resolvePersonalSourceRouting(routingInput);
     const routedInput = contextualChanged ? contextual : (personalSource || contextual || routingInput);
-    const contextualForLearning = routedInput;
-    const learned = this.learning?.findCorrection?.(contextualForLearning);
-    this._lastRoutingLearning = learned || null;
-    this._lastContextualRewrite = contextualForLearning !== input ? { input, correction: contextualForLearning } : null;
-    return learned?.correction || contextualForLearning;
+    this._lastContextualRewrite = routedInput !== input ? { input, correction: routedInput } : null;
+    return routedInput;
   }
 
   _normalizeClockExpressionsForRouting(input) {
@@ -1251,242 +1432,6 @@ class Assistant extends EventEmitter {
     return '';
   }
 
-  _answerPersonalMemoryQuestion(input, source) {
-    if (!this.learning?.enabled || !this.learning?.answerPersonalQuestion) {
-      return null;
-    }
-
-    const answer = this.learning.answerPersonalQuestion(input);
-    if (!answer) {
-      return null;
-    }
-
-    const response = this.personality.applyToResponse(answer.response);
-    return {
-      success: answer.known,
-      intent: 'assistant.memory',
-      entities: { fact: answer.fact },
-      data: answer,
-      response,
-      source
-    };
-  }
-
-  async _handleLearningInput(input, source) {
-    const raw = String(input || '').trim();
-    if (!raw || !this.learning?.enabled) {
-      return null;
-    }
-
-    if (this.pendingLearningRepair) {
-      const pending = this.pendingLearningRepair;
-      const directive = parseLearningDirective(raw);
-      if (directive?.kind === 'cancel') {
-        this.pendingLearningRepair = null;
-        return {
-          success: true,
-          cancelled: true,
-          source,
-          response: this.personality.applyToResponse('Okay. I did not change that learning.')
-        };
-      }
-      const replacement = directive?.correction || extractReplacement(raw);
-      const corrected = this.learning.correctLearning?.(pending, replacement);
-      if (!corrected?.success) {
-        return {
-          success: false,
-          learned: false,
-          source,
-          response: this.personality.applyToResponse(
-            corrected?.sensitive
-              ? 'I cannot store that correction because it contains sensitive information. Please give a non-sensitive correction.'
-              : `${corrected?.reason || 'I could not understand that correction.'} What should I learn instead?`
-          )
-        };
-      }
-      this.pendingLearningRepair = null;
-      return {
-        success: true,
-        learned: true,
-        relearned: true,
-        source,
-        data: corrected,
-        response: this.personality.applyToResponse(
-          `Understood. I replaced the incorrect learning with "${replacement}".`
-        )
-      };
-    }
-
-    if (this.pendingLearningCorrection) {
-      const pending = this.pendingLearningCorrection;
-      this.pendingLearningCorrection = null;
-      const correction = this._extractCorrectionCommand(raw) || raw;
-      return this._executeCorrectionBeforeLearning(pending, correction, source, {
-        source: 'negative-feedback',
-        reason: 'post-action-correction'
-      });
-    }
-
-    if (this.pendingFeedback) {
-      const commandAfterFeedback = this._extractCommandAfterFeedback(raw);
-      if (commandAfterFeedback) {
-        const pending = this.pendingFeedback;
-        this.pendingFeedback = null;
-        this.learning.recordFeedback({
-          ...pending,
-          rating: 'positive',
-          note: 'positive-feedback-with-next-command'
-        });
-        return this.processCommand(commandAfterFeedback, source);
-      }
-
-      const feedback = this._classifyFeedback(raw);
-      if (feedback === 'positive') {
-        const pending = this.pendingFeedback;
-        this.pendingFeedback = null;
-        this.learning.recordFeedback({
-          ...pending,
-          rating: 'positive'
-        });
-        return {
-          success: true,
-          learned: true,
-          source,
-          response: this.personality.applyToResponse('Thanks. I will remember that this worked.')
-        };
-      }
-
-      if (feedback === 'negative') {
-        const pending = this.pendingFeedback;
-        this.pendingFeedback = null;
-        const correction = this._extractCorrectionCommand(raw);
-        if (correction) {
-          return this._executeCorrectionBeforeLearning(pending, correction, source, {
-            source: 'negative-feedback',
-            reason: 'embedded-correction'
-          });
-        }
-
-        this.pendingLearningCorrection = pending;
-        return {
-          success: false,
-          learned: false,
-          source,
-          response: this.personality.applyToResponse(
-            `What should I do next time when you say "${pending.input}"?`
-          )
-        };
-      }
-
-      this.pendingFeedback = null;
-    }
-
-    const learningDirective = parseLearningDirective(raw);
-    if (learningDirective?.kind === 'repair-learning') {
-      const recentLearning = this.learning.getMostRecentCorrectableLearning?.();
-      if (!recentLearning) {
-        return {
-          success: false,
-          learned: false,
-          source,
-          response: this.personality.applyToResponse(
-            'I could not identify a recent alias, preference, or correction to repair.'
-          )
-        };
-      }
-
-      if (learningDirective.correction) {
-        const corrected = this.learning.correctLearning?.(recentLearning, learningDirective.correction);
-        if (corrected?.success) {
-          return {
-            success: true,
-            learned: true,
-            relearned: true,
-            source,
-            data: corrected,
-            response: this.personality.applyToResponse(
-              `Understood. I replaced the incorrect learning with "${learningDirective.correction}".`
-            )
-          };
-        }
-      }
-
-      this.pendingLearningRepair = recentLearning;
-      return {
-        success: false,
-        learned: false,
-        awaitingLearningCorrection: true,
-        source,
-        response: this.personality.applyToResponse(
-          `What should I learn instead of "${recentLearning.value}" for "${recentLearning.input}"?`
-        )
-      };
-    }
-
-    const correction = this._extractCorrectionCommand(raw);
-    if (correction && this._looksLikeCorrectiveUtterance(raw)) {
-      const lastFailed = this._getLastFailedLearningTarget();
-      if (lastFailed?.input) {
-        return this._executeCorrectionBeforeLearning(lastFailed, correction, source, {
-          source: 'corrective-command',
-          reason: 'last-failed-command'
-        });
-      }
-      const result = await this.processCommand(correction, source);
-      return result;
-    }
-
-    if (this._looksLikeNegativeOutcomeReport(raw)) {
-      const target = this._getLastActionableLearningTarget();
-      if (target?.input) {
-        this.learning.recordFeedback({
-          ...target,
-          rating: 'negative',
-          note: raw
-        });
-        this.pendingLearningCorrection = target;
-        return {
-          success: false,
-          learned: false,
-          source,
-          response: this.personality.applyToResponse(
-            `What should I do instead next time when you say "${target.input}"?`
-          )
-        };
-      }
-    }
-
-    const chatMemory = this._rememberCurrentChatRequest(raw, source);
-    if (chatMemory) {
-      return chatMemory;
-    }
-
-    if (this._looksLikeScheduledMemoryRequest(raw)) {
-      return null;
-    }
-
-    const explicitLearning = this.learning.learnFromText(raw);
-    if (explicitLearning) {
-      if (explicitLearning.type === 'rejected-sensitive' || explicitLearning.sensitive) {
-        return {
-          success: false,
-          learned: false,
-          source,
-          data: explicitLearning,
-          response: this.personality.applyToResponse(explicitLearning.response)
-        };
-      }
-      return {
-        success: true,
-        learned: true,
-        source,
-        response: this.personality.applyToResponse(explicitLearning.response)
-      };
-    }
-
-    return null;
-  }
-
   _looksLikeScheduledMemoryRequest(input) {
     const raw = String(input || '').trim();
     const parts = this.router?.entityExtractor?.extractReminderParts?.(raw);
@@ -1500,139 +1445,6 @@ class Assistant extends EventEmitter {
     }
 
     return /\b(?:remind|reminder|notify|alert)\b/i.test(raw);
-  }
-
-  _appendLearningPrompt(response, input, routedInput, result) {
-    if (!this._shouldAskForLearningFeedback(result)) {
-      return response;
-    }
-
-    const promptEntry = {
-      input: String(input || '').trim(),
-      routedInput: String(routedInput || input || '').trim(),
-      intent: result.intent || null,
-      entities: result.entities || {},
-      confidence: result.confidence ?? 1,
-      languageUnderstanding: result.languageUnderstanding || null,
-      validation: result.validation || result.data?.validation || null,
-      verification: result.verification || result.data?.verification || null,
-      learnedCorrection: this._lastRoutingLearning,
-      contextualRewrite: this._lastContextualRewrite
-    };
-    if (this.learning?.shouldAskForFeedback && !this.learning.shouldAskForFeedback(promptEntry)) {
-      return response;
-    }
-    this.learning?.recordFeedbackPrompt?.(promptEntry);
-
-    this.pendingFeedback = {
-      ...promptEntry,
-      success: Boolean(result.success)
-    };
-    return `${response} Did that work correctly?`;
-  }
-
-  _shouldAskForLearningFeedback(result) {
-    if (!this.learning?.enabled || !this.learning?.askForFeedback) {
-      return false;
-    }
-    if (!result?.success || result.requiresConfirmation || result.needsClarification || !result.intent) {
-      return false;
-    }
-
-    if (/^media\./.test(result.intent)) {
-      return false;
-    }
-
-    return /^(?:app|file|folder|browser|message|call|mode|window)\./.test(result.intent) ||
-      ['system.bluetooth', 'system.screenshot'].includes(result.intent);
-  }
-
-  async _executeCorrectionBeforeLearning(pending, correction, source, metadata = {}) {
-    this.learning.recordFeedback({
-      ...pending,
-      rating: 'negative',
-      correction
-    });
-
-    const result = await this.processCommand(correction, source);
-    if (result.success && !result.requiresConfirmation && !result.needsClarification) {
-      const rule = this.learning.rememberCorrection(pending.input, correction, metadata);
-      return {
-        ...result,
-        learned: Boolean(rule),
-        learningRule: rule,
-        response: this.personality.applyToResponse(
-          `I learned the correction. ${result.response || ''}`.trim()
-        )
-      };
-    }
-
-    return {
-      ...result,
-      learned: false,
-      response: this.personality.applyToResponse(
-        `I tried that correction, but I will not remember it because it did not complete. ${result.response || ''}`.trim()
-      )
-    };
-  }
-
-  _recordLearningOutcome(input, routedInput, result) {
-    if (!this.learning?.enabled || !result) {
-      return;
-    }
-    if (['message.send', 'email.compose', 'call.start'].includes(result.intent)) {
-      return;
-    }
-    if (result.success) {
-      const interest = this._extractInterestSignal(input, routedInput, result);
-      if (interest) {
-        this.learning.rememberPreference?.(`interest.${interest.key}`, interest.value, {
-          source: 'successful-command',
-          intent: result.intent || null
-        });
-      }
-      return;
-    }
-    this.learning.recordFeedback({
-      input,
-      routedInput,
-      intent: result.intent || null,
-      success: false,
-      rating: 'negative',
-      note: result.error || result.response || '',
-      languageUnderstanding: result.languageUnderstanding || null,
-      validation: result.validation || result.data?.validation || null,
-      verification: result.verification || result.data?.verification || null
-    });
-  }
-
-  _extractInterestSignal(input, routedInput, result) {
-    const intent = result?.intent || '';
-    if (!/^(?:browser\.search|browser\.siteSearch|browser\.openFirstResult|media\.play|media\.search)$/.test(intent)) {
-      return null;
-    }
-
-    const raw = String(
-      result.entities?.query ||
-      result.entities?.mediaQuery ||
-      result.data?.query ||
-      routedInput ||
-      input ||
-      ''
-    ).trim();
-    const topic = this._cleanKnowledgeTopic(raw)
-      .replace(/\b(?:latest|good|best|interesting|relaxing|funny|videos?|music|podcast|course|tutorial)\b/gi, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (!topic || topic.length < 3) {
-      return null;
-    }
-    const key = topic
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      .slice(0, 40);
-    return key ? { key, value: topic } : null;
   }
 
   _classifyFeedback(input) {
@@ -2970,33 +2782,26 @@ class Assistant extends EventEmitter {
       };
     }
 
-    const fact = this.learning.rememberUserFact('last_conversation_summary', digest.summaryText, {
-      source: 'explicit-chat-memory',
-      confidence: 0.9
-    });
-
     return {
-      success: Boolean(fact),
-      learned: Boolean(fact),
+      success: false,
+      learned: false,
       intent: 'assistant.memory',
       entities: { fact: 'last_conversation_summary' },
-      data: { type: 'conversation-summary', summary: digest.summaryText },
+      data: { type: 'conversation-summary', known: false },
       source,
-      response: this.personality.applyToResponse('I will remember this chat summary.')
+      response: this.personality.applyToResponse('I am unable to store conversation summaries at this time.')
     };
   }
 
   _finalizeAssistantResult(result = {}, context = {}) {
     const rawResponse = String(result.response || result.message || '').trim();
     const source = result.source || context.source || 'chat';
-    const responseStyle = this.learning?.getPreference?.('responseStyle')?.value || '';
 
     const refined = this.responses.refineResponse(rawResponse, {
       ...context,
       result,
       input: context.input || result.input || '',
-      source,
-      responseStyle
+      source
     });
     const response = refined.text || rawResponse;
 

@@ -63,17 +63,9 @@ class FormAutomation {
     this.logger = new Logger(config?.logging || { level: 'info' });
     this.config = config;
     this.formUnderstanding = new FormUnderstanding(config);
-    this.learningStore = dependencies.learning || null;
     this.browser = dependencies.browser || null;
     this.windows = dependencies.windows || null;
     this.userFacts = {};
-    this._loadUserFacts();
-  }
-
-  _loadUserFacts() {
-    if (this.learningStore?.enabled) {
-      this.userFacts = this.learningStore.getAllUserFacts() || {};
-    }
   }
 
   canHandle(input) {
@@ -84,8 +76,6 @@ class FormAutomation {
 
   understandIntent(input, context = {}) {
     const normalized = String(input || '').toLowerCase().trim();
-    this._loadUserFacts();
-
     let action = 'fill';
     let targetForm = null;
     let fieldOverrides = {};
@@ -127,7 +117,6 @@ class FormAutomation {
   }
 
   fillFormFromContext(fields, options = {}) {
-    this._loadUserFacts();
     const userFacts = { ...this.userFacts, ...(options.userFacts || {}) };
     const filledData = {};
     const filledFields = [];
@@ -177,7 +166,6 @@ class FormAutomation {
   }
 
   async fill(entities = {}) {
-    this._loadUserFacts();
     const userFacts = { ...this.userFacts, ...(entities.userFacts || {}) };
     const fieldOverrides = entities.fieldOverrides || {};
     const url = this._extractUrl(entities.url || entities.command || entities.targetForm || '');
@@ -372,7 +360,6 @@ class FormAutomation {
   }
 
   fillTextTemplate(templateText, options = {}) {
-    this._loadUserFacts();
     const userFacts = { ...this.userFacts, ...(options.userFacts || {}) };
     const fieldOverrides = options.fieldOverrides || {};
     const fields = [];
@@ -725,33 +712,6 @@ class FormAutomation {
       canSubmit: validation.valid && validation.requiredFilled === validation.totalRequired,
       report: this.formUnderstanding.generateCompletionReport(formAnalysis, validation)
     };
-  }
-
-  learnFromFill(previousData, correctedData, field) {
-    if (!this.learningStore?.enabled) return null;
-
-    const fieldType = this.formUnderstanding._inferFieldType(field);
-    if (['password', 'confirmPassword', 'cvv', 'cardNumber'].includes(fieldType)) {
-      return null;
-    }
-
-    const oldValue = previousData[field];
-    const newValue = correctedData[field];
-    if (oldValue === newValue || !newValue) return null;
-
-    const factKey = fieldType === 'name' ? 'name' :
-      fieldType === 'lastName' ? 'last_name' :
-        fieldType;
-
-    const result = this.learningStore.rememberUserFact(factKey, newValue, {
-      source: 'form-correction'
-    });
-
-    if (result) {
-      this._loadUserFacts();
-    }
-
-    return result;
   }
 
   extractFieldsFromPage(pageData) {

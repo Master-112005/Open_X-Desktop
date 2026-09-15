@@ -66,7 +66,6 @@ describe('Settings Service', function() {
     assert.equal(snapshot.settings.cloud.reconnectEnabled, true);
     assert.equal(snapshot.dataRoot, tempDir);
     assert.equal(snapshot.dataPaths.settingsPath, path.join(tempDir, 'settings.json'));
-    assert.equal(snapshot.dataPaths.learningPath, path.join(tempDir, 'learning.json'));
     assert.ok(Array.isArray(snapshot.availableThemes));
     assert.deepEqual(snapshot.availableThemes.map(theme => theme.id), ['graphite', 'white-glass', 'black-glass']);
   });
@@ -178,8 +177,6 @@ describe('Settings Service', function() {
     assert.equal(runtimeConfig.activeLearning.askForFeedback, false);
     assert.deepEqual(runtimeConfig.cloud, saved.cloud);
     assert.equal(runtimeConfig.app.dataDir, service.dataPaths.root);
-    assert.equal(runtimeConfig.app.dataPaths.learningPath, path.join(service.dataPaths.root, 'learning.json'));
-    assert.equal(runtimeConfig.activeLearning.storePath, path.join(service.dataPaths.root, 'learning.json'));
     assert.equal(runtimeConfig.logging.directory, path.join(service.dataPaths.root, 'logs'));
     assert.deepEqual(runtimeConfig.modes[0], saved.modes[0]);
   });

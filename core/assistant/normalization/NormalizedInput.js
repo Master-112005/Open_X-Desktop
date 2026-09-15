@@ -1,6 +1,6 @@
 'use strict';
 
-const deepFreeze = require('../utils/ObjectFreeze');
+const { deepFreeze } = require('../utils');
 
 class NormalizedInput {
   constructor({

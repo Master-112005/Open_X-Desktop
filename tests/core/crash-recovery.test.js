@@ -166,7 +166,7 @@ describe('Crash Recovery Policy', function() {
     assert.equal(state.lastCrash.pid, 123);
     assert.equal(state.lastCrash.assistantInitialized, true);
     assert.equal(state.lastCrash.chatState, 'LISTENING');
-    assert.deepEqual(state.lastCrash.windows, { chat: true, chat: true, planner: false, timer: false });
+    assert.deepEqual(state.lastCrash.windows, { chat: true, planner: false, timer: false });
     assert.deepEqual(state.lastCrash.memory, { rss: 10, heapUsed: 20, external: 30 });
   });
 

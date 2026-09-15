@@ -1202,6 +1202,29 @@ function writeAssistantChatHistory(entries = []) {
   };
 }
 
+function relayVoiceConversationToChat(input, result) {
+  try {
+    if (!input || typeof input !== 'string' || !input.trim()) {
+      return;
+    }
+    const displayName = runtimeConfig?.assistant?.displayName || 'OpenX';
+    const replyText = String(result?.response || result?.message || result?.text || '').trim();
+    const now = Date.now();
+    const entries = [
+      { text: String(input).trim(), type: 'user', meta: 'Voice - just now', createdAt: now }
+    ];
+    if (replyText) {
+      entries.push({ text: replyText, type: 'assistant', meta: `${displayName} - voice`, createdAt: now + 1 });
+    }
+    writeAssistantChatHistory(entries);
+    if (chatWindow && !chatWindow.isDestroyed() && !chatWindow.webContents.isLoading()) {
+      chatWindow.webContents.send('conversation:append', { entries, result });
+    }
+  } catch (error) {
+    mainLogger.warn('Unable to relay voice conversation to chat', { error: error.message });
+  }
+}
+
 function clearAssistantChatHistory() {
   writeJsonAtomic(assistantChatHistoryPath(), [], { backup: true, maxBytes: 1024 * 1024 });
   return { success: true, count: 0, entries: [] };
@@ -2646,6 +2669,9 @@ function setupIPC() {
       !chatWindow.isDestroyed()
     ) {
       revealChatWindow();
+    }
+    if (source === 'voice') {
+      relayVoiceConversationToChat(input, result);
     }
     return result;
   });

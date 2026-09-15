@@ -148,10 +148,9 @@ describe('Assistant Response Layer', function() {
       'safety',
       'confidence',
       'privacyAware',
-      'learning',
       'humanInitiative'
     ].forEach(dimension => assert.ok(dimensions.includes(dimension), dimension));
-    assert.equal(dimensions.length, 25);
+    assert.equal(dimensions.length, 24);
   });
 
   it('turns missing entity responses into specific clarification questions', async function() {

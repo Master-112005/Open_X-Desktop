@@ -81,7 +81,7 @@ describe('Assistant Intelligence Pipeline', function() {
       PipelineBuilder,
       PipelineStage
     } = require('../../core/assistant/pipeline');
-    const { sleep } = require('../../core/assistant/utils/AsyncHelpers');
+    const { sleep } = require('../../core/assistant/utils');
 
     class SlowStage extends PipelineStage {
       constructor() {

@@ -12,10 +12,9 @@ const REQUIRED_ENTRY_POINTS = [
   'core/assistant/context/ContextManager.js',
   'core/assistant/entities/EntityExtractor.js',
   'core/assistant/reasoning/IntentRegistry.js',
-  'core/assistant/learning/ActiveLearningStore.js',
   'core/assistant/linguistic/NlpProcessor.js',
   'core/assistant/semantic/NaturalLanguageRouter.js',
-  'core/assistant/automation/NaturalLanguageExecution.js',
+  'core/assistant/automation/AutomationRuntime.js',
   'core/assistant/linguistic/InputParser.js',
   'core/assistant/response/Personality.js',
   'core/assistant/response/ResponseGenerator.js',
@@ -83,7 +82,7 @@ describe('Requested architecture structure', () => {
   });
 
   it('keeps NLE as a behavior-neutral automation delegate', async () => {
-    const NaturalLanguageExecution = require('../../core/assistant/automation/NaturalLanguageExecution');
+    const { NaturalLanguageExecution } = require('../../core/assistant/automation');
     const calls = [];
     const nle = new NaturalLanguageExecution({
       execute(actionId, entities, context) {

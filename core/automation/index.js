@@ -25,10 +25,7 @@ const {
   requireSafeUserPath,
   resolveDirectory
 } = require('./common/path-utils');
-const {
-  isCancellationError,
-  throwIfAborted
-} = require('../assistant/utils/Cancellation');
+const { isCancellationError, throwIfAborted } = require('../assistant/utils');
 
 class AutomationEngine {
   constructor(config) {
@@ -51,7 +48,6 @@ class AutomationEngine {
     this.planner = new PlannerController(config);
     this.screenshot = new ScreenshotController(config);
     this.forms = new FormAutomation(config, {
-      learning: config?.learningStore || null,
       browser: this.browser,
       windows: this.windows
     });

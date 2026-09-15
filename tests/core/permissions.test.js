@@ -113,7 +113,7 @@ describe('Permission Validator', function() {
 
     assert.equal(validator.validate(intent, { appName: 'chrome' }, 'chat').requiresConfirmation, false);
     assert.equal(validator.validate(intent, { appName: 'chrome' }, 'phone').requiresConfirmation, false);
-    assert.equal(validator.validate(intent, { appName: 'chrome' }, 'chat').requiresConfirmation, true);
+    assert.equal(validator.validate(intent, { appName: 'chrome' }, 'voice').requiresConfirmation, true);
     assert.equal(validator.validate(intent, { appName: 'chrome' }).requiresConfirmation, true);
   });
 
