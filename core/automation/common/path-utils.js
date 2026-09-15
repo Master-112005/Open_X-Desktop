@@ -60,6 +60,7 @@ const SPECIAL_FOLDER_NAMES = Object.freeze({
 
 let specialFolderCacheKey = null;
 let specialFolderCache = null;
+const knownFolderCache = new Map();
 
 function pathEquals(left, right) {
   if (!left || !right) return false;
@@ -112,6 +113,18 @@ function readWindowsKnownFolder(folderKey) {
     return null;
   }
 
+  const cacheKey = [
+    folderKey,
+    process.env.USERPROFILE || '',
+    process.env.OneDrive || '',
+    process.env.OneDriveCommercial || '',
+    process.env.OneDriveConsumer || ''
+  ].join('|');
+  const cached = knownFolderCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
   const specialFolderMap = {
     desktop: 'Desktop',
     documents: 'MyDocuments',
@@ -147,8 +160,13 @@ function readWindowsKnownFolder(folderKey) {
       timeout: WINDOWS_KNOWN_FOLDER_TIMEOUT_MS,
       windowsHide: true
     }).trim();
-    return output || null;
+    const resolved = output || null;
+    knownFolderCache.set(cacheKey, { value: resolved, expiresAt: Number.MAX_SAFE_INTEGER });
+    return resolved;
   } catch (error) {
+    // Cache failures briefly as well. A missing shell lookup should not
+    // spawn PowerShell on every file/folder search.
+    knownFolderCache.set(cacheKey, { value: null, expiresAt: Date.now() + 5000 });
     return null;
   }
 }

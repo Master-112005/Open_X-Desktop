@@ -298,7 +298,6 @@ let cloudPairingManager = null;
 let cloudCommandManager = null;
 let cloudFileTransferManager = null;
 let homeOnboardingManager = null;
-let homeRefreshTimer = null;
 let homeCommandClient = null;
 let pendingHomeBluetoothSelection = null;
 let lastHomeBluetoothSelection = null;
@@ -851,11 +850,7 @@ function formatVoiceTranscriptionFailure(error) {
 }
 
 function scheduleVoiceWarmup(reason = 'startup') {
-  if (
-    voiceWarmupTimer ||
-    process.env.OPENX_TEST === '1' ||
-    runtimeConfig?.voice?.preloadOnStartup !== true
-  ) return;
+  if (voiceWarmupTimer || process.env.OPENX_TEST === '1') return;
   voiceWarmupTimer = setTimeout(() => {
     voiceWarmupTimer = null;
     getVoiceModelLoader().load().catch(error => {
@@ -2223,17 +2218,17 @@ function initializeHomeOnboarding() {
     }
   });
   homeOnboardingManager.discovery.subscribe(() => sendHomeOnboardingStatus());
-  mainLogger.info('[HOME] Home Device onboarding prepared', {
-    defaultServerAddress
-  });
-  return homeOnboardingManager;
-}
-
-function startHomeBackgroundRefresh() {
-  if (homeRefreshTimer) return;
-  const manager = initializeHomeOnboarding();
-  homeRefreshTimer = setInterval(() => {
-    manager.refreshServerDevices?.()
+  homeOnboardingManager.startDiscovery();
+  homeOnboardingManager.refreshServerDevices?.()
+    .then(() => sendHomeOnboardingStatus())
+    .catch(error => mainLogger.warn('[HOME] Server device refresh failed', { error: error.message }));
+  // OpenX_Server keeps its device registry in memory only, so a redeploy or
+  // restart silently un-pairs every device. Poll in the background so a
+  // previously-paired device gets its ownership reclaimed automatically
+  // (see HomeOnboardingManager.reclaimDevice) instead of the user having to
+  // notice it's broken and redo Bluetooth + Wi-Fi setup from scratch.
+  const homeRefreshTimer = setInterval(() => {
+    homeOnboardingManager.refreshServerDevices?.()
       .then(result => {
         if (result?.added || result?.reclaimed || result?.reclaimFailed) {
           mainLogger.info('[HOME] Background Home Device refresh completed', {
@@ -2248,11 +2243,10 @@ function startHomeBackgroundRefresh() {
       .catch(error => mainLogger.warn('[HOME] Background device refresh failed', { error: error.message }));
   }, 30000);
   homeRefreshTimer.unref?.();
-}
-
-function stopHomeBackgroundRefresh() {
-  if (homeRefreshTimer) clearInterval(homeRefreshTimer);
-  homeRefreshTimer = null;
+  mainLogger.info('[HOME] Home Device discovery started', {
+    defaultServerAddress
+  });
+  return homeOnboardingManager;
 }
 
 function wireHomeAutomationExecution() {
@@ -2835,7 +2829,6 @@ function setupIPC() {
   registerIpcHandler('homeOnboarding:startDiscovery', async () => {
     const manager = initializeHomeOnboarding();
     const result = manager.startDiscovery();
-    startHomeBackgroundRefresh();
     const serverRefresh = await manager.refreshServerDevices?.();
     const snapshot = manager.getSnapshot();
     mainLogger.info('[HOME] Home Device scan completed', {
@@ -2851,7 +2844,6 @@ function setupIPC() {
 
   registerIpcHandler('homeOnboarding:stopDiscovery', async () => {
     const result = initializeHomeOnboarding().stopDiscovery();
-    stopHomeBackgroundRefresh();
     sendHomeOnboardingStatus();
     return result;
   });
@@ -3370,7 +3362,6 @@ async function cleanupRuntime() {
     }
     if (homeOnboardingManager) {
       try {
-        stopHomeBackgroundRefresh();
         homeOnboardingManager.stopDiscovery();
       } catch (error) {
         mainLogger.error('[HOME] Onboarding cleanup failed', { error: error.message });
@@ -3679,6 +3670,7 @@ app.whenReady().then(async () => {
   initializeCloudPairing();
   initializeCloudCommands();
   initializeCloudMobileRuntime();
+  initializeHomeOnboarding();
   wireHomeAutomationExecution();
   await maybeAutoConnectCloud('desktop-startup');
   if (!app.isPackaged) {

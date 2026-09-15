@@ -93,7 +93,6 @@ const CONFIG = {
     voiceVolume: 1,
     showVoiceTranscript: true,
     autoCloseVoice: false,
-    preloadOnStartup: false,
     speakRepliesEnabled: true,
     ttsVoiceURI: ''
   },
@@ -106,7 +105,7 @@ const CONFIG = {
     maxReplyTokens: 180,
     runtime: 'auto',
     nodePath: envPath('OPENX_LLM_NODE_PATH'),
-    warmupOnStartup: false,
+    warmupOnStartup: true,
     loadTimeoutMs: 180000,
     requestTimeoutMs: 120000,
     responseStyle: 'concise',

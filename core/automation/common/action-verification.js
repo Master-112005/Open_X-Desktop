@@ -27,9 +27,6 @@ function safeStat(targetPath) {
   }
 
   try {
-    if (!fs.existsSync(pathValue)) {
-      return { exists: false };
-    }
     const stats = fs.statSync(pathValue);
     return {
       exists: true,
@@ -38,6 +35,9 @@ function safeStat(targetPath) {
       size: stats.size
     };
   } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return { exists: false };
+    }
     return {
       exists: true,
       readable: false,

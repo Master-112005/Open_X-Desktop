@@ -80,6 +80,7 @@ class PermissionValidator {
     const confirmationMessage = this._buildConfirmationMessage(intent, entities);
 
     const requiresConfirmation = Boolean(levelConfig.requiresConfirmation) &&
+      !this._canSkipVoiceConfirmation(intent, source) &&
       !this._canSkipCloseConfirmation(intent, source);
 
     return {
@@ -89,6 +90,13 @@ class PermissionValidator {
       risk: this._riskFor(intent),
       consequence: this._consequenceFor(intent)
     };
+  }
+
+  _canSkipVoiceConfirmation(intent, source) {
+    const normalizedSource = String(source || '').trim().toLowerCase();
+    if (normalizedSource !== 'voice') return false;
+    const level = String(intent?.permissionLevel || 'low').toLowerCase();
+    return level === 'low' || level === 'medium';
   }
 
   _canSkipCloseConfirmation(intent, source) {

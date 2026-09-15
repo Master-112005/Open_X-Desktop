@@ -7,6 +7,7 @@
   const NO_SPEECH_DISPLAY_MS = 4500;
   const DUPLICATE_TRANSCRIPT_WINDOW_MS = 5000;
   const RELISTEN_DELAY_MS = 250;
+  const MAX_SPOKEN_RESPONSE_CHARS = 280;
   const DEFAULT_VOICE_SETTINGS = Object.freeze({
     microphoneDeviceId: null,
     voiceVolume: 1,
@@ -592,7 +593,12 @@
         return;
       }
       synth.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
+      const spokenText = compactSpokenResponse(text);
+      if (!spokenText) {
+        resolve();
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(spokenText);
       utterance.volume = Math.max(0, Math.min(1, Number(settings.voiceVolume) || 1));
       const voice = selectVoice();
       if (voice) utterance.voice = voice;
@@ -603,6 +609,15 @@
       utterance.onerror = () => resolve();
       synth.speak(utterance);
     });
+  }
+
+  function compactSpokenResponse(text) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (normalized.length <= MAX_SPOKEN_RESPONSE_CHARS) return normalized;
+    const boundary = normalized.slice(0, MAX_SPOKEN_RESPONSE_CHARS)
+      .lastIndexOf('.');
+    const end = boundary >= 80 ? boundary + 1 : MAX_SPOKEN_RESPONSE_CHARS;
+    return `${normalized.slice(0, end).trim()} Voice details are shown on screen.`;
   }
 
   function failVoice(error) {
