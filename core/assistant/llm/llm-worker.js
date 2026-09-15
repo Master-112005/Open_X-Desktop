@@ -3,6 +3,9 @@
 const { LlamaEngine } = require('./LlamaEngine');
 
 let engine = null;
+// Model inference is not re-entrant. Serialize IPC commands so overlapping
+// renderer requests cannot start concurrent generations in the same process.
+let commandQueue = Promise.resolve();
 
 async function handle(message = {}) {
   if (message.type === 'init') {
@@ -29,7 +32,8 @@ async function handle(message = {}) {
 }
 
 process.on('message', message => {
-  Promise.resolve()
+  commandQueue = commandQueue
+    .catch(() => {})
     .then(() => handle(message))
     .then(result => {
       process.send?.({ id: message.id, type: 'result', result });

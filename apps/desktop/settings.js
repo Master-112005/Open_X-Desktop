@@ -345,6 +345,7 @@ class SettingsService {
         voiceVolume: clampNumber(this.baseConfig?.voice?.voiceVolume, 0, 1, 1),
         showVoiceTranscript: this.baseConfig?.voice?.showVoiceTranscript !== false,
         autoCloseVoice: this.baseConfig?.voice?.autoCloseVoice === true,
+        preloadOnStartup: this.baseConfig?.voice?.preloadOnStartup === true,
         speakRepliesEnabled: this.baseConfig?.voice?.speakRepliesEnabled !== false,
         ttsVoiceURI: String(this.baseConfig?.voice?.ttsVoiceURI || '').trim()
       },
@@ -513,6 +514,7 @@ class SettingsService {
         voiceVolume: clampNumber(source.voice?.voiceVolume, 0, 1, this.defaults.voice.voiceVolume),
         showVoiceTranscript: source.voice?.showVoiceTranscript !== false,
         autoCloseVoice: source.voice?.autoCloseVoice === true,
+        preloadOnStartup: source.voice?.preloadOnStartup === true,
         speakRepliesEnabled: source.voice?.speakRepliesEnabled !== false,
         ttsVoiceURI: String(source.voice?.ttsVoiceURI || '').trim().slice(0, 260)
       },

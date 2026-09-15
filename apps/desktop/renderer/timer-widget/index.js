@@ -12,6 +12,7 @@ let latestState = null;
 let pollHandle = null;
 let tickHandle = null;
 let audioContext = null;
+let refreshInFlight = false;
 
 function getAudioContext() {
   if (!audioContext) {
@@ -110,9 +111,14 @@ function render(state) {
 
 async function refresh() {
   if (!window.openx?.getTimerWidgetState) return;
+  if (refreshInFlight) return;
+  refreshInFlight = true;
   try {
     render(await window.openx.getTimerWidgetState());
-  } catch (_) {}
+  } catch (_) {
+  } finally {
+    refreshInFlight = false;
+  }
 }
 
 function tick() {

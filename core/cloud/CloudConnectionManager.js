@@ -15,6 +15,7 @@ const DEFAULT_RECONNECT_DELAYS = Object.freeze([1000, 2000, 5000, 10000, 20000, 
 const DEFAULT_TIMEOUT_MS = 10000;
 const DEFAULT_HEARTBEAT_MS = 30000;
 const DEFAULT_RETRY_QUEUE_SIZE = 100;
+const MAX_PRESENCE_ITEMS = 500;
 const DEFAULT_RELAY_URL = 'wss://openx-server.onrender.com/ws';
 const LEGACY_DEFAULT_RELAY_URLS = new Set(['ws://localhost:8081/ws']);
 
@@ -698,7 +699,9 @@ class CloudConnectionManager extends EventEmitter {
       return;
     }
     if (payload?.type === 'presence:list' || payload?.type === 'presence:subscribed') {
-      this.presence = Array.isArray(payload.presence) ? payload.presence : [];
+      this.presence = Array.isArray(payload.presence)
+        ? payload.presence.slice(0, MAX_PRESENCE_ITEMS)
+        : [];
       this.emit('presence', this.presence.slice());
       this.emitStatus({ presence: this.presence.slice() });
       return;
@@ -742,7 +745,12 @@ class CloudConnectionManager extends EventEmitter {
     if (!presence?.deviceId) return false;
     const index = this.presence.findIndex(item => item.deviceId === presence.deviceId);
     if (index >= 0) this.presence[index] = { ...this.presence[index], ...presence };
-    else this.presence.push(presence);
+    else {
+      this.presence.push(presence);
+      if (this.presence.length > MAX_PRESENCE_ITEMS) {
+        this.presence.splice(0, this.presence.length - MAX_PRESENCE_ITEMS);
+      }
+    }
     return true;
   }
 
