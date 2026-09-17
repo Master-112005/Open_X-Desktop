@@ -1,5 +1,7 @@
 const os = require('os');
-const { execFileSync } = require('child_process');
+const { execFile } = require('child_process');
+const util = require('util');
+const execFileAsync = util.promisify(execFile);
 const Logger = require('../assistant/Data').Logger;
 const WindowsSessionController = require('./common/windows-session');
 
@@ -7,7 +9,7 @@ class WindowsController {
   constructor(config) {
     this.logger = new Logger(config?.logging || { level: 'info' });
     this.session = new WindowsSessionController(config);
-    this.commandRunner = config?.windows?.commandRunner || execFileSync;
+    this.commandRunner = config?.windows?.commandRunner || execFileAsync;
     this.commandTimeoutMs = Number(config?.windows?.commandTimeoutMs || 3000);
     this.shutdownDelaySeconds = this._normalizeDelay(config?.windows?.shutdownDelaySeconds, 5);
     this.restartDelaySeconds = this._normalizeDelay(config?.windows?.restartDelaySeconds, 5);
@@ -70,6 +72,10 @@ class WindowsController {
 
   sendKeys(windowName, keys, options = {}) {
     return this.session.sendKeys(windowName, keys, options);
+  }
+
+  pasteText(windowName, text, options = {}) {
+    return this.session.pasteText(windowName, text, options);
   }
 
   listWindows() {

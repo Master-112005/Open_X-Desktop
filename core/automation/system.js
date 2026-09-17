@@ -1,7 +1,16 @@
 const os = require('os');
-const { execFileSync } = require('child_process');
+const { execFile } = require('child_process');
+const util = require('util');
+const execFileAsync = util.promisify(execFile);
 const Logger = require('../assistant/Data').Logger;
 const { getSpecialFolderPaths } = require('./common/path-utils');
+
+function commandOutputText(output) {
+  if (output && typeof output === 'object' && Object.prototype.hasOwnProperty.call(output, 'stdout')) {
+    return String(output.stdout || '').trim();
+  }
+  return String(output || '').trim();
+}
 
 class SystemController {
   constructor(config) {
@@ -9,17 +18,17 @@ class SystemController {
     this.cache = new Map();
     this.commandTimeoutMs = Number(config?.system?.commandTimeoutMs || 5000);
     this.processListLimit = Number(config?.system?.processListLimit || 25);
-    this.powershellRunner = config?.system?.powershellRunner || execFileSync;
+    this.powershellRunner = config?.system?.powershellRunner || execFileAsync;
   }
 
-  _getCached(key, ttlMs, producer) {
+  async _getCached(key, ttlMs, producer) {
     const now = Date.now();
     const cached = this.cache.get(key);
     if (cached && now - cached.timestamp < ttlMs) {
       return cached.value;
     }
 
-    const value = producer();
+    const value = await producer();
     this.cache.set(key, { timestamp: now, value });
     return value;
   }
@@ -33,8 +42,8 @@ class SystemController {
     }
   }
 
-  _runPowerShell(script, options = {}) {
-    return this.powershellRunner('powershell.exe', [
+  async _runPowerShell(script, options = {}) {
+    const output = await this.powershellRunner('powershell.exe', [
       '-NoProfile',
       '-NonInteractive',
       '-ExecutionPolicy',
@@ -46,6 +55,7 @@ class SystemController {
       timeout: Number(options.timeoutMs || this.commandTimeoutMs),
       windowsHide: true
     });
+    return commandOutputText(output);
   }
 
   _parseJson(output, fallback = []) {
@@ -284,13 +294,13 @@ class SystemController {
     return result;
   }
 
-  getCPUUsage() {
+  async getCPUUsage() {
     return this._getCached('cpuUsage', 15000, () => this._getCPUUsageNow());
   }
 
-  _getCPUUsageNow() {
+  async _getCPUUsageNow() {
     try {
-      const result = this._runPowerShell(
+      const result = await this._runPowerShell(
         'Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average'
       );
       const cpu = parseInt(result.trim(), 10);
@@ -314,7 +324,7 @@ class SystemController {
     }
   }
 
-  getMemoryUsage() {
+  async getMemoryUsage() {
     try {
       const totalMem = os.totalmem();
       const freeMem = os.freemem();
@@ -334,13 +344,13 @@ class SystemController {
     }
   }
 
-  getBatteryStatus() {
+  async getBatteryStatus() {
     return this._getCached('batteryStatus', 60000, () => this._getBatteryStatusNow());
   }
 
-  _getBatteryStatusNow() {
+  async _getBatteryStatusNow() {
     try {
-      const result = this._runPowerShell(
+      const result = await this._runPowerShell(
         'Get-CimInstance Win32_Battery | Select-Object -First 1 -ExpandProperty EstimatedChargeRemaining'
       );
       const battery = parseInt(result.trim(), 10);
@@ -362,13 +372,13 @@ class SystemController {
     }
   }
 
-  getDiskSpace() {
+  async getDiskSpace() {
     return this._getCached('diskSpace', 60000, () => this._getDiskSpaceNow());
   }
 
-  _getDiskSpaceNow() {
+  async _getDiskSpaceNow() {
     try {
-      const result = this._runPowerShell(
+      const result = await this._runPowerShell(
         "Get-CimInstance Win32_LogicalDisk -Filter DriveType=3 | Select-Object DeviceID, @{N='FreeGB';E={[math]::Round($_.FreeSpace/1GB,1)}}, @{N='TotalGB';E={[math]::Round($_.Size/1GB,1)}} | ConvertTo-Json -Compress"
       );
       const disks = this._toRows(this._parseJson(result, [{ DeviceID: 'C:', FreeGB: 0, TotalGB: 0 }]));
@@ -389,13 +399,13 @@ class SystemController {
     }
   }
 
-  getProcessCount() {
+  async getProcessCount() {
     return this._getCached('processCount', 10000, () => this._getProcessCountNow());
   }
 
-  _getProcessCountNow() {
+  async _getProcessCountNow() {
     try {
-      const result = this._runPowerShell('(Get-Process).Count');
+      const result = await this._runPowerShell('(Get-Process).Count');
       const count = parseInt(result.trim(), 10);
       return this._success('processes', {
         count: isNaN(count) ? 0 : count,
@@ -406,14 +416,14 @@ class SystemController {
     }
   }
 
-  getRunningApps(options = {}) {
+  async getRunningApps(options = {}) {
     const queryApp = String(options?.queryApp || '').trim().toLowerCase();
     return this._getCached(`runningApps:${queryApp}`, 3000, () => this._getRunningAppsNow({ queryApp }));
   }
 
-  _getRunningAppsNow(options = {}) {
+  async _getRunningAppsNow(options = {}) {
     try {
-      const output = this._runPowerShell(
+      const output = await this._runPowerShell(
         [
           "$apps = Get-Process |",
           "Where-Object { $_.MainWindowTitle -and $_.MainWindowTitle.Trim().Length -gt 0 } |",
@@ -456,7 +466,7 @@ class SystemController {
     }
   }
 
-  getInsight(insightType) {
+  async getInsight(insightType) {
     const type = String(insightType || '').trim();
     if (type === 'topMemoryApp') {
       return this._getTopProcessBy('WorkingSet64', 'memory');
@@ -474,7 +484,7 @@ class SystemController {
       return this._getSystemSlowdownSnapshot();
     }
     if (type === 'memoryUsage') {
-      const memory = this.getMemoryUsage();
+      const memory = await this.getMemoryUsage();
       return {
         success: memory.success,
         error: memory.error,
@@ -491,7 +501,7 @@ class SystemController {
       return this._getTemperatureSnapshot();
     }
     if (type === 'systemSummary') {
-      const status = this.getStatus();
+      const status = await this.getStatus();
       return {
         success: true,
         data: {
@@ -506,10 +516,10 @@ class SystemController {
     return { success: false, error: 'System insight is not supported yet' };
   }
 
-  _getGpuSnapshot() {
-    return this._getCached('gpuSnapshot', 30000, () => {
+  async _getGpuSnapshot() {
+    return this._getCached('gpuSnapshot', 30000, async () => {
       try {
-        const output = this._runPowerShell(
+        const output = await this._runPowerShell(
           'Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM, DriverVersion | ConvertTo-Json -Compress'
         );
         const rows = this._toRows(this._parseJson(output, []));
@@ -532,10 +542,10 @@ class SystemController {
     });
   }
 
-  _getNetworkSnapshot() {
-    return this._getCached('networkSnapshot', 30000, () => {
+  async _getNetworkSnapshot() {
+    return this._getCached('networkSnapshot', 30000, async () => {
       try {
-        const output = this._runPowerShell(
+        const output = await this._runPowerShell(
           'Get-NetAdapter | Where-Object Status -eq Up | Select-Object Name, InterfaceDescription, LinkSpeed, Status | ConvertTo-Json -Compress'
         );
         const rows = this._toRows(this._parseJson(output, []));
@@ -559,10 +569,10 @@ class SystemController {
     });
   }
 
-  _getTemperatureSnapshot() {
-    return this._getCached('temperatureSnapshot', 30000, () => {
+  async _getTemperatureSnapshot() {
+    return this._getCached('temperatureSnapshot', 30000, async () => {
       try {
-        const output = this._runPowerShell(
+        const output = await this._runPowerShell(
           'Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object CurrentTemperature | ConvertTo-Json -Compress'
         );
         const rows = this._toRows(this._parseJson(output, []));
@@ -583,13 +593,13 @@ class SystemController {
     });
   }
 
-  _getTopProcessBy(property, metric) {
+  async _getTopProcessBy(property, metric) {
     return this._getCached(`topProcess:${property}:${metric}`, 10000, () => this._getTopProcessByNow(property, metric));
   }
 
-  _getTopProcessByNow(property, metric) {
+  async _getTopProcessByNow(property, metric) {
     try {
-      const output = this._runPowerShell(
+      const output = await this._runPowerShell(
         [
           `$items = Get-Process | Where-Object { $_.${property} -ne $null } | Sort-Object ${property} -Descending | Select-Object -First ${Math.max(1, Math.min(this.processListLimit, 12))} ProcessName, Id, CPU, WorkingSet64, MainWindowTitle;`,
           '$items | ConvertTo-Json -Compress'
@@ -618,11 +628,11 @@ class SystemController {
     }
   }
 
-  _getLargestUserFolders() {
+  async _getLargestUserFolders() {
     return this._getCached('largestUserFolders', 10 * 60 * 1000, () => this._getLargestUserFoldersNow());
   }
 
-  _getLargestUserFoldersNow() {
+  async _getLargestUserFoldersNow() {
     try {
       const folders = Array.from(new Set(
         ['desktop', 'documents', 'downloads', 'pictures', 'videos', 'music']
@@ -645,7 +655,7 @@ class SystemController {
         '};',
         '$items | Sort-Object SizeBytes -Descending | ConvertTo-Json -Compress'
       ].join(' ');
-      const output = this._runPowerShell(script, { timeoutMs: 12000 });
+      const output = await this._runPowerShell(script, { timeoutMs: 12000 });
       const rows = this._toRows(this._parseJson(output, []));
       const folderRows = rows.map(row => ({
         name: String(row.Name || '').trim(),
@@ -661,18 +671,18 @@ class SystemController {
     }
   }
 
-  _getRecentlyInstalledApps() {
+  async _getRecentlyInstalledApps() {
     return this._getCached('recentlyInstalledApps', 10 * 60 * 1000, () => this._getRecentlyInstalledAppsNow());
   }
 
-  _getRecentlyInstalledAppsNow() {
+  async _getRecentlyInstalledAppsNow() {
     try {
       const script = [
         '$roots = @("HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*", "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*", "HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*");',
         '$apps = foreach ($root in $roots) { Get-ItemProperty $root -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName } | Select-Object DisplayName, InstallDate, Publisher };',
         '$apps | Sort-Object InstallDate -Descending | Select-Object -First 10 | ConvertTo-Json -Compress'
       ].join(' ');
-      const output = this._runPowerShell(script, { timeoutMs: 8000 });
+      const output = await this._runPowerShell(script, { timeoutMs: 8000 });
       const rows = this._toRows(this._parseJson(output, []));
       const apps = rows.map(row => ({
         name: String(row.DisplayName || '').trim(),
@@ -688,9 +698,9 @@ class SystemController {
     }
   }
 
-  _getSystemSlowdownSnapshot() {
-    const cpu = this._getTopProcessBy('CPU', 'cpu');
-    const memory = this._getTopProcessBy('WorkingSet64', 'memory');
+  async _getSystemSlowdownSnapshot() {
+    const cpu = await this._getTopProcessBy('CPU', 'cpu');
+    const memory = await this._getTopProcessBy('WorkingSet64', 'memory');
     return this._success('insight', {
         insightType: 'systemSlowdown',
         cpu: cpu.data?.top || null,
@@ -710,9 +720,9 @@ class SystemController {
     return this._getBluetoothState();
   }
 
-  _getBluetoothState() {
+  async _getBluetoothState() {
     try {
-      const output = this._runPowerShell(
+      const output = await this._runPowerShell(
         [
           "$devices = Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue |",
           "Where-Object { $_.FriendlyName -and $_.FriendlyName -notmatch 'Enumerator|Protocol|Service|Generic Attribute|RFCOMM' };",
@@ -734,10 +744,10 @@ class SystemController {
     }
   }
 
-  _setBluetoothState(enabled) {
+  async _setBluetoothState(enabled) {
     const verb = enabled ? 'Enable-PnpDevice' : 'Disable-PnpDevice';
     try {
-      const output = this._runPowerShell(
+      const output = await this._runPowerShell(
         [
           "$devices = Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue |",
           "Where-Object { $_.FriendlyName -and $_.FriendlyName -notmatch 'Enumerator|Protocol|Service|Generic Attribute|RFCOMM' };",
@@ -765,12 +775,12 @@ class SystemController {
     }
   }
 
-  getStatus() {
+  async getStatus() {
     this._clearExpiredCache();
-    const cpu = this.getCPUUsage();
-    const mem = this.getMemoryUsage();
-    const battery = this.getBatteryStatus();
-    const disk = this.getDiskSpace();
+    const cpu = await this.getCPUUsage();
+    const mem = await this.getMemoryUsage();
+    const battery = await this.getBatteryStatus();
+    const disk = await this.getDiskSpace();
 
     return this._success('status', {
       cpu: cpu.data?.cpu || 0,

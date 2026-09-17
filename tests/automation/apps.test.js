@@ -3,14 +3,14 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-describe('App Controller', function() {
+describe('App Controller', async function() {
   let AppController;
 
-  before(function() {
+  before(async function() {
     AppController = require('../../core/automation/apps');
   });
 
-  it('should prefer Start menu apps over command fallback when opening apps', function() {
+  it('should prefer Start menu apps over command fallback when opening apps', async function() {
     const controller = new AppController({});
     let launched = null;
     controller.findVisibleApp = () => null;
@@ -26,13 +26,13 @@ describe('App Controller', function() {
       throw new Error('command fallback should not be checked when Start menu resolves');
     };
 
-    const result = controller.open('discord');
+    const result = await controller.open('discord');
 
     assert.equal(result.success, true);
     assert.equal(launched.appId, 'Discord.Discord');
   });
 
-  it('should open special Windows shell apps', function() {
+  it('should open special Windows shell apps', async function() {
     const controller = new AppController({});
     let launched = null;
     controller.findVisibleApp = () => null;
@@ -43,14 +43,14 @@ describe('App Controller', function() {
       return { success: true, data: { app: name, launchMethod: 'special' } };
     };
 
-    const result = controller.open('recycle bin');
+    const result = await controller.open('recycle bin');
 
     assert.equal(result.success, true);
     assert.equal(result.data.launchMethod, 'special');
     assert.equal(launched, 'recycle bin');
   });
 
-  it('should fail clearly when an app cannot be found', function() {
+  it('should fail clearly when an app cannot be found', async function() {
     const controller = new AppController({});
     controller.findVisibleApp = () => null;
 
@@ -58,13 +58,13 @@ describe('App Controller', function() {
     controller._launchSpecialApp = () => ({ success: false });
     controller._commandExists = () => false;
 
-    const result = controller.open('missing app');
+    const result = await controller.open('missing app');
 
     assert.equal(result.success, false);
     assert.equal(result.error, 'Could not find app: missing app');
   });
 
-  it('should escalate from graceful close to forced termination when a non-browser process stays alive', function() {
+  it('should escalate from graceful close to forced termination when a non-browser process stays alive', async function() {
     const controller = new AppController({});
     let state = 'running';
 
@@ -87,11 +87,11 @@ describe('App Controller', function() {
     };
     controller._sleep = () => {};
 
-    const result = controller.close('notepad');
+    const result = await controller.close('notepad');
     assert.equal(result.success, true);
   });
 
-  it('should not query Start menu metadata when closing known apps', function() {
+  it('should not query Start menu metadata when closing known apps', async function() {
     const controller = new AppController({});
     let startMenuQueried = false;
     let state = 'running';
@@ -117,13 +117,13 @@ describe('App Controller', function() {
     };
     controller._sleep = () => {};
 
-    const result = controller.close('chrome');
+    const result = await controller.close('chrome');
 
     assert.equal(result.success, true);
     assert.equal(startMenuQueried, false);
   });
 
-  it('should not close unrelated apps from broad Start menu publisher tokens', function() {
+  it('should not close unrelated apps from broad Start menu publisher tokens', async function() {
     const controller = new AppController({});
     const processes = [
       {
@@ -142,7 +142,7 @@ describe('App Controller', function() {
 
     controller._getRunningProcessDetails = () => processes;
 
-    const matches = controller._findRunningProcesses('notepad', [
+    const matches = await controller._findRunningProcesses('notepad', [
       'notepad',
       'Microsoft',
       'WindowsNotepad'
@@ -152,7 +152,7 @@ describe('App Controller', function() {
     assert.equal(matches[0].ProcessName, 'notepad');
   });
 
-  it('should close browser-hosted apps by window title when process matching is not usable', function() {
+  it('should close browser-hosted apps by window title when process matching is not usable', async function() {
     const controller = new AppController({});
 
     controller.windowSession.closeWindow = (windowQuery, options) => {
@@ -168,14 +168,65 @@ describe('App Controller', function() {
     };
     controller._getRunningProcessDetails = () => [];
 
-    const result = controller.close('youtube');
+    const result = await controller.close('youtube');
 
     assert.equal(result.success, true);
     assert.equal(result.data.closeMethod, 'window');
     assert.equal(result.data.processName, 'chrome');
   });
 
-  it('should not close YouTube app windows when closing Chrome', function() {
+  it('should close window-targeted web apps by exact window even when unrelated chrome is running', async function() {
+    const controller = new AppController({});
+    controller.windowSession.closeWindow = (windowQuery, options) => {
+      assert.equal(windowQuery, 'youtube');
+      assert.ok(options.preferredTitleTokens.includes('youtube'));
+      return {
+        success: true,
+        data: {
+          matchedWindow: 'Music - YouTube',
+          processName: 'chrome'
+        }
+      };
+    };
+    controller._getRunningProcessDetails = () => ([
+      { Id: 601, ProcessName: 'chrome', MainWindowTitle: 'Google Chrome', MainWindowHandle: 123 },
+      { Id: 602, ProcessName: 'chrome', MainWindowTitle: 'New Tab - Google Chrome', MainWindowHandle: 234 }
+    ]);
+
+    const result = await controller.close('youtube');
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.closeMethod, 'window');
+  });
+
+  it('should not treat unrelated browser windows as an open web app', async function() {
+    const controller = new AppController({});
+
+    controller._getRunningProcessDetails = () => ([
+      { Id: 301, ProcessName: 'chrome', MainWindowTitle: 'Google Chrome', MainWindowHandle: 111 },
+      { Id: 302, ProcessName: 'msedge', MainWindowTitle: 'OpenX_Desktop - Visual Studio Code', MainWindowHandle: 222 }
+    ]);
+
+    const visible = await controller.findVisibleApp('youtube', { allowWindowFallback: false });
+
+    assert.equal(visible, null);
+  });
+
+  it('should recognize a browser-hosted web app window by its title', async function() {
+    const controller = new AppController({});
+
+    controller._getRunningProcessDetails = () => ([
+      { Id: 401, ProcessName: 'chrome', MainWindowTitle: 'Music - YouTube', MainWindowHandle: 456 },
+      { Id: 402, ProcessName: 'chrome', MainWindowTitle: 'Google Chrome', MainWindowHandle: 123 }
+    ]);
+
+    const visible = await controller.findVisibleApp('youtube', { allowWindowFallback: false });
+
+    assert.equal(visible.ProcessName, 'chrome');
+    assert.equal(visible.MainWindowTitle, 'Music - YouTube');
+  });
+
+  it('should not close YouTube app windows when closing Chrome', async function() {
     const controller = new AppController({});
     let normalChromeClosed = false;
     let forcedTerminationUsed = false;
@@ -215,13 +266,13 @@ describe('App Controller', function() {
     };
     controller._sleep = () => {};
 
-    const result = controller.close('chrome');
+    const result = await controller.close('chrome');
 
     assert.equal(result.success, true);
     assert.equal(forcedTerminationUsed, false);
   });
 
-  it('should not force terminate browser child processes after visible windows close', function() {
+  it('should not force terminate browser child processes after visible windows close', async function() {
     const controller = new AppController({});
     let visibleWindowClosed = false;
     let forcedTerminationUsed = false;
@@ -261,13 +312,13 @@ describe('App Controller', function() {
     };
     controller._sleep = () => {};
 
-    const result = controller.close('chrome');
+    const result = await controller.close('chrome');
 
     assert.equal(result.success, true);
     assert.equal(forcedTerminationUsed, false);
   });
 
-  it('should not report browser close success while the visible window remains', function() {
+  it('should not report browser close success while the visible window remains', async function() {
     const controller = new AppController({});
     let forcedTerminationUsed = false;
 
@@ -291,14 +342,14 @@ describe('App Controller', function() {
     };
     controller._sleep = () => {};
 
-    const result = controller.close('chrome');
+    const result = await controller.close('chrome');
 
     assert.equal(result.success, false);
     assert.match(result.error, /Could not close every chrome browser window/);
     assert.equal(forcedTerminationUsed, false);
   });
 
-  it('should close all matching browser windows after confirmation', function() {
+  it('should close all matching browser windows after confirmation', async function() {
     const controller = new AppController({});
     let closeAttempted = false;
     let closed = false;
@@ -326,14 +377,14 @@ describe('App Controller', function() {
     };
     controller._sleep = () => {};
 
-    const result = controller.close('chrome');
+    const result = await controller.close('chrome');
 
     assert.equal(result.success, true);
     assert.equal(result.data.closedCount, 2);
     assert.equal(closeAttempted, true);
   });
 
-  it('should focus an existing app instead of asking to open a duplicate', function() {
+  it('should focus an existing app instead of asking to open a duplicate', async function() {
     const controller = new AppController({});
 
     controller._getRunningProcessDetails = () => ([{
@@ -352,17 +403,17 @@ describe('App Controller', function() {
       data: { matchedWindow: 'Sample App', processName: 'SampleApp' }
     });
 
-    const result = controller.open('sample app');
+    const result = await controller.open('sample app');
 
     assert.equal(result.success, true);
     assert.equal(result.data.launchMethod, 'focus-existing');
     assert.equal(result.data.verified, true);
   });
 
-  it('should prefer known command launchers before Start menu entries for known apps', function() {
+  it('should prefer known command launchers before Start menu entries for known apps', async function() {
     const childProcess = require('child_process');
     const fs = require('fs');
-    const originalExecFileSync = childProcess.execFileSync;
+    const originalExecFile = childProcess.execFile;
     const originalExistsSync = fs.existsSync;
     const appsPath = require.resolve('../../core/automation/apps');
     const launcherPath = require.resolve('../../core/automation/common/launcher');
@@ -379,19 +430,22 @@ describe('App Controller', function() {
         }
         return originalExistsSync(target);
       };
-      childProcess.execFileSync = (command, args) => {
+      childProcess.execFile = (command, args, options, callback) => {
         if (command === 'where.exe') {
-          return '';
+          callback(null, '');
+          return;
         }
         const serialized = Array.isArray(args) ? args.join(' ') : '';
         if (command === 'powershell.exe' && serialized.includes("Start-Process -FilePath 'chrome'")) {
           launchedCommand = 'chrome';
-          return '';
+          callback(null, '');
+          return;
         }
         if (command === 'powershell.exe' && serialized.includes('Get-StartApps')) {
-          return JSON.stringify([{ Name: 'Google Chrome', AppID: 'C:\\Users\\rakes\\AppData\\Chrome' }]);
+          callback(null, JSON.stringify([{ Name: 'Google Chrome', AppID: 'C:\\Users\\rakes\\AppData\\Chrome' }]));
+          return;
         }
-        return originalExecFileSync(command, args);
+        return originalExecFile(command, args, options, callback);
       };
 
       const FreshAppController = require('../../core/automation/apps');
@@ -403,14 +457,14 @@ describe('App Controller', function() {
         startMenuUsed = true;
       };
 
-      const result = controller.open('chrome');
+      const result = await controller.open('chrome');
 
       assert.equal(result.success, true);
       assert.equal(result.data.launchMethod, 'command');
       assert.equal(launchedCommand, 'chrome');
       assert.equal(startMenuUsed, false);
     } finally {
-      childProcess.execFileSync = originalExecFileSync;
+      childProcess.execFile = originalExecFile;
       fs.existsSync = originalExistsSync;
       delete require.cache[appsPath];
       delete require.cache[launcherPath];
@@ -419,42 +473,46 @@ describe('App Controller', function() {
     }
   });
 
-  it('should cache command existence checks to avoid repeated where.exe calls', function() {
+  it('should cache command existence checks to avoid repeated where.exe calls', async function() {
     const childProcess = require('child_process');
-    const originalExecFileSync = childProcess.execFileSync;
+    const originalExecFile = childProcess.execFile;
     const appsPath = require.resolve('../../core/automation/apps');
     const previousApps = require.cache[appsPath];
     let whereCalls = 0;
 
     try {
       delete require.cache[appsPath];
-      childProcess.execFileSync = (command, args) => {
+      childProcess.execFile = (command, args, options, callback) => {
         if (command === 'where.exe') {
           whereCalls += 1;
-          if (args[0] === 'known-command') return '';
+          if (args[0] === 'known-command') {
+            callback(null, '');
+            return;
+          }
           const error = new Error('not found');
           error.status = 1;
-          throw error;
+          callback(error);
+          return;
         }
-        return originalExecFileSync(command, args);
+        return originalExecFile(command, args, options, callback);
       };
 
       const FreshAppController = require('../../core/automation/apps');
       const controller = new FreshAppController({});
 
-      assert.equal(controller._commandExists('known-command'), true);
-      assert.equal(controller._commandExists('known-command'), true);
-      assert.equal(controller._commandExists('missing-command'), false);
-      assert.equal(controller._commandExists('missing-command'), false);
+      assert.equal(await controller._commandExists('known-command'), true);
+      assert.equal(await controller._commandExists('known-command'), true);
+      assert.equal(await controller._commandExists('missing-command'), false);
+      assert.equal(await controller._commandExists('missing-command'), false);
       assert.equal(whereCalls, 2);
     } finally {
-      childProcess.execFileSync = originalExecFileSync;
+      childProcess.execFile = originalExecFile;
       delete require.cache[appsPath];
       if (previousApps) require.cache[appsPath] = previousApps;
     }
   });
 
-  it('should close window-targeted apps by visible window before process fallback', function() {
+  it('should close window-targeted apps by visible window before process fallback', async function() {
     const controller = new AppController({});
     let windowCloseAttempted = false;
     let processCloseAttempted = false;
@@ -468,7 +526,7 @@ describe('App Controller', function() {
       return true;
     };
 
-    const result = controller.close('instagram');
+    const result = await controller.close('instagram');
 
     assert.equal(result.success, true);
     assert.equal(result.data.closeMethod, 'window');
@@ -476,7 +534,7 @@ describe('App Controller', function() {
     assert.equal(processCloseAttempted, false);
   });
 
-  it('should open when the user confirms a new app window', function() {
+  it('should open when the user confirms a new app window', async function() {
     const controller = new AppController({});
     let launched = null;
     const windowCounts = [1, 2];
@@ -495,7 +553,7 @@ describe('App Controller', function() {
       launched = startApp;
     };
 
-    const result = controller.open('sample app', { forceNewWindow: true });
+    const result = await controller.open('sample app', { forceNewWindow: true });
 
     assert.equal(result.success, true);
     assert.equal(launched.appId, 'Sample.App');
@@ -506,7 +564,7 @@ describe('App Controller', function() {
     assert.equal(result.data.newWindowVerified, true);
   });
 
-  it('should launch Chrome with an explicit new-window argument', function() {
+  it('should launch Chrome with an explicit new-window argument', async function() {
     const fs = require('fs');
     const appsPath = require.resolve('../../core/automation/apps');
     const launcherPath = require.resolve('../../core/automation/common/launcher');
@@ -533,7 +591,7 @@ describe('App Controller', function() {
       const counts = [1, 2];
       controller._countAppWindows = () => counts.shift() ?? 2;
 
-      const result = controller.open('chrome', {
+      const result = await controller.open('chrome', {
         requestedOperation: 'open-new-window',
         forceNewWindow: true
       });
@@ -550,7 +608,7 @@ describe('App Controller', function() {
     }
   });
 
-  it('should launch another VS Code window through the command instead of Start menu', function() {
+  it('should launch another VS Code window through the command instead of Start menu', async function() {
     const appsPath = require.resolve('../../core/automation/apps');
     const launcherPath = require.resolve('../../core/automation/common/launcher');
     const previousApps = require.cache[appsPath];
@@ -580,7 +638,7 @@ describe('App Controller', function() {
         throw new Error('Start menu must not be used for an explicit new VS Code window');
       };
 
-      const result = controller.open('visual studio code', {
+      const result = await controller.open('visual studio code', {
         requestedOperation: 'open-new-window',
         forceNewWindow: true
       });
@@ -597,14 +655,14 @@ describe('App Controller', function() {
     }
   });
 
-  it('should wait for a delayed VS Code window and preserve its strict display name', function() {
+  it('should wait for a delayed VS Code window and preserve its strict display name', async function() {
     const controller = new AppController({});
     const counts = [1, 2];
     const delays = [];
     controller._countAppWindows = () => counts.shift() ?? 2;
     controller._sleep = milliseconds => delays.push(milliseconds);
 
-    const result = controller._completeAppOpen('code', {
+    const result = await controller._completeAppOpen('code', {
       success: true,
       data: { app: 'code', launchMethod: 'command' }
     }, {
@@ -621,7 +679,7 @@ describe('App Controller', function() {
     assert.deepEqual(delays, [600, 350]);
   });
 
-  it('should open a new Notepad tab in Notepad, never in Chrome', function() {
+  it('should open a new Notepad tab in Notepad, never in Chrome', async function() {
     const controller = new AppController({});
     controller.findVisibleApp = () => ({
       Id: 50,
@@ -639,7 +697,7 @@ describe('App Controller', function() {
       };
     };
 
-    const result = controller.openNewTab('notepad');
+    const result = await controller.openNewTab('notepad');
 
     assert.equal(result.success, true);
     assert.equal(controlled.windowName, 'Notes - Notepad');
@@ -649,7 +707,7 @@ describe('App Controller', function() {
     assert.equal(result.data.verified, true);
   });
 
-  it('should stop new-window verification immediately when observation is unavailable', function() {
+  it('should stop new-window verification immediately when observation is unavailable', async function() {
     const controller = new AppController({});
     let observations = 0;
     controller._countAppWindows = () => {
@@ -660,7 +718,7 @@ describe('App Controller', function() {
       throw new Error('unavailable observation must not be retried');
     };
 
-    const result = controller._completeAppOpen('chrome', {
+    const result = await controller._completeAppOpen('chrome', {
       success: true,
       data: { app: 'chrome', launchMethod: 'executable' }
     }, {
@@ -675,7 +733,7 @@ describe('App Controller', function() {
     assert.equal(result.data.verificationMethod, 'top-level-window-count-unavailable');
   });
 
-  it('should not treat a YouTube Chrome PWA as an open Chrome browser', function() {
+  it('should not treat a YouTube Chrome PWA as an open Chrome browser', async function() {
     const controller = new AppController({});
     let fallbackOptions = null;
 
@@ -692,12 +750,12 @@ describe('App Controller', function() {
       return null;
     };
 
-    assert.equal(controller.findVisibleApp('google chrome'), null);
+    assert.equal(await controller.findVisibleApp('google chrome'), null);
     assert.equal(fallbackOptions.requireTitleTokenMatch, true);
     assert.deepEqual(fallbackOptions.preferredTitleTokens, ['chrome']);
   });
 
-  it('should find a regular Chrome window when Get-Process reports a PWA window', function() {
+  it('should find a regular Chrome window when Get-Process reports a PWA window', async function() {
     const controller = new AppController({});
     controller._getRunningProcessDetails = () => ([{
       Id: 901,
@@ -714,14 +772,14 @@ describe('App Controller', function() {
       ];
     };
 
-    const found = controller.findVisibleApp('chrome', { allowWindowFallback: false });
+    const found = await controller.findVisibleApp('chrome', { allowWindowFallback: false });
 
     assert.ok(found);
     assert.equal(found.MainWindowTitle, 'OpenX - Google Chrome');
     assert.equal(found.MainWindowHandle, 789);
   });
 
-  it('should resolve and launch installed Store apps such as Instagram', function() {
+  it('should resolve and launch installed Store apps such as Instagram', async function() {
     const controller = new AppController({});
     let launched = null;
 
@@ -735,14 +793,14 @@ describe('App Controller', function() {
       launched = startApp;
     };
 
-    const result = controller.open('instgram');
+    const result = await controller.open('instgram');
 
     assert.equal(result.success, true);
     assert.equal(result.data.launchMethod, 'start-menu');
     assert.equal(launched.name, 'Instagram');
   });
 
-  it('should try Start menu before web fallback launchers', function() {
+  it('should try Start menu before web fallback launchers', async function() {
     const controller = new AppController({});
     let launched = null;
     let specialUsed = false;
@@ -760,7 +818,7 @@ describe('App Controller', function() {
       return { success: true };
     };
 
-    const result = controller.open('youtube');
+    const result = await controller.open('youtube');
 
     assert.equal(result.success, true);
     assert.equal(result.data.launchMethod, 'start-menu');
@@ -768,9 +826,92 @@ describe('App Controller', function() {
     assert.equal(specialUsed, false);
   });
 
-  it('should never force terminate shared Windows host processes', function() {
+it('should always search the system before falling back to the web, even with a fallback URL', async function() {
     const controller = new AppController({});
-    const terminated = controller._forceTerminateProcesses([{
+    let launched = null;
+
+    controller.findVisibleApp = () => null;
+    controller._resolveStartApp = () => ({ name: 'YouTube', appId: 'YouTube.App' });
+    controller._launchStartApp = startApp => {
+      launched = startApp;
+    };
+    controller._launchSpecialApp = () => {
+      throw new Error('special launcher should be skipped for web fallback apps');
+    };
+
+    const result = await controller.open('youtube', {
+      webFallbackUrl: 'https://www.youtube.com/',
+      webFallbackBrowser: 'chrome'
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.launchMethod, 'start-menu');
+    assert.equal(launched.appId, 'YouTube.App');
+  });
+
+  it('should ask before opening the web when the app is not installed locally', async function() {
+    const controller = new AppController({});
+
+    controller.findVisibleApp = () => null;
+    controller._resolveStartApp = () => null;
+    controller._getStartApps = async () => [];
+    controller._launchSpecialApp = () => ({ success: false });
+
+    const result = await controller.open('youtube', {
+      webFallbackUrl: 'https://www.youtube.com/',
+      webFallbackBrowser: 'chrome'
+    });
+
+    assert.equal(result.success, false);
+    assert.equal(result.needsClarification, true);
+    assert.equal(result.data.clarificationType, 'app.open.webFallback');
+    assert.equal(result.data.webFallbackUrl, 'https://www.youtube.com/');
+    assert.equal(result.data.confirmEntities.webRequested, true);
+    assert.equal(result.data.confirmEntities.webFallbackUrl, 'https://www.youtube.com/');
+  });
+
+  it('should defer directly to the web when the user explicitly requests it', async function() {
+    const controller = new AppController({});
+
+    controller.findVisibleApp = () => {
+      throw new Error('local lookup should not run when the user explicitly requests web');
+    };
+
+    const result = await controller.open('youtube', {
+      webFallbackUrl: 'https://www.youtube.com/',
+      webFallbackBrowser: 'chrome',
+      webRequested: true
+    });
+
+    assert.equal(result.success, false);
+    assert.equal(result.data.launchMethod, 'web-fallback-deferred');
+    assert.equal(result.data.webFallbackUrl, 'https://www.youtube.com/');
+  });
+
+  it('should honor explicit native app preference for trusted web fallback launchers', async function() {
+    const controller = new AppController({});
+    let launched = null;
+
+    controller.findVisibleApp = () => null;
+    controller._resolveStartApp = () => ({ name: 'YouTube', appId: 'YouTube.App' });
+    controller._launchStartApp = startApp => {
+      launched = startApp;
+    };
+
+    const result = await controller.open('youtube', {
+      webFallbackUrl: 'https://www.youtube.com/',
+      webFallbackBrowser: 'chrome',
+      preferLocalApp: true
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.launchMethod, 'start-menu');
+    assert.equal(launched.appId, 'YouTube.App');
+  });
+
+  it('should never force terminate shared Windows host processes', async function() {
+    const controller = new AppController({});
+    const terminated = await controller._forceTerminateProcesses([{
       Id: 400,
       ProcessName: 'ApplicationFrameHost',
       MainWindowTitle: 'Instagram'
@@ -779,7 +920,7 @@ describe('App Controller', function() {
     assert.equal(terminated, false);
   });
 
-  it('should exclude YouTube windows from Chrome window fallback', function() {
+  it('should exclude YouTube windows from Chrome window fallback', async function() {
     const controller = new AppController({});
     let fallbackOptions = null;
 
@@ -790,14 +931,14 @@ describe('App Controller', function() {
       return { success: false, error: 'Window not found: chrome' };
     };
 
-    const result = controller.close('chrome');
+    const result = await controller.close('chrome');
 
     assert.equal(result.success, false);
     assert.equal(fallbackOptions.requireTitleTokenMatch, true);
     assert.deepEqual(fallbackOptions.preferredTitleTokens, ['chrome']);
   });
 
-  it('should not close a browser window when an unknown app name only matches the tab title', function() {
+  it('should not close a browser window when an unknown app name only matches the tab title', async function() {
     const controller = new AppController({});
     let closedWindow = false;
 
@@ -816,14 +957,14 @@ describe('App Controller', function() {
       return { success: true, data: { matchedWindow: 'ChatGPT - Google Chrome', processName: 'chrome' } };
     };
 
-    const result = controller.close('chatgpt');
+    const result = await controller.close('chatgpt');
 
     assert.equal(result.success, false);
     assert.equal(closedWindow, false);
     assert.match(result.error, /browser tab/i);
   });
 
-  it('should treat a regular YouTube tab as part of Chrome, not as a PWA', function() {
+  it('should treat a regular YouTube tab as part of Chrome, not as a PWA', async function() {
     const controller = new AppController({});
     controller._getRunningProcessDetails = () => ([{
       Id: 902,
@@ -833,11 +974,11 @@ describe('App Controller', function() {
       Path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
     }]);
 
-    const target = controller.findVisibleApp('chrome', { allowWindowFallback: false });
+    const target = await controller.findVisibleApp('chrome', { allowWindowFallback: false });
     assert.equal(target.Id, 902);
   });
 
-  it('should resolve the first existing executable from install-location candidates', function() {
+  it('should resolve the first existing executable from install-location candidates', async function() {
     const controller = new AppController({});
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-app-paths-'));
     const executablePath = path.join(tempDir, 'Example.exe');
@@ -858,7 +999,7 @@ describe('App Controller', function() {
     }
   });
 
-  it('should reject invalid app names before automation starts', function() {
+  it('should reject invalid app names before automation starts', async function() {
     const controller = new AppController({});
     let processListed = false;
     controller._getRunningProcessDetails = () => {
@@ -866,14 +1007,14 @@ describe('App Controller', function() {
       return [];
     };
 
-    const result = controller.open('bad\u0000app');
+    const result = await controller.open('bad\u0000app');
 
     assert.equal(result.success, false);
     assert.equal(result.code, 'app.open.validation');
     assert.equal(processListed, false);
   });
 
-  it('should not report selected close success when verification fails', function() {
+  it('should not report selected close success when verification fails', async function() {
     const controller = new AppController({});
     controller._resolveProcessCandidates = () => ['notepad'];
     controller._findRunningProcesses = () => ([{
@@ -886,26 +1027,26 @@ describe('App Controller', function() {
     controller._forceTerminateProcesses = () => true;
     controller._sleep = () => {};
 
-    const result = controller.close('notepad', { processId: 42 });
+    const result = await controller.close('notepad', { processId: 42 });
 
     assert.equal(result.success, false);
     assert.match(result.error, /Could not verify/);
     assert.equal(result.data.verified, false);
   });
 
-  it('should switch apps without shell-interpolating the app name', function() {
+  it('should switch apps without shell-interpolating the app name', async function() {
     const childProcess = require('child_process');
     const appsPath = require.resolve('../../core/automation/apps');
-    const originalExecFileSync = childProcess.execFileSync;
+    const originalExecFile = childProcess.execFile;
     const previousApps = require.cache[appsPath];
     let commandArgs = null;
 
     try {
       delete require.cache[appsPath];
-      childProcess.execFileSync = (command, args) => {
+      childProcess.execFile = (command, args, options, callback) => {
         assert.equal(command, 'powershell.exe');
         commandArgs = args;
-        return '';
+        if (typeof callback === 'function') callback(null, '');
       };
       const FreshAppController = require('../../core/automation/apps');
       const controller = new FreshAppController({});
@@ -915,38 +1056,41 @@ describe('App Controller', function() {
       });
       controller._resolveProcessCandidates = () => ['notepad'];
 
-      const result = controller.switchTo('notepad');
+      const result = await controller.switchTo('notepad');
 
       assert.equal(result.success, true);
       assert.ok(Array.isArray(commandArgs));
       assert.ok(commandArgs.includes('-Command'));
       assert.match(commandArgs[commandArgs.length - 1], /Bob''s Notes - Notepad/);
     } finally {
-      childProcess.execFileSync = originalExecFileSync;
+      childProcess.execFile = originalExecFile;
       delete require.cache[appsPath];
       if (previousApps) require.cache[appsPath] = previousApps;
     }
   });
 
-  it('should return structured running app window metadata', function() {
+  it('should return structured running app window metadata', async function() {
     const childProcess = require('child_process');
     const appsPath = require.resolve('../../core/automation/apps');
-    const originalExecFileSync = childProcess.execFileSync;
+    const originalExecFile = childProcess.execFile;
     const previousApps = require.cache[appsPath];
 
     try {
       delete require.cache[appsPath];
-      childProcess.execFileSync = () => JSON.stringify([{
-        Id: 10,
-        ProcessName: 'notepad',
-        MainWindowTitle: 'Notes - Notepad',
-        MainWindowHandle: 100,
-        Path: 'C:\\Windows\\System32\\notepad.exe'
-      }]);
+      childProcess.execFile = (command, args, options, callback) => {
+        if (typeof callback === 'function') {
+          callback(null, JSON.stringify([{
+            Id: 10,
+            ProcessName: 'notepad',
+            MainWindowTitle: 'Notes - Notepad',
+            MainWindowHandle: 100
+          }]));
+        }
+      };
       const FreshAppController = require('../../core/automation/apps');
       const controller = new FreshAppController({});
 
-      const result = controller.getRunningApps();
+      const result = await controller.getRunningApps();
 
       assert.equal(result.success, true);
       assert.equal(result.data.count, 1);
@@ -954,7 +1098,7 @@ describe('App Controller', function() {
       assert.equal(result.data.windows[0].title, 'Notes - Notepad');
       assert.equal(result.data.verified, true);
     } finally {
-      childProcess.execFileSync = originalExecFileSync;
+      childProcess.execFile = originalExecFile;
       delete require.cache[appsPath];
       if (previousApps) require.cache[appsPath] = previousApps;
     }

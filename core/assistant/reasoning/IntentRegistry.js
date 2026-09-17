@@ -251,7 +251,8 @@ const INTENT_DEFINITIONS = [
     action: 'file.create',
     entities: [
       { name: 'filename', type: 'string', required: true },
-      { name: 'path', type: 'string', required: false }
+      { name: 'fileType', type: 'string', required: true },
+      { name: 'path', type: 'string', required: true }
     ],
     description: 'Create a new file'
   },
@@ -442,6 +443,45 @@ const INTENT_DEFINITIONS = [
     action: 'browser.openFirstResult',
     entities: [{ name: 'query', type: 'string', required: false }],
     description: 'Open the first result from the last browser search'
+  },
+  {
+    id: 'text.write',
+    patterns: ['write text', 'type text', 'write in notepad', 'type in notepad', 'paste text'],
+    permissionLevel: 'low',
+    action: 'text.write',
+    entities: [
+      { name: 'text', type: 'string', required: true },
+      { name: 'appName', type: 'string', required: false },
+      { name: 'windowName', type: 'string', required: false },
+      { name: 'filename', type: 'string', required: false }
+    ],
+    description: 'Write or paste text into the active or requested application window'
+  },
+  {
+    id: 'text.pasteFromFile',
+    patterns: ['copy from file', 'paste from file', 'write file contents', 'copy file contents'],
+    permissionLevel: 'low',
+    action: 'text.pasteFromFile',
+    entities: [
+      { name: 'source', type: 'string', required: true },
+      { name: 'appName', type: 'string', required: false },
+      { name: 'windowName', type: 'string', required: false },
+      { name: 'filename', type: 'string', required: false }
+    ],
+    description: 'Copy text from a local file and paste it into the active or requested application window'
+  },
+  {
+    id: 'text.writeSearchResult',
+    patterns: ['search and write', 'search then write', 'search and paste', 'google and write'],
+    permissionLevel: 'low',
+    action: 'text.writeSearchResult',
+    entities: [
+      { name: 'query', type: 'string', required: true },
+      { name: 'appName', type: 'string', required: false },
+      { name: 'windowName', type: 'string', required: false },
+      { name: 'filename', type: 'string', required: false }
+    ],
+    description: 'Search in the browser and write the result metadata into the active or requested application window'
   },
   {
     id: 'browser.closeTab',

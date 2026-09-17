@@ -12,6 +12,10 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isThenable(value) {
+  return Boolean(value) && typeof value.then === 'function';
+}
+
 function sanitizeText(value, fallback = '') {
   return String(value ?? fallback ?? '')
     .replace(/[\u0000-\u001F\u007F]/g, ' ')
@@ -139,6 +143,17 @@ class ActionVerifier {
     const verified = cloneResult(result);
     const validation = this._validate(actionId, entities, verified);
     const verification = this._verify(actionId, entities, verified);
+
+    if (isThenable(verification)) {
+      return verification.then(resolvedVerification =>
+        this._finalize(actionId, verified, validation, resolvedVerification)
+      );
+    }
+
+    return this._finalize(actionId, verified, validation, verification);
+  }
+
+  _finalize(actionId, verified, validation, verification) {
     const verificationSummary = this._buildVerificationSummary(actionId, validation, verification);
 
     verified.validation = validation;
@@ -663,9 +678,16 @@ class ActionVerifier {
     }
 
     const apps = this.controllers.apps;
-    const found = typeof apps?.waitForVisibleApp === 'function'
+    const foundOrPromise = typeof apps?.waitForVisibleApp === 'function'
       ? apps.waitForVisibleApp(appName)
       : this._findAppWindowOrProcess(appName);
+    if (isThenable(foundOrPromise)) {
+      return foundOrPromise.then(found => this._appOpenVerificationFromFound(appName, found));
+    }
+    return this._appOpenVerificationFromFound(appName, foundOrPromise);
+  }
+
+  _appOpenVerificationFromFound(appName, found) {
     if (found) {
       return ok('app-open', { app: appName, matchedWindow: found.title || found.MainWindowTitle || '', processName: found.processName || found.ProcessName || '' });
     }
@@ -681,22 +703,25 @@ class ActionVerifier {
     const appName = Normalizer.normalizeText(result.data?.app || entities.appName || '');
     const apps = this.controllers.apps;
     if (typeof apps?.waitForAppClosed === 'function') {
-      return apps.waitForAppClosed(appName)
-        ? ok('app-closed', { app: appName })
-        : fail('app-closed', {
-            app: appName,
-            message: `${appName} still appears to be open`
-          });
+      const closedOrPromise = apps.waitForAppClosed(appName);
+      if (isThenable(closedOrPromise)) {
+        return closedOrPromise.then(closed => this._appCloseVerificationFromState(appName, closed));
+      }
+      return this._appCloseVerificationFromState(appName, closedOrPromise);
     }
 
     const found = this._findAppWindowOrProcess(appName, { visibleOnly: true });
-    return found
-      ? fail('app-closed', {
+    return this._appCloseVerificationFromState(appName, !found, found);
+  }
+
+  _appCloseVerificationFromState(appName, closed, found = null) {
+    return closed
+      ? ok('app-closed', { app: appName })
+      : fail('app-closed', {
           app: appName,
-          matchedWindow: found.title || found.MainWindowTitle || '',
+          matchedWindow: found?.title || found?.MainWindowTitle || '',
           message: `${appName} still appears to be open`
-        })
-      : ok('app-closed', { app: appName });
+        });
   }
 
   _verifyBrowserAction(actionId, result) {

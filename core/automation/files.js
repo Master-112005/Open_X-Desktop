@@ -1,4 +1,5 @@
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 const Logger = require('../assistant/Data').Logger;
 const Normalizer = require('../assistant/Data').Normalizer;
@@ -15,7 +16,8 @@ const {
   validateWindowsName,
   validateWindowsPathLength
 } = require('./common/path-utils');
-const { launchTarget } = require('./common/launcher');
+const launcher = require('./common/launcher');
+const { scoreName } = require('./common/search-scoring');
 
 const SEARCH_ROOTS = () => getDefaultSearchRoots().filter(Boolean);
 
@@ -225,7 +227,7 @@ class FileController {
     };
   }
 
-  _resolveFilePath(filename, targetPath = null) {
+  async _resolveFilePath(filename, targetPath = null) {
     if (!filename) return null;
 
     if (path.isAbsolute(filename) && fs.existsSync(filename) && fs.statSync(filename).isFile()) {
@@ -250,7 +252,7 @@ class FileController {
       return this._findFuzzyFileInDirectory(dir, safeName);
     }
 
-    const exactMatch = findEntryByName(safeName, {
+    const exactMatch = await findEntryByName(safeName, {
       roots: SEARCH_ROOTS(),
       type: 'file'
     });
@@ -319,7 +321,7 @@ class FileController {
     }
   }
 
-  open(filename, targetPath = null) {
+  async open(filename, targetPath = null) {
     if (!filename) {
       return { success: false, error: 'No filename provided' };
     }
@@ -328,7 +330,7 @@ class FileController {
       const selectedPath = targetPath?.selectedPath || targetPath?.targetPath;
       if (selectedPath && path.isAbsolute(selectedPath) && fs.existsSync(selectedPath) && fs.statSync(selectedPath).isFile()) {
         const safeSelectedPath = requireSafeUserPath(selectedPath);
-        launchTarget(safeSelectedPath);
+        await this._launchTarget(safeSelectedPath);
         return {
           success: true,
           data: this._verifiedData('open', safeSelectedPath, {
@@ -338,7 +340,7 @@ class FileController {
         };
       }
 
-      const matches = this._findFileMatches(filename, targetPath);
+      const matches = await this._findFileMatches(filename, targetPath);
       if (matches.length > 1) {
         const choices = matches.slice(0, 8).map((filePath, index) => ({
           index: index + 1,
@@ -383,13 +385,13 @@ class FileController {
 
       const fullPath = matches.length === 1
         ? matches[0]
-        : this._resolveFilePath(filename, targetPath);
+        : await this._resolveFilePath(filename, targetPath);
       if (!fullPath) {
         return { success: false, error: 'File not found' };
       }
       requireSafeUserPath(fullPath);
 
-      launchTarget(fullPath);
+      await this._launchTarget(fullPath);
       return {
         success: true,
         data: this._verifiedData('open', fullPath, {
@@ -403,13 +405,13 @@ class FileController {
     }
   }
 
-  delete(filename, targetPath = null) {
+  async delete(filename, targetPath = null) {
     if (!filename) {
       return { success: false, error: 'No filename provided' };
     }
 
     try {
-      const fullPath = this._resolveFilePath(filename, targetPath);
+      const fullPath = await this._resolveFilePath(filename, targetPath);
       if (!fullPath) {
         return { success: false, error: 'File not found' };
       }
@@ -442,7 +444,7 @@ class FileController {
     }
   }
 
-  rename(oldName, newName) {
+  async rename(oldName, newName) {
     if (!oldName || !newName) {
       return { success: false, error: 'Both old and new names required' };
     }
@@ -456,7 +458,7 @@ class FileController {
     }
 
     try {
-      const oldPath = this._resolveFilePath(oldName);
+      const oldPath = await this._resolveFilePath(oldName);
       if (!oldPath) {
         return { success: false, error: 'File not found' };
       }
@@ -511,13 +513,13 @@ class FileController {
     }
   }
 
-  copy(source, destination) {
+  async copy(source, destination) {
     if (!source || !destination) {
       return { success: false, error: 'Source and destination required' };
     }
 
     try {
-      const srcPath = this._resolveFilePath(source);
+      const srcPath = await this._resolveFilePath(source);
       if (!srcPath) {
         return { success: false, error: 'Source not found' };
       }
@@ -578,13 +580,13 @@ class FileController {
     }
   }
 
-  move(source, destination) {
+  async move(source, destination) {
     if (!source || !destination) {
       return { success: false, error: 'Source and destination required' };
     }
 
     try {
-      const srcPath = this._resolveFilePath(source);
+      const srcPath = await this._resolveFilePath(source);
       if (!srcPath) {
         return { success: false, error: 'Source not found' };
       }
@@ -650,7 +652,7 @@ class FileController {
     }
   }
 
-  search(query, options = {}) {
+  async search(query, options = {}) {
     if (!query) {
       return { success: false, error: 'No search query provided' };
     }
@@ -685,9 +687,9 @@ class FileController {
         markPartial(stats, 'time-budget');
         break;
       }
-      if (!dir || !fs.existsSync(dir)) continue;
+      if (!dir || !(await fsPromises.access(dir).then(() => true).catch(() => false))) continue;
       try {
-        this._searchDirectoryRecursive(dir, lowerQuery, results, {
+        await this._searchDirectoryRecursive(dir, lowerQuery, results, {
           ...limits,
           includeFolders: true,
           visitedDirectories,
@@ -724,7 +726,7 @@ class FileController {
     });
   }
 
-  smartFind(options = {}) {
+  async smartFind(options = {}) {
     const location = String(options.location || '').trim();
     const fileType = String(options.fileType || '').trim().toLowerCase();
     const query = this._cleanSearchQuery(options.query || '');
@@ -755,7 +757,7 @@ class FileController {
         markPartial(stats, 'time-budget');
         break;
       }
-      this._collectFilesRecursive(root, files, {
+      await this._collectFilesRecursive(root, files, {
         ...limits,
         visitedDirectories,
         stats,
@@ -775,7 +777,7 @@ class FileController {
 
     if (openResult && sorted[0]) {
       try {
-        launchTarget(requireSafeUserPath(sorted[0].path));
+        await this._launchTarget(requireSafeUserPath(sorted[0].path));
       } catch (err) {
         return { success: false, error: err.message };
       }
@@ -899,17 +901,24 @@ class FileController {
     return path.join(dir, matches[0].entry.name);
   }
 
-  _findFileMatches(filename, targetPath = null) {
+  async _launchTarget(target, args = []) {
+    if (typeof launcher.launchTargetAsync === 'function') {
+      return launcher.launchTargetAsync(target, args);
+    }
+    return launcher.launchTarget(target, args);
+  }
+
+  async _findFileMatches(filename, targetPath = null) {
     if (!filename) {
       return [];
     }
 
     const selectedPath = targetPath?.selectedPath || targetPath?.targetPath;
-    if (selectedPath && path.isAbsolute(selectedPath) && fs.existsSync(selectedPath) && fs.statSync(selectedPath).isFile()) {
+    if (selectedPath && path.isAbsolute(selectedPath) && await fsPromises.access(selectedPath).then(() => true).catch(() => false) && (await fsPromises.stat(selectedPath)).isFile()) {
       return [requireSafeUserPath(selectedPath)];
     }
 
-    if (path.isAbsolute(filename) && fs.existsSync(filename) && fs.statSync(filename).isFile()) {
+    if (path.isAbsolute(filename) && await fsPromises.access(filename).then(() => true).catch(() => false) && (await fsPromises.stat(filename)).isFile()) {
       return [requireSafeUserPath(filename)];
     }
 
@@ -919,7 +928,7 @@ class FileController {
       ? targetPath
       : (targetPath?.path || source.location);
     if (explicitDirectory) {
-      const resolved = this._resolveFilePath(filename, explicitDirectory);
+      const resolved = await this._resolveFilePath(filename, explicitDirectory);
       return resolved ? [resolved] : [];
     }
 
@@ -929,7 +938,7 @@ class FileController {
       return cached;
     }
 
-    const exactMatches = findEntriesByName(safeName, {
+    const exactMatches = await findEntriesByName(safeName, {
       roots: SEARCH_ROOTS(),
       type: 'file',
       maxDepth: 7,
@@ -948,7 +957,7 @@ class FileController {
     const fuzzyMatches = [];
     const visitedDirectories = new Set();
     for (const root of uniquePaths(SEARCH_ROOTS())) {
-      this._searchDirectoryRecursive(root, path.basename(safeName).toLowerCase(), fuzzyMatches, {
+      await this._searchDirectoryRecursive(root, path.basename(safeName).toLowerCase(), fuzzyMatches, {
         maxDepth: 7,
         maxDirectories: 2500,
         maxElapsedMs: 1200,
@@ -993,8 +1002,8 @@ class FileController {
     return score >= threshold;
   }
 
-  _searchDirectoryRecursive(root, lowerQuery, results, options = {}) {
-    if (!root || !fs.existsSync(root) || results.length >= (options.maxResults || 40)) {
+  async _searchDirectoryRecursive(root, lowerQuery, results, options = {}) {
+    if (!root || !(await fsPromises.access(root).then(() => true).catch(() => false)) || results.length >= (options.maxResults || 40)) {
       return;
     }
 
@@ -1030,7 +1039,7 @@ class FileController {
 
       let entries = [];
       try {
-        entries = fs.readdirSync(directory, { withFileTypes: true });
+        entries = await fsPromises.readdir(directory, { withFileTypes: true });
       } catch (err) {
         if (options.stats) {
           options.stats.skippedDirectories += 1;
@@ -1071,8 +1080,8 @@ class FileController {
     }
   }
 
-  _collectFilesRecursive(root, results, options = {}) {
-    if (!root || !fs.existsSync(root) || results.length >= (options.maxResults || 2000)) {
+  async _collectFilesRecursive(root, results, options = {}) {
+    if (!root || !(await fsPromises.access(root).then(() => true).catch(() => false)) || results.length >= (options.maxResults || 2000)) {
       return;
     }
 
@@ -1108,7 +1117,7 @@ class FileController {
 
       let entries = [];
       try {
-        entries = fs.readdirSync(directory, { withFileTypes: true });
+        entries = await fsPromises.readdir(directory, { withFileTypes: true });
       } catch (err) {
         if (options.stats) {
           options.stats.skippedDirectories += 1;
@@ -1123,7 +1132,7 @@ class FileController {
         const entryPath = path.join(directory, entry.name);
         if (entry.isFile()) {
           try {
-            const stats = fs.statSync(entryPath);
+            const stats = await fsPromises.stat(entryPath);
             results.push({
               path: entryPath,
               name: entry.name,
@@ -1302,43 +1311,7 @@ class FileController {
   }
 
   _entryNameMatchScore(entryName, lowerQuery) {
-    const query = String(lowerQuery || '').trim().toLowerCase();
-    const name = String(entryName || '').trim().toLowerCase();
-    if (!query || !name) {
-      return 0;
-    }
-
-    const normalizedName = Normalizer.normalizeText(name);
-    const normalizedQuery = Normalizer.normalizeText(query);
-    const compactName = normalizedName.replace(/\s+/g, '');
-    const compactQuery = normalizedQuery.replace(/\s+/g, '');
-    if (normalizedName === normalizedQuery) return 100;
-    if (normalizedName.startsWith(normalizedQuery)) return 90;
-    if (normalizedName.includes(normalizedQuery)) return 82;
-    if (compactQuery.length >= 4 && compactName === compactQuery) return 88;
-    if (compactQuery.length >= 4 && compactName.includes(compactQuery)) return 78;
-
-    const queryTokens = normalizedQuery.split(/\s+/).filter(token => token.length >= 2);
-    if (queryTokens.length === 0) {
-      return false;
-    }
-
-    const matchedTokens = queryTokens.filter(token => (
-      normalizedName.includes(token) ||
-      compactName.includes(token) ||
-      Normalizer.findClosestOption(token, normalizedName.split(/\s+/), {
-        minSimilarity: 0.74,
-        maxDistance: token.length >= 8 ? 3 : 2
-      })
-    ));
-
-    if (matchedTokens.length === queryTokens.length) {
-      return 60 + Math.round((matchedTokens.length / queryTokens.length) * 15);
-    }
-    if (queryTokens.length >= 3 && matchedTokens.length >= queryTokens.length - 1) {
-      return 50 + matchedTokens.length;
-    }
-    return 0;
+    return scoreName(String(entryName || ''), String(lowerQuery || ''));
   }
 
   _fileNameLooksLike(entryName, requestedName) {
@@ -1352,43 +1325,18 @@ class FileController {
       return 0;
     }
 
-    const requestedBase = Normalizer.normalizeText(path.basename(requestedName, requestedExt));
-    const entryBase = Normalizer.normalizeText(path.basename(entryName, entryExt));
-    if (!requestedBase) {
+    const requestedBase = path.basename(requestedName, requestedExt);
+    const entryBase = path.basename(entryName, entryExt);
+    if (!String(requestedBase || '').trim()) {
       return 0;
     }
 
-    const compactRequested = requestedBase.replace(/\s+/g, '');
-    const compactEntry = entryBase.replace(/\s+/g, '');
-    if (entryBase === requestedBase) return requestedExt ? 110 : 100;
-    if (compactEntry === compactRequested) return 95;
-    if (entryBase.startsWith(requestedBase)) return 90;
-    if (entryBase.includes(requestedBase)) return 85;
-    if (requestedBase.length >= 4 && requestedBase.includes(entryBase) && entryBase.length / requestedBase.length >= 0.65) return 75;
-
-    const requestedTokens = requestedBase.split(/\s+/).filter(token => token.length >= 2);
-    const entryTokens = entryBase.split(/\s+/).filter(token => token.length >= 2);
-    const matchedTokens = requestedTokens.filter(token => (
-      entryTokens.some(entryToken => (
-        entryToken.includes(token) ||
-        (entryToken.length >= 4 && entryToken.length / token.length >= 0.6 && token.includes(entryToken))
-      )) ||
-      Normalizer.findClosestOption(token, entryTokens, {
-        minSimilarity: token.length >= 7 ? 0.64 : 0.72,
-        maxDistance: token.length >= 7 ? 3 : 2
-      })
-    )).length;
-    if (requestedTokens.length > 0 && matchedTokens === requestedTokens.length) {
-      return 65 + matchedTokens;
-    }
-    if (requestedTokens.length >= 3 && matchedTokens >= requestedTokens.length - 1) {
-      return 55 + matchedTokens;
+    const baseScore = scoreName(requestedBase, entryBase);
+    if (baseScore <= 0) {
+      return 0;
     }
 
-    return Normalizer.findClosestOption(requestedBase, [entryBase], {
-      minSimilarity: requestedBase.length >= 8 ? 0.68 : 0.74,
-      maxDistance: requestedBase.length >= 8 ? 3 : 2
-    }) ? 60 : 0;
+    return requestedExt ? Math.min(110, baseScore + 10) : baseScore;
   }
 
   _cleanSearchQuery(query) {

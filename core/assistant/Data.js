@@ -2,6 +2,7 @@ const dataRootModule = (() => {
 'use strict';
 
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
@@ -164,6 +165,15 @@ function ensureDirectory(dir) {
   const resolved = path.resolve(dir);
   if (!securedDirectories.has(resolved)) {
     try { fs.chmodSync(resolved, PRIVATE_DIRECTORY_MODE); } catch (_) {}
+    securedDirectories.add(resolved);
+  }
+}
+
+async function ensureDirectoryAsync(dir) {
+  await fsPromises.mkdir(dir, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+  const resolved = path.resolve(dir);
+  if (!securedDirectories.has(resolved)) {
+    try { await fsPromises.chmod(resolved, PRIVATE_DIRECTORY_MODE); } catch (_) {}
     securedDirectories.add(resolved);
   }
 }
@@ -367,6 +377,35 @@ function writeFileAtomic(filePath, content) {
   }
 }
 
+async function writeFileAtomicAsync(filePath, content) {
+  await ensureDirectoryAsync(path.dirname(filePath));
+  const tempPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`
+  );
+
+  let handle = null;
+  try {
+    handle = await fsPromises.open(tempPath, 'wx', PRIVATE_FILE_MODE);
+    await handle.writeFile(content, 'utf8');
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await fsPromises.rename(tempPath, filePath);
+    try { await fsPromises.chmod(filePath, PRIVATE_FILE_MODE); } catch (_) {}
+  } catch (err) {
+    if (handle !== null) {
+      try {
+        await handle.close();
+      } catch (_) {}
+    }
+    try {
+      await fsPromises.unlink(tempPath).catch(() => {});
+    } catch (_) {}
+    throw err;
+  }
+}
+
 function writeJsonAtomic(filePath, value, options = {}) {
   const spacing = Number.isInteger(options.spacing) ? options.spacing : 2;
   const backup = options.backup !== false;
@@ -386,6 +425,34 @@ function writeJsonAtomic(filePath, value, options = {}) {
   }
 
   writeFileAtomic(filePath, serialized);
+}
+
+async function writeJsonAtomicAsync(filePath, value, options = {}) {
+  const spacing = Number.isInteger(options.spacing) ? options.spacing : 2;
+  const backup = options.backup !== false;
+  const maxBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : DEFAULT_JSON_MAX_BYTES;
+  const json = JSON.stringify(value, null, spacing);
+  if (json === undefined) throw new TypeError('Value is not JSON serializable');
+  const serialized = `${json}\n`;
+  if (Buffer.byteLength(serialized, 'utf8') > maxBytes) {
+    throw new Error(`JSON data exceeds the ${maxBytes} byte limit`);
+  }
+  await ensureDirectoryAsync(path.dirname(filePath));
+
+  if (backup) {
+    try {
+      const stats = await fsPromises.stat(filePath);
+      if (stats.isFile()) {
+        const backupPath = safeBackupPath(filePath);
+        await fsPromises.copyFile(filePath, backupPath);
+        try { await fsPromises.chmod(backupPath, PRIVATE_FILE_MODE); } catch (_) {}
+      }
+    } catch (_) {
+      // File doesn't exist or other error, skip backup.
+    }
+  }
+
+  await writeFileAtomicAsync(filePath, serialized);
 }
 
 function readJsonFile(filePath, fallbackValue = {}, options = {}) {
@@ -439,6 +506,62 @@ function readJsonFile(filePath, fallbackValue = {}, options = {}) {
     }
 
     writeJsonAtomic(filePath, fallback, { backup: false, spacing: options.spacing, maxBytes });
+    return fallback;
+  }
+}
+
+async function readJsonFileAsync(filePath, fallbackValue = {}, options = {}) {
+  const fallback = typeof fallbackValue === 'function' ? await fallbackValue() : fallbackValue;
+  const backupPath = safeBackupPath(filePath);
+  const preserveCorrupt = options.preserveCorrupt !== false;
+  const maxBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : DEFAULT_JSON_MAX_BYTES;
+  const validate = typeof options.validate === 'function' ? options.validate : () => true;
+
+  const parsePathAsync = async (sourcePath) => {
+    const stats = await fsPromises.stat(sourcePath);
+    if (!stats.isFile() || stats.size > maxBytes) {
+      throw new Error('JSON file is invalid or exceeds its size limit');
+    }
+    const source = (await fsPromises.readFile(sourcePath, 'utf8')).trim();
+    if (!source) {
+      throw new Error('JSON file is empty');
+    }
+    const parsed = JSON.parse(source);
+    if (!validate(parsed)) throw new Error('JSON schema validation failed');
+    return parsed;
+  };
+
+  try {
+    await fsPromises.access(filePath);
+  } catch (_) {
+    if (options.createIfMissing !== false) {
+      await writeJsonAtomicAsync(filePath, fallback, { backup: false, spacing: options.spacing, maxBytes });
+    }
+    return fallback;
+  }
+
+  try {
+    return await parsePathAsync(filePath);
+  } catch (primaryError) {
+    if (preserveCorrupt) {
+      const corruptPath = `${filePath}.corrupt-${timestampForFilename()}`;
+      try {
+        await fsPromises.rename(filePath, corruptPath);
+      } catch (_) {
+        // If the file is locked, keep going and try the backup.
+      }
+    }
+
+    try {
+      await fsPromises.access(backupPath);
+      const recovered = await parsePathAsync(backupPath);
+      await writeJsonAtomicAsync(filePath, recovered, { backup: false, spacing: options.spacing, maxBytes });
+      return recovered;
+    } catch (_) {
+      // Fall through to a clean fallback file.
+    }
+
+    await writeJsonAtomicAsync(filePath, fallback, { backup: false, spacing: options.spacing, maxBytes });
     return fallback;
   }
 }
@@ -842,10 +965,14 @@ return {
   legacyQuarantinePath,
   moveDirectoryIntoManagedData,
   readJsonFile,
+  readJsonFileAsync,
   readSecureJsonFile,
   writeFileAtomic,
+  writeFileAtomicAsync,
   writeJsonAtomic,
+  writeJsonAtomicAsync,
   writeSecureJsonAtomic,
+  ensureDirectoryAsync,
   appendSecureJsonLine,
   readSecureJsonLines,
   encryptDataPayload,

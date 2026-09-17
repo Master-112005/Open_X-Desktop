@@ -1,4 +1,5 @@
 const Logger = require('../Data').Logger;
+const path = require('path');
 const IdGenerator = require('../Data').IdGenerator;
 const Normalizer = require('../Data').Normalizer;
 const IntentRegistry = require('../reasoning/IntentRegistry').IntentRegistry;
@@ -17,6 +18,10 @@ const NaturalLanguageRouter = require('../semantic/NaturalLanguageRouter');
 const { AppCommandLanguage, BrowserCommandLanguage } = NaturalLanguageRouter;
 const ResponseGenerator = require('../response/ResponseGenerator');
 const {
+  ComputerActionPlanner,
+  ComputerActionEngine
+} = require('../../automation/action-plan');
+const {
   isCancellationError,
   throwIfAborted
 } = require('../utils');
@@ -32,6 +37,48 @@ const LOCAL_FILE_NOUN_PATTERN = new RegExp(`\\b${LOCAL_FILE_NOUN_STR}\\b`, 'i');
 const FILE_SEARCH_PHRASE_PATTERN = new RegExp(`\\b(?:locate|search(?:\\s+for)?|find(?:ing)?|show\\s+me|where\\s+(?:is|are))\\s+(?:my\\s+)?${LOCAL_FILE_NOUN_STR}\\b`, 'i');
 const EXPLICIT_APP_DOMAIN_PATTERN = /\b(?:app|apps|application|applications|program|programs|software)\b|\bnot\s+(?:a\s+|an\s+|the\s+)?(?:file|folder|document|pdf|docx?)\b/i;
 const EXPLICIT_NOT_APP_PATTERN = /\bnot\s+(?:a\s+|an\s+|the\s+)?(?:app|application|program|software)\b/i;
+const CREATE_FILE_TYPE_ALIASES = Object.freeze({
+  pdf: 'pdf',
+  text: 'txt',
+  txt: 'txt',
+  note: 'txt',
+  notes: 'txt',
+  markdown: 'md',
+  md: 'md',
+  javascript: 'js',
+  js: 'js',
+  python: 'py',
+  py: 'py',
+  html: 'html',
+  webpage: 'html',
+  css: 'css',
+  json: 'json',
+  csv: 'csv',
+  xml: 'xml',
+  java: 'java',
+  typescript: 'ts',
+  ts: 'ts',
+  word: 'docx',
+  document: 'docx',
+  doc: 'doc',
+  docx: 'docx',
+  spreadsheet: 'xlsx',
+  excel: 'xlsx',
+  xls: 'xls',
+  xlsx: 'xlsx',
+  presentation: 'pptx',
+  powerpoint: 'pptx',
+  ppt: 'ppt',
+  pptx: 'pptx',
+  image: 'png',
+  photo: 'jpg',
+  picture: 'jpg',
+  png: 'png',
+  jpg: 'jpg',
+  jpeg: 'jpg'
+});
+const CREATE_FILE_TYPE_WORDS = Object.keys(CREATE_FILE_TYPE_ALIASES)
+  .sort((left, right) => right.length - left.length);
 
 const WEBSITE_URL_MAP = {
   'github': 'https://github.com',
@@ -111,6 +158,27 @@ class ActionRouter {
     this.permissionValidator = new PermissionValidator(config);
     this.automationEngine = automationEngine;
     this.nle = new NaturalLanguageExecution(automationEngine);
+    this.computerActionPlanner = new ComputerActionPlanner({
+      resolveIntent: (clause, source) => this._resolvePlanClauseIntent(clause, source),
+      resolveWritableText: value => this._resolveWritableText(value),
+      extractExpression: text => this._extractCalculationExpression(text),
+      resolveSystemDate: async () => {
+        try {
+          const dateResult = await this.automationEngine?.system?.getDate?.();
+          return dateResult?.data?.date || null;
+        } catch {
+          return null;
+        }
+      },
+      userDisplayName: this._currentUserDisplayName(),
+      settleMs: Number(config?.automation?.computerActionSettleMs || 700),
+      logger: this.logger
+    });
+    this.computerActionEngine = new ComputerActionEngine({
+      automationEngine,
+      logger: this.logger,
+      settleMs: Number(config?.automation?.computerActionSettleMs || 700)
+    });
     this.actionValidation = new ActionValidation();
     this.actionConfirmation = new ActionConfirmation();
     this.nlp = new NlpProcessor(this.intentRegistry);
@@ -217,9 +285,11 @@ class ActionRouter {
       preparedInput.correctedText,
       rawCommandText
     );
+    const textAutomationPreflight = this._resolveTextAutomationIntent(rawCommandText, preparedInput);
 
     const capabilityAllowsMulti = this._capabilityCommandAllowsMulti(commandLooksLikeCapability, rawCommandText);
     if (options.allowMulti !== false &&
+      !textAutomationPreflight &&
       (!commandLooksLikeCapability || capabilityAllowsMulti)) {
       const multiPlan = this._buildMultiCommandPlan(rawCommandText, source);
       if (multiPlan) {
@@ -365,51 +435,29 @@ class ActionRouter {
     }
 
     return this._runResolverChain([
-      ['_resolveLocalInfoIntent', () => this._resolveLocalInfoIntent(rawCommandText, preparedInput)],
-      ['_resolveHomeDeviceListIntent', () => this._resolveHomeDeviceListIntent(rawCommandText, preparedInput)],
-      ['_resolveScheduleListIntent', () => this._resolveScheduleListIntent(rawCommandText, preparedInput)],
-      ['_resolvePlannerIntent', () => this._resolvePlannerIntent(rawCommandText, preparedInput)],
-      ['_resolveStopwatchIntent', () => this._resolveStopwatchIntent(rawCommandText, preparedInput)],
-      ['_resolveScheduleManagementIntent', () => this._resolveScheduleManagementIntent(rawCommandText, preparedInput)],
-      ['_resolveExplicitReminderIntent', () => this._resolveExplicitReminderIntent(rawCommandText, preparedInput)],
-      ['_resolveExplicitAlarmIntent', () => this._resolveExplicitAlarmIntent(rawCommandText, preparedInput)],
-      ['_resolveExplicitTimerIntent', () => this._resolveExplicitTimerIntent(rawCommandText, preparedInput)],
+      ['_resolveInfoIntent', () => this._resolveInfoIntent(rawCommandText, preparedInput)],
+      ['_resolveScheduleIntent', () => this._resolveScheduleIntent(rawCommandText, preparedInput)],
       ['_resolveContextualPresentationShortcutIntent', () => this._resolveContextualPresentationShortcutIntent(rawCommandText, preparedInput, source)],
       ['_resolveRemoteControlIntent', () => this._resolveRemoteControlIntent(rawCommandText, preparedInput)],
       ['_resolveHomeAutomationIntent', () => this._resolveHomeAutomationIntent(rawCommandText, preparedInput, source)],
-      ['_resolvePresentationControlIntent', () => this._resolvePresentationControlIntent(rawCommandText, preparedInput)],
-      ['_resolvePresentationFileIntent', () => this._resolvePresentationFileIntent(rawCommandText, preparedInput)],
-      ['_resolveSystemPowerIntent', () => this._resolveSystemPowerIntent(rawCommandText, preparedInput)],
-      ['_resolveSystemSettingsIntent', () => this._resolveSystemSettingsIntent(rawCommandText, preparedInput)],
-      ['_resolveSystemInsightIntent', () => this._resolveSystemInsightIntent(rawCommandText, preparedInput)],
-      ['_resolveFolderOpenInAppIntent', () => this._resolveFolderOpenInAppIntent(rawCommandText, preparedInput)],
-      ['_resolveWorkspaceSetupIntent', () => this._resolveWorkspaceSetupIntent(rawCommandText, preparedInput)],
+      ['_resolvePresentationIntent', () => this._resolvePresentationIntent(rawCommandText, preparedInput)],
+      ['_resolveSystemIntent', () => this._resolveSystemIntent(rawCommandText, preparedInput)],
       ['_resolvePhoneTransferIntent', () => this._resolvePhoneTransferIntent(rawCommandText, preparedInput, source)],
+      ['_resolveTextAutomationIntent', () => this._resolveTextAutomationIntent(rawCommandText, preparedInput)],
+      ['_resolveFileSystemIntent', () => this._resolveFileSystemIntent(rawCommandText, preparedInput)],
+      ['_resolveWorkspaceSetupIntent', () => this._resolveWorkspaceSetupIntent(rawCommandText, preparedInput)],
       ['_resolveScreenshotIntent', () => this._resolveScreenshotIntent(rawCommandText, preparedInput)],
       ['_resolveFormFillIntent', () => this._resolveFormFillIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitCommunicationIntent', () => this._resolveExplicitCommunicationIntent(rawCommandText, preparedInput)],
       ['_resolveEarlyCapabilityCommandIntent', () => this._resolveEarlyCapabilityCommandIntent(rawCommandText, preparedInput)],
-      ['_resolveYouTubeMediaIntent', () => this._resolveYouTubeMediaIntent(rawCommandText, preparedInput)],
-      ['_resolveBrowserFollowupIntent', () => this._resolveBrowserFollowupIntent(rawCommandText, preparedInput)],
-      ['_resolveKnownWebOpenIntent', () => this._resolveKnownWebOpenIntent(rawCommandText, preparedInput)],
+      ['_resolveMediaIntent', () => this._resolveMediaIntent(rawCommandText, preparedInput, source)],
+      ['_resolveBrowserIntent', () => this._resolveBrowserIntent(rawCommandText, preparedInput)],
       ['_resolveAppLanguageIntent', () => this._resolveAppLanguageIntent(rawCommandText, preparedInput)],
-      ['_resolveBrowserLanguageIntent', () => this._resolveBrowserLanguageIntent(rawCommandText, preparedInput)],
-      ['_resolveBrowserTabIntent', () => this._resolveBrowserTabIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitAppDomainIntent', () => this._resolveExplicitAppDomainIntent(rawCommandText, preparedInput)],
       ['_resolveNaturalLanguageRouteIntent', () => this._resolveNaturalLanguageRouteIntent(rawCommandText, preparedInput)],
       ['_resolveCommandFrameIntent', () => this._resolveCommandFrameIntent(rawCommandText, preparedInput)],
-      ['_resolveExplicitMediaControlIntent', () => this._resolveExplicitMediaControlIntent(rawCommandText, preparedInput)],
-      ['_resolveMediaIntent', () => this._resolveMediaIntent(rawCommandText, source)],
-      ['_resolveExplicitMediaIntent', () => this._resolveExplicitMediaIntent(rawCommandText, preparedInput)],
-      ['_resolveSmartFileIntent', () => this._resolveSmartFileIntent(rawCommandText, preparedInput)],
-      ['_resolveExplicitFileIntent', () => this._resolveExplicitFileIntent(rawCommandText, preparedInput)],
-      ['_resolveExplicitFolderIntent', () => this._resolveExplicitFolderIntent(rawCommandText, preparedInput)],
-      ['_resolveExplicitFolderMoveIntent', () => this._resolveExplicitFolderMoveIntent(rawCommandText, preparedInput)],
-      ['_resolveExplicitModeIntent', () => this._resolveExplicitModeIntent(rawCommandText, preparedInput)],
-      ['_resolveExplicitAppIntent', () => this._resolveExplicitAppIntent(rawCommandText, preparedInput)],
-      ['_resolveExplicitWindowIntent', () => this._resolveExplicitWindowIntent(rawCommandText, preparedInput)],
-      ['_resolveSiteSearchIntent', () => this._resolveSiteSearchIntent(rawCommandText, preparedInput)],
       ['_resolveNaturalConditionIntent', () => this._resolveNaturalConditionIntent(rawCommandText, preparedInput)],
+      ['_resolveExplicitModeIntent', () => this._resolveExplicitModeIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitOpenIntent', () => this._resolveExplicitOpenIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitAppOpenIntent', () => this._resolveExplicitAppOpenIntent(rawCommandText, preparedInput)],
       ['_resolveCalculationIntent', () => this._resolveCalculationIntent(rawCommandText, preparedInput)],
@@ -520,6 +568,56 @@ class ActionRouter {
     return { intent, confidence: 0.99, entities: { scope, rawCommand: rawText || corrected } };
   }
 
+  _resolveInfoIntent(rawText, preparedInput) {
+    return this._resolveLocalInfoIntent(rawText, preparedInput) ||
+           this._resolveHomeDeviceListIntent(rawText, preparedInput);
+  }
+
+  _resolveScheduleIntent(rawText, preparedInput) {
+    return this._resolveScheduleListIntent(rawText, preparedInput) ||
+           this._resolvePlannerIntent(rawText, preparedInput) ||
+           this._resolveStopwatchIntent(rawText, preparedInput) ||
+           this._resolveScheduleManagementIntent(rawText, preparedInput) ||
+           this._resolveExplicitReminderIntent(rawText, preparedInput) ||
+           this._resolveExplicitAlarmIntent(rawText, preparedInput) ||
+           this._resolveExplicitTimerIntent(rawText, preparedInput);
+  }
+
+  _resolvePresentationIntent(rawText, preparedInput, source) {
+    return this._resolveContextualPresentationShortcutIntent(rawText, preparedInput, source) ||
+           this._resolvePresentationControlIntent(rawText, preparedInput) ||
+           this._resolvePresentationFileIntent(rawText, preparedInput);
+  }
+
+  _resolveSystemIntent(rawText, preparedInput) {
+    return this._resolveSystemPowerIntent(rawText, preparedInput) ||
+           this._resolveSystemSettingsIntent(rawText, preparedInput) ||
+           this._resolveSystemInsightIntent(rawText, preparedInput);
+  }
+
+  _resolveFileSystemIntent(rawText, preparedInput) {
+    return this._resolveFolderOpenInAppIntent(rawText, preparedInput) ||
+           this._resolveExplicitFolderIntent(rawText, preparedInput) ||
+           this._resolveSmartFileIntent(rawText, preparedInput) ||
+           this._resolveExplicitFileIntent(rawText, preparedInput) ||
+           this._resolveExplicitFolderMoveIntent(rawText, preparedInput);
+  }
+
+  _resolveMediaIntent(rawText, preparedInput, source) {
+    return this._resolveYouTubeMediaIntent(rawText, preparedInput) ||
+           this._resolveExplicitMediaControlIntent(rawText, preparedInput) ||
+           this._resolveMediaRouterIntent(rawText, source) ||
+           this._resolveExplicitMediaIntent(rawText, preparedInput);
+  }
+
+  _resolveBrowserIntent(rawText, preparedInput) {
+    return this._resolveBrowserFollowupIntent(rawText, preparedInput) ||
+           this._resolveKnownWebOpenIntent(rawText, preparedInput) ||
+           this._resolveBrowserLanguageIntent(rawText, preparedInput) ||
+           this._resolveBrowserTabIntent(rawText, preparedInput) ||
+           this._resolveSiteSearchIntent(rawText, preparedInput);
+  }
+
   _safeInvokeResolver(name, resolver, context = {}) {
     try {
       return typeof resolver === 'function' ? resolver() : null;
@@ -532,6 +630,7 @@ class ActionRouter {
       return null;
     }
   }
+
 
   _resolveRemoteControlIntent(rawText, preparedInput = {}) {
     const corrected = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
@@ -614,13 +713,9 @@ class ActionRouter {
     const corrected = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
     const raw = String(rawText || corrected || '').trim().toLowerCase();
     const input = `${raw} ${corrected}`.replace(/\s+/g, ' ').trim();
-    if (!input) {
-      return null;
-    }
+    if (!input) return null;
 
-    if (/\b(?:search|google|look\s+up)\s+(?:for\s+)?\S/.test(input)) {
-      return null;
-    }
+    if (/\b(?:search|google|look\s+up)\s+(?:for\s+)?\S/.test(input)) return null;
 
     const route = (intentId, entities = {}, confidence = 0.97) => {
       const intent = this.intentRegistry.get(intentId);
@@ -629,109 +724,66 @@ class ActionRouter {
     const search = (query, confidence = 0.94) => route('browser.search', { query: String(query || raw || corrected).trim() }, confidence);
     const openApp = (appName, confidence = 0.95) => route('app.open', { appName }, confidence);
 
-    if (/\bumbrella\b/.test(input) &&
-      /\b(?:need|take|bring|carry|rain|raining|weather|forecast)\b/.test(input)) {
+    if (/\bumbrella\b/.test(input) && /\b(?:need|take|bring|carry|rain|raining|weather|forecast)\b/.test(input)) {
       return search('weather forecast do I need an umbrella today', 0.97);
     }
 
-    if (/\b(?:screen|display|monitor|brightness|bright)\b/.test(input) &&
-      /\b(?:maximum|max|full|hundred|100)\b/.test(input)) {
-      return route('brightness.set', { value: 100 }, 0.99);
+    if (/\b(?:screen|display|monitor|brightness|bright)\b/.test(input)) {
+      if (/\b(?:maximum|max|full|hundred|100)\b/.test(input)) return route('brightness.set', { value: 100 }, 0.99);
+      if (/\b(?:minimum|min|zero|0)\b/.test(input)) return route('brightness.set', { value: 0 }, 0.99);
+      if (/\b(?:hurts?|hurting|pain|strain|eye\s*strain|eyes?|too\s+bright|very\s+bright|glare|harsh|dazzling|burning)\b/.test(input)) return route('brightness.down', { value: 35 }, 0.99);
+      if (/\b(?:too\s+dark|very\s+dark|dim|hard\s+to\s+see|can(?:not|'t)?\s+see|brighter|brighten|little\s+brighter)\b/.test(input)) return route('brightness.up', {}, 0.98);
     }
 
-    if (/\b(?:screen|display|monitor|brightness|bright)\b/.test(input) &&
-      /\b(?:minimum|min|zero|0)\b/.test(input)) {
-      return route('brightness.set', { value: 0 }, 0.99);
-    }
-
-    if (/\b(?:speaker|speakers|sound|audio|volume|vol)\b/.test(input) &&
-      /\b(?:maximum|max|full|hundred|100)\b/.test(input)) {
-      return route('volume.set', { value: 100 }, 0.99);
-    }
-
-    if (/\b(?:speaker|speakers|sound|audio|volume|vol)\b/.test(input) &&
-      /\b(?:minimum|min|zero|0)\b/.test(input)) {
-      return route('volume.set', { value: 0 }, 0.99);
-    }
-
-    if (/\b(?:screen|display|monitor|brightness|light)\b/.test(input) &&
-      /\b(?:hurts?|hurting|pain|strain|eye\s*strain|eyes?|too\s+bright|very\s+bright|glare|harsh|dazzling|burning)\b/.test(input)) {
-      return route('brightness.down', { value: 35 }, 0.99);
-    }
-
-    if (/\b(?:screen|display|monitor|brightness)\b/.test(input) &&
-      /\b(?:too\s+dark|very\s+dark|dim|hard\s+to\s+see|can(?:not|'t)?\s+see|brighter|brighten|little\s+brighter)\b/.test(input)) {
-      return route('brightness.up', {}, 0.98);
-    }
-
-    if (/\b(?:everything|text|font|letters?|screen|display)\b/.test(input) &&
-      /\b(?:too\s+small|small\s+to\s+read|hard\s+to\s+read|cannot\s+read|can't\s+read|make\s+.*bigger|increase\s+text|zoom\s+in)\b/.test(input)) {
-      return openApp('ms-settings:easeofaccess-display', 0.95);
-    }
-
-    if (/\b(?:blue\s+light|night\s+light|night\s+mode|eye\s+comfort)\b/.test(input)) {
-      return openApp('ms-settings:nightlight', 0.94);
-    }
-
-    if (/\b(?:speaker|speakers|sound|audio|volume|hear|hearing)\b/.test(input) &&
-      /\b(?:can(?:not|'t)?\s+hear|no\s+sound|nothing\s+from|too\s+quiet|low|silent|inaudible)\b/.test(input)) {
-      return route('volume.up', {}, 0.99);
+    if (/\b(?:speaker|speakers|sound|audio|volume|vol)\b/.test(input)) {
+      if (/\b(?:maximum|max|full|hundred|100)\b/.test(input)) return route('volume.set', { value: 100 }, 0.99);
+      if (/\b(?:minimum|min|zero|0)\b/.test(input)) return route('volume.set', { value: 0 }, 0.99);
+      if (/\b(?:can(?:not|'t)?\s+hear|no\s+sound|nothing\s+from|too\s+quiet|low|silent|inaudible)\b/.test(input)) return route('volume.up', {}, 0.99);
     }
 
     if (/\b(?:too\s+loud|way\s+too\s+loud|very\s+loud|loud\s+in\s+here|reduce\s+noise|quieter|lower\s+the\s+sound)\b/.test(input)) {
       return route('volume.down', {}, 0.98);
     }
-
     if (/\b(?:peace\s+and\s+quiet|make\s+it\s+silent|silence\s+everything|quiet\s+please)\b/.test(input)) {
       return route('volume.mute', {}, 0.97);
+    }
+
+    if (/\b(?:everything|text|font|letters?|screen|display)\b/.test(input) && /\b(?:too\s+small|small\s+to\s+read|hard\s+to\s+read|cannot\s+read|can't\s+read|make\s+.*bigger|increase\s+text|zoom\s+in)\b/.test(input)) {
+      return openApp('ms-settings:easeofaccess-display', 0.95);
+    }
+    if (/\b(?:blue\s+light|night\s+light|night\s+mode|eye\s+comfort)\b/.test(input)) {
+      return openApp('ms-settings:nightlight', 0.94);
     }
 
     if (/\b(?:reduce\s+distractions|focus|do\s+not\s+disturb|don't\s+disturb|dont\s+disturb|work\s+mode)\b/.test(input)) {
       return route('mode.start', { modeName: 'focus' }, 0.95);
     }
-
-    if (/\b(?:coding|programming|developer|development|project)\b/.test(input) &&
-      /\b(?:environment|setup|ready|continue|work\s+on|start\s+my\s+project|get\s+.*ready)\b/.test(input)) {
+    if (/\b(?:coding|programming|developer|development|project)\b/.test(input) && /\b(?:environment|setup|ready|continue|work\s+on|start\s+my\s+project|get\s+.*ready)\b/.test(input)) {
       return route('mode.start', { modeName: 'development' }, 0.98);
     }
 
-    if (/\b(?:write|writing|notes?|note\s+taking|jot|idea|draft)\b/.test(input) &&
-      /\b(?:mood|place|somewhere|help|write\s+down|take\s+notes?|start)\b/.test(input)) {
+    if (/\b(?:write|writing|notes?|note\s+taking|jot|idea|draft)\b/.test(input) && /\b(?:mood|place|somewhere|help|write\s+down|take\s+notes?|start)\b/.test(input)) {
       return openApp('notepad', 0.97);
     }
 
-    if (/\b(?:calculate|calculation|numbers?|math|quick\s+calculation)\b/.test(input) &&
-      !this._extractCalculationExpression(input)) {
+    if (/\b(?:calculate|calculation|numbers?|math|quick\s+calculation)\b/.test(input) && !this._extractCalculationExpression(input)) {
       return openApp('calculator', 0.97);
     }
 
-    if (/\b(?:forgot\s+what\s+time|what\s+time|time\s+is\s+it|current\s+time)\b/.test(input)) {
-      return route('system.time', {}, 0.98);
-    }
-
-    if (/\b(?:what\s+date|date\s+today|day\s+is\s+it|today's\s+date|todays\s+date)\b/.test(input)) {
-      return route('system.date', {}, 0.96);
-    }
-
-    if (/\b(?:battery|charge|power\s+left|laptop\s+survive|survive\s+another|plug\s+in)\b/.test(input)) {
-      return route('system.battery', {}, 0.98);
-    }
+    if (/\b(?:forgot\s+what\s+time|what\s+time|time\s+is\s+it|current\s+time)\b/.test(input)) return route('system.time', {}, 0.98);
+    if (/\b(?:what\s+date|date\s+today|day\s+is\s+it|today's\s+date|todays\s+date)\b/.test(input)) return route('system.date', {}, 0.96);
+    if (/\b(?:battery|charge|power\s+left|laptop\s+survive|survive\s+another|plug\s+in)\b/.test(input)) return route('system.battery', {}, 0.98);
 
     if (/\b(?:unread\s+emails?|anyone\s+email|email\s+me|emails?\s+today|check\s+.*emails?)\b/.test(input)) {
       return route('browser.open', { url: 'https://mail.google.com/mail/u/0/#inbox' }, 0.94);
     }
-
     if (/\b(?:send\s+an?\s+email|draft\s+.*email|quick\s+email|email\s+to\s+my\s+manager)\b/.test(input)) {
       return route('browser.open', { url: 'mailto:' }, 0.94);
     }
 
     if (/\b(?:don't\s+let\s+me\s+forget|dont\s+let\s+me\s+forget|need\s+to\s+remember|remember\s+something\s+later)\b/.test(input)) {
       const reminderText = input.replace(/^.*?(?:forget|remember)\s+/i, '').replace(/[?.!]+$/g, '').trim() || 'this';
-      const timeExpression = /\bthis\s+evening\b/.test(input)
-        ? 'this evening'
-        : /\blater\s+today\b/.test(input)
-          ? 'later today'
-          : '';
+      const timeExpression = /\bthis\s+evening\b/.test(input) ? 'this evening' : /\blater\s+today\b/.test(input) ? 'later today' : '';
       return route('reminder.set', { reminderText, timeExpression }, 0.96);
     }
 
@@ -740,16 +792,13 @@ class ActionRouter {
     }
 
     if (/\b(?:compare\s+.*files|organize\s+my\s+downloads|desktop\s+is\s+a\s+mess|clean\s+up\s+unnecessary\s+files|running\s+out\s+of\s+storage|taking\s+up\s+.*disk\s+space)\b/.test(input)) {
-      if (/\b(?:running\s+out\s+of\s+storage|disk\s+space|taking\s+up)\b/.test(input)) {
-        return route('system.disk', {}, 0.96);
-      }
+      if (/\b(?:running\s+out\s+of\s+storage|disk\s+space|taking\s+up)\b/.test(input)) return route('system.disk', {}, 0.96);
       return route('file.smartFind', { query: raw || corrected, location: /\bdesktop\b/.test(input) ? 'desktop' : 'downloads' }, 0.94);
     }
 
     if (/\b(?:anything\s+unusual|computer\s+slow|laptop\s+slow|fan\s+running|slowing\s+down|system\s+health)\b/.test(input)) {
       return route('system.insight', { insightType: 'systemSlowdown' }, 0.96);
     }
-
     if (/\b(?:using\s+all\s+the\s+memory|using\s+.*memory|most\s+memory)\b/.test(input)) {
       return route('system.insight', { insightType: 'topMemoryApp' }, 0.96);
     }
@@ -757,63 +806,32 @@ class ActionRouter {
     if (/\b(?:internet\s+(?:is\s+)?acting|connection\s+feels\s+slow|internet\s+speed|how\s+fast\s+my\s+internet|check\s+.*internet\s+speed)\b/.test(input)) {
       return search('internet speed test', 0.95);
     }
-
     if (/\b(?:connected\s+to\s+wi\s*fi|connected\s+to\s+wifi|reconnect\s+.*internet|reconnect\s+.*wi\s*fi)\b/.test(input)) {
       return openApp('ms-settings:network-wifi', 0.95);
     }
-
     if (/\b(?:check\s+something\s+on\s+the\s+internet|use\s+the\s+internet|browse\s+the\s+internet|open\s+the\s+internet)\b/.test(input)) {
       return route('browser.open', { url: 'https://www.google.com' }, 0.96);
     }
 
-    if (/\b(?:directions?|nearby|near\s+me|restaurant|atm|petrol|gas\s+station|coffee|map)\b/.test(input)) {
-      return search(raw || corrected, 0.95);
-    }
+    if (/\b(?:directions?|nearby|near\s+me|restaurant|atm|petrol|gas\s+station|coffee|map)\b/.test(input)) return search(raw || corrected, 0.95);
+    if (/\b(?:hungry|something\s+to\s+order|compare\s+prices|track\s+.*order|laptop\s+deals|stock\s+market|gold\s+price|dollar\s+in\s+rupees|business\s+news|review\s+my\s+finances)\b/.test(input)) return search(raw || corrected, 0.94);
+    if (/\b(?:make\s+that\s+easier\s+to\s+understand|summarize\s+that\s+in\s+one\s+minute|help\s+me\s+get\s+start(?:ed)?)\b/.test(input)) return search(raw || corrected, 0.9);
 
-    if (/\b(?:hungry|something\s+to\s+order|compare\s+prices|track\s+.*order|laptop\s+deals|stock\s+market|gold\s+price|dollar\s+in\s+rupees|business\s+news|review\s+my\s+finances)\b/.test(input)) {
-      return search(raw || corrected, 0.94);
-    }
+    if (/\b(?:printer|printing|print\s+.*document|print\s+.*copy|scan\s+some\s+paperwork|scanner)\b/.test(input)) return openApp('ms-settings:printers', 0.94);
+    if (/\b(?:turn\s+.*document\s+into\s+a\s+pdf|merge\s+.*pdfs?|extract\s+pages|convert\s+.*image\s+.*pdf|read\s+.*document\s+out\s+loud|translate\s+this\s+into|correct\s+.*spelling|summarize\s+.*report)\b/.test(input)) return search(raw || corrected, 0.93);
+    if (/\b(?:find\s+information|learn|tutorial|course|resources?|explain|teach\s+me|coding\s+challenge|beginner-friendly|beginner\s+friendly|interview\s+questions|technical\s+questions|quiz\s+me|test\s+my|sql|java\s+knowledge|preparing\s+for\s+an\s+interview)\b/.test(input)) return search(raw || corrected, 0.94);
+    if (/\b(?:deleted|recycle\s+bin|recover\s+what\s+i\s+just\s+deleted|accidentally\s+deleted|restore\s+deleted)\b/.test(input)) return openApp('shell:RecycleBinFolder', 0.95);
 
-    if (/\b(?:make\s+that\s+easier\s+to\s+understand|summarize\s+that\s+in\s+one\s+minute|help\s+me\s+get\s+start(?:ed)?)\b/.test(input)) {
-      return search(raw || corrected, 0.9);
-    }
-
-    if (/\b(?:printer|printing|print\s+.*document|print\s+.*copy|scan\s+some\s+paperwork|scanner)\b/.test(input)) {
-      return openApp('ms-settings:printers', 0.94);
-    }
-
-    if (/\b(?:turn\s+.*document\s+into\s+a\s+pdf|merge\s+.*pdfs?|extract\s+pages|convert\s+.*image\s+.*pdf|read\s+.*document\s+out\s+loud|translate\s+this\s+into|correct\s+.*spelling|summarize\s+.*report)\b/.test(input)) {
-      return search(raw || corrected, 0.93);
-    }
-
-    if (/\b(?:find\s+information|learn|tutorial|course|resources?|explain|teach\s+me|coding\s+challenge|beginner-friendly|beginner\s+friendly|interview\s+questions|technical\s+questions|quiz\s+me|test\s+my|sql|java\s+knowledge|preparing\s+for\s+an\s+interview)\b/.test(input)) {
-      return search(raw || corrected, 0.94);
-    }
-
-    if (/\b(?:deleted|recycle\s+bin|recover\s+what\s+i\s+just\s+deleted|accidentally\s+deleted|restore\s+deleted)\b/.test(input)) {
-      return openApp('shell:RecycleBinFolder', 0.95);
-    }
-
-    if (/\b(?:meeting|join\s+call|video\s+call|conference)\b/.test(input) &&
-      /\b(?:join|open|start|soon|application|app)\b/.test(input)) {
-      return openApp('zoom', 0.94);
-    }
-
-    if (/\b(?:meetings?\s+today|calendar|schedule\s+this\s+afternoon|event\s+for\s+tomorrow|before\s+the\s+meeting)\b/.test(input)) {
-      return openApp('ms-outlook:', 0.91);
-    }
+    if (/\b(?:meeting|join\s+call|video\s+call|conference)\b/.test(input) && /\b(?:join|open|start|soon|application|app)\b/.test(input)) return openApp('zoom', 0.94);
+    if (/\b(?:meetings?\s+today|calendar|schedule\s+this\s+afternoon|event\s+for\s+tomorrow|before\s+the\s+meeting)\b/.test(input)) return openApp('ms-outlook:', 0.91);
 
     if (/\b(?:share\s+a\s+file|upload\s+this\s+document|back\s+up\s+.*files|make\s+a\s+copy|save\s+this\s+somewhere\s+safe)\b/.test(input)) {
       return route('file.smartFind', { query: raw || corrected, openResult: false }, 0.9);
     }
 
     if (/\b(?:unnecessary\s+notifications|focus\s+for\s+the\s+next\s+hour|laptop\s+into\s+work\s+mode|done\s+working|close\s+everything|wrap\s+up|need\s+a\s+break|get\s+start(?:ed)?|work\s+on\s+next|pending\s+tasks|leave\s+unfinished|plan\s+.*day|previous\s+workspace|where\s+i\s+left\s+off|last\s+thing\s+i\s+worked\s+on|pick\s+up\s+where)\b/.test(input)) {
-      if (/\b(?:work\s+mode|focus|distractions)\b/.test(input)) {
-        return route('mode.start', { modeName: 'focus' }, 0.95);
-      }
-      if (/\b(?:previous\s+workspace|where\s+i\s+left\s+off|last\s+thing\s+i\s+worked\s+on|pick\s+up\s+where)\b/.test(input)) {
-        return route('file.smartFind', { query: raw || corrected, sortBy: 'recent', openResult: true }, 0.93);
-      }
+      if (/\b(?:work\s+mode|focus|distractions)\b/.test(input)) return route('mode.start', { modeName: 'focus' }, 0.95);
+      if (/\b(?:previous\s+workspace|where\s+i\s+left\s+off|last\s+thing\s+i\s+worked\s+on|pick\s+up\s+where)\b/.test(input)) return route('file.smartFind', { query: raw || corrected, sortBy: 'recent', openResult: true }, 0.93);
       return search(raw || corrected, 0.9);
     }
 
@@ -821,9 +839,7 @@ class ActionRouter {
       return route('file.smartFind', { query: raw || corrected, sortBy: 'recent' }, 0.93);
     }
 
-    if (/^(?:open|launch|start)\s+(?:apple\s+music|spotify|vlc|itunes|music)\b/.test(input)) {
-      return null;
-    }
+    if (/^(?:open|launch|start)\s+(?:apple\s+music|spotify|vlc|itunes|music)\b/.test(input)) return null;
 
     if (/\b(?:something\s+calmer|calmer\s+music|upbeat\s+and\s+motivating|energetic|similar\s+to\s+this|background\s+music|music\s+for\s+coding|helps\s+me\s+focus|favorite\s+playlist|favourite\s+playlist)\b/.test(input)) {
       let query = raw || corrected;
@@ -835,10 +851,8 @@ class ActionRouter {
       return route('media.play', { mediaQuery: query, mediaPlatform: 'youtube' }, 0.95);
     }
 
-    if (/\b(?:podcasts?|music|playlist|play\s+something|listen\s+to|watch\s+something|movie\s+for\s+tonight|trending\s+right\s+now|next\s+episode|funny\s+videos|entertaining|open\s+a\s+game|bored)\b/.test(input) &&
-      !/\b(?:pause|stop|next|previous|resume)\b/.test(input)) {
-      const query = raw || corrected;
-      return route('media.play', { mediaQuery: query, mediaPlatform: 'youtube' }, 0.93);
+    if (/\b(?:podcasts?|music|playlist|play\s+something|listen\s+to|watch\s+something|movie\s+for\s+tonight|trending\s+right\s+now|next\s+episode|funny\s+videos|entertaining|open\s+a\s+game|bored)\b/.test(input) && !/\b(?:pause|stop|next|previous|resume)\b/.test(input)) {
+      return route('media.play', { mediaQuery: raw || corrected, mediaPlatform: 'youtube' }, 0.93);
     }
 
     return null;
@@ -864,7 +878,9 @@ class ActionRouter {
     const appListCommand = /^(?:open|launch|start|run|close|quit|exit|terminate|switch|focus)\s+[a-z0-9 ._-]+(?:\s+(?:and|then|also|plus)\s+[a-z0-9 ._-]+)+$/i.test(String(rawText || '').trim()) &&
       !/\b(?:file|folder|document|song|video|music|search|find|remind|timer|alarm)\b/i.test(text);
     const knownWebOpenCommand = this._looksLikeKnownWebOpenRequest(rawText);
-    return fileCommand || presentationCommand || renameCommand || phoneTransferCommand || scheduleCommand || networkCommand || appListCommand || knownWebOpenCommand;
+    const siteSearchCommand = /\b(?:search|find|look\s+for|look\s+up)\b/.test(text) &&
+      /^(?:in|on|inside)\s+(?:google\s+photos?|photos|youtube|you\s+tube|gmail|google\s+mail|mail|google\s+drive|drive|google\s+maps?|maps|chrome\s+settings?|browser\s+settings|chatgpt|chat\s+gpt)\b|^(?:search|find|look\s+for|look\s+up)\b.*\s+(?:in|on|inside)\s+(?:google\s+photos?|photos|youtube|you\s+tube|gmail|google\s+mail|mail|google\s+drive|drive|google\s+maps?|maps|chrome\s+settings?|browser\s+settings|chatgpt|chat\s+gpt)$/i.test(String(rawText || '').trim());
+    return fileCommand || presentationCommand || renameCommand || phoneTransferCommand || scheduleCommand || networkCommand || appListCommand || knownWebOpenCommand || siteSearchCommand;
   }
 
   _resolveCapabilityCommandIntent(rawText, preparedInput = {}, options = {}) {
@@ -901,6 +917,9 @@ class ActionRouter {
       .trim();
     const raw = String(rawText || '').trim();
     if (!text) {
+      return null;
+    }
+    if (this._looksLikeExplicitCreateFileCommand(raw || input)) {
       return null;
     }
 
@@ -1147,8 +1166,8 @@ class ActionRouter {
       return null;
     }
 
-    const wantsMaximize = action === 'maximize' || /\b(?:fullscreen|maximize|bigger|larger)\b/.test(correctedText);
-    const wantsMinimize = action === 'minimize' || /\b(?:minimize|smaller|hide|hidden)\b/.test(correctedText);
+    const wantsMaximize = action === 'maximize' || /\b(?:fullscreen|maximi[sz]e|bigger|larger)\b/.test(correctedText);
+    const wantsMinimize = action === 'minimize' || /\b(?:minimi[sz]e|smaller|hide|hidden)\b/.test(correctedText);
     const intentId = wantsMaximize ? 'window.maximize' : wantsMinimize ? 'window.minimize' : '';
     const intent = intentId ? this.intentRegistry.get(intentId) : null;
     if (!intent) {
@@ -1158,9 +1177,16 @@ class ActionRouter {
     const extracted = this.entityExtractor.extract(intent, rawText);
     const correctedEntities = this.entityExtractor.extract(intent, correctedText);
     const windowName = String(extracted.windowName || correctedEntities.windowName || targetText || '')
-      .replace(/\b(?:bigger|larger|smaller|hidden|hide|maximize|minimize|fullscreen|full\s+screen|window)\b/gi, ' ')
+      .replace(/\b(?:bigger|larger|smaller|hidden|hide|maximi[sz]e|minimi[sz]e|fullscreen|full\s+screen|window)\b/gi, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+    if (this._isAllWindowTarget(windowName || correctedText)) {
+      return {
+        intent,
+        confidence: 0.94,
+        entities: { windowName: 'all windows', allWindows: true }
+      };
+    }
     return {
       intent,
       confidence: 0.94,
@@ -1244,6 +1270,9 @@ class ActionRouter {
     if (!corrected) {
       return true;
     }
+    if (this._looksLikeExplicitCreateFileCommand(`${raw} ${corrected}`)) {
+      return false;
+    }
 
     if (this._classifyCapabilityCommand(corrected, raw)) {
       return false;
@@ -1302,6 +1331,7 @@ class ActionRouter {
       'minimize',
       'move',
       'open',
+      'paste',
       'read',
       'remind',
       'rename',
@@ -1315,7 +1345,9 @@ class ActionRouter {
       'switch',
       'tell',
       'text',
-      'turn'
+      'turn',
+      'type',
+      'write'
     ]);
     const actionIndex = tokens.findIndex(token => actionAliases.has(token));
     if (actionIndex < 0) {
@@ -1402,6 +1434,16 @@ class ActionRouter {
         intentResult.intent,
         rawCommandText
       );
+      if (intentResult.intent?.id === 'file.create') {
+        entities = this._normalizeFileCreateEntities(entities, rawCommandText);
+      }
+      if (entities && ['window.minimize', 'window.maximize'].includes(intentResult.intent?.id)) {
+        const windowName = String(entities.windowName || '').trim();
+        if (this._isAllWindowTarget(windowName) || this._isAllWindowTarget(this._cleanWindowTarget(windowName))) {
+          entities.windowName = 'all windows';
+          entities.allWindows = true;
+        }
+      }
     } catch (error) {
       this.logger.error('Entity extraction failed during intent completion', {
         error: error.message,
@@ -1968,7 +2010,7 @@ class ActionRouter {
 
     return clauses.map(clause => {
       const originalClause = String(clause || '').trim();
-      if (/^(?:save|compare|download|archive|organize|analyze|schedule|bookmark|categorize|evaluate)\b/i.test(originalClause)) {
+      if (/^(?:save|compare|download|archive|organize|analyze|schedule|bookmark|categorize|evaluate|write|type|paste|create|calculate|calc)\b/i.test(originalClause)) {
         carriedVerb = null;
         return originalClause;
       }
@@ -2128,6 +2170,11 @@ class ActionRouter {
   }
 
   async _executeMultiCommand(commandId, clauses, source, options = {}) {
+    const planPathResult = await this._tryExecuteComputerActionPlan(commandId, clauses, source, options);
+    if (planPathResult) {
+      return planPathResult;
+    }
+
     const steps = [];
     let browserContext = null;
 
@@ -2202,6 +2249,95 @@ class ActionRouter {
       steps,
       response: this._buildMultiCommandResponse(steps)
     };
+  }
+
+  _resolvePlanClauseIntent(text, source) {
+    const raw = String(text || '').trim();
+    if (!raw) return null;
+    const prepared = this._safePrepareInput(raw);
+    const preflight = this._resolveTextAutomationIntent(raw, prepared);
+    if (preflight?.intent) {
+      return {
+        intent: preflight.intent,
+        entities: preflight.entities || {},
+        confidence: preflight.confidence
+      };
+    }
+    const resolved = this._resolveIntent(raw, prepared, source);
+    if (!resolved?.intent) return null;
+    return {
+      intent: resolved.intent,
+      entities: resolved.entities || {},
+      confidence: resolved.confidence
+    };
+  }
+
+  async _tryExecuteComputerActionPlan(commandId, clauses, source, options = {}) {
+    if (!this.computerActionPlanner || !this.computerActionEngine) {
+      return null;
+    }
+    try {
+      const plan = await this.computerActionPlanner.buildPlan(clauses, { source });
+      if (!plan) {
+        return null;
+      }
+      const execution = await this.computerActionEngine.executePlan(plan, {
+        signal: options.signal,
+        executionContext: options.executionContext || null
+      });
+      const failedResult = execution?.failedStep?.result;
+      if (failedResult?.needsClarification || failedResult?.requiresConfirmation) {
+        return null;
+      }
+      const steps = this._computerActionPlanSteps(commandId, plan, execution, options);
+      const failedSteps = steps.filter(step => !step.success);
+      return {
+        commandId,
+        success: failedSteps.length === 0,
+        intent: 'multi.command',
+        confidence: 1,
+        entities: { commands: clauses },
+        steps,
+        response: this._buildMultiCommandResponse(steps)
+      };
+    } catch (err) {
+      if (isCancellationError(err)) {
+        throw err;
+      }
+      this.logger.error('Computer action plan execution failed, falling back to clause execution', err);
+      return null;
+    }
+  }
+
+  _computerActionPlanSteps(commandId, plan, execution, options = {}) {
+    const executed = Array.isArray(execution?.steps) ? execution.steps : [];
+    return (plan.steps || []).map((step, index) => {
+      const record = executed[index] || {};
+      const success = Boolean(record.success);
+      const intentId = String(step.intent || (success ? 'executionSuccess' : 'executionFailed'));
+      const response = this._buildResponse(success ? 'success' : 'error', intentId, {
+        entities: step.entities || {},
+        result: record.result
+          ? { data: record.result.data || {} }
+          : { data: record.data || {} },
+        error: record.error || null
+      });
+      return {
+        commandId: IdGenerator.generate(),
+        input: step.clauseInput,
+        routedInput: step.routedInput || step.clauseInput,
+        success,
+        intent: intentId,
+        entities: step.entities || {},
+        appContext: step.appContext || null,
+        languageUnderstanding: null,
+        response,
+        error: record.error || null,
+        requiresConfirmation: false,
+        confirmationMessage: null,
+        permissionLevel: null
+      };
+    });
   }
 
   _applyBrowserContextToSearchClause(clause, browserContext, source) {
@@ -2426,6 +2562,25 @@ class ActionRouter {
     if (intent === 'app.open') return `opened ${this._formatDisplayName(entity('appName') || entity('targetApp') || step.input || 'the app')}`;
     if (intent === 'app.close') return `closed ${this._formatDisplayName(entity('appName') || entity('targetApp') || 'the app')}`;
     if (intent === 'app.switch') return `switched to ${this._formatDisplayName(entity('appName') || entity('targetApp') || 'the app')}`;
+    if (intent === 'text.write') {
+      const content = entity('text') || '';
+      const appName = this._formatDisplayName(entity('appName') || entity('windowName') || entity('targetApp'));
+      const quoted = this._quoteHumanValue(content);
+      return appName ? `wrote ${quoted} in ${appName}` : `wrote ${quoted}`;
+    }
+    if (intent === 'text.pasteFromFile') {
+      const source = entity('source') || entity('filename') || 'the file';
+      const target = this._formatDisplayName(entity('appName') || entity('windowName'));
+      return target ? `pasted ${this._quoteHumanValue(source)} into ${target}` : `pasted ${this._quoteHumanValue(source)}`;
+    }
+    if (intent === 'system.calculate') {
+      const expression = entity('expression') || entity('calculation') || '';
+      return expression ? `calculated ${expression}` : 'calculated the expression';
+    }
+    if (intent === 'file.create') {
+      const filename = entity('filename') || entity('path') || 'the file';
+      return `created ${this._quoteHumanValue(filename)}`;
+    }
     if (intent === 'browser.search') return `searched for ${this._quoteHumanValue(entity('query') || step.input || 'that')}`;
     if (intent === 'browser.open') return `opened ${this._formatDisplayName(entity('browserName') || entity('url') || 'the browser')}`;
     if (intent === 'timer.set') {
@@ -2484,7 +2639,14 @@ class ActionRouter {
   _entityValue(step = {}, name) {
     const entities = step.entities || {};
     const data = step.data || {};
-    return entities[name] ?? data[name] ?? data?.data?.[name] ?? null;
+    const value = entities[name] ?? data[name] ?? data?.data?.[name];
+    if (value !== null && value !== undefined) {
+      return value;
+    }
+    if (name === 'appName' || name === 'targetApp' || name === 'windowName') {
+      return step.appContext?.appName ?? null;
+    }
+    return null;
   }
 
   _stripResponseHonorific(value) {
@@ -2833,7 +2995,7 @@ class ActionRouter {
     }
 
     const text = String(normalizedText || preparedInput?.correctedText || '').toLowerCase();
-    if (/\b(?:open|launch|start|run|close|quit|exit|terminate|minimize|maximize|switch|focus|search|google|look\s+up|find|locate|show|list|play|pause|resume|stop|set|turn|send|share|transfer|copy|move|message|text|call|remind|notify|alert|create|delete|rename|save|download|install|scan|sync|clean|clear)\b/.test(text)) {
+    if (/\b(?:open|launch|start|run|close|quit|exit|terminate|minimize|maximize|switch|focus|search|google|look\s+up|find|locate|show|list|play|pause|resume|stop|set|turn|send|share|transfer|copy|move|message|text|call|remind|notify|alert|create|delete|rename|save|download|install|scan|sync|clean|clear|write|type|paste)\b/.test(text)) {
       return false;
     }
 
@@ -3326,7 +3488,7 @@ class ActionRouter {
     return null;
   }
 
-  _resolveMediaIntent(rawText, source) {
+  _resolveMediaRouterIntent(rawText, source) {
     if (/\.[A-Za-z0-9]{1,10}\b/.test(String(rawText || ''))) {
       return null;
     }
@@ -3375,10 +3537,10 @@ class ActionRouter {
       return null;
     }
 
-    if (/\b(?:minimize|collapse|hide|shrink)\b/.test(correctedText)) {
+    if (/\b(?:minimi[sz]e|collapse|hide|shrink)\b/.test(correctedText)) {
       const intent = this.intentRegistry.get('window.minimize');
       if (intent) {
-        if (/\b(?:all|everything)\s+(?:windows?|apps?|applications?|folders?)\b|\b(?:windows?|apps?|applications?|folders?)\s+(?:all|everything)\b/.test(correctedText)) {
+        if (this._isAllWindowTarget(correctedText)) {
           return {
             intent,
             confidence: 1,
@@ -3386,6 +3548,13 @@ class ActionRouter {
           };
         }
         const target = this._cleanWindowTarget(preparedInput?.semanticFrame?.targetText || correctedText);
+        if (this._isAllWindowTarget(target)) {
+          return {
+            intent,
+            confidence: 1,
+            entities: { windowName: 'all windows', allWindows: true }
+          };
+        }
         return {
           intent,
           confidence: 1,
@@ -3394,10 +3563,10 @@ class ActionRouter {
       }
     }
 
-    if (/\b(?:maximize|fullscreen|expand|enlarge)\b/.test(correctedText)) {
+    if (/\b(?:maximi[sz]e|fullscreen|expand|enlarge)\b/.test(correctedText)) {
       const intent = this.intentRegistry.get('window.maximize');
       if (intent) {
-        if (/\b(?:all|everything)\s+(?:windows?|apps?|applications?|folders?)\b|\b(?:windows?|apps?|applications?|folders?)\s+(?:all|everything)\b/.test(correctedText)) {
+        if (this._isAllWindowTarget(correctedText)) {
           return {
             intent,
             confidence: 1,
@@ -3405,6 +3574,13 @@ class ActionRouter {
           };
         }
         const target = this._cleanWindowTarget(preparedInput?.semanticFrame?.targetText || correctedText);
+        if (this._isAllWindowTarget(target)) {
+          return {
+            intent,
+            confidence: 1,
+            entities: { windowName: 'all windows', allWindows: true }
+          };
+        }
         return {
           intent,
           confidence: 1,
@@ -3416,9 +3592,18 @@ class ActionRouter {
     return null;
   }
 
+  _isAllWindowTarget(value) {
+    const text = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!text) return false;
+    return /^(?:all|everything)(?:\s+(?:windows?|apps?|applications?|folders?|programs?))?$/.test(text) ||
+      /^(?:windows?|apps?|applications?|folders?|programs?)\s+(?:all|everything)$/.test(text) ||
+      /\b(?:all|everything)\s+(?:windows?|apps?|applications?|folders?|programs?)\b/.test(text) ||
+      /\b(?:windows?|apps?|applications?|folders?|programs?)\s+(?:all|everything)\b/.test(text);
+  }
+
   _cleanWindowTarget(value) {
     return String(value || '')
-      .replace(/\b(?:minimize|maximize|collapse|expand|hide|shrink|fullscreen|full\s+screen|bigger|larger|smaller|hidden|please|kindly|now)\b/gi, ' ')
+      .replace(/\b(?:minimi[sz]e|maximi[sz]e|collapse|expand|hide|shrink|fullscreen|full\s+screen|bigger|larger|smaller|hidden|please|kindly|now)\b/gi, ' ')
       .replace(/^(?:the|a|an)\s+/i, '')
       .replace(/\s+/g, ' ')
       .trim();
@@ -3914,6 +4099,15 @@ class ActionRouter {
 
     const hasFileCue = /\b(?:file|files|pdf|pdfs|document|documents|resume|resumes|screenshot|screenshots|image|images|photo|photos|picture|pictures|presentation|presentations|download|downloaded|downloads|interview|interviews|project|projects|shortcut|shortcuts)\b/.test(input);
     const hasSmartCue = /\b(?:newest|latest|largest|recent|recently|edited|modified|opened|downloaded|created|today|yesterday|morning|last\s+week|6\s+months|duplicate|duplicates|contains|containing|mentioning|related\s+to|where\s+did|where\s+is|save|saved|worked\s+on)\b/.test(input);
+    if (PHONE_TRANSFER_ACTION_PATTERN.test(input) && PHONE_TRANSFER_TRAILING_TARGET_PATTERN.test(input)) {
+      return null;
+    }
+    if (/^(?:show|open|play|watch)\s+(?:my\s+)?(?:latest|newest|most\s+recent|recent|last)\s+(?:screenshot|screenshots?|photo|photos?|image|images?|picture|pictures?)\b/.test(input)) {
+      return null;
+    }
+    if (EXPLICIT_APP_DOMAIN_PATTERN.test(input) && !EXPLICIT_NOT_APP_PATTERN.test(input)) {
+      return null;
+    }
     if (!hasFileCue || !hasSmartCue) {
       return null;
     }
@@ -4180,6 +4374,125 @@ class ActionRouter {
     return { intent, confidence: 1 };
   }
 
+  _resolveTextAutomationIntent(rawText, preparedInput = {}) {
+    const raw = String(rawText || '').trim();
+    const input = String(preparedInput?.correctedText || rawText || '').trim();
+    const sources = Array.from(new Set([raw, input].filter(Boolean)));
+    if (sources.length === 0) {
+      return null;
+    }
+
+    for (const source of sources) {
+      const searchWrite = source.match(/^(?:search|google|look\s+up|find)\s+(?:for\s+)?(.+?)\s+(?:and|then)\s+(?:write|type|paste)\s+(?:it|that|the\s+result|the\s+answer|the\s+info|the\s+information)?(?:\s+(?:in|into|to|on)\s+(.+?))?$/i);
+      if (searchWrite?.[1]) {
+        const query = this._cleanTextAutomationPhrase(searchWrite[1]);
+        if (!query) continue;
+        const intent = this.intentRegistry.get('text.writeSearchResult');
+        return intent ? {
+          intent,
+          confidence: 0.99,
+          entities: {
+            query,
+            ...this._textTargetEntities(searchWrite[2])
+          }
+        } : null;
+      }
+
+      const pasteFromFile = source.match(/^(?:(?:copy|paste|write|type)\s+)?(?:the\s+)?(?:info|information|text|content|contents)?\s*(?:from|of)\s+(?:the\s+)?(?:file\s+)?(.+?)\s+(?:and\s+)?(?:paste|write|type)\s+(?:it|that|the\s+text|the\s+content)?(?:\s+(?:in|into|to|on)\s+(.+?))?$/i);
+      if (pasteFromFile?.[1]) {
+        const sourceName = this._cleanTextAutomationPhrase(pasteFromFile[1]);
+        if (!sourceName || !this._looksLikeFileSourceText(sourceName)) continue;
+        const intent = this.intentRegistry.get('text.pasteFromFile');
+        return intent ? {
+          intent,
+          confidence: 0.98,
+          entities: {
+            source: sourceName,
+            ...this._textTargetEntities(pasteFromFile[2])
+          }
+        } : null;
+      }
+
+      const write = source.match(/^(?:write|type|paste)\s+(.+?)(?:\s+(?:in|into|to|on)\s+(.+?))?$/i);
+      if (write?.[1]) {
+        const text = this._resolveWritableText(write[1]);
+        if (!text) continue;
+        const intent = this.intentRegistry.get('text.write');
+        return intent ? {
+          intent,
+          confidence: 0.98,
+          entities: {
+            text,
+            ...this._textTargetEntities(write[2])
+          }
+        } : null;
+      }
+    }
+
+    return null;
+  }
+
+  _cleanTextAutomationPhrase(value = '') {
+    return String(value || '')
+      .replace(/[?.!]+$/g, '')
+      .replace(/^(?:the|a|an|my)\s+/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  _resolveWritableText(value = '') {
+    const text = this._cleanTextAutomationPhrase(value)
+      .replace(/^["']|["']$/g, '')
+      .trim();
+    if (!text) {
+      return '';
+    }
+if (/^(?:my\s+name|name|user\s+name|username)$/i.test(text)) {
+      return this._currentUserDisplayName();
+    }
+    const namedText = text.match(/^(?:my\s+name\s+is|my\s+name|name\s+is|name)\s+(?!of\b|for\b)(.+?)(?:\s+please)?$/i);
+    if (namedText?.[1]) {
+      return String(namedText[1]).replace(/\s+please\s*$/i, '').trim();
+    }
+    const voicedName = text.match(/^(?:i\s+am|i'?m)\s+(.+?)(?:\s+please)?$/i);
+    if (voicedName?.[1]) {
+      return String(voicedName[1]).replace(/\s+please\s*$/i, '').trim();
+    }
+    return text;
+  }
+
+  _currentUserDisplayName() {
+    const configured = this.config?.user?.name || this.config?.profile?.name;
+    const candidate = String(configured || process.env.OPENX_USER_NAME || process.env.USERNAME || path.basename(process.env.USERPROFILE || '') || '').trim();
+    return candidate || 'Rakesh';
+  }
+
+  _textTargetEntities(targetText = '') {
+    const target = this._cleanTextAutomationPhrase(targetText);
+    if (!target || /^(?:current|active|this)(?:\s+(?:window|app|application))?$|^(?:here|there)$/i.test(target)) {
+      return {};
+    }
+    if (this._looksLikeFileSourceText(target)) {
+      return { filename: target };
+    }
+    const appName = this._normalizeTextAutomationTarget(target);
+    return appName ? { appName } : { windowName: target };
+  }
+
+  _normalizeTextAutomationTarget(target = '') {
+    const normalized = String(target || '').trim().toLowerCase();
+    if (/^(?:notepad|note\s+pad|notes?|text\s+editor)$/.test(normalized)) return 'notepad';
+    if (/^(?:chrome|google\s+chrome|browser)$/.test(normalized)) return 'chrome';
+    if (/^(?:vs\s*code|vscode|visual\s+studio\s+code|code)$/.test(normalized)) return 'code';
+    return '';
+  }
+
+  _looksLikeFileSourceText(value = '') {
+    const text = String(value || '').trim();
+    return /\.[A-Za-z0-9]{1,10}\b/.test(text) ||
+      /\b(?:file|document|txt|text|note|notes|pdf|docx?|md|markdown|js|py|html|css|json|csv)\b/i.test(text);
+  }
+
   _resolvePhoneTransferIntent(rawText, preparedInput, source = 'chat') {
     const input = String(preparedInput?.correctedText || rawText || '').trim();
     const raw = String(rawText || '').trim();
@@ -4278,6 +4591,133 @@ class ActionRouter {
       .trim();
   }
 
+  _normalizeFileCreateEntities(entities = {}, rawText = '') {
+    const normalized = { ...(entities || {}) };
+    const raw = String(rawText || '').trim();
+    let fileType = this._normalizeCreateFileType(normalized.fileType) || this._extractCreateFileType(raw);
+    let filename = String(normalized.filename || '').replace(/\s+/g, ' ').trim();
+
+    const namedMatch = raw.match(/\b(?:file|document)\s+(?:called|named)\s+(.+?)(?=\s+(?:on|in|at|to|from)\b|$)/i);
+    if (namedMatch?.[1]) {
+      filename = namedMatch[1].trim();
+    }
+
+    if (!filename || this._isCreateFilePlaceholderName(filename, fileType)) {
+      filename = this._extractCreateFileName(raw, fileType);
+    }
+
+    filename = this._cleanCreateFileName(filename, fileType);
+    const filenameExtension = this._extensionFromFilename(filename);
+    if (!fileType && filenameExtension) {
+      fileType = filenameExtension;
+    }
+    if (filename && fileType && !filenameExtension) {
+      filename = `${filename}.${fileType}`;
+    }
+
+    normalized.filename = filename || null;
+    normalized.fileType = fileType || null;
+    normalized.path = String(normalized.path || '').trim() || null;
+    return normalized;
+  }
+
+  _normalizeCreateFileType(value) {
+    const source = String(value || '').trim().toLowerCase().replace(/^\./, '');
+    if (!source) {
+      return null;
+    }
+    return CREATE_FILE_TYPE_ALIASES[source] || source.replace(/^jpeg$/, 'jpg').replace(/^htm$/, 'html');
+  }
+
+  _extractCreateFileType(value) {
+    const source = String(value || '').toLowerCase();
+    const dotted = source.match(/\.([a-z0-9]{1,10})\b/);
+    if (dotted?.[1]) {
+      return this._normalizeCreateFileType(dotted[1]);
+    }
+    for (const word of CREATE_FILE_TYPE_WORDS) {
+      const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escaped}\\b`, 'i').test(source)) {
+        return CREATE_FILE_TYPE_ALIASES[word];
+      }
+    }
+    return null;
+  }
+
+  _extractCreateFileName(rawText, fileType = '') {
+    const source = String(rawText || '').replace(/\s+/g, ' ').trim();
+    if (!source) {
+      return '';
+    }
+
+    const named = source.match(/\b(?:called|named)\s+(.+?)(?=\s+(?:on|in|at|to|from)\b|$)/i);
+    if (named?.[1]) {
+      return named[1].trim();
+    }
+
+    const command = source
+      .replace(/^(?:please\s+|kindly\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+)?(?:create|new|make)\s+/i, '')
+      .replace(/\s+(?:on|in|at|to|from)\s+.+$/i, '')
+      .trim();
+
+    return this._cleanCreateFileName(command, fileType);
+  }
+
+  _cleanCreateFileName(value, fileType = '') {
+    let result = String(value || '')
+      .replace(/^["']|["']$/g, '')
+      .replace(/^(?:the|a|an|my)\s+/i, '')
+      .replace(/\b(?:file|document)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (this._extensionFromFilename(result)) {
+      return result;
+    }
+
+    for (const word of CREATE_FILE_TYPE_WORDS) {
+      const extension = CREATE_FILE_TYPE_ALIASES[word];
+      if (fileType && extension !== fileType) {
+        continue;
+      }
+      const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      result = result.replace(new RegExp(`\\b${escaped}\\b`, 'ig'), ' ');
+    }
+
+    return result
+      .replace(/\s+/g, ' ')
+      .replace(/\s+\./g, '.')
+      .trim();
+  }
+
+  _isCreateFilePlaceholderName(filename, fileType = '') {
+    const normalized = String(filename || '').trim().toLowerCase();
+    if (!normalized || /^(?:a|an|the|my|file|document)$/.test(normalized)) {
+      return true;
+    }
+    const type = this._normalizeCreateFileType(fileType);
+    return Boolean(type) && (
+      normalized === type ||
+      normalized === `.${type}` ||
+      CREATE_FILE_TYPE_WORDS.some(word => normalized === word || normalized === `${word} file` || normalized === `${word} document`)
+    );
+  }
+
+  _extensionFromFilename(filename) {
+    const match = String(filename || '').trim().match(/\.([a-z0-9]{1,10})$/i);
+    return match?.[1] ? this._normalizeCreateFileType(match[1]) : null;
+  }
+
+  _looksLikeExplicitCreateFileCommand(value = '') {
+    const text = String(value || '').trim().toLowerCase();
+    if (!/^(?:please\s+|kindly\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+)?(?:create|new|make)\b/.test(text)) {
+      return false;
+    }
+
+    return /\b(?:file|document)\b|[^\s]+\.[a-z0-9]{1,10}\b/.test(text) ||
+      this._extractCreateFileType(text) !== null;
+  }
+
   _resolveExplicitFileIntent(rawText, preparedInput) {
     const input = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
     const rawLower = String(rawText || '').trim().toLowerCase();
@@ -4286,6 +4726,10 @@ class ActionRouter {
     }
 
     if (/\b(?:folder|directory)\b/.test(input)) {
+      return null;
+    }
+
+    if (EXPLICIT_APP_DOMAIN_PATTERN.test(`${input} ${rawLower}`) && !EXPLICIT_NOT_APP_PATTERN.test(`${input} ${rawLower}`)) {
       return null;
     }
 
@@ -4348,6 +4792,10 @@ class ActionRouter {
       }
       if (config.intentId === 'file.search') {
         entities.query = this._extractLocalFileSearchQuery(rawText, input) || entities.query;
+      }
+      if (config.intentId === 'file.create') {
+        Object.assign(entities, this._normalizeFileCreateEntities(entities, rawText || input));
+        return { intent, confidence: 1, entities };
       }
       const missing = this._checkRequiredEntities(intent, entities);
       if (missing.length === 0) {
@@ -4734,6 +5182,10 @@ class ActionRouter {
       if (correctedFolderEntities.folderName && correctedFolderEntities.folderName !== rawFolderEntities.folderName) {
         folderEntities.folderName = correctedFolderEntities.folderName;
       }
+      const implicitFolderName = this._extractImplicitFolderOpenName(rawText || input);
+      if (implicitFolderName) {
+        folderEntities.folderName = implicitFolderName;
+      }
       if (folderEntities.folderName) {
         return { intent: folderIntent, confidence: 0.98, entities: folderEntities };
       }
@@ -4793,6 +5245,9 @@ class ActionRouter {
     }
 
     const matchedTarget = String(match[1] || '').trim();
+    const homepageRequested = /\b(?:homepage|home\s+page)\b/.test(input);
+    const explicitAppCue = /\b(?:app|application)\b/.test(matchedTarget);
+    const homepageStrippedTarget = matchedTarget.replace(/\s+(?:homepage|home\s+page)$/i, '').trim();
     const framedTarget = String(preparedInput?.semanticFrame?.targetText || '').trim();
     const requestedTarget = framedTarget || matchedTarget;
     if (this._looksLikeLocalPhotosTarget(requestedTarget, rawText)) {
@@ -4803,12 +5258,29 @@ class ActionRouter {
     }
     const query = preparedInput?.semanticFrame?.webTarget ||
       this._normalizeKnownWebTarget(framedTarget) ||
+      this._normalizeKnownWebTarget(homepageStrippedTarget) ||
       this._normalizeKnownWebTarget(matchedTarget);
     if (!query) {
       return null;
     }
 
     const explicitWebCue = this._hasExplicitWebCue(input);
+    const target = resolveTrustedWebTarget(query);
+
+    if (explicitWebCue && target) {
+      const browserIntent = this.intentRegistry.get('browser.open');
+      return browserIntent
+        ? {
+            intent: browserIntent,
+            confidence: 1,
+            entities: {
+              url: target.url,
+              browserName: this._normalizeWebFallbackBrowser(preparedInput?.semanticFrame?.webBrowser) || 'chrome'
+            }
+          }
+        : null;
+    }
+
     if (explicitWebCue) {
       const intent = this.intentRegistry.get('browser.openFirstResult');
       return intent
@@ -4816,9 +5288,22 @@ class ActionRouter {
         : null;
     }
 
-    const target = resolveTrustedWebTarget(query);
     if (!target) {
       return null;
+    }
+
+    if (homepageRequested) {
+      const browserIntent = this.intentRegistry.get('browser.open');
+      return browserIntent
+        ? {
+            intent: browserIntent,
+            confidence: 1,
+            entities: {
+              url: target.url,
+              browserName: 'chrome'
+            }
+          }
+        : null;
     }
 
     const intent = this.intentRegistry.get('app.open');
@@ -4832,7 +5317,8 @@ class ActionRouter {
             webFallbackBrowser: 'chrome',
             webFallbackTitle: target.title,
             routeSource: 'app-local-first-web-fallback',
-            requestedOperation: 'open-or-focus'
+            requestedOperation: 'open-or-focus',
+            ...(explicitAppCue ? { preferLocalApp: true } : {})
           }
         }
       : null;
@@ -4840,6 +5326,14 @@ class ActionRouter {
 
   _normalizeKnownWebTarget(value) {
     return normalizeWebTarget(value);
+  }
+
+  _normalizeWebFallbackBrowser(value) {
+    const lower = String(value || '').toLowerCase();
+    if (/edge|msedge/.test(lower)) return 'edge';
+    if (/firefox|moz/.test(lower)) return 'firefox';
+    if (/chrome|google/.test(lower)) return 'chrome';
+    return '';
   }
 
   _looksLikeKnownWebOpenRequest(rawText) {
@@ -4851,6 +5345,7 @@ class ActionRouter {
 
     const target = match[1]
       .replace(/^(?:the|a|an)\s+/i, '')
+      .replace(/\s+(?:homepage|home\s+page)$/i, '')
       .trim();
     if (!target || this._looksLikeLocalPhotosTarget(target, source)) {
       return false;
@@ -5190,13 +5685,41 @@ class ActionRouter {
       return true;
     }
 
-    const withoutVerb = text.replace(/^(open|launch|start|run|show|navigate to|go to)\s+/i, '').trim();
+    const withoutVerb = this._extractImplicitFolderOpenName(text);
     if (!withoutVerb) {
       return false;
     }
 
     const tokenCount = withoutVerb.split(/\s+/).filter(Boolean).length;
-    return tokenCount === 1;
+    return tokenCount === 1 || /\b(?:desktop|downloads?|documents?|pictures?|home)\b/.test(withoutVerb);
+  }
+
+  _extractImplicitFolderOpenName(input) {
+    const text = String(input || '').trim();
+    if (!text) {
+      return '';
+    }
+
+    const match = text.match(/^(?:open|launch|start|run|show|navigate\s+to|go\s+to)\s+(.+?)$/i);
+    if (!match?.[1]) {
+      return '';
+    }
+
+    const target = match[1]
+      .replace(/^(?:the|a|an|my)\s+/i, '')
+      .replace(/\s+(?:folder|folders|directory|directories)\s*$/i, '')
+      .trim();
+    if (!target) {
+      return '';
+    }
+
+    if (/\b(?:folder|folders|directory|directories)\b/i.test(text)) {
+      return target;
+    }
+
+    return /\b(?:desktop|downloads?|documents?|pictures?|music|videos?|home)\b/i.test(target)
+      ? target
+      : '';
   }
 
   _resolveExplicitSearchIntent(rawText, preparedInput) {
@@ -5389,6 +5912,26 @@ class ActionRouter {
                 browserName: directWebClose[2] || browserMatch?.[1] || 'chrome',
                 tabQuery,
                 routeSource: 'trusted-web-tab-close'
+              }
+            }
+          : null;
+      }
+    }
+
+    const openAnotherWebMatch = input.match(/^(?:open|launch|start)\s+(?:another|a\s+new)\s+(.+)$/i);
+    if (openAnotherWebMatch?.[1]) {
+      const siteName = this._normalizeKnownWebTarget(String(openAnotherWebMatch[1]).trim());
+      const tabTarget = siteName ? resolveTrustedWebTarget(siteName) : null;
+      if (tabTarget) {
+        const intent = this.intentRegistry.get('browser.open');
+        return intent
+          ? {
+              intent,
+              confidence: 1,
+              entities: {
+                url: tabTarget.url,
+                browserName: 'chrome',
+                newTab: true
               }
             }
           : null;
@@ -6139,7 +6682,7 @@ const newTabMatch = input.match(
       () => this._resolveBrowserLanguageIntent(command, prepared),
       () => this._resolveBrowserTabIntent(command, prepared),
       () => this._resolveExplicitMediaControlIntent(command, prepared),
-      () => this._resolveMediaIntent(command, 'scheduled'),
+      () => this._resolveMediaRouterIntent(command, 'scheduled'),
       () => this._resolveExplicitMediaIntent(command, prepared),
       () => this._resolveExplicitFileIntent(command, prepared),
       () => this._resolveExplicitFolderIntent(command, prepared),
@@ -6375,7 +6918,7 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     const raw = String(rawText || corrected || '').trim();
     const combined = `${raw} ${corrected}`.toLowerCase().replace(/\s+/g, ' ').trim();
     const durationWords = '(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty(?:\\s*five)?|sixty)';
-    const durationUnits = '(?:seconds?|secs?|minutes?|mins?|hours?|hrs?)';
+    const durationUnits = '(?:seconds?|secs?|minutes?|mins?|minits?|hours?|hrs?)';
     const timerRequest = new RegExp(
       `\\b(?:set|start|create|run)\\b.*\\btimers?\\b|` +
       `\\btimers?\\b.*\\b(?:for|of|at)\\s+${durationWords}|` +
@@ -6421,6 +6964,9 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
   _resolveLocalInfoIntent(rawText, preparedInput) {
     const input = this._normalizeSystemCommandText(preparedInput?.correctedText || rawText);
     if (/\b(?:tabs?|tabbed|tabbing)\b/.test(input) && /\b(?:chrome|browser|edge|firefox)\b/.test(input)) {
+      return null;
+    }
+    if (/\bfan\s+(?:running|spinning)\b/.test(input)) {
       return null;
     }
     const publicKnowledgeContext = /\b(?:ipl|cricket|fifa|world\s+cup|match(?:es)?|fixtures?|schedule|score|scores|winner|winners|champion|champions|event|release|released|premiere|price|news|movie|movies)\b/.test(input);
@@ -6687,6 +7233,7 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
       'percent'
     ];
     const hasOperator = /[+\-*/%^]/.test(text) ||
+      /\bx\b/i.test(text) ||
       new RegExp(`\\b(?:${operatorWords.join('|')})\\b`, 'i').test(text);
     if (!hasOperator) {
       return false;
@@ -6701,7 +7248,8 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
       'square',
       'sqrt',
       'absolute',
-      'abs'
+      'abs',
+      'x'
     ];
     const wordMatches = text.match(/[a-z]+/gi) || [];
     return wordMatches.every(word => allowedWords.includes(word.toLowerCase())) &&
@@ -6762,7 +7310,7 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     }
 
     const folderOnlySearch = /\b(?:folder|folders|directory|directories)\b/i.test(fileEvidence) &&
-      !/\b(?:file|files|pdf|pdfs|document|documents|docx?|xlsx?|pptx?|csv|json|image|images|photo|photos|picture|pictures|video|videos)\b/i.test(fileEvidence);
+      !/\b(?:file|files|pdf|pdfs|docx?|xlsx?|pptx?|csv|json|image|images|photo|photos|picture|pictures|video|videos)\b/i.test(fileEvidence);
     const intent = this.intentRegistry.get(folderOnlySearch ? 'folder.search' : 'file.search');
     if (!intent) {
       return null;
@@ -6805,7 +7353,6 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
     const normalizedRaw = this._normalizePhotoSearchText(raw);
     const normalizedCorrected = this._normalizePhotoSearchText(corrected);
     const input = Array.from(new Set([normalizedRaw, normalizedCorrected].filter(Boolean))).join(' ');
-    const queryInput = normalizedRaw || normalizedCorrected || input;
     if (!input) {
       return null;
     }

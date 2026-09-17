@@ -531,34 +531,10 @@ class NlpProcessor {
 
   _findNoisyAction(tokens) {
     const protectedQueryTokens = new Set([
-      'fifa',
-      'world',
-      'cup',
-      'match',
-      'matches',
-      'fixture',
-      'fixtures',
-      'schedule',
-      'release',
-      'premiere',
-      'price',
-      'iphone',
-      'movie',
-      'movies',
-      'docker',
-      'kubernetes',
-      'devops',
-      'java',
-      'sql',
-      'podcast',
-      'technology',
-      'interview',
-      'finance',
-      'stock',
-      'gold',
-      'rupees',
-      'stripes',
-      'forever'
+      'fifa', 'world', 'cup', 'match', 'matches', 'fixture', 'fixtures', 'schedule',
+      'release', 'premiere', 'price', 'iphone', 'movie', 'movies', 'docker',
+      'kubernetes', 'devops', 'java', 'sql', 'podcast', 'technology', 'interview',
+      'finance', 'stock', 'gold', 'rupees', 'stripes', 'forever'
     ]);
     const groups = [
       { verb: 'open', words: ['open', 'launch', 'start', 'run', 'show', 'play'] },
@@ -586,45 +562,37 @@ class NlpProcessor {
       { verb: 'minimize', words: ['minimize', 'shrink', 'smaller', 'collapse', 'hide'] }
     ];
 
+    const verbMap = new Map();
+    groups.forEach(g => g.words.forEach(w => verbMap.set(w, g.verb)));
+    const allActionWords = Array.from(verbMap.keys());
+
     for (let index = 0; index < tokens.length; index += 1) {
       const token = tokens[index];
-      if (protectedQueryTokens.has(token)) {
-        continue;
-      }
+      if (!token || protectedQueryTokens.has(token)) continue;
 
       if (token === 'jump' && tokens[index + 1] === 'to') {
         const destination = tokens[index + 2];
-        if (['beginning', 'start', 'first'].includes(destination)) {
-          return { verb: 'previous', index };
-        }
-        if (['end', 'ending', 'last'].includes(destination)) {
-          return { verb: 'next', index };
-        }
+        if (['beginning', 'start', 'first'].includes(destination)) return { verb: 'previous', index };
+        if (['end', 'ending', 'last'].includes(destination)) return { verb: 'next', index };
       }
 
-      for (const group of groups) {
-        if (group.words.includes(token)) {
-          return { verb: group.verb, index };
-        }
-      }
+      const directVerb = verbMap.get(token);
+      if (directVerb) return { verb: directVerb, index };
 
-      for (const group of groups) {
-        if (!token || token.length <= 2) {
-          continue;
-        }
+      if (token.length <= 2) continue;
 
-        const match = Normalizer.findClosestOption(token, group.words, {
-          minSimilarity: token.length >= 5 ? 0.74 : 0.78,
-          maxDistance: 1
-        });
-        if (match && Math.abs(String(match.normalizedMatch || '').length - token.length) <= 1) {
-          return { verb: group.verb, index };
-        }
+      const match = Normalizer.findClosestOption(token, allActionWords, {
+        minSimilarity: token.length >= 5 ? 0.74 : 0.78,
+        maxDistance: 1
+      });
+
+      if (match && Math.abs(String(match.normalizedMatch || '').length - token.length) <= 1) {
+        return { verb: verbMap.get(match.normalizedMatch), index };
       }
     }
-
     return null;
   }
+
 
   _buildCommandTail(tokens, actionIndex, verb) {
     const tail = tokens.slice(actionIndex);

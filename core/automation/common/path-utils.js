@@ -1,4 +1,5 @@
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
@@ -533,12 +534,12 @@ function splitNameAndLocation(value) {
   };
 }
 
-function findEntryByName(name, options = {}) {
-  const matches = findEntriesByName(name, options);
+async function findEntryByName(name, options = {}) {
+  const matches = await findEntriesByName(name, options);
   return matches[0] || null;
 }
 
-function findEntriesByName(name, options = {}) {
+async function findEntriesByName(name, options = {}) {
   if (!name) return null;
 
   const {
@@ -557,21 +558,33 @@ function findEntriesByName(name, options = {}) {
   ]);
 
   for (const root of candidateRoots) {
-    if (!fs.existsSync(root)) continue;
+    try {
+      await fsPromises.access(root);
+    } catch (_) {
+      continue;
+    }
 
     const candidate = path.join(root, name);
-    if (!fs.existsSync(candidate)) continue;
-
-    const stats = fs.statSync(candidate);
-    if (wantedDirectory ? stats.isDirectory() : stats.isFile()) {
-      matches.push(candidate);
-      if (matches.length >= maxMatches) return dedupe(matches);
+    try {
+      const stats = await fsPromises.stat(candidate);
+      if (wantedDirectory ? stats.isDirectory() : stats.isFile()) {
+        matches.push(candidate);
+        if (matches.length >= maxMatches) return dedupe(matches);
+      }
+    } catch (_) {
+      // Candidate doesn't exist or is inaccessible.
     }
   }
 
-  const queue = candidateRoots
-    .filter(root => fs.existsSync(root) && fs.statSync(root).isDirectory())
-    .map(root => ({ directory: root, depth: 0 }));
+  const queue = [];
+  for (const root of candidateRoots) {
+    try {
+      const stats = await fsPromises.stat(root);
+      if (stats.isDirectory()) {
+        queue.push({ directory: root, depth: 0 });
+      }
+    } catch (_) {}
+  }
   const maxDepth = options.maxDepth ?? 4;
   const maxDirectories = options.maxDirectories ?? 1500;
   const visited = new Set();
@@ -594,7 +607,7 @@ function findEntriesByName(name, options = {}) {
 
     let entries = [];
     try {
-      entries = fs.readdirSync(directory, { withFileTypes: true });
+      entries = await fsPromises.readdir(directory, { withFileTypes: true });
     } catch (err) {
       continue;
     }

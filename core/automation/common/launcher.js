@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const { execFileSync, spawn } = require('child_process');
+const { execFile, execFileSync, spawn } = require('child_process');
+const execFileP = require('util').promisify(execFile);
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const MAX_TARGET_LENGTH = 4096;
@@ -114,6 +115,23 @@ function startProcess(target, args = [], options = {}) {
   });
 }
 
+async function startProcessAsync(target, args = [], options = {}) {
+  const script = buildStartProcessScript(target, args);
+  await execFileP(POWERSHELL_EXECUTABLE, [
+    '-NoLogo',
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    script
+  ], {
+    timeout: Number.isFinite(options.timeoutMs) ? options.timeoutMs : DEFAULT_TIMEOUT_MS,
+    stdio: 'ignore',
+    windowsHide: true
+  });
+}
+
 function launchTarget(target, args = [], options = {}) {
   const safeTarget = normalizeTarget(target);
   const safeArgs = normalizeArguments(args);
@@ -141,8 +159,28 @@ function launchTarget(target, args = [], options = {}) {
   };
 }
 
+async function launchTargetAsync(target, args = [], options = {}) {
+  const safeTarget = normalizeTarget(target);
+  const safeArgs = normalizeArguments(args);
+  const classification = classifyTarget(safeTarget);
+
+  if (classification === 'executable-path') {
+    return launchTarget(safeTarget, safeArgs, options);
+  }
+
+  await startProcessAsync(safeTarget, safeArgs, options);
+  return {
+    success: true,
+    method: 'powershell-start-process',
+    target: safeTarget,
+    args: safeArgs,
+    classification
+  };
+}
+
 module.exports = {
   launchTarget,
+  launchTargetAsync,
   _private: {
     buildArgumentClause,
     buildStartProcessScript,

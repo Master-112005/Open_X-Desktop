@@ -172,6 +172,44 @@ describe('Windows Session Controller', function() {
     assert.match(result.error, /Invalid process id/);
   });
 
+  it('should paste text through the clipboard for a matched window', function() {
+    const controller = new WindowsSessionController({});
+    let script = '';
+    controller.listWindows = () => ([{
+      handle: 100,
+      title: 'Untitled - Notepad',
+      processName: 'notepad',
+      id: 10
+    }]);
+    controller._getForegroundWindowHandle = () => 0;
+    controller._runScript = value => {
+      script = value;
+    };
+
+    const result = controller.pasteText('notepad', 'Hello Rakesh', { settleDelayMs: 80 });
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.textLength, 12);
+    assert.match(script, /Set-Clipboard -Value \$text/);
+    assert.match(script, /SendKeys\('\^v'\)/);
+    assert.match(script, /SGVsbG8gUmFrZXNo/);
+  });
+
+  it('should reject empty text before pasting', function() {
+    const controller = new WindowsSessionController({});
+    controller.listWindows = () => ([{
+      handle: 100,
+      title: 'Untitled - Notepad',
+      processName: 'notepad',
+      id: 10
+    }]);
+
+    const result = controller.pasteText('notepad', '   ');
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /No text provided/);
+  });
+
   it('should validate navigation URLs before reusing a window', function() {
     const controller = new WindowsSessionController({});
     controller.listWindows = () => ([{

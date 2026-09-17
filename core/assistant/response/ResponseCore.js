@@ -52,6 +52,7 @@ const FIELD_QUESTIONS = Object.freeze({
   targetApp: 'Which app should I use?',
   filename: 'Which file should I use?',
   fileName: 'Which file should I use?',
+  fileType: 'What file type should I use?',
   filePath: 'Which file should I use?',
   path: 'Which file or folder should I use?',
   folderName: 'Which folder should I use?',
@@ -174,8 +175,13 @@ function missingFieldQuestion(fields, intentId = '') {
 
   if (normalized.length === 1) {
     const field = normalized[0];
-    if (FIELD_QUESTIONS[field]) return FIELD_QUESTIONS[field];
     const lowerIntent = String(intentId || '').toLowerCase();
+    if (lowerIntent === 'file.create') {
+      if (field === 'filename' || field === 'fileName') return 'What should I name the file?';
+      if (field === 'fileType') return 'What file type should it be?';
+      if (field === 'path') return 'Where should I create the file?';
+    }
+    if (FIELD_QUESTIONS[field]) return FIELD_QUESTIONS[field];
     if (/reminder/.test(lowerIntent)) return 'What should I remind you about?';
     if (/alarm/.test(lowerIntent)) return 'What alarm time should I use?';
     if (/timer/.test(lowerIntent)) return 'How long should the timer run?';

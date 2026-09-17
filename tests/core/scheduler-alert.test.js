@@ -16,21 +16,25 @@ describe('Scheduler Alert Delivery', function() {
       eventBus: { publish: (event, payload) => events.push({ event, payload }) }
     });
 
-    const result = scheduler._scheduleNotification({
-      kind: 'Reminder',
-      title: 'Reminder',
-      message: 'Review the task list',
-      dueAt: new Date(Date.now() + 20)
-    });
+    try {
+      const result = await scheduler._scheduleNotification({
+        kind: 'Reminder',
+        title: 'Reminder',
+        message: 'Review the task list',
+        dueAt: new Date(Date.now() + 20)
+      });
 
-    assert.equal(result.success, true);
-    assert.equal(fs.existsSync(path.join(dataDir, 'schedules.json')), true);
-    await new Promise(resolve => setTimeout(resolve, 60));
-    assert.equal(events.length, 1);
-    assert.equal(events[0].payload.message, 'Review the task list');
-    assert.equal(scheduler.snooze(result.data.taskName, 5).success, true);
-    assert.equal(scheduler.complete(result.data.taskName).success, true);
-    scheduler.destroy();
+      assert.equal(result.success, true);
+      assert.equal(fs.existsSync(path.join(dataDir, 'schedules.json')), true);
+      await new Promise(resolve => setTimeout(resolve, 60));
+      assert.equal(events.length, 1);
+      assert.equal(events[0].payload.message, 'Review the task list');
+      assert.equal((await scheduler.snooze(result.data.taskName, 5)).success, true);
+      assert.equal((await scheduler.complete(result.data.taskName)).success, true);
+    } finally {
+      scheduler.destroy();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
   it('should execute validated scheduled close actions when reminders become due', async function() {
@@ -46,31 +50,34 @@ describe('Scheduler Alert Delivery', function() {
       }
     });
 
-    const result = scheduler.setReminder('close youtube', {
-      duration: 0.001,
-      scheduledAction: {
+    try {
+      const result = await scheduler.setReminder('close youtube', {
+        duration: 0.001,
+        scheduledAction: {
+          actionId: 'browser.closeTab',
+          entities: { browserName: 'chrome', tabQuery: 'youtube' }
+        }
+      });
+
+      assert.equal(result.success, true);
+      assert.deepEqual(result.data.scheduledAction, {
         actionId: 'browser.closeTab',
         entities: { browserName: 'chrome', tabQuery: 'youtube' }
-      }
-    });
+      });
 
-    assert.equal(result.success, true);
-    assert.deepEqual(result.data.scheduledAction, {
-      actionId: 'browser.closeTab',
-      entities: { browserName: 'chrome', tabQuery: 'youtube' }
-    });
-
-    await new Promise(resolve => setTimeout(resolve, 120));
-    assert.equal(executed.length, 1);
-    assert.equal(executed[0].scheduledAction.actionId, 'browser.closeTab');
-    assert.deepEqual(executed[0].scheduledAction.entities, { browserName: 'chrome', tabQuery: 'youtube' });
-    assert.equal(scheduler.scheduledItems[0].status, 'completed');
-    assert.equal(scheduler.scheduledItems[0].scheduledActionResult.success, true);
-    assert.equal(events.length, 1);
-    assert.equal(events[0].payload.status, 'completed');
-    assert.equal(events[0].payload.scheduledActionResult.success, true);
-    scheduler.destroy();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+      await new Promise(resolve => setTimeout(resolve, 120));
+      assert.equal(executed.length, 1);
+      assert.equal(executed[0].scheduledAction.actionId, 'browser.closeTab');
+      assert.deepEqual(executed[0].scheduledAction.entities, { browserName: 'chrome', tabQuery: 'youtube' });
+      assert.equal(scheduler.scheduledItems[0].status, 'completed');
+      assert.equal(scheduler.scheduledItems[0].scheduledActionResult.success, true);
+      assert.equal(events.length, 1);
+      assert.equal(events[0].payload.status, 'completed');
+      assert.equal(events[0].payload.scheduledActionResult.success, true);
+    } finally {
+      scheduler.destroy();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
   it('should execute validated scheduled media actions when reminders become due', async function() {
@@ -85,34 +92,38 @@ describe('Scheduler Alert Delivery', function() {
       }
     });
 
-    const result = scheduler.setReminder('play dulander song', {
-      duration: 0.001,
-      scheduledAction: {
+    try {
+      const result = await scheduler.setReminder('play dulander song', {
+        duration: 0.001,
+        scheduledAction: {
+          actionId: 'media.play',
+          entities: { mediaQuery: 'dulander song', mediaPlatform: 'youtube' }
+        }
+      });
+
+      assert.equal(result.success, true);
+      assert.deepEqual(result.data.scheduledAction, {
         actionId: 'media.play',
         entities: { mediaQuery: 'dulander song', mediaPlatform: 'youtube' }
-      }
-    });
+      });
 
-    assert.equal(result.success, true);
-    assert.deepEqual(result.data.scheduledAction, {
-      actionId: 'media.play',
-      entities: { mediaQuery: 'dulander song', mediaPlatform: 'youtube' }
-    });
-
-    await new Promise(resolve => setTimeout(resolve, 120));
-    assert.equal(executed.length, 1);
-    assert.equal(executed[0].scheduledAction.actionId, 'media.play');
-    assert.deepEqual(executed[0].scheduledAction.entities, { mediaQuery: 'dulander song', mediaPlatform: 'youtube' });
-    assert.equal(scheduler.scheduledItems[0].status, 'completed');
-    scheduler.destroy();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+      await new Promise(resolve => setTimeout(resolve, 120));
+      assert.equal(executed.length, 1);
+      assert.equal(executed[0].scheduledAction.actionId, 'media.play');
+      assert.deepEqual(executed[0].scheduledAction.entities, { mediaQuery: 'dulander song', mediaPlatform: 'youtube' });
+      assert.equal(scheduler.scheduledItems[0].status, 'completed');
+    } finally {
+      scheduler.destroy();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
-  it('should use OpenX schedule names and migrate accidental cwd schedules', function() {
+  it('should use OpenX schedule names and migrate accidental cwd schedules', async function() {
     const originalCwd = process.cwd();
     const originalDataDir = process.env.OPENX_DATA_DIR;
     const cwdDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-cwd-schedules-'));
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-managed-schedules-'));
+    let scheduler = null;
 
     try {
       process.env.OPENX_DATA_DIR = dataDir;
@@ -128,10 +139,11 @@ describe('Scheduler Alert Delivery', function() {
         createdAt: new Date().toISOString()
       }], null, 2), 'utf8');
 
-      const scheduler = new SchedulerController({
+      scheduler = new SchedulerController({
         app: { cleanupLegacySchedules: false, migrateCwdSchedules: true }
       });
-      const result = scheduler.setReminder('call mummy', { duration: 30 });
+
+      const result = await scheduler.setReminder('call mummy', { duration: 30 });
       const entries = readSecureJsonFile(path.join(dataDir, 'schedules.json'), [], {
         createIfMissing: false,
         validate: value => Array.isArray(value)
@@ -146,8 +158,8 @@ describe('Scheduler Alert Delivery', function() {
       assert.ok(entries.some(item => item.title === 'OpenX Reminder'));
       assert.match(result.data.id, /^OpenX_Reminder_/);
       assert.equal(result.data.title, 'OpenX Reminder');
-      scheduler.destroy();
     } finally {
+      scheduler?.destroy();
       process.chdir(originalCwd);
       if (originalDataDir === undefined) {
         delete process.env.OPENX_DATA_DIR;
@@ -159,32 +171,35 @@ describe('Scheduler Alert Delivery', function() {
     }
   });
 
-  it('should classify reminders and persist category symbols', function() {
+  it('should classify reminders and persist category symbols', async function() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-reminder-category-'));
     const scheduler = new SchedulerController({
       app: { dataDir, cleanupLegacySchedules: false },
       eventBus: { publish() {} }
     });
 
-    const college = scheduler.setReminder('go to college', { duration: 10 });
-    const water = scheduler.setReminder('drink water', { duration: 20 });
-    const exercise = scheduler.setReminder('do my exercise', { duration: 30 });
+    try {
+      const college = await scheduler.setReminder('go to college', { duration: 10 });
+      const water = await scheduler.setReminder('drink water', { duration: 20 });
+      const exercise = await scheduler.setReminder('do my exercise', { duration: 30 });
 
-    assert.equal(college.data.category, 'education');
-    assert.equal(college.data.symbol, '🎓');
-    assert.equal(water.data.category, 'water');
-    assert.equal(water.data.symbol, '💧');
-    assert.equal(exercise.data.category, 'exercise');
-    assert.equal(exercise.data.symbol, '🏃');
-    const schedulePath = path.join(dataDir, 'schedules.json');
-    const persisted = readSecureJsonFile(schedulePath, [], {
-      createIfMissing: false,
-      validate: value => Array.isArray(value)
-    });
-    assert.deepEqual(persisted.map(item => item.category), ['education', 'water', 'exercise']);
-    assert.match(fs.readFileSync(schedulePath, 'utf8'), /OPENX_SECURE_JSON_V1/);
-    scheduler.destroy();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+      assert.equal(college.data.category, 'education');
+      assert.equal(college.data.symbol, '\u{1F393}');
+      assert.equal(water.data.category, 'water');
+      assert.equal(water.data.symbol, '\u{1F4A7}');
+      assert.equal(exercise.data.category, 'exercise');
+      assert.equal(exercise.data.symbol, '\u{1F3C3}');
+      const schedulePath = path.join(dataDir, 'schedules.json');
+      const persisted = readSecureJsonFile(schedulePath, [], {
+        createIfMissing: false,
+        validate: value => Array.isArray(value)
+      });
+      assert.deepEqual(persisted.map(item => item.category), ['education', 'water', 'exercise']);
+      assert.match(fs.readFileSync(schedulePath, 'utf8'), /OPENX_SECURE_JSON_V1/);
+    } finally {
+      scheduler.destroy();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
   it('should understand worded clock expressions', function() {
@@ -201,211 +216,229 @@ describe('Scheduler Alert Delivery', function() {
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
-  it('should manage active timers alarms and schedule lists', function() {
+  it('should manage active timers alarms and schedule lists', async function() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-schedule-management-'));
     const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
 
-    scheduler.setTimer(5);
-    assert.equal(scheduler.pauseActiveTimer().success, true);
-    assert.equal(scheduler.resumeActiveTimer().success, true);
-    assert.equal(scheduler.getRemainingTimer().data.remainingMinutes, 5);
-    assert.equal(scheduler.listSchedules('Timer').data.count, 1);
-    assert.equal(scheduler.resetActiveTimer().success, true);
-    const cancelledTimer = scheduler.cancelLatest('Timer');
-    assert.equal(cancelledTimer.success, true);
-    assert.equal(cancelledTimer.data.status, 'dismissed');
-    scheduler.setAlarm('noon', 'Lunch');
-    assert.equal(scheduler.listSchedules('Alarm').data.entries[0].alarmLabel, 'Lunch');
-    assert.equal(scheduler.snoozeLatestAlarm().success, true);
-    const clearedAlarms = scheduler.clearSchedules('Alarm');
-    assert.equal(clearedAlarms.data.count, 1);
-    assert.equal(scheduler.listSchedules('Alarm').data.count, 0);
-    scheduler.setReminder('drink water', { duration: 15 });
-    assert.equal(scheduler.snoozeLatestReminder(10).success, true);
-
-    scheduler.destroy();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    try {
+      await scheduler.setTimer(5);
+      assert.equal((await scheduler.pauseActiveTimer()).success, true);
+      assert.equal((await scheduler.resumeActiveTimer()).success, true);
+      assert.equal(scheduler.getRemainingTimer().data.remainingMinutes, 5);
+      assert.equal(scheduler.listSchedules('Timer').data.count, 1);
+      assert.equal((await scheduler.resetActiveTimer()).success, true);
+      const cancelledTimer = await scheduler.cancelLatest('Timer');
+      assert.equal(cancelledTimer.success, true);
+      assert.equal(cancelledTimer.data.status, 'dismissed');
+      await scheduler.setAlarm('noon', 'Lunch');
+      assert.equal(scheduler.listSchedules('Alarm').data.entries[0].alarmLabel, 'Lunch');
+      assert.equal((await scheduler.snoozeLatestAlarm()).success, true);
+      const clearedAlarms = await scheduler.clearSchedules('Alarm');
+      assert.equal(clearedAlarms.data.count, 1);
+      assert.equal(scheduler.listSchedules('Alarm').data.count, 0);
+      await scheduler.setReminder('drink water', { duration: 15 });
+      assert.equal((await scheduler.snoozeLatestReminder(10)).success, true);
+    } finally {
+      scheduler.destroy();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
-  it('should remove recurring reminders without rescheduling them into active lists', function() {
+  it('should remove recurring reminders without rescheduling them into active lists', async function() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-remove-recurring-schedule-'));
     const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
 
-    const result = scheduler.setReminder('mark attendance', {
-      timeExpression: '9:30 pm',
-      recurrence: 'daily'
-    });
-    assert.equal(result.success, true);
+    try {
+      const result = await scheduler.setReminder('mark attendance', {
+        timeExpression: '9:30 pm',
+        recurrence: 'daily'
+      });
+      assert.equal(result.success, true);
 
-    const removed = scheduler.removeSchedule(result.data.id);
-    assert.equal(removed.success, true);
-    assert.equal(removed.data.status, 'dismissed');
-    assert.equal(scheduler.listSchedules('Reminder').data.count, 0);
-    assert.equal(scheduler.listSchedules('Reminder', 'today').data.entries.some(item => item.id === result.data.id), false);
-    assert.equal(scheduler.getScheduleSnapshot().entries.some(item => item.id === result.data.id), false);
-
-    scheduler.destroy();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+      const removed = await scheduler.removeSchedule(result.data.id);
+      assert.equal(removed.success, true);
+      assert.equal(removed.data.status, 'dismissed');
+      assert.equal(scheduler.listSchedules('Reminder').data.count, 0);
+      assert.equal(scheduler.listSchedules('Reminder', 'today').data.entries.some(item => item.id === result.data.id), false);
+      assert.equal(scheduler.getScheduleSnapshot().entries.some(item => item.id === result.data.id), false);
+    } finally {
+      scheduler.destroy();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
-  it('should cancel recurring reminders and alarms without rescheduling them', function() {
+  it('should cancel recurring reminders and alarms without rescheduling them', async function() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-cancel-recurring-schedule-'));
     const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
 
-    const reminder = scheduler.setReminder('mark attendance', {
-      timeExpression: '9:30 pm',
-      recurrence: 'daily'
-    });
-    const alarm = scheduler.setAlarm('10 am', 'Standup', { recurrence: 'daily' });
+    try {
+      const reminder = await scheduler.setReminder('mark attendance', {
+        timeExpression: '9:30 pm',
+        recurrence: 'daily'
+      });
+      const alarm = await scheduler.setAlarm('10 am', 'Standup', { recurrence: 'daily' });
 
-    assert.equal(reminder.success, true);
-    assert.equal(alarm.success, true);
-    assert.equal(scheduler.cancelLatest('Reminder').data.status, 'dismissed');
-    assert.equal(scheduler.cancelLatest('Alarm').data.status, 'dismissed');
-    assert.equal(scheduler.listSchedules('Reminder').data.count, 0);
-    assert.equal(scheduler.listSchedules('Alarm').data.count, 0);
-
-    scheduler.destroy();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+      assert.equal(reminder.success, true);
+      assert.equal(alarm.success, true);
+      assert.equal((await scheduler.cancelLatest('Reminder')).data.status, 'dismissed');
+      assert.equal((await scheduler.cancelLatest('Alarm')).data.status, 'dismissed');
+      assert.equal(scheduler.listSchedules('Reminder').data.count, 0);
+      assert.equal(scheduler.listSchedules('Alarm').data.count, 0);
+    } finally {
+      scheduler.destroy();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
-  it('should expose timer and stopwatch state for the mini widget', function() {
+  it('should expose timer and stopwatch state for the mini widget', async function() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-timer-widget-'));
     const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
 
-    const timer = scheduler.setTimer(5);
-    assert.equal(timer.success, true);
-    const timerState = scheduler.getTimerWidgetState(timer.data.taskName);
-    assert.equal(timerState.visible, true);
-    assert.equal(timerState.mode, 'timer');
-    assert.equal(timerState.durationMs, 300000);
-    assert.ok(timerState.remainingMs > 0);
-    scheduler.cancelLatest('Timer');
+    try {
+      const timer = await scheduler.setTimer(5);
+      assert.equal(timer.success, true);
+      const timerState = scheduler.getTimerWidgetState(timer.data.taskName);
+      assert.equal(timerState.visible, true);
+      assert.equal(timerState.mode, 'timer');
+      assert.equal(timerState.durationMs, 300000);
+      assert.ok(timerState.remainingMs > 0);
+      await scheduler.cancelLatest('Timer');
 
-    const stopwatch = scheduler.startStopwatch();
-    assert.equal(stopwatch.success, true);
-    assert.equal(scheduler.getTimerWidgetState(stopwatch.data.taskName).visible, false);
-    const stopwatchState = scheduler.getTimerWidgetState(stopwatch.data.taskName, { includeStopwatch: true });
-    assert.equal(stopwatchState.visible, true);
-    assert.equal(stopwatchState.mode, 'stopwatch');
-    assert.equal(stopwatchState.status, 'running');
-    assert.ok(stopwatchState.elapsedMs >= 0);
-    assert.equal(scheduler.pauseStopwatch().success, true);
-    assert.equal(scheduler.resetStopwatch().data.status, 'paused');
-    assert.equal(scheduler.getTimerWidgetState(stopwatch.data.taskName, { includeStopwatch: true }).elapsedMs, 0);
-    assert.equal(scheduler.resumeStopwatch().data.status, 'running');
-    assert.equal(scheduler.stopStopwatch().success, true);
-    assert.equal(scheduler.getTimerWidgetState().visible, false);
-
-    scheduler.destroy();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+      const stopwatch = await scheduler.startStopwatch();
+      assert.equal(stopwatch.success, true);
+      assert.equal(scheduler.getTimerWidgetState(stopwatch.data.taskName).visible, false);
+      const stopwatchState = scheduler.getTimerWidgetState(stopwatch.data.taskName, { includeStopwatch: true });
+      assert.equal(stopwatchState.visible, true);
+      assert.equal(stopwatchState.mode, 'stopwatch');
+      assert.equal(stopwatchState.status, 'running');
+      assert.ok(stopwatchState.elapsedMs >= 0);
+      assert.equal((await scheduler.pauseStopwatch()).success, true);
+      assert.equal((await scheduler.resetStopwatch()).data.status, 'paused');
+      assert.equal(scheduler.getTimerWidgetState(stopwatch.data.taskName, { includeStopwatch: true }).elapsedMs, 0);
+      assert.equal((await scheduler.resumeStopwatch()).data.status, 'running');
+      assert.equal((await scheduler.stopStopwatch()).success, true);
+      assert.equal(scheduler.getTimerWidgetState().visible, false);
+    } finally {
+      scheduler.destroy();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
-  it('should not let an active stopwatch appear from timer or alarm widget polling', function() {
+  it('should not let an active stopwatch appear from timer or alarm widget polling', async function() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-stopwatch-isolation-'));
     const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
 
-    const stopwatch = scheduler.startStopwatch();
-    assert.equal(stopwatch.success, true);
-    assert.equal(scheduler.getTimerWidgetState().visible, false);
-    assert.equal(scheduler.getTimerWidgetState(null, { includeStopwatch: true }).mode, 'stopwatch');
+    try {
+      const stopwatch = await scheduler.startStopwatch();
+      assert.equal(stopwatch.success, true);
+      assert.equal(scheduler.getTimerWidgetState().visible, false);
+      assert.equal(scheduler.getTimerWidgetState(null, { includeStopwatch: true }).mode, 'stopwatch');
 
-    const timer = scheduler.setTimer(5);
-    assert.equal(timer.success, true);
-    assert.equal(scheduler.getTimerWidgetState().mode, 'timer');
-    scheduler.complete(timer.data.id);
-    assert.equal(scheduler.getTimerWidgetState().visible, false);
+      const timer = await scheduler.setTimer(5);
+      assert.equal(timer.success, true);
+      assert.equal(scheduler.getTimerWidgetState().mode, 'timer');
+      await scheduler.complete(timer.data.id);
+      assert.equal(scheduler.getTimerWidgetState().visible, false);
 
-    const alarm = scheduler.setAlarm('noon', 'Lunch');
-    assert.equal(alarm.success, true);
-    assert.equal(scheduler.getTimerWidgetState(alarm.data.id).visible, false);
-
-    scheduler.destroy();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+      const alarm = await scheduler.setAlarm('noon', 'Lunch');
+      assert.equal(alarm.success, true);
+      assert.equal(scheduler.getTimerWidgetState(alarm.data.id).visible, false);
+    } finally {
+      scheduler.destroy();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
-  it('should persist and roll recurring reminders forward', function() {
+  it('should persist and roll recurring reminders forward', async function() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-recurring-reminder-'));
     const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
-    const result = scheduler.setReminder('drink water', { recurrence: 'hourly' });
+    const result = await scheduler.setReminder('drink water', { recurrence: 'hourly' });
     const firstDueAt = result.data.dueAt;
 
-    assert.equal(result.success, true);
-    assert.equal(scheduler.scheduledItems[0].recurrence, 'hourly');
-    scheduler.complete(result.data.taskName);
-    assert.equal(scheduler.scheduledItems[0].status, 'scheduled');
-    assert.ok(new Date(scheduler.scheduledItems[0].dueAt) > new Date(firstDueAt));
-
-    scheduler.destroy();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    try {
+      assert.equal(result.success, true);
+      assert.equal(scheduler.scheduledItems[0].recurrence, 'hourly');
+      await scheduler.complete(result.data.taskName);
+      assert.equal(scheduler.scheduledItems[0].status, 'scheduled');
+      assert.ok(new Date(scheduler.scheduledItems[0].dueAt) > new Date(firstDueAt));
+    } finally {
+      scheduler.destroy();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
-  it('should update duplicate active reminders instead of creating repeated alerts', function() {
+  it('should update duplicate active reminders instead of creating repeated alerts', async function() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-scheduler-dedupe-'));
     const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
 
-    const first = scheduler.setReminder('call mummy', { duration: 30 });
-    const second = scheduler.setReminder('call mummy', { duration: 30 });
+    try {
+      const first = await scheduler.setReminder('call mummy', { duration: 30 });
+      const second = await scheduler.setReminder('call mummy', { duration: 30 });
 
-    assert.equal(first.success, true);
-    assert.equal(second.success, true);
-    assert.equal(second.data.operation, 'update');
-    assert.equal(second.data.duplicate, true);
-    assert.equal(scheduler.listSchedules('Reminder').data.count, 1);
-
-    scheduler.destroy();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+      assert.equal(first.success, true);
+      assert.equal(second.success, true);
+      assert.equal(second.data.operation, 'update');
+      assert.equal(second.data.duplicate, true);
+      assert.equal(scheduler.listSchedules('Reminder').data.count, 1);
+    } finally {
+      scheduler.destroy();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
-  it('should keep active schedules when compacting old completed history', function() {
+  it('should keep active schedules when compacting old completed history', async function() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-scheduler-compact-'));
     const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
 
-    scheduler.scheduledItems = Array.from({ length: 190 }, (_, index) => ({
-      id: `OpenX_Reminder_old_${index}`,
-      taskName: `OpenX_Reminder_old_${index}`,
-      kind: 'Reminder',
-      title: 'Old reminder',
-      message: `old ${index}`,
-      dueAt: new Date(Date.now() + 60000 + index).toISOString(),
-      status: 'completed',
-      createdAt: new Date(Date.now() - index * 1000).toISOString()
-    }));
-    scheduler.scheduledItems.push({
-      id: 'OpenX_Reminder_active',
-      taskName: 'OpenX_Reminder_active',
-      kind: 'Reminder',
-      title: 'Active reminder',
-      message: 'active',
-      dueAt: new Date(Date.now() + 60000).toISOString(),
-      status: 'scheduled',
-      createdAt: new Date().toISOString()
-    });
+    try {
+      scheduler.scheduledItems = Array.from({ length: 190 }, (_, index) => ({
+        id: `OpenX_Reminder_old_${index}`,
+        taskName: `OpenX_Reminder_old_${index}`,
+        kind: 'Reminder',
+        title: 'Old reminder',
+        message: `old ${index}`,
+        dueAt: new Date(Date.now() + 60000 + index).toISOString(),
+        status: 'completed',
+        createdAt: new Date(Date.now() - index * 1000).toISOString()
+      }));
+      scheduler.scheduledItems.push({
+        id: 'OpenX_Reminder_active',
+        taskName: 'OpenX_Reminder_active',
+        kind: 'Reminder',
+        title: 'Active reminder',
+        message: 'active',
+        dueAt: new Date(Date.now() + 60000).toISOString(),
+        status: 'scheduled',
+        createdAt: new Date().toISOString()
+      });
 
-    scheduler._saveScheduledItems();
+      await scheduler._saveScheduledItems();
 
-    assert.ok(scheduler.scheduledItems.some(item => item.id === 'OpenX_Reminder_active'));
-    assert.ok(scheduler.scheduledItems.length <= 160);
-
-    scheduler.destroy();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+      assert.ok(scheduler.scheduledItems.some(item => item.id === 'OpenX_Reminder_active'));
+      assert.ok(scheduler.scheduledItems.length <= 160);
+    } finally {
+      scheduler.destroy();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 
-  it('should verify schedule state actions without requiring future due time for clears', function() {
+  it('should verify schedule state actions without requiring future due time for clears', async function() {
     const verifier = new ActionVerifier({});
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-scheduler-verify-'));
     const scheduler = new SchedulerController({ app: { dataDir, cleanupLegacySchedules: false } });
 
-    scheduler.setTimer(5);
-    const paused = verifier.verify('timer.pause', {}, scheduler.pauseActiveTimer());
-    const cleared = verifier.verify('timer.clear', {}, scheduler.clearSchedules('Timer'));
+    try {
+      await scheduler.setTimer(5);
+      const paused = verifier.verify('timer.pause', {}, await scheduler.pauseActiveTimer());
+      const cleared = verifier.verify('timer.clear', {}, await scheduler.clearSchedules('Timer'));
 
-    assert.equal(paused.verification.status, 'passed');
-    assert.equal(paused.verification.check, 'schedule-paused');
-    assert.equal(cleared.verification.status, 'passed');
-    assert.equal(cleared.verification.check, 'schedule-cleared');
-
-    scheduler.destroy();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+      assert.equal(paused.verification.status, 'passed');
+      assert.equal(paused.verification.check, 'schedule-paused');
+      assert.equal(cleared.verification.status, 'passed');
+      assert.equal(cleared.verification.check, 'schedule-cleared');
+    } finally {
+      scheduler.destroy();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 });

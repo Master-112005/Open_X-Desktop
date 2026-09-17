@@ -130,6 +130,48 @@ const FOLDER_ALIASES = {
   'home': 'home'
 };
 
+const FILE_TYPE_ALIASES = Object.freeze({
+  pdf: 'pdf',
+  text: 'txt',
+  txt: 'txt',
+  note: 'txt',
+  notes: 'txt',
+  markdown: 'md',
+  md: 'md',
+  javascript: 'js',
+  js: 'js',
+  python: 'py',
+  py: 'py',
+  html: 'html',
+  webpage: 'html',
+  web: 'html',
+  css: 'css',
+  json: 'json',
+  csv: 'csv',
+  xml: 'xml',
+  java: 'java',
+  typescript: 'ts',
+  ts: 'ts',
+  word: 'docx',
+  doc: 'doc',
+  docx: 'docx',
+  document: 'docx',
+  spreadsheet: 'xlsx',
+  excel: 'xlsx',
+  xls: 'xls',
+  xlsx: 'xlsx',
+  presentation: 'pptx',
+  powerpoint: 'pptx',
+  ppt: 'ppt',
+  pptx: 'pptx',
+  image: 'png',
+  photo: 'jpg',
+  picture: 'jpg',
+  png: 'png',
+  jpg: 'jpg',
+  jpeg: 'jpg'
+});
+
 const APP_COMMAND_VERBS = [
   'open',
   'launch',
@@ -208,6 +250,9 @@ class EntityExtractor {
           break;
         case 'filename':
           entities.filename = this._extractFilename(normalized, text);
+          break;
+        case 'fileType':
+          entities.fileType = this._extractFileType(normalized, text);
           break;
         case 'folderName':
           entities.folderName = this._extractFolderName(normalized, text);
@@ -542,6 +587,23 @@ class EntityExtractor {
     return null;
   }
 
+  _extractFileType(text, raw) {
+    const explicitFile = String(raw || '').match(/(?:^|[\s"\\/])[^\\/"\s]+\.(pdf|txt|docx?|xlsx?|pptx?|csv|json|xml|html?|js|ts|py|java|md|png|jpe?g|gif|webp|mp[34]|mkv|wav|zip|rar)(?=$|[\s"])/i);
+    if (explicitFile?.[1]) {
+      return explicitFile[1].toLowerCase().replace(/^jpeg$/, 'jpg').replace(/^htm$/, 'html');
+    }
+
+    const source = String(text || raw || '').toLowerCase().replace(/[_-]+/g, ' ');
+    for (const [alias, extension] of Object.entries(FILE_TYPE_ALIASES)) {
+      const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escaped}\\b`, 'i').test(source)) {
+        return extension;
+      }
+    }
+
+    return null;
+  }
+
   _cleanExistingFileReference(value) {
     return String(value || '')
       .trim()
@@ -840,9 +902,10 @@ class EntityExtractor {
 
     const cleaned = source
       .replace(/\b(?:please|kindly)\b/g, ' ')
+      .replace(/\b(?:make|keep|put|set|turn|get|do)\b/g, ' ')
       .replace(/\b(?:the|this|that)\b/g, ' ')
       .replace(/\b(?:window|app|application|tab)\b/g, ' ')
-      .replace(/\b(?:minimize|maximize|fullscreen|close|restore)\b/g, ' ')
+      .replace(/\b(?:minimize|maximize|fullscreen|close|restore|hide|hidden|shrink|collapse|expand|enlarge|bigger|larger|smaller)\b/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
 

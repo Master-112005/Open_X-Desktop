@@ -81,6 +81,8 @@ const LOCAL_LLM_CONVERSATION_INTENTS = new Set([
   'assistant.wellbeing'
 ]);
 
+const AUTOMATION_TASK_INTENT_PATTERN = /^(?:(?:app|media|window|text|form|presentation|calendar|timetable|planner)\.[\w]+|file\.(?:create|open|delete|rename|copy|move)|folder\.(?:create|open|delete|move)|browser\.(?:open|openTab|closeTab|openFirstResult)|home\.device_control|timer\.(?:set|pause|resume|cancel|reset|clear)|reminder\.(?:set|cancel|clear|snooze)|alarm\.(?:set|cancel|clear|snooze)|stopwatch\.(?:start|pause|resume|reset|cancel)|system\.(?:shutdown|restart|sleep|lock|screenshot))$/i;
+
 const CONVERSATION_FIRST_PATTERNS = [
   /^(?:hi|hii+|hello|hey|heya|yo|hola|namaste|salaam|welcome|greetings)(?:\s+(?:there|openx|boss|sir|madam|maam|mam|friend|dude|bro|guys?))?[\s.,!]*$/,
   /^(?:good\s+(?:morning|afternoon|evening|day|night))\s*$/,
@@ -888,23 +890,7 @@ class Assistant extends EventEmitter {
   }
 
   _isLocalLlmFallbackCandidate(result = {}) {
-    if (this._isUnimplementedCapabilityResult(result)) {
-      return true;
-    }
-    if (this._isLocalLlmConversationResult(result)) {
-      return true;
-    }
-    if (!result || result.success !== false) {
-      return false;
-    }
-    if (result.requiresConfirmation || result.needsClarification) {
-      return false;
-    }
-    if (result.intent) {
-      return false;
-    }
-    const error = String(result.error || '').toLowerCase();
-    return !error || error.includes('could not determine intent') || error.includes('unknown');
+    return this._isLocalLlmConversationResult(result);
   }
 
   _isLocalLlmConversationResult(result = {}) {
@@ -1246,6 +1232,32 @@ class Assistant extends EventEmitter {
     return parts.join(', ');
   }
 
+  _hasUnknownAutomationVerification(result = {}) {
+    if (!result || result.success !== true) {
+      return false;
+    }
+    const data = result.data || {};
+    const summary = result.verificationSummary || data.verificationSummary || {};
+    const verification = result.verification || data.verification || {};
+    const validation = result.validation || data.validation || {};
+
+    if (summary.verified === true || verification.status === 'passed' || data.verified === true || data.controllerVerified === true) {
+      return false;
+    }
+    const hasVerificationSignal = summary.verified !== undefined ||
+      summary.verificationStatus !== undefined ||
+      verification.status !== undefined ||
+      validation.status !== undefined ||
+      data.verified !== undefined ||
+      data.controllerVerified !== undefined ||
+      data.newWindowVerified !== undefined;
+    return summary.verificationStatus === 'unknown' ||
+      verification.status === 'unknown' ||
+      data.verified === false ||
+      data.controllerVerified === false ||
+      (AUTOMATION_TASK_INTENT_PATTERN.test(String(result.intent || '')) && !hasVerificationSignal);
+  }
+
   async _applyLocalLlmTaskReply(input, routedInput, source, result = {}) {
     if (!result || typeof result !== 'object') {
       return result;
@@ -1253,10 +1265,13 @@ class Assistant extends EventEmitter {
     if (result.intent === 'assistant.llm' || result.data?.routedFallback) {
       return result;
     }
-    if (!result.intent && !result.response) {
+    if (!result.intent || this._isUnimplementedCapabilityResult(result)) {
       return result;
     }
     if (result.needsClarification) {
+      return result;
+    }
+    if (this._hasUnknownAutomationVerification(result)) {
       return result;
     }
 

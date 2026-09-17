@@ -12,10 +12,12 @@ const MediaController = require('./media');
 const CommunicationsController = require('./communications');
 const SystemController = require('./system');
 const WindowsController = require('./windows');
+const TextController = require('./text');
 const SchedulerController = require('./scheduler');
 const PlannerController = require('./planner');
 const ScreenshotController = require('./screenshot-recording');
 const RemoteController = require('./remote');
+const MouseController = require('./mouse');
 const { HomeAutomationManager } = require('../home-automation');
 const FormAutomation = require('../../plugins/forms');
 const ActionVerifier = require('./common/action-verification');
@@ -26,6 +28,7 @@ const {
   resolveDirectory
 } = require('./common/path-utils');
 const { isCancellationError, throwIfAborted } = require('../assistant/utils');
+const { scoreName } = require('./common/search-scoring');
 
 class AutomationEngine {
   constructor(config) {
@@ -42,11 +45,18 @@ class AutomationEngine {
     this.communications = new CommunicationsController(config);
     this.system = new SystemController(config);
     this.windows = new WindowsController(config);
+    this.text = new TextController(config, {
+      windows: this.windows,
+      files: this.files,
+      browser: this.browser,
+      apps: this.apps
+    });
     this.remote = new RemoteController(config, { windows: this.windows });
     this.homeAutomation = new HomeAutomationManager(config?.homeAutomation || {});
     this.scheduler = new SchedulerController(config);
     this.planner = new PlannerController(config);
     this.screenshot = new ScreenshotController(config);
+    this.mouse = new MouseController(config);
     this.forms = new FormAutomation(config, {
       browser: this.browser,
       windows: this.windows
@@ -63,21 +73,33 @@ class AutomationEngine {
       brightness: this.brightness
     });
 
+
     this._actionMap = {
-      'volume.up': (entities) => Number.isFinite(Number(entities.value)) ? this.volume.setVolume(entities.value) : this.volume.increaseVolume(),
-      'volume.down': (entities) => Number.isFinite(Number(entities.value)) ? this.volume.setVolume(entities.value) : this.volume.decreaseVolume(),
+      'volume.up': (entities) => Number.isFinite(Number(entities.value)) ? this.volume.increaseVolume(entities.value) : this.volume.increaseVolume(),
+      'volume.down': (entities) => Number.isFinite(Number(entities.value)) ? this.volume.decreaseVolume(entities.value) : this.volume.decreaseVolume(),
       'volume.set': (entities) => this.volume.setVolume(Number.isFinite(Number(entities.value)) ? entities.value : 50),
       'volume.get': () => this.volume.getState(),
       'volume.mute': () => this.volume.mute(),
       'volume.unmute': () => this.volume.unmute(),
-      'brightness.up': (entities) => Number.isFinite(Number(entities.value)) ? this.brightness.setBrightness(entities.value) : this.brightness.increaseBrightness(),
-      'brightness.down': (entities) => Number.isFinite(Number(entities.value)) ? this.brightness.setBrightness(entities.value) : this.brightness.decreaseBrightness(),
+      'brightness.up': (entities) => Number.isFinite(Number(entities.value)) ? this.brightness.increaseBrightness(entities.value) : this.brightness.increaseBrightness(),
+      'brightness.down': (entities) => Number.isFinite(Number(entities.value)) ? this.brightness.decreaseBrightness(entities.value) : this.brightness.decreaseBrightness(),
       'brightness.set': (entities) => this.brightness.setBrightness(Number.isFinite(Number(entities.value)) ? entities.value : 50),
       'brightness.get': () => this.brightness.getState(),
-      'app.open': async (entities) => {
+'app.open': async (entities) => {
         if (this._isOpenXChatTarget(entities.appName)) {
           return this._openPeopleChat();
         }
+        if (entities.webRequested === true) {
+          const webResult = await this._openWebAppFallback(entities);
+          if (webResult) {
+            return webResult;
+          }
+          return {
+            success: false,
+            error: `Could not open ${String(entities.appName || 'the app')} in the browser`
+          };
+        }
+
         const appResult = await this.apps.open(entities.appName, entities);
         if (appResult?.success) {
           return appResult;
@@ -86,12 +108,7 @@ class AutomationEngine {
           return appResult;
         }
 
-        const webFallback = await this._openWebAppFallback(entities, appResult);
-        if (webFallback) {
-          return webFallback;
-        }
-
-        const folderResult = this.folders.open(entities.appName, entities);
+        const folderResult = await this.folders.open(entities.appName, entities);
         if (folderResult?.success) {
           return {
             success: true,
@@ -138,6 +155,9 @@ class AutomationEngine {
       'browser.openTab': (entities) => this._openBrowserTab(entities),
       'browser.closeTab': (entities) => this._closeBrowserTab(entities),
       'browser.listTabs': (entities) => this._listBrowserTabs(entities),
+      'text.write': (entities) => this.text.write(entities.text, entities),
+      'text.pasteFromFile': (entities) => this.text.pasteFromFile(entities.source || entities.filename, entities),
+      'text.writeSearchResult': (entities) => this.text.writeSearchResult(entities.query, entities),
       'remote.listTargets': () => this.remote.listTargets(),
       'remote.control': (entities) => this.remote.sendControl(entities),
       'home.devices.list': (entities) => this.homeAutomation.listDevices(entities),
@@ -249,6 +269,15 @@ class AutomationEngine {
       'window.minimize': (entities) => this.windows.minimizeWindow(entities.windowName),
       'window.maximize': (entities) => this.windows.maximizeWindow(entities.windowName),
       'window.close': (entities) => this.windows.closeWindow(entities.windowName),
+      'window.keys': (entities, context) => this.windows.sendKeys(entities.windowName || entities.appName, entities.keys, {
+        hold: entities.hold,
+        signal: context?.signal || context?.executionContext?.signal || null
+      }),
+      'window.focus': (entities) => this.apps.switchTo(entities.appName || entities.windowName),
+      'window.find': (entities) => this._findWindowElements(entities),
+      'mouse.move': (entities) => this.mouse.move(entities.x, entities.y),
+      'mouse.click': (entities) => this.mouse.click(entities.x, entities.y, { button: entities.button }),
+      'mouse.getPosition': () => this.mouse.getPosition(),
       'help': () => ({ success: true, data: {} }),
       'greeting': () => ({ success: true, data: {} }),
       'thanks': () => ({ success: true, data: {} })
@@ -257,6 +286,10 @@ class AutomationEngine {
     if (typeof this.scheduler.setActionExecutor === 'function') {
       this.scheduler.setActionExecutor((scheduledAction, schedule) => this._executeScheduledAction(scheduledAction, schedule));
     }
+  }
+
+  async init() {
+    await this.scheduler.init();
   }
 
   _normalizePresentationMode(mode) {
@@ -385,7 +418,7 @@ class AutomationEngine {
     });
   }
 
-  _setReminder(entities = {}) {
+  async _setReminder(entities = {}) {
     const timeExpressions = Array.isArray(entities.timeExpressions)
       ? Array.from(new Set(
           entities.timeExpressions
@@ -407,12 +440,12 @@ class AutomationEngine {
     });
   }
 
-  _setMultipleReminders(entities = {}, timeExpressions = []) {
-    const results = timeExpressions.map(timeExpression => this.scheduler.setReminder(entities.reminderText, {
+  async _setMultipleReminders(entities = {}, timeExpressions = []) {
+    const results = await Promise.all(timeExpressions.map(timeExpression => this.scheduler.setReminder(entities.reminderText, {
       timeExpression,
       category: entities.reminderCategory,
       recurrence: entities.recurrence
-    }));
+    })));
     const entries = results
       .filter(result => result?.success && result.data)
       .map(result => result.data);
@@ -530,7 +563,7 @@ class AutomationEngine {
     const handler = this._actionMap[actionId];
     if (!handler) {
       this.logger.error(`Unknown action: ${actionId}`);
-      return this.verifier.verify(actionId, entities || {}, {
+      return await this.verifier.verify(actionId, entities || {}, {
         success: false,
         error: `Unknown action: ${actionId}`
       });
@@ -540,19 +573,19 @@ class AutomationEngine {
       if (this.browser?.isInternetRequiredAction?.(actionId, entities || {})) {
         const online = await this.browser.checkInternetConnection();
         if (!online) {
-          return this.verifier.verify(actionId, entities || {}, this.browser.offlineResponse());
+          return await this.verifier.verify(actionId, entities || {}, this.browser.offlineResponse());
         }
       }
       this.logger.info(`Executing: ${actionId}`, entities);
       const result = await handler(entities || {}, context || {});
       throwIfAborted(signal);
-      return this.verifier.verify(actionId, entities || {}, result);
+      return await this.verifier.verify(actionId, entities || {}, result);
     } catch (err) {
       if (isCancellationError(err)) {
         throw err;
       }
       this.logger.error(`Action execution failed: ${actionId}`, err);
-      return this.verifier.verify(actionId, entities || {}, {
+      return await this.verifier.verify(actionId, entities || {}, {
         success: false,
         error: err.message
       });
@@ -713,7 +746,7 @@ class AutomationEngine {
 
     const imageLike = transferKind === 'image' || /\b(?:image|images|photo|photos|picture|pictures|screenshot|screenshots)\b/i.test(normalizedSource);
     if (/\b(?:latest|newest|recent)\b/i.test(normalizedSource) && imageLike) {
-      const smart = this.files.smartFind({
+      const smart = await this.files.smartFind({
         query: normalizedSource,
         fileType: 'image',
         sortBy: 'recent',
@@ -739,7 +772,7 @@ class AutomationEngine {
       if (specialFolder) {
         return { path: requireSafeUserPath(specialFolder, { allowRoot: true }), transferKind: 'folder' };
       }
-      const folderMatches = this.folders._findFolderMatches(folderCandidate);
+      const folderMatches = await this.folders._findFolderMatches(folderCandidate);
       if (folderMatches.length > 1) {
         const choices = folderMatches.slice(0, 8).map((folderPath, index) => ({
           index: index + 1,
@@ -801,7 +834,7 @@ class AutomationEngine {
       selectedPath: entities.selectedPath,
       targetPath: entities.targetPath
     };
-    const fileMatches = this.files._findFileMatches(fileCandidate, fileMatchOptions);
+    const fileMatches = await this.files._findFileMatches(fileCandidate, fileMatchOptions);
     if (fileMatches.length > 1) {
       const choices = fileMatches.slice(0, 8).map((filePath, index) => ({
         index: index + 1,
@@ -855,7 +888,7 @@ class AutomationEngine {
       };
     }
 
-    const fallbackSmart = this.files.smartFind({
+    const fallbackSmart = await this.files.smartFind({
       query: normalizedSource,
       fileType: imageLike ? 'image' : undefined,
       openResult: false
@@ -938,7 +971,7 @@ class AutomationEngine {
     const matchedTabs = this._matchTabsByQuery(tabQuery, allTabs);
 
     if (matchedTabs.length === 0) {
-      const fallbackResult = this._closeTargetedBrowserTabs(requested, target, tabQuery, titleTokens);
+      const fallbackResult = await this._closeTargetedBrowserTabs(requested, target, tabQuery, titleTokens);
       if (fallbackResult.success) {
         return fallbackResult;
       }
@@ -1043,6 +1076,65 @@ class AutomationEngine {
       success: false,
       error: `Could not close the "${selectedTab.title}" tab in ${requested}`,
       data: closeResult.data
+    };
+  }
+
+  async _findWindowElements(entities = {}) {
+    const name = String(entities.name || '').trim().toLowerCase();
+    const kind = String(entities.kind || 'window').toLowerCase();
+    if (!name) {
+      return { success: false, error: 'find_element requires a name to search for' };
+    }
+
+    const matches = [];
+
+    if (kind === 'window' || kind === 'all' || kind === 'both') {
+      let windows = [];
+      if (typeof this.windows.listWindows === 'function') {
+        windows = this.windows.listWindows() || [];
+      } else if (typeof this.windows.session?.listWindows === 'function') {
+        windows = this.windows.session.listWindows() || [];
+      }
+      for (const win of windows) {
+        const title = String(win.title || win.windowTitle || '').trim().toLowerCase();
+        const process = String(win.processName || win.process || '').trim().toLowerCase();
+        if (!title && !process) continue;
+        if (title.includes(name) || process.includes(name)) {
+          matches.push({
+            kind: 'window',
+            title: win.title || win.windowTitle || '',
+            processName: win.processName || win.process || '',
+            id: win.handle || win.id || null
+          });
+        }
+      }
+    }
+
+    if (kind === 'tab' || kind === 'all' || kind === 'both') {
+      const tabsResult = await this._listBrowserTabs({ browserName: entities.browserName || 'browser' });
+      for (const tab of tabsResult?.data?.tabs || []) {
+        const title = String(tab.title || '').trim().toLowerCase();
+        const url = String(tab.url || '').trim().toLowerCase();
+        const process = String(tab.processName || '').trim().toLowerCase();
+        if (title.includes(name) || url.includes(name) || process.includes(name)) {
+          matches.push({
+            kind: 'tab',
+            title: tab.title || '',
+            url: tab.url || '',
+            processName: tab.processName || ''
+          });
+        }
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        name: entities.name,
+        kind,
+        count: matches.length,
+        matches
+      }
     };
   }
 
@@ -1278,6 +1370,10 @@ class AutomationEngine {
         score += Math.round(titleSimilarity * 80);
       }
 
+      const rankedTitle = scoreName(queryLower, tab.title || tab.rawTitle || '');
+      if (rankedTitle >= 80) score += 45;
+      else if (rankedTitle >= 55) score += 22;
+
       return { tab, score };
     });
 
@@ -1346,7 +1442,7 @@ class AutomationEngine {
     };
   }
 
-  _closeTargetedBrowserTabs(requested, target, tabQuery, titleTokens) {
+  async _closeTargetedBrowserTabs(requested, target, tabQuery, titleTokens) {
     const closeLimit = 8;
     const closed = [];
     let lastResult = null;
@@ -1370,9 +1466,9 @@ class AutomationEngine {
 
       lastResult = result;
       closed.push(result.data);
-      this._sleep(450);
+      await this._sleep(450);
 
-      const stillOpen = this._findTargetedBrowserTab(requested, target, tabQuery, titleTokens);
+      const stillOpen = await this._findTargetedBrowserTab(requested, target, tabQuery, titleTokens);
       if (!stillOpen) {
         return this._browserTabCloseSuccess(requested, tabQuery, closed, true);
       }
@@ -1419,7 +1515,7 @@ class AutomationEngine {
       return closed;
     }
 
-    this._sleep(300);
+    await this._sleep(300);
     const after = await this._listBrowserTabs({ browserName: requested });
     const stillOpen = (after.data?.tabs || []).some(candidate => (
       Normalizer.normalizeText(candidate.title) === Normalizer.normalizeText(tab.title)
@@ -1435,7 +1531,7 @@ class AutomationEngine {
     return this._browserTabCloseSuccess(requested, tab.title, [closed.data], true);
   }
 
-  _findTargetedBrowserTab(requested, target, tabQuery, titleTokens) {
+  async _findTargetedBrowserTab(requested, target, tabQuery, titleTokens) {
     const finder = typeof this.windows.findWindow === 'function'
       ? this.windows.findWindow.bind(this.windows)
       : this.windows.session?.findWindow?.bind(this.windows.session);
@@ -1443,11 +1539,12 @@ class AutomationEngine {
       return null;
     }
 
-    return finder(tabQuery, {
+    const found = finder(tabQuery, {
       preferredProcessNames: target.preferredProcessNames,
       preferredTitleTokens: titleTokens,
       requireTitleTokenMatch: true
     });
+    return found && typeof found.then === 'function' ? await found : found;
   }
 
   _browserTabCloseSuccess(requested, tabQuery, closed, verified) {
@@ -1466,9 +1563,11 @@ class AutomationEngine {
   }
 
   _sleep(milliseconds) {
-    if (!milliseconds) return;
-    const buffer = new SharedArrayBuffer(4);
-    Atomics.wait(new Int32Array(buffer), 0, 0, milliseconds);
+    const duration = Math.max(0, Number(milliseconds) || 0);
+    if (duration === 0) {
+      return Promise.resolve();
+    }
+    return new Promise(resolve => setTimeout(resolve, duration));
   }
 
   registerAction(actionId, handler) {

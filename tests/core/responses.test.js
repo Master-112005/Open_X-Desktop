@@ -213,9 +213,9 @@ describe('Response Generator', function() {
       }
     });
 
-    assert.ok(result.includes('Most relevant result'));
     assert.ok(result.includes('Node.js is a JavaScript runtime'));
     assert.ok(result.includes('Node.js guide'));
+    assert.match(result, /Source: Node\.js guide/);
   });
 
   it('should describe site-specific browser searches', function() {
@@ -642,6 +642,76 @@ describe('Response Generator', function() {
     });
 
     assert.match(result, /^Opened and verified a new notepad window(?:, sir)?\.$/);
+  });
+
+  it('should not claim completion when automation dispatch is not verified', function() {
+    const gen = new ResponseGenerator();
+    const result = gen.generate('success', 'app.close', {
+      entities: { appName: 'notepad' },
+      result: {
+        success: true,
+        data: {
+          appName: 'notepad',
+          controllerVerified: false,
+          verification: {
+            status: 'unknown',
+            check: 'app-close',
+            message: 'No postcondition readback was available'
+          }
+        },
+        verification: {
+          status: 'unknown',
+          check: 'app-close',
+          message: 'No postcondition readback was available'
+        }
+      }
+    });
+
+    assert.match(result, /Close Notepad request was sent/i);
+    assert.match(result, /could not verify the final state/i);
+    assert.doesNotMatch(result, /\bclosed\b|\bshut down\b/i);
+  });
+
+  it('should not claim completion when automation success has no verification metadata', function() {
+    const gen = new ResponseGenerator();
+    const result = gen.generate('success', 'app.open', {
+      entities: { appName: 'chrome' },
+      result: {
+        success: true,
+        data: { appName: 'chrome' }
+      }
+    });
+
+    assert.match(result, /Open Chrome request was sent/i);
+    assert.match(result, /could not verify the final state/i);
+    assert.doesNotMatch(result, /\bwill launch shortly\b|\bOpening Chrome\b/i);
+  });
+
+  it('should ground browser opens when only dispatch is known', function() {
+    const gen = new ResponseGenerator();
+    const result = gen.generate('success', 'browser.open', {
+      entities: { url: 'https://example.com', browserName: 'chrome' },
+      result: {
+        success: true,
+        data: {
+          url: 'https://example.com',
+          browserName: 'chrome',
+          controllerVerified: false,
+          verification: {
+            status: 'unknown',
+            check: 'browser-launch-dispatch'
+          }
+        },
+        verification: {
+          status: 'unknown',
+          check: 'browser-launch-dispatch'
+        }
+      }
+    });
+
+    assert.match(result, /Open browser request was sent/i);
+    assert.match(result, /could not verify the final state/i);
+    assert.doesNotMatch(result, /^Opening https:\/\/example\.com/i);
   });
 
   it('should preserve Visual Studio Code and confirm application tabs by strict name', function() {

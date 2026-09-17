@@ -1,6 +1,7 @@
 const { execFileSync } = require('child_process');
 const Logger = require('../../assistant/Data').Logger;
 const Normalizer = require('../../assistant/Data').Normalizer;
+const { scoreName } = require('./search-scoring');
 
 const POWERSHELL_EXECUTABLE = 'powershell.exe';
 const DEFAULT_POWERSHELL_TIMEOUT_MS = 6000;
@@ -10,6 +11,7 @@ const PROCESS_WINDOW_TIMEOUT_MS = 3000;
 const FOREGROUND_TIMEOUT_MS = 5000;
 const MAX_WINDOW_QUERY_LENGTH = 240;
 const MAX_SEND_KEYS_LENGTH = 512;
+const MAX_PASTE_TEXT_LENGTH = 20000;
 const DEFAULT_SEND_KEYS_SETTLE_DELAY_MS = 220;
 const MAX_URL_LENGTH = 4096;
 const PROCESS_NAME_PATTERN = /^[a-z0-9._-]+$/;
@@ -284,7 +286,15 @@ Get-Process | Where-Object {
   )
   $items = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
   foreach ($item in $items) {
-    if (-not [string]::Equals([string]$item.Current.Name, $targetTitle, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $itemTitle = [string]$item.Current.Name
+    $norm = { param([string]$s) ([regex]::Replace($s.ToLowerInvariant(), '[^a-zA-Z0-9\s]', ' ') -replace '\s+', ' ').Trim() }
+    $targetNorm = & $norm $targetTitle
+    $itemNorm = & $norm $itemTitle
+    $exactMatch = [string]::Equals($itemTitle, $targetTitle, [System.StringComparison]::OrdinalIgnoreCase)
+    $normalizedMatch = $targetNorm.Length -gt 0 -and $itemNorm -eq $targetNorm
+    $containedMatch = ($targetNorm.Length -ge 3 -and $itemNorm.Contains($targetNorm)) -or
+      ($itemNorm.Length -ge 3 -and $targetNorm.Contains($itemNorm))
+    if (-not ($exactMatch -or $normalizedMatch -or $containedMatch)) {
       continue
     }
     try {
@@ -507,6 +517,81 @@ $wshell.SendKeys('${escapePowerShell(safeKeys)}')
     }
   }
 
+  pasteText(windowName, text, options = {}) {
+    const directHandle = toSafeOptionalInteger(options.targetHandle || options.matchedHandle);
+    const target = directHandle
+      ? {
+          handle: directHandle,
+          id: toSafeOptionalInteger(options.targetProcessId || options.processId) || 0,
+          title: options.targetTitle || windowName || 'the matched window',
+          processName: options.targetProcessName || options.processName || 'unknown'
+        }
+      : this.findWindow(windowName, options);
+    if (!target) {
+      return { success: false, error: this._missingWindowMessage(windowName, options) };
+    }
+
+    let safeTarget;
+    let safeText;
+    const settleDelayMs = boundedInteger(
+      options.settleDelayMs,
+      DEFAULT_SEND_KEYS_SETTLE_DELAY_MS,
+      40,
+      DEFAULT_SEND_KEYS_SETTLE_DELAY_MS
+    );
+    try {
+      safeTarget = this._coerceWindowTarget(target);
+      safeText = normalizeLimitedText(text, 'Text', MAX_PASTE_TEXT_LENGTH);
+      if (!safeText) {
+        return { success: false, error: 'No text provided for writing' };
+      }
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+
+    const encodedText = Buffer.from(safeText, 'utf8').toString('base64');
+    const script = `
+$ErrorActionPreference = 'Stop'
+${USER32_BOOTSTRAP}
+$hwnd = [IntPtr]${safeTarget.handle}
+if ([Win32WindowApi]::IsIconic($hwnd)) {
+  [Win32WindowApi]::ShowWindowAsync($hwnd, 9) | Out-Null
+} else {
+  [Win32WindowApi]::ShowWindowAsync($hwnd, 5) | Out-Null
+}
+[Win32WindowApi]::SetForegroundWindow($hwnd) | Out-Null
+$wshell = New-Object -ComObject WScript.Shell
+$null = $wshell.AppActivate(${safeTarget.id})
+Start-Sleep -Milliseconds ${settleDelayMs}
+$text = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${encodedText}'))
+$previousClipboard = ''
+try { $previousClipboard = Get-Clipboard -Raw -ErrorAction Stop } catch { }
+Set-Clipboard -Value $text
+$wshell.SendKeys('^v')
+Start-Sleep -Milliseconds 120
+if ($previousClipboard.Length -gt 0) {
+  try { Set-Clipboard -Value $previousClipboard -ErrorAction Stop } catch { }
+}
+`;
+
+    try {
+      this._runScript(script, 8000);
+      return {
+        success: true,
+        data: {
+          action: 'pasteText',
+          textLength: safeText.length,
+          matchedWindow: safeTarget.title,
+          matchedHandle: safeTarget.handle,
+          processId: safeTarget.id || null,
+          processName: safeTarget.processName
+        }
+      };
+    } catch (err) {
+      return { success: false, error: `Unable to write text into the ${safeTarget.title} window` };
+    }
+  }
+
   findWindow(windowName, options = {}) {
     const windows = this.listWindows();
     if (windows.length === 0) {
@@ -558,6 +643,15 @@ $wshell.SendKeys('${escapePowerShell(safeKeys)}')
 
         if (titleSimilarity >= 0.6) score += Math.round(titleSimilarity * 80);
         if (processSimilarity >= 0.7) score += Math.round(processSimilarity * 50);
+
+        const rankedTitle = scoreName(normalizedQuery, candidate.title);
+        if (rankedTitle >= 80) score += 40;
+        else if (rankedTitle >= 60) score += 24;
+        else if (rankedTitle >= 40) score += 12;
+
+        const rankedProcess = scoreName(normalizedQuery, candidate.processName);
+        if (rankedProcess >= 80) score += 30;
+        else if (rankedProcess >= 60) score += 15;
 
         const queryTokens = Normalizer.tokenize(normalizedQuery);
         if (queryTokens.length > 0) {
@@ -641,6 +735,13 @@ $null = $wshell.AppActivate(${safeTarget.id})
       close: `
 $ErrorActionPreference = 'Stop'
 ${USER32_BOOTSTRAP}
+$hwnd = [IntPtr]${safeTarget.handle}
+$targetProcess = '${escapePowerShell(String(safeTarget.processName || '').toLowerCase())}'
+if ($targetProcess -match '^(chrome|msedge|edge|firefox|brave)$') {
+  [Win32WindowApi]::PostMessage($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+  Start-Sleep -Milliseconds 250
+  exit 0
+}
 $process = Get-Process -Id ${safeTarget.id} -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($process) {
   $closed = $process.CloseMainWindow()
@@ -649,7 +750,7 @@ if ($process) {
     exit 0
   }
 }
-[Win32WindowApi]::PostMessage([IntPtr]${safeTarget.handle}, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+[Win32WindowApi]::PostMessage($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
 `
     };
 

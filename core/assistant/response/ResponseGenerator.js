@@ -119,9 +119,118 @@ function responseSeed(context, fallback) {
   return context?.result?.data?.responseVariantSeed || fallback;
 }
 
+function verificationData(context = {}) {
+  const result = context.result || {};
+  const data = result.data || {};
+  const summary = result.verificationSummary || data.verificationSummary || {};
+  const verification = result.verification || data.verification || {};
+  const validation = result.validation || data.validation || {};
+  return { result, data, summary, verification, validation };
+}
+
+function hasExecutionResult(context = {}) {
+  return Boolean(context.result && typeof context.result === 'object' && Object.prototype.hasOwnProperty.call(context.result, 'success'));
+}
+
+function isVerifiedExecution(context = {}) {
+  const { data, summary, verification, validation } = verificationData(context);
+  if (summary.verified === true) return true;
+  if (verification.status === 'passed' && validation.status !== 'failed') return true;
+  if (data.verified === true || data.controllerVerified === true || data.newWindowVerified === true) return true;
+  return false;
+}
+
+function hasUnknownExecutionState(context = {}) {
+  const { data, summary, verification } = verificationData(context);
+  if (summary.verified === true || verification.status === 'passed') return false;
+  if (summary.verificationStatus === 'unknown' || verification.status === 'unknown') return true;
+  if (data.controllerVerified === false || data.verified === false) return true;
+  return false;
+}
+
+function hasVerificationSignal(context = {}) {
+  const { data, summary, verification, validation } = verificationData(context);
+  return summary.verified !== undefined ||
+    summary.verificationStatus !== undefined ||
+    verification.status !== undefined ||
+    validation.status !== undefined ||
+    data.verified !== undefined ||
+    data.controllerVerified !== undefined ||
+    data.newWindowVerified !== undefined;
+}
+
+function isAutomationSuccessTemplate(templateId = '') {
+  const id = String(templateId || '');
+  return /^(?:app|media|window|text|form|presentation|calendar|timetable|planner)\./i.test(id) ||
+    /^(?:file\.(?:create|open|delete|rename|copy|move)|folder\.(?:create|open|delete|move)|browser\.(?:open|openTab|closeTab|openFirstResult)|home\.device_control|timer\.(?:set|pause|resume|cancel|reset|clear)|reminder\.(?:set|cancel|clear|snooze)|alarm\.(?:set|cancel|clear|snooze)|stopwatch\.(?:start|pause|resume|reset|cancel)|system\.(?:shutdown|restart|sleep|lock|screenshot))$/i.test(id);
+}
+
 function verifiedPrefix(context) {
-  const verification = context?.result?.data?.verification;
-  return verification?.status === 'passed' ? 'Verified. ' : '';
+  return isVerifiedExecution(context) ? 'Verified. ' : '';
+}
+
+function actionLabel(templateId, context = {}) {
+  const data = context.result?.data || {};
+  const entities = context.entities || {};
+  const appName = formatDisplayName(valueFromContext(context, 'appName', data.app || data.targetApp || 'app'));
+  const fileName = valueFromContext(context, 'filename', basenameOrValue(valueFromContext(context, 'path')));
+  const folderName = valueFromContext(context, 'folderName', basenameOrValue(valueFromContext(context, 'path')));
+  const labels = {
+    'app.open': `Open ${appName}`,
+    'app.close': `Close ${appName}`,
+    'app.switch': `Switch to ${appName}`,
+    'app.newTab': `Open a new tab in ${appName}`,
+    'file.create': fileName ? `Create "${fileName}"` : 'Create file',
+    'file.open': fileName ? `Open "${fileName}"` : 'Open file',
+    'file.delete': fileName ? `Delete "${fileName}"` : 'Delete file',
+    'file.rename': fileName ? `Rename to "${fileName}"` : 'Rename file',
+    'file.copy': 'Copy file',
+    'file.move': 'Move file',
+    'folder.create': folderName ? `Create folder "${folderName}"` : 'Create folder',
+    'folder.open': folderName ? `Open folder "${folderName}"` : 'Open folder',
+    'folder.delete': folderName ? `Delete folder "${folderName}"` : 'Delete folder',
+    'folder.move': 'Move folder',
+    'browser.open': 'Open browser',
+    'browser.openTab': 'Open browser tab',
+    'browser.closeTab': 'Close browser tab',
+    'browser.openFirstResult': 'Open first browser result',
+    'media.play': 'Start media playback',
+    'media.pause': 'Pause media',
+    'media.resume': 'Resume media',
+    'media.stop': 'Stop media',
+    'media.next': 'Skip to next media item',
+    'media.previous': 'Go to previous media item',
+    'window.minimize': `Minimize ${valueFromContext(context, 'matchedWindow', entities.windowName || 'window')}`,
+    'window.maximize': `Maximize ${valueFromContext(context, 'matchedWindow', entities.windowName || 'window')}`,
+    'window.close': `Close ${valueFromContext(context, 'matchedWindow', entities.windowName || 'window')}`,
+    'text.write': 'Write text',
+    'text.pasteFromFile': 'Paste file text',
+    'text.writeSearchResult': 'Write search result'
+  };
+  return labels[templateId] || normalizeActionLabel(templateId || valueFromContext(context, 'action', 'automation action'));
+}
+
+function shouldGroundUnverifiedSuccess(type, templateId, context = {}) {
+  if (type !== 'success') return false;
+  if (!hasExecutionResult(context) || context.result?.success !== true) return false;
+  if (context.result?.needsClarification || context.result?.requiresConfirmation) return false;
+  if (isVerifiedExecution(context)) return false;
+  if (!hasUnknownExecutionState(context) && !(isAutomationSuccessTemplate(templateId) && !hasVerificationSignal(context))) return false;
+  if (/^(?:greeting|thanks|help|assistant\.|system\.(?:time|date|calculate|processes|insight|status|cpu|memory|battery|disk|bluetooth)|file\.search|file\.list|file\.smartFind|folder\.search|schedule\.list|timer\.list|reminder\.list|alarm\.list|stopwatch\.elapsed)$/i.test(String(templateId || ''))) {
+    return false;
+  }
+  return true;
+}
+
+function groundedUnverifiedSuccess(type, templateId, context = {}, generatedText = '') {
+  if (!shouldGroundUnverifiedSuccess(type, templateId, context)) {
+    return generatedText;
+  }
+  const label = actionLabel(templateId, context);
+  const verification = verificationData(context).verification;
+  const reason = verification.message || verification.reason || context.result?.error || '';
+  const reasonPart = reason ? ` ${clampText(reason, 180)}` : '';
+  return `${label} request was sent, but I could not verify the final state.${reasonPart}`;
 }
 
 function plannerWhen(entry = {}) {
@@ -206,15 +315,6 @@ function partialSearchNote(searchStats) {
     return ' Search reached the directory limit, so there may be more matches.';
   }
   return ' Search was partial, so there may be more matches.';
-}
-
-function sentenceSplit(text) {
-  return String(text || '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .split(/(?<=[.!?])\s+/)
-    .map(sentence => sentence.trim())
-    .filter(Boolean);
 }
 
 function clampText(text, maxLength = 220) {
@@ -342,6 +442,21 @@ function formatDisplayName(value) {
     if (/^[A-Z0-9]{2,}$/.test(part)) return part;
     return part.charAt(0).toUpperCase() + part.slice(1);
   }).join(' ');
+}
+
+function normalizeActionLabel(value) {
+  const action = String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\./g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!action) return 'Automation action';
+  return action
+    .split(' ')
+    .map(part => part.length <= 2 && /^[A-Z0-9]+$/.test(part)
+      ? part
+      : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
 }
 
 function humanizeExecutionFailure(context = {}) {
@@ -1783,11 +1898,11 @@ class ResponseGenerator {
 
     try {
       if (typeof builder === 'function') {
-        return this._polish(builder(safe));
+        return this._polish(groundedUnverifiedSuccess(type, templateId, safe, builder(safe)));
       }
 
       if (typeof builder === 'string') {
-        return this._polish(this._interpolateString(builder, safe));
+        return this._polish(groundedUnverifiedSuccess(type, templateId, safe, this._interpolateString(builder, safe)));
       }
     } catch (error) {
       return this._polish(humanizeError(error?.message || error));

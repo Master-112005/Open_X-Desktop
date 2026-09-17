@@ -10,17 +10,17 @@ describe('Volume and Brightness Control', function() {
   let originalVolume = 50;
   let originalBrightness = null;
 
-  before(function() {
+  before(async function() {
     restoreVolumeController = new VolumeController({ logging: { level: 'info' }, system: { volumeStep: 5 } });
     restoreBrightnessController = new BrightnessController({ logging: { level: 'info' }, system: { brightnessStep: 10 } });
-    originalVolume = restoreVolumeController.getCurrentVolume();
-    originalBrightness = restoreBrightnessController.getCurrentBrightness();
+    originalVolume = await restoreVolumeController.getCurrentVolume();
+    originalBrightness = await restoreBrightnessController.getCurrentBrightness();
   });
 
-  after(function() {
-    restoreVolumeController.setVolume(originalVolume);
+  after(async function() {
+    await restoreVolumeController.setVolume(originalVolume);
     if (originalBrightness !== null) {
-      restoreBrightnessController.setBrightness(originalBrightness);
+      await restoreBrightnessController.setBrightness(originalBrightness);
     }
   });
 
@@ -31,65 +31,65 @@ describe('Volume and Brightness Control', function() {
       volumeController = new VolumeController({ logging: { level: 'info' }, system: { volumeStep: 5 } });
     });
 
-    it('should get current volume', function() {
-      const volume = volumeController.getCurrentVolume();
+    it('should get current volume', async function() {
+      const volume = await volumeController.getCurrentVolume();
       assert.ok(typeof volume === 'number');
       assert.ok(volume >= 0 && volume <= 100);
     });
 
-    it('should set volume to specific value', function() {
-      const result = volumeController.setVolume(50);
+    it('should set volume to specific value', async function() {
+      const result = await volumeController.setVolume(50);
       assert.ok(result.success);
       assert.equal(result.data.value, 50);
     });
 
-    it('should clamp volume to 0-100 range', function() {
-      const resultHigh = volumeController.setVolume(150);
+    it('should clamp volume to 0-100 range', async function() {
+      const resultHigh = await volumeController.setVolume(150);
       assert.ok(resultHigh.success);
       assert.equal(resultHigh.data.value, 100);
 
-      const resultLow = volumeController.setVolume(-10);
+      const resultLow = await volumeController.setVolume(-10);
       assert.ok(resultLow.success);
       assert.equal(resultLow.data.value, 0);
     });
 
-    it('should increase volume', function() {
-      volumeController.setVolume(30);
-      const result = volumeController.increaseVolume();
+    it('should increase volume', async function() {
+      await volumeController.setVolume(30);
+      const result = await volumeController.increaseVolume();
       assert.ok(result.success);
       assert.equal(result.data.value, 35); // 30 + 5 (default step)
     });
 
-    it('should decrease volume', function() {
-      volumeController.setVolume(40);
-      const result = volumeController.decreaseVolume();
+    it('should decrease volume', async function() {
+      await volumeController.setVolume(40);
+      const result = await volumeController.decreaseVolume();
       assert.ok(result.success);
       assert.equal(result.data.value, 35); // 40 - 5 (default step)
     });
 
-    it('should mute volume', function() {
-      const result = volumeController.mute();
+    it('should mute volume', async function() {
+      const result = await volumeController.mute();
       assert.ok(result.success);
       assert.equal(result.data.value, 0);
     });
 
-    it('should unmute volume', function() {
-      const result = volumeController.unmute();
+    it('should unmute volume', async function() {
+      const result = await volumeController.unmute();
       assert.ok(result.success);
       assert.ok(typeof result.data.value === 'number');
       assert.ok(result.data.value >= 0 && result.data.value <= 100);
     });
 
-    it('should handle custom step for increase', function() {
-      volumeController.setVolume(20);
-      const result = volumeController.increaseVolume(15); // Custom step
+    it('should handle custom step for increase', async function() {
+      await volumeController.setVolume(20);
+      const result = await volumeController.increaseVolume(15); // Custom step
       assert.ok(result.success);
       assert.equal(result.data.value, 35);
     });
 
-    it('should handle custom step for decrease', function() {
-      volumeController.setVolume(60);
-      const result = volumeController.decreaseVolume(15); // Custom step
+    it('should handle custom step for decrease', async function() {
+      await volumeController.setVolume(60);
+      const result = await volumeController.decreaseVolume(15); // Custom step
       assert.ok(result.success);
       assert.equal(result.data.value, 45);
     });
@@ -102,8 +102,8 @@ describe('Volume and Brightness Control', function() {
       brightnessController = new BrightnessController({ logging: { level: 'info' }, system: { brightnessStep: 10 } });
     });
 
-    it('should get current brightness', function() {
-      const brightness = brightnessController.getCurrentBrightness();
+    it('should get current brightness', async function() {
+      const brightness = await brightnessController.getCurrentBrightness();
       // Brightness might be null if not supported
       if (brightness !== null) {
         assert.ok(typeof brightness === 'number');
@@ -111,66 +111,66 @@ describe('Volume and Brightness Control', function() {
       }
     });
 
-    it('should set brightness to specific value', function() {
-      const result = brightnessController.setBrightness(60);
+    it('should set brightness to specific value', async function() {
+      const result = await brightnessController.setBrightness(60);
       assert.ok(result.success);
       assert.equal(result.data.value, 60);
     });
 
-    it('should clamp brightness to 0-100 range', function() {
-      const resultHigh = brightnessController.setBrightness(150);
+    it('should clamp brightness to 0-100 range', async function() {
+      const resultHigh = await brightnessController.setBrightness(150);
       assert.ok(resultHigh.success);
       assert.equal(resultHigh.data.value, 100);
 
-      const resultLow = brightnessController.setBrightness(-20);
+      const resultLow = await brightnessController.setBrightness(-20);
       assert.ok(resultLow.success);
       assert.equal(resultLow.data.value, 0);
     });
 
-    it('should increase brightness if supported', function() {
-      const current = brightnessController.getCurrentBrightness();
+    it('should increase brightness if supported', async function() {
+      const current = await brightnessController.getCurrentBrightness();
       if (current !== null) {
-        brightnessController.setBrightness(40);
-        const result = brightnessController.increaseBrightness();
+        await brightnessController.setBrightness(40);
+        const result = await brightnessController.increaseBrightness();
         assert.ok(result.success);
         assert.equal(result.data.value, 50); // 40 + 10 (default step)
       }
     });
 
-    it('should decrease brightness if supported', function() {
-      const current = brightnessController.getCurrentBrightness();
+    it('should decrease brightness if supported', async function() {
+      const current = await brightnessController.getCurrentBrightness();
       if (current !== null) {
-        brightnessController.setBrightness(60);
-        const result = brightnessController.decreaseBrightness();
+        await brightnessController.setBrightness(60);
+        const result = await brightnessController.decreaseBrightness();
         assert.ok(result.success);
         assert.equal(result.data.value, 50); // 60 - 10 (default step)
       }
     });
 
-    it('should return error if brightness not supported', function() {
-      const current = brightnessController.getCurrentBrightness();
+    it('should return error if brightness not supported', async function() {
+      const current = await brightnessController.getCurrentBrightness();
       if (current === null) {
-        const result = brightnessController.increaseBrightness();
+        const result = await brightnessController.increaseBrightness();
         assert.equal(result.success, false);
         assert.ok(result.error.includes('not supported'));
       }
     });
 
-    it('should handle custom step for increase', function() {
-      const current = brightnessController.getCurrentBrightness();
+    it('should handle custom step for increase', async function() {
+      const current = await brightnessController.getCurrentBrightness();
       if (current !== null) {
-        brightnessController.setBrightness(30);
-        const result = brightnessController.increaseBrightness(20); // Custom step
+        await brightnessController.setBrightness(30);
+        const result = await brightnessController.increaseBrightness(20); // Custom step
         assert.ok(result.success);
         assert.equal(result.data.value, 50);
       }
     });
 
-    it('should handle custom step for decrease', function() {
-      const current = brightnessController.getCurrentBrightness();
+    it('should handle custom step for decrease', async function() {
+      const current = await brightnessController.getCurrentBrightness();
       if (current !== null) {
-        brightnessController.setBrightness(70);
-        const result = brightnessController.decreaseBrightness(20); // Custom step
+        await brightnessController.setBrightness(70);
+        const result = await brightnessController.decreaseBrightness(20); // Custom step
         assert.ok(result.success);
         assert.equal(result.data.value, 50);
       }
@@ -178,7 +178,7 @@ describe('Volume and Brightness Control', function() {
   });
 
   describe('Controller Parsing and Verification Metadata', function() {
-    it('should preserve requested zero for volume and return readback metadata', function() {
+    it('should preserve requested zero for volume and return readback metadata', async function() {
       const controller = new VolumeController({
         logging: { level: 'info' },
         system: {
@@ -190,14 +190,14 @@ describe('Volume and Brightness Control', function() {
         }
       });
 
-      const result = controller.setVolume(0);
+      const result = await controller.setVolume(0);
       assert.equal(result.success, true);
       assert.equal(result.data.value, 0);
       assert.equal(result.data.requestedValue, 0);
       assert.equal(result.data.verification.status, 'passed');
     });
 
-    it('should preserve requested zero for brightness and return readback metadata', function() {
+    it('should preserve requested zero for brightness and return readback metadata', async function() {
       const controller = new BrightnessController({
         logging: { level: 'info' },
         system: {
@@ -205,14 +205,14 @@ describe('Volume and Brightness Control', function() {
         }
       });
 
-      const result = controller.setBrightness(0);
+      const result = await controller.setBrightness(0);
       assert.equal(result.success, true);
       assert.equal(result.data.value, 0);
       assert.equal(result.data.requestedValue, 0);
       assert.equal(result.data.verification.status, 'passed');
     });
 
-    it('should report unsupported brightness without throwing', function() {
+    it('should report unsupported brightness without throwing', async function() {
       const controller = new BrightnessController({
         logging: { level: 'info' },
         system: {
@@ -220,7 +220,7 @@ describe('Volume and Brightness Control', function() {
         }
       });
 
-      const result = controller.getState();
+      const result = await controller.getState();
       assert.equal(result.success, false);
       assert.equal(result.data.supported, false);
       assert.equal(result.data.verification.status, 'failed');

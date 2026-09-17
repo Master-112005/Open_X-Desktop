@@ -1035,13 +1035,13 @@ function buildScheduleIslandItem(schedule = {}) {
   };
 }
 
-function runIslandScheduleAction({ id, kind }, action, minutes = ISLAND_DEFAULT_SNOOZE_MINUTES) {
+async function runIslandScheduleAction({ id, kind }, action, minutes = ISLAND_DEFAULT_SNOOZE_MINUTES) {
   if (kind === 'assistant') return { success: true };
   const scheduler = assistant?.automation?.scheduler;
   if (!scheduler) return { success: false, error: 'Scheduler unavailable' };
   const result = action === 'snooze'
-    ? scheduler.snooze(id, minutes)
-    : scheduler.complete(id);
+    ? await scheduler.snooze(id, minutes)
+    : await scheduler.complete(id);
   if (result?.success) {
     sendPlannerEntries('calendar');
     sendScheduleActivitySnapshot(`island-${action}`);
@@ -3489,6 +3489,7 @@ async function initializeAssistant() {
   ensureDataDir();
   runtimeConfig = settingsService.buildRuntimeConfig();
   assistant = new Assistant(runtimeConfig, { eventBus });
+  await assistant.automation.init();
   assistant.router.permissionValidator.setUserLevel(
     settingsService.getSettings().system.permissionLevel
   );

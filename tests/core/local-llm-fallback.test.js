@@ -26,7 +26,7 @@ describe('Assistant Local LLM Fallback', function() {
     });
   }
 
-  it('uses the local LLM when routing cannot determine an intent', async function() {
+  it('does not use the local LLM as a fallback when routing cannot determine an intent', async function() {
     const calls = [];
     const assistant = createAssistant({
       process: async () => ({
@@ -49,14 +49,13 @@ describe('Assistant Local LLM Fallback', function() {
       }
     });
 
-    const result = await assistant._processCommandDirect('explain recursion', 'chat');
+    const result = await assistant._processCommandDirect('play recursion', 'chat');
 
-    assert.equal(result.success, true);
-    assert.equal(result.intent, 'assistant.llm');
-    assert.match(result.response, /Recursion is when/);
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].options.assistantName, 'OpenX');
-    assert.equal(result.data.routedFallback.error, 'Could not determine intent');
+    assert.equal(result.success, false);
+    assert.equal(result.intent, undefined);
+    assert.match(result.response, /could not understand/i);
+    assert.equal(calls.length, 0);
+    assert.equal(result.data?.routedFallback, undefined);
   });
 
   it('phrases successful task replies through the local LLM while keeping routing metadata', async function() {
@@ -67,7 +66,11 @@ describe('Assistant Local LLM Fallback', function() {
         success: true,
         intent: 'app.open',
         response: 'Opened Chrome.',
-        entities: { appName: 'Chrome' }
+        entities: { appName: 'Chrome' },
+        data: {
+          verification: { status: 'passed', check: 'app-open' }
+        },
+        verification: { status: 'passed', check: 'app-open' }
       })
     }, {
       isEnabled: () => true,
@@ -92,6 +95,82 @@ describe('Assistant Local LLM Fallback', function() {
     assert.equal(llmOptions.taskOutcome.kind, 'task');
     assert.equal(llmOptions.taskOutcome.intent, 'app.open');
     assert.equal(llmOptions.taskOutcome.success, true);
+  });
+
+  it('does not let the local LLM rewrite automation replies with missing verification', async function() {
+    let llmCalled = false;
+    const assistant = createAssistant({
+      process: async () => ({
+        commandId: 'cmd-open-unverified',
+        success: true,
+        intent: 'app.open',
+        response: 'Open Chrome request was sent, but I could not verify the final state.',
+        entities: { appName: 'Chrome' }
+      })
+    }, {
+      isEnabled: () => true,
+      validate: () => ({ success: true, modelName: 'test.gguf' }),
+      reply: async () => {
+        llmCalled = true;
+        return {
+          success: true,
+          response: 'Chrome is open and ready.',
+          data: { localLlm: { modelName: 'test.gguf' } }
+        };
+      }
+    });
+
+    const result = await assistant._processCommandDirect('open chrome', 'chat');
+
+    assert.equal(result.success, true);
+    assert.equal(result.intent, 'app.open');
+    assert.equal(llmCalled, false);
+    assert.match(result.response, /request was sent/i);
+    assert.doesNotMatch(result.response, /open and ready/i);
+  });
+
+  it('does not let the local LLM rewrite unverified automation dispatches as completed', async function() {
+    let llmCalled = false;
+    const assistant = createAssistant({
+      process: async () => ({
+        commandId: 'cmd-close',
+        success: true,
+        intent: 'app.close',
+        response: 'Close Chrome request was sent, but I could not verify the final state.',
+        entities: { appName: 'Chrome' },
+        data: {
+          controllerVerified: false,
+          verification: {
+            status: 'unknown',
+            check: 'app-close'
+          }
+        },
+        verification: {
+          status: 'unknown',
+          check: 'app-close'
+        }
+      })
+    }, {
+      isEnabled: () => true,
+      validate: () => ({ success: true, modelName: 'test.gguf' }),
+      reply: async () => {
+        llmCalled = true;
+        return {
+          success: true,
+          response: 'Chrome is closed now.',
+          data: { localLlm: { modelName: 'test.gguf' } }
+        };
+      }
+    });
+
+    const result = await assistant._processCommandDirect('close chrome', 'chat');
+
+    assert.equal(result.success, true);
+    assert.equal(result.intent, 'app.close');
+    assert.equal(llmCalled, false);
+    assert.match(result.response, /request was sent/i);
+    assert.match(result.response, /could not verify/i);
+    assert.doesNotMatch(result.response, /closed now/i);
   });
 
   it('uses the local LLM for conversational greeting replies', async function() {
@@ -119,10 +198,11 @@ describe('Assistant Local LLM Fallback', function() {
     const result = await assistant._processCommandDirect('hi how is your day going', 'chat');
 
     assert.equal(result.success, true);
-    assert.equal(result.intent, 'assistant.llm');
+    assert.equal(result.intent, 'assistant.chat');
     assert.match(result.response, /Doing well/);
     assert.equal(llmInput, 'hi how is your day going');
-    assert.equal(result.data.routedFallback.reason, 'conversation');
+    assert.equal(result.data.conversational, true);
+    assert.equal(result.data.localLlmReply.mode, 'conversation-first');
   });
 
   it('phrases failed task replies through the local LLM without flipping the failure state', async function() {
@@ -157,7 +237,7 @@ describe('Assistant Local LLM Fallback', function() {
     assert.equal(llmOptions.taskOutcome.error, 'Could not close Chrome');
   });
 
-  it('uses the local LLM for unimplemented assistant capability marker replies', async function() {
+  it('does not use the local LLM as a substitute for unimplemented capability actions', async function() {
     let llmCalled = false;
     const assistant = createAssistant({
       process: async () => ({
@@ -177,12 +257,13 @@ describe('Assistant Local LLM Fallback', function() {
       }
     });
 
-    const result = await assistant._processCommandDirect('tell me a story', 'chat');
+    const result = await assistant._processCommandDirect('play a story', 'chat');
 
     assert.equal(result.success, true);
-    assert.equal(result.intent, 'assistant.llm');
-    assert.equal(llmCalled, true);
-    assert.match(result.response, /short story/);
+    assert.equal(result.intent, 'assistant.capability');
+    assert.equal(llmCalled, false);
+    assert.match(result.response, /not connected to an automation controller yet/i);
+    assert.doesNotMatch(result.response, /short story/i);
   });
 
   it('strips echoed private context from model replies', function() {

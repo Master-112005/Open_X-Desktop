@@ -1,4 +1,6 @@
-const { execFileSync } = require('child_process');
+const { execFile } = require('child_process');
+const util = require('util');
+const execFileAsync = util.promisify(execFile);
 const Logger = require('../assistant/Data').Logger;
 
 const BRIGHTNESS_TIMEOUT_MS = 5500;
@@ -29,6 +31,13 @@ function parseOutputLines(output) {
     .filter(Boolean);
 }
 
+function commandOutputText(output) {
+  if (output && typeof output === 'object' && Object.prototype.hasOwnProperty.call(output, 'stdout')) {
+    return String(output.stdout || '').trim();
+  }
+  return String(output || '').trim();
+}
+
 function parseNumber(output) {
   const lines = parseOutputLines(output);
   for (let index = lines.length - 1; index >= 0; index -= 1) {
@@ -56,16 +65,16 @@ class BrightnessController {
     this.commandRunner = config?.system?.brightnessCommandRunner || null;
   }
 
-  _run(script) {
+  async _run(script) {
     const wrapped = `
 $ErrorActionPreference = 'Stop'
 ${script}
 `;
     try {
       if (typeof this.commandRunner === 'function') {
-        return this.commandRunner(wrapped);
+        return await this.commandRunner(wrapped);
       }
-      return execFileSync('powershell.exe', [
+      const output = await execFileAsync('powershell.exe', [
         '-NoProfile',
         '-NonInteractive',
         '-ExecutionPolicy',
@@ -74,10 +83,9 @@ ${script}
         wrapped
       ], {
         encoding: 'utf8',
-        timeout: this.timeoutMs,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true
-      }).trim();
+        timeout: this.timeoutMs
+      });
+      return commandOutputText(output);
     } catch (error) {
       this.logger.warn('Windows brightness command failed', error.message);
       return null;
@@ -118,8 +126,8 @@ ${script}
     };
   }
 
-  _readBrightness() {
-    const output = this._run(`
+  async _readBrightness() {
+    const output = await this._run(`
 $brightness = Get-CimInstance -Namespace "root/WMI" -ClassName WmiMonitorBrightness -ErrorAction Stop |
   Where-Object { $_.Active -eq $true } |
   Select-Object -First 1
@@ -139,17 +147,17 @@ Write-Output $brightness.CurrentBrightness
     return value;
   }
 
-  getCurrentBrightness() {
+  async getCurrentBrightness() {
     try {
-      return this._readBrightness();
+      return await this._readBrightness();
     } catch (error) {
       this.logger.warn('Failed to get brightness', error.message);
       return null;
     }
   }
 
-  getState() {
-    const value = this.getCurrentBrightness();
+  async getState() {
+    const value = await this.getCurrentBrightness();
     if (value === null) {
       return this._failure('Brightness control not supported', 'brightness.get');
     }
@@ -159,7 +167,7 @@ Write-Output $brightness.CurrentBrightness
     });
   }
 
-  setBrightness(value) {
+  async setBrightness(value) {
     const requestedValue = clampPercent(value, DEFAULT_BRIGHTNESS);
     try {
       const script = `
@@ -182,7 +190,7 @@ if (-not $current) {
 }
 Write-Output $current.CurrentBrightness
 `;
-      const actual = parseNumber(this._run(script));
+      const actual = parseNumber(await this._run(script));
       if (actual === null) {
         return this._failure('No brightness level returned from Windows', 'brightness.set', { requestedValue });
       }
@@ -201,25 +209,25 @@ Write-Output $current.CurrentBrightness
     }
   }
 
-  increaseBrightness(amount = null) {
+  async increaseBrightness(amount = null) {
     const step = normalizeStep(amount, this.step);
-    const current = this._getBrightnessBaseline();
+    const current = await this._getBrightnessBaseline();
     if (current === null) {
       return this._failure('Brightness control not supported', 'brightness.up');
     }
     return this.setBrightness(current + step);
   }
 
-  decreaseBrightness(amount = null) {
+  async decreaseBrightness(amount = null) {
     const step = normalizeStep(amount, this.step);
-    const current = this._getBrightnessBaseline();
+    const current = await this._getBrightnessBaseline();
     if (current === null) {
       return this._failure('Brightness control not supported', 'brightness.down');
     }
     return this.setBrightness(current - step);
   }
 
-  _getBrightnessBaseline() {
+  async _getBrightnessBaseline() {
     if (Date.now() - this.lastSetAt <= 1500 && this.lastKnownBrightness !== null) {
       return this.lastKnownBrightness;
     }

@@ -1,4 +1,6 @@
-const { execFileSync } = require('child_process');
+const { execFile } = require('child_process');
+const util = require('util');
+const execFileAsync = util.promisify(execFile);
 const Logger = require('../assistant/Data').Logger;
 
 const VOLUME_TIMEOUT_MS = 6500;
@@ -108,6 +110,13 @@ function parseOutputLines(output) {
     .filter(Boolean);
 }
 
+function commandOutputText(output) {
+  if (output && typeof output === 'object' && Object.prototype.hasOwnProperty.call(output, 'stdout')) {
+    return String(output.stdout || '').trim();
+  }
+  return String(output || '').trim();
+}
+
 function parseNumber(output) {
   const lines = parseOutputLines(output);
   for (let index = lines.length - 1; index >= 0; index -= 1) {
@@ -128,6 +137,15 @@ function parseBoolean(output) {
   return null;
 }
 
+function parseAudioState(output) {
+  const muted = parseBoolean(output);
+  const volume = parseNumber(output);
+  if (muted === null || volume === null) {
+    return null;
+  }
+  return { muted, volume };
+}
+
 function verification(status, check, detail = {}) {
   return { status, check, ...detail };
 }
@@ -145,7 +163,7 @@ class VolumeController {
     this.commandRunner = config?.system?.volumeCommandRunner || null;
   }
 
-  _run(body) {
+  async _run(body) {
     const script = `
 $ErrorActionPreference = 'Stop'
 ${AUDIO_BRIDGE}
@@ -153,9 +171,9 @@ ${body}
 `;
     try {
       if (typeof this.commandRunner === 'function') {
-        return this.commandRunner(script);
+        return await this.commandRunner(script);
       }
-      return execFileSync('powershell.exe', [
+      const output = await execFileAsync('powershell.exe', [
         '-NoProfile',
         '-NonInteractive',
         '-ExecutionPolicy',
@@ -164,32 +182,29 @@ ${body}
         script
       ], {
         encoding: 'utf8',
-        timeout: this.timeoutMs,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true
-      }).trim();
+        timeout: this.timeoutMs
+      });
+      return commandOutputText(output);
     } catch (error) {
       this.logger.warn('Windows volume command failed', error.message);
       return null;
     }
   }
 
-  _getAudioState() {
-    const output = this._run(`
+  async _getAudioState() {
+    const output = await this._run(`
 $muted = [AudioBridge]::GetMute()
 $volume = [AudioBridge]::GetMasterVolume()
 Write-Output $muted
 Write-Output $volume
 `);
-    const muted = parseBoolean(output);
-    const volume = parseNumber(output);
-
-    if (muted === null || volume === null) {
+    const state = parseAudioState(output);
+    if (!state) {
       return null;
     }
 
-    this._rememberVolume(volume, muted);
-    return { muted, volume };
+    this._rememberVolume(state.volume, state.muted);
+    return state;
   }
 
   _rememberVolume(volume, muted = false) {
@@ -234,9 +249,9 @@ Write-Output $volume
     };
   }
 
-  getCurrentVolume() {
+  async getCurrentVolume() {
     try {
-      const state = this._getAudioState();
+      const state = await this._getAudioState();
       if (!state) {
         return this.lastKnownVolume;
       }
@@ -247,8 +262,8 @@ Write-Output $volume
     }
   }
 
-  getState() {
-    const state = this._getAudioState();
+  async getState() {
+    const state = await this._getAudioState();
     if (!state) {
       return this._failure('Failed to read system volume', 'volume.get');
     }
@@ -260,10 +275,10 @@ Write-Output $volume
     });
   }
 
-  setVolume(value) {
+  async setVolume(value) {
     const requestedValue = clampPercent(value, DEFAULT_VOLUME);
     try {
-      const actual = parseNumber(this._run(`[AudioBridge]::SetMasterVolume(${requestedValue})`));
+      const actual = parseNumber(await this._run(`[AudioBridge]::SetMasterVolume(${requestedValue})`));
       if (actual === null) {
         return this._failure('No volume level returned from Windows', 'volume.set', { requestedValue });
       }
@@ -283,33 +298,36 @@ Write-Output $volume
     }
   }
 
-  increaseVolume(amount = null) {
+  async increaseVolume(amount = null) {
     const step = normalizeStep(amount, this.step);
-    const current = this._getVolumeBaseline();
+    const current = await this._getVolumeBaseline();
     return this.setVolume(current + step);
   }
 
-  decreaseVolume(amount = null) {
+  async decreaseVolume(amount = null) {
     const step = normalizeStep(amount, this.step);
-    const current = this._getVolumeBaseline();
+    const current = await this._getVolumeBaseline();
     return this.setVolume(current - step);
   }
 
-  mute() {
+  async mute() {
     try {
-      const state = this._getAudioState();
-      if (state && !state.muted && state.volume > 0) {
-        this.lastUnmutedVolume = state.volume;
-      }
-      const muted = parseBoolean(this._run('[AudioBridge]::SetMute($true)'));
-      if (muted !== true) {
+      const state = parseAudioState(await this._run(`
+$volume = [AudioBridge]::GetMasterVolume()
+[void][AudioBridge]::SetMute($true)
+$muted = [AudioBridge]::GetMute()
+Write-Output $muted
+Write-Output $volume
+`));
+      if (!state || state.muted !== true) {
         return this._failure('Mute state did not change', 'volume.mute');
       }
 
+      this._rememberVolume(state.volume, false);
       this.logger.info('Volume muted');
       return this._success('volume.mute', {
         value: 0,
-        rawValue: state?.volume || this.lastKnownVolume,
+        rawValue: state.volume,
         muted: true,
         verificationCheck: 'volume-muted'
       });
@@ -319,26 +337,28 @@ Write-Output $volume
     }
   }
 
-  unmute() {
+  async unmute() {
     try {
-      let state = this._getAudioState();
-      if (state && state.volume <= 0) {
-        const restore = clampPercent(this.lastUnmutedVolume || DEFAULT_VOLUME, DEFAULT_VOLUME);
-        const restored = this.setVolume(restore);
-        if (!restored.success) return restored;
-        state = { muted: false, volume: restored.data.value };
-      }
-
-      const muted = parseBoolean(this._run('[AudioBridge]::SetMute($false)'));
-      if (muted !== false) {
+      const restore = clampPercent(this.lastUnmutedVolume || DEFAULT_VOLUME, DEFAULT_VOLUME);
+      const state = parseAudioState(await this._run(`
+$volume = [AudioBridge]::GetMasterVolume()
+if ($volume -le 0) {
+  [void][AudioBridge]::SetMasterVolume(${restore})
+}
+[void][AudioBridge]::SetMute($false)
+$muted = [AudioBridge]::GetMute()
+$volume = [AudioBridge]::GetMasterVolume()
+Write-Output $muted
+Write-Output $volume
+`));
+      if (!state || state.muted !== false) {
         return this._failure('Mute state did not clear', 'volume.unmute');
       }
 
-      const after = this._getAudioState() || state || { volume: this.lastUnmutedVolume, muted: false };
-      this._rememberVolume(after.volume, false);
+      this._rememberVolume(state.volume, false);
       return this._success('volume.unmute', {
-        value: after.volume,
-        rawValue: after.volume,
+        value: state.volume,
+        rawValue: state.volume,
         muted: false,
         verificationCheck: 'volume-unmuted'
       });
@@ -348,7 +368,7 @@ Write-Output $volume
     }
   }
 
-  _getVolumeBaseline() {
+  async _getVolumeBaseline() {
     if (Date.now() - this.lastSetAt <= 1500) {
       return this.lastKnownVolume;
     }
@@ -361,5 +381,6 @@ module.exports._private = {
   clampPercent,
   normalizeStep,
   parseNumber,
-  parseBoolean
+  parseBoolean,
+  parseAudioState
 };

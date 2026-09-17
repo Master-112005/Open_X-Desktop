@@ -17,15 +17,15 @@ function controllerWithRunner(handler, options = {}) {
 }
 
 describe('SystemController', function() {
-  it('should read CPU through the shared PowerShell runner and cache the result', function() {
+  it('should read CPU through the shared PowerShell runner and cache the result', async function() {
     let calls = 0;
     const system = controllerWithRunner(() => {
       calls += 1;
       return '42';
     });
 
-    const first = system.getCPUUsage();
-    const second = system.getCPUUsage();
+    const first = await system.getCPUUsage();
+    const second = await system.getCPUUsage();
 
     assert.equal(first.success, true);
     assert.equal(first.data.cpu, 42);
@@ -35,13 +35,13 @@ describe('SystemController', function() {
     assert.equal(calls, 1);
   });
 
-  it('should parse disk details without exposing unnecessary fields', function() {
+  it('should parse disk details without exposing unnecessary fields', async function() {
     const system = controllerWithRunner(() => JSON.stringify([
       { DeviceID: 'D:', FreeGB: 12.5, TotalGB: 100 },
       { DeviceID: 'C:', FreeGB: 55.1, TotalGB: 250 }
     ]));
 
-    const result = system.getDiskSpace();
+    const result = await system.getDiskSpace();
 
     assert.equal(result.success, true);
     assert.equal(result.data.label, 'C:');
@@ -51,7 +51,7 @@ describe('SystemController', function() {
     assert.equal(result.data.metricSource, 'cim-win32-logicaldisk');
   });
 
-  it('should bound visible app payloads while preserving query status', function() {
+  it('should bound visible app payloads while preserving query status', async function() {
     const rows = Array.from({ length: 6 }, (_, index) => ({
       ProcessName: index === 2 ? 'chrome' : `app${index}`,
       MainWindowTitle: index === 2 ? 'Chrome - Docs' : `Window ${index}`,
@@ -59,7 +59,7 @@ describe('SystemController', function() {
     }));
     const system = controllerWithRunner(() => JSON.stringify(rows), { processListLimit: 3 });
 
-    const result = system.getRunningApps({ queryApp: 'chrome' });
+    const result = await system.getRunningApps({ queryApp: 'chrome' });
 
     assert.equal(result.success, true);
     assert.equal(result.data.target, 'apps');
@@ -81,9 +81,9 @@ describe('SystemController', function() {
     assert.equal(result.data.metricSource, 'local-parser');
   });
 
-  it('should report missing battery as a non-blocking system read', function() {
+  it('should report missing battery as a non-blocking system read', async function() {
     const system = controllerWithRunner(() => '');
-    const result = system.getBatteryStatus();
+    const result = await system.getBatteryStatus();
 
     assert.equal(result.success, true);
     assert.equal(result.data.battery, 'N/A');

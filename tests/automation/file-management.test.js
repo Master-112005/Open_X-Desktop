@@ -5,6 +5,7 @@ const path = require('path');
 
 const AutomationEngine = require('../../core/automation/index');
 const ActionRouter = require('../../core/assistant/automation/ActionRouter');
+const launcher = require('../../core/automation/common/launcher');
 
 describe('File Management Automation', function() {
   this.timeout(10000);
@@ -13,6 +14,9 @@ describe('File Management Automation', function() {
   let tempProfile;
   let engine;
   let router;
+  let launchedTargets;
+  let originalLaunchTarget;
+  let originalLaunchTargetAsync;
 
   function makeConfig() {
     return {
@@ -39,9 +43,19 @@ describe('File Management Automation', function() {
     engine = new AutomationEngine(makeConfig());
     router = new ActionRouter(makeConfig(), engine);
     router.permissionValidator.setUserLevel('high');
+    launchedTargets = [];
+    originalLaunchTarget = launcher.launchTarget;
+    originalLaunchTargetAsync = launcher.launchTargetAsync;
+    launcher.launchTarget = (target, args = []) => {
+      launchedTargets.push({ target, args });
+      return { success: true, target, args };
+    };
+    launcher.launchTargetAsync = async (target, args = []) => launcher.launchTarget(target, args);
   });
 
   afterEach(function() {
+    launcher.launchTarget = originalLaunchTarget;
+    launcher.launchTargetAsync = originalLaunchTargetAsync;
     process.env.USERPROFILE = originalUserProfile;
     fs.rmSync(tempProfile, { recursive: true, force: true });
   });
@@ -103,12 +117,12 @@ describe('File Management Automation', function() {
     assert.equal(fs.existsSync(destinationPath), true);
   });
 
-  it('should return controller verification details for copied files', function() {
+  it('should return controller verification details for copied files', async function() {
     const sourcePath = path.join(tempProfile, 'Desktop', 'notes.txt');
     const destinationPath = path.join(tempProfile, 'Downloads', 'notes.txt');
     fs.writeFileSync(sourcePath, 'todo', 'utf8');
 
-    const result = engine.files.copy('notes.txt from desktop', 'downloads');
+    const result = await engine.files.copy('notes.txt from desktop', 'downloads');
 
     assert.equal(result.success, true);
     assert.equal(result.data.controllerVerified, true);
@@ -191,11 +205,11 @@ describe('File Management Automation', function() {
     assert.equal(fs.existsSync(targetPath), false);
   });
 
-  it('should fuzzy match worded pdf names across common folders without an explicit location', function() {
+  it('should fuzzy match worded pdf names across common folders without an explicit location', async function() {
     const targetPath = path.join(tempProfile, 'Desktop', 'FarmCast Complete Static Analysis.pdf');
     fs.writeFileSync(targetPath, 'pdf', 'utf8');
 
-    const resolvedPath = engine.files._resolveFilePath('farmcat.pdf');
+    const resolvedPath = await engine.files._resolveFilePath('farmcat.pdf');
 
     assert.equal(resolvedPath, targetPath);
   });
@@ -231,8 +245,8 @@ describe('File Management Automation', function() {
     assert.equal(result.data.verification.status, 'passed');
   });
 
-  it('should reject reserved Windows device names before creating folders', function() {
-    const result = engine.folders.create('CON', 'desktop');
+  it('should reject reserved Windows device names before creating folders', async function() {
+    const result = await engine.folders.create('CON', 'desktop');
     const expectedPath = path.join(tempProfile, 'Desktop', 'CON');
 
     assert.equal(result.success, false);
@@ -241,9 +255,9 @@ describe('File Management Automation', function() {
     assert.equal(result.data.controllerVerified, false);
   });
 
-  it('should reject folder names that Windows cannot safely create', function() {
-    const trailingDot = engine.folders.create('Project.', 'desktop');
-    const invalidCharacter = engine.folders.create('bad?folder', 'desktop');
+  it('should reject folder names that Windows cannot safely create', async function() {
+    const trailingDot = await engine.folders.create('Project.', 'desktop');
+    const invalidCharacter = await engine.folders.create('bad?folder', 'desktop');
 
     assert.equal(trailingDot.success, false);
     assert.match(trailingDot.error, /cannot end with a space or dot/i);
@@ -284,12 +298,12 @@ describe('File Management Automation', function() {
     assert.equal(result.data.verification.status, 'passed');
   });
 
-  it('should block moving a folder inside itself', function() {
+  it('should block moving a folder inside itself', async function() {
     const sourcePath = path.join(tempProfile, 'Desktop', 'Archive');
     const childPath = path.join(sourcePath, 'Nested');
     fs.mkdirSync(childPath, { recursive: true });
 
-    const result = engine.folders.move(sourcePath, childPath);
+    const result = await engine.folders.move(sourcePath, childPath);
 
     assert.equal(result.success, false);
     assert.match(result.error, /inside itself/i);
@@ -297,13 +311,13 @@ describe('File Management Automation', function() {
     assert.equal(fs.existsSync(childPath), true);
   });
 
-  it('should ask which same-name folder to open across subfolders', function() {
+  it('should ask which same-name folder to open across subfolders', async function() {
     const firstPath = path.join(tempProfile, 'Documents', 'Projects', 'Screenshots');
     const secondPath = path.join(tempProfile, 'Pictures', 'Archive', 'Screenshots');
     fs.mkdirSync(firstPath, { recursive: true });
     fs.mkdirSync(secondPath, { recursive: true });
 
-    const result = engine.folders.open('Screenshots');
+    const result = await engine.folders.open('Screenshots');
 
     assert.equal(result.success, false);
     assert.equal(result.needsClarification, true);
@@ -314,19 +328,19 @@ describe('File Management Automation', function() {
     );
   });
 
-  it('should search files recursively inside common folders', function() {
+  it('should search files recursively inside common folders', async function() {
     const nested = path.join(tempProfile, 'Documents', 'Projects', 'Reports');
     fs.mkdirSync(nested, { recursive: true });
     const target = path.join(nested, 'Resume.docx');
     fs.writeFileSync(target, 'resume', 'utf8');
 
-    const result = engine.files.search('Resume.docx');
+    const result = await engine.files.search('Resume.docx');
 
     assert.equal(result.success, true);
     assert.ok(result.data.results.includes(target));
   });
 
-  it('should skip excluded heavy folders during recursive search', function() {
+  it('should skip excluded heavy folders during recursive search', async function() {
     const validDir = path.join(tempProfile, 'Documents', 'Projects');
     const excludedDir = path.join(tempProfile, 'Documents', 'node_modules', 'cache');
     fs.mkdirSync(validDir, { recursive: true });
@@ -337,7 +351,7 @@ describe('File Management Automation', function() {
     fs.writeFileSync(validTarget, 'resume', 'utf8');
     fs.writeFileSync(excludedTarget, 'dependency copy', 'utf8');
 
-    const result = engine.files.search('Resume.docx');
+    const result = await engine.files.search('Resume.docx');
 
     assert.equal(result.success, true);
     assert.ok(result.data.results.includes(validTarget));
@@ -345,8 +359,8 @@ describe('File Management Automation', function() {
     assert.ok(result.data.searchStats.skippedDirectories >= 1);
   });
 
-  it('should return bounded partial search stats instead of scanning forever', function() {
-    const result = engine.files.search('file-that-does-not-exist.docx', {
+  it('should return bounded partial search stats instead of scanning forever', async function() {
+    const result = await engine.files.search('file-that-does-not-exist.docx', {
       maxDirectories: 1,
       maxElapsedMs: 10000
     });
@@ -357,12 +371,12 @@ describe('File Management Automation', function() {
     assert.ok(result.data.searchStats.visitedDirectories >= 1);
   });
 
-  it('should include smart file search stats for validation feedback', function() {
+  it('should include smart file search stats for validation feedback', async function() {
     const targetDir = path.join(tempProfile, 'Downloads');
     const target = path.join(targetDir, 'Latest Notes.pdf');
     fs.writeFileSync(target, 'pdf', 'utf8');
 
-    const result = engine.files.smartFind({
+    const result = await engine.files.smartFind({
       location: 'downloads',
       fileType: 'pdf',
       sortBy: 'createdDesc'
@@ -374,14 +388,14 @@ describe('File Management Automation', function() {
     assert.ok(result.data.searchStats.visitedDirectories >= 1);
   });
 
-  it('should match compact and spaced file search names', function() {
+  it('should match compact and spaced file search names', async function() {
     const nested = path.join(tempProfile, 'Documents', 'College');
     fs.mkdirSync(nested, { recursive: true });
     const target = path.join(nested, 'DLNLP Lab Manual.docx');
     fs.writeFileSync(target, 'manual', 'utf8');
 
-    const compact = engine.files.search('dlnlp labmanual');
-    const spaced = engine.files.search('dlnlp lab manual.docx');
+    const compact = await engine.files.search('dlnlp labmanual');
+    const spaced = await engine.files.search('dlnlp lab manual.docx');
 
     assert.equal(compact.success, true);
     assert.ok(compact.data.results.includes(target));
@@ -389,24 +403,24 @@ describe('File Management Automation', function() {
     assert.ok(spaced.data.results.includes(target));
   });
 
-  it('should prefer a real resume over weak fuzzy filename matches', function() {
+  it('should prefer a real resume over weak fuzzy filename matches', async function() {
     const target = path.join(tempProfile, 'Documents', 'Resume.docx');
     const unrelated = path.join(tempProfile, 'Documents', 'es.pak');
     fs.writeFileSync(target, 'resume', 'utf8');
     fs.writeFileSync(unrelated, 'locale', 'utf8');
 
-    const matches = engine.files._findFileMatches('resume');
+    const matches = await engine.files._findFileMatches('resume');
 
     assert.deepEqual(matches, [target]);
   });
 
-  it('should rank misspelled file names like Windows search', function() {
+  it('should rank misspelled file names like Windows search', async function() {
     const nested = path.join(tempProfile, 'Documents', 'Work');
     fs.mkdirSync(nested, { recursive: true });
     const target = path.join(nested, 'Quarterly Project Report.docx');
     fs.writeFileSync(target, 'report', 'utf8');
 
-    const result = engine.files.search('quaterly projet reprt docx');
+    const result = await engine.files.search('quaterly projet reprt docx');
 
     assert.equal(result.success, true);
     assert.equal(result.data.results[0], target);
@@ -414,7 +428,7 @@ describe('File Management Automation', function() {
     assert.equal(result.data.entries[0].location, 'Documents');
   });
 
-  it('should reuse short-lived file search results for repeated queries', function() {
+  it('should reuse short-lived file search results for repeated queries', async function() {
     const nested = path.join(tempProfile, 'Documents', 'Work');
     fs.mkdirSync(nested, { recursive: true });
     const target = path.join(nested, 'Quarterly Cache Report.docx');
@@ -427,9 +441,9 @@ describe('File Management Automation', function() {
       return originalSearch(...arguments);
     };
 
-    const first = engine.files.search('quarterly cache report');
+    const first = await engine.files.search('quarterly cache report');
     const callsAfterFirst = recursiveCalls;
-    const second = engine.files.search('quarterly cache report');
+    const second = await engine.files.search('quarterly cache report');
 
     assert.equal(first.success, true);
     assert.equal(second.success, true);
@@ -439,11 +453,11 @@ describe('File Management Automation', function() {
     assert.equal(recursiveCalls, callsAfterFirst);
   });
 
-  it('should search folders by compact and misspelled names', function() {
+  it('should search folders by compact and misspelled names', async function() {
     const target = path.join(tempProfile, 'Documents', 'Project Archives');
     fs.mkdirSync(target, { recursive: true });
 
-    const result = engine.folders.search('projet archves');
+    const result = await engine.folders.search('projet archves');
 
     assert.equal(result.success, true);
     assert.equal(result.data.entries[0].type, 'folder');
@@ -452,7 +466,7 @@ describe('File Management Automation', function() {
     assert.equal(result.data.entries[0].location, 'Documents');
   });
 
-  it('should reuse short-lived folder search results for repeated queries', function() {
+  it('should reuse short-lived folder search results for repeated queries', async function() {
     const target = path.join(tempProfile, 'Documents', 'Project Cache Archives');
     fs.mkdirSync(target, { recursive: true });
 
@@ -463,9 +477,9 @@ describe('File Management Automation', function() {
       return originalSearch(...arguments);
     };
 
-    const first = engine.folders.search('project cache archives');
+    const first = await engine.folders.search('project cache archives');
     const callsAfterFirst = recursiveCalls;
-    const second = engine.folders.search('project cache archives');
+    const second = await engine.folders.search('project cache archives');
 
     assert.equal(first.success, true);
     assert.equal(second.success, true);
@@ -475,24 +489,24 @@ describe('File Management Automation', function() {
     assert.equal(recursiveCalls, callsAfterFirst);
   });
 
-  it('should fuzzy match unique folder open requests without exact folder names', function() {
+  it('should fuzzy match unique folder open requests without exact folder names', async function() {
     const target = path.join(tempProfile, 'Documents', 'Projects', 'DLNLP Node Folder');
     fs.mkdirSync(target, { recursive: true });
 
-    const result = engine.folders.open('dlnlpnode');
+    const result = await engine.folders.open('dlnlpnode');
 
     assert.equal(result.success, true);
     assert.equal(result.data.path, target);
     assert.equal(result.data.folderName, 'DLNLP Node Folder');
   });
 
-  it('should block deleting absolute files outside the user profile', function() {
+  it('should block deleting absolute files outside the user profile', async function() {
     const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-outside-file-'));
     const outsideFile = path.join(outsideDir, 'do-not-delete.txt');
     fs.writeFileSync(outsideFile, 'keep', 'utf8');
 
     try {
-      const result = engine.files.delete(outsideFile);
+      const result = await engine.files.delete(outsideFile);
 
       assert.equal(result.success, false);
       assert.match(result.error, /outside allowed user folders|protected system paths|not allowed/i);
@@ -502,12 +516,12 @@ describe('File Management Automation', function() {
     }
   });
 
-  it('should block recursive folder deletion outside the user profile', function() {
+  it('should block recursive folder deletion outside the user profile', async function() {
     const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-outside-folder-'));
     fs.writeFileSync(path.join(outsideDir, 'do-not-delete.txt'), 'keep', 'utf8');
 
     try {
-      const result = engine.folders.delete(outsideDir);
+      const result = await engine.folders.delete(outsideDir);
 
       assert.equal(result.success, false);
       assert.match(result.error, /outside allowed user folders|protected system paths|not allowed/i);
@@ -517,7 +531,7 @@ describe('File Management Automation', function() {
     }
   });
 
-  it('should ask which same-name file to open across subfolders', function() {
+  it('should ask which same-name file to open across subfolders', async function() {
     const firstDir = path.join(tempProfile, 'Documents', 'Jobs');
     const secondDir = path.join(tempProfile, 'Downloads', 'Backup');
     fs.mkdirSync(firstDir, { recursive: true });
@@ -527,7 +541,7 @@ describe('File Management Automation', function() {
     fs.writeFileSync(firstPath, 'one', 'utf8');
     fs.writeFileSync(secondPath, 'two', 'utf8');
 
-    const result = engine.files.open('Resume.docx');
+    const result = await engine.files.open('Resume.docx');
 
     assert.equal(result.success, false);
     assert.equal(result.needsClarification, true);
@@ -538,26 +552,42 @@ describe('File Management Automation', function() {
     );
   });
 
-  it('should constrain file-open matching to the parsed location entity', function() {
+  it('should constrain file-open matching to the parsed location entity', async function() {
     const desktopPath = path.join(tempProfile, 'Desktop', 'Resume.docx');
     const downloadsPath = path.join(tempProfile, 'Downloads', 'Resume.docx');
     fs.writeFileSync(desktopPath, 'desktop', 'utf8');
     fs.writeFileSync(downloadsPath, 'downloads', 'utf8');
 
-    const desktopMatches = engine.files._findFileMatches('Resume.docx', { path: 'desktop' });
-    const downloadMatches = engine.files._findFileMatches('Resume.docx', { path: 'downloads' });
+    const desktopMatches = await engine.files._findFileMatches('Resume.docx', { path: 'desktop' });
+    const downloadMatches = await engine.files._findFileMatches('Resume.docx', { path: 'downloads' });
 
     assert.deepEqual(desktopMatches, [desktopPath]);
     assert.deepEqual(downloadMatches, [downloadsPath]);
   });
 
-  it('should ask before opening a weak single fuzzy file match', function() {
+  it('should open newly created code and web files with their default app', async function() {
+    const filenames = ['script.js', 'tool.py', 'page.html'];
+
+    for (const filename of filenames) {
+      launchedTargets = [];
+      const createResult = engine.files.create(filename, 'desktop');
+      const expectedPath = path.join(tempProfile, 'Desktop', filename);
+      const openResult = await engine.files.open(filename, { path: 'desktop' });
+
+      assert.equal(createResult.success, true);
+      assert.equal(openResult.success, true);
+      assert.equal(openResult.data.path, expectedPath);
+      assert.deepEqual(launchedTargets[0], { target: expectedPath, args: [] });
+    }
+  });
+
+  it('should ask before opening a weak single fuzzy file match', async function() {
     const targetDir = path.join(tempProfile, 'Documents', 'Reports');
     fs.mkdirSync(targetDir, { recursive: true });
     const target = path.join(targetDir, 'Quarterly Project Report.docx');
     fs.writeFileSync(target, 'report', 'utf8');
 
-    const result = engine.files.open('quaterly projet reprt');
+    const result = await engine.files.open('quaterly projet reprt');
 
     assert.equal(result.success, false);
     assert.equal(result.needsClarification, true);
@@ -566,16 +596,39 @@ describe('File Management Automation', function() {
     assert.equal(result.data.choices[0].path, target);
   });
 
-  it('should ask before opening a weak single fuzzy folder match', function() {
+  it('should ask before opening a weak single fuzzy folder match', async function() {
     const target = path.join(tempProfile, 'Documents', 'Quarterly Project Archive');
     fs.mkdirSync(target, { recursive: true });
 
-    const result = engine.folders.open('quaterly archv');
+    const result = await engine.folders.open('quaterly archv');
 
     assert.equal(result.success, false);
     assert.equal(result.needsClarification, true);
     assert.equal(result.data.clarificationType, 'folder.open');
     assert.equal(result.data.matchCount, 1);
     assert.equal(result.data.choices[0].path, target);
+  });
+
+  it('should open a unique folder whose compact name closely matches voice transcription', async function() {
+    const target = path.join(tempProfile, 'Desktop', 'ReplyAgent');
+    fs.mkdirSync(target, { recursive: true });
+
+    const result = await engine.folders.open('replay agent');
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.path, target);
+    assert.deepEqual(launchedTargets[0], { target, args: [] });
+  });
+
+  it('should route voice folder open commands through the fuzzy folder opener', async function() {
+    const target = path.join(tempProfile, 'Desktop', 'ReplyAgent');
+    fs.mkdirSync(target, { recursive: true });
+
+    const result = await router.process('open replay agent folder', 'voice');
+
+    assert.equal(result.success, true);
+    assert.equal(result.intent, 'folder.open');
+    assert.equal(result.data.path, target);
+    assert.deepEqual(launchedTargets[0], { target, args: [] });
   });
 });

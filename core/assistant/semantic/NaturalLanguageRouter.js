@@ -266,65 +266,55 @@ class NaturalLanguageRouter {
     const has = domain => tokens.some(token => DOMAIN_TERMS[domain]?.has(token));
     const appMatch = this._findKnownApp(tokens);
 
-    if (action === 'open' && /\b(?:new|fresh|blank)\s+(?:chrome\s+)?tab\b/.test(text)) {
+    if (action === 'open' && /new\s+(?:chrome\s+)?tab/.test(text)) {
       return 'browser-tab';
     }
-    if (['next', 'previous'].includes(action) && /\bjump\s+to\s+(?:end|ending|last|beginning|start|first)\b/.test(text)) {
+    if (['next', 'previous'].includes(action) && /jump\s+to\s+(?:end|ending|last|beginning|start|first)/.test(text)) {
       return 'media';
     }
 
-    const hasFileEvidence = /\.[a-z0-9]{1,10}\b/i.test(text) || has('file');
+    const hasFileEvidence = /\.[a-z0-9]{1,10}/i.test(text) || has('file');
     const hasPhoneTransferTarget = has('phoneTransfer') ||
-      /\b(?:my\s+)?(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset)\b/i.test(text);
+      /(?:my\s+)?(?:phone|mobile|iphone|android|device|smartphone|cell|cellphone|tablet|handset)/i.test(text);
     const explicitAppDomain = (
       tokens.some(token => APP_CUES.has(token)) ||
-      /\b(?:app|apps|application|applications|program|programs|software)\b|\bnot\s+(?:a\s+|an\s+|the\s+)?(?:file|folder|document|pdf|docx?)\b/i.test(text)
-    ) && !/\bnot\s+(?:a\s+|an\s+|the\s+)?(?:app|application|program|software)\b/i.test(text);
+      /(?:app|apps|application|applications|program|programs|software)|not\s+(?:a\s+|an\s+|the\s+)?(?:file|folder|document|pdf|docx)/i.test(text)
+    ) && !/not\s+(?:a\s+|an\s+|the\s+)?(?:app|application|program|software)/i.test(text);
 
     if (hasFileEvidence && ['send', 'share', 'transfer', 'copy', 'push', 'move', 'give', 'get', 'bring'].includes(action) && hasPhoneTransferTarget) {
       return 'phone-transfer';
     }
     if (has('schedule') ||
       (['remember', 'note', 'save'].includes(action) && this.entityExtractor.extractReminderParts(text).timeExpression) ||
-      (action === 'set' && /\btime\s+for\s+(?:\d+|one|two|three|four|five|ten)\s+(?:seconds?|minutes?|minits?|hours?)\b/.test(text))) {
+      (action === 'set' && /time\s+for\s+(?:\d+|one|two|three|four|five|ten)\s+(?:seconds?|minutes?|minits?|hours?)/.test(text))) {
       return 'schedule';
     }
-    if (has('brightness')) {
-      return 'brightness';
-    }
-    if (has('mediaPlatform') && (has('media') || has('volume')) &&
-      ['play', 'pause', 'resume', 'stop', 'next', 'previous', 'mute', 'unmute', 'increase', 'decrease'].includes(action)) {
+    if (has('brightness')) return 'brightness';
+
+    const isMediaAction = ['play', 'pause', 'resume', 'stop', 'next', 'previous', 'mute', 'unmute', 'increase', 'decrease'].includes(action);
+    if (isMediaAction && (has('mediaPlatform') || has('media'))) {
       return 'media';
     }
     if (has('volume') && ['set', 'increase', 'decrease', 'mute', 'unmute', null, ''].includes(action)) {
       return 'volume';
     }
-    if (has('media') && ['play', 'pause', 'resume', 'stop', 'next', 'previous', 'mute', 'unmute', 'increase', 'decrease'].includes(action)) {
-      return 'media';
-    }
-    if (has('mediaPlatform') && ['play', 'pause', 'resume', 'stop', 'next', 'previous', 'mute', 'unmute'].includes(action)) {
-      return 'media';
-    }
     if (explicitAppDomain && ['open', 'close', 'switch'].includes(action)) {
       return 'app';
     }
-    if (hasFileEvidence) {
-      return 'local-file';
-    }
+    if (hasFileEvidence) return 'local-file';
     if (['maximize', 'minimize'].includes(action) || (has('window') && ['show', 'close'].includes(action))) {
       return 'window';
     }
     if (['search'].includes(action) && (has('web') || !tokenSet.has('file'))) {
       return 'web';
     }
-    if (Number.isFinite(value) && has('volume')) {
-      return 'volume';
-    }
+    if (Number.isFinite(value) && has('volume')) return 'volume';
     if (appMatch || ['open', 'close', 'switch'].includes(action) || tokens.some(token => APP_CUES.has(token))) {
       return 'app';
     }
     return 'unknown';
   }
+
 
   _intentForFrame(action, domain, tokens, text, value) {
     if (domain === 'browser-tab' && action === 'open') {

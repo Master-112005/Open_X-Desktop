@@ -136,7 +136,8 @@ function normalizeScheduledAction(action = {}) {
         ...(entities.requestedOperation ? { requestedOperation: sanitizeText(entities.requestedOperation, 60) } : {}),
         ...(entities.allowWebSearchFallback === true ? { allowWebSearchFallback: true } : {}),
         ...(entities.webFallbackUrl ? { webFallbackUrl: sanitizeText(entities.webFallbackUrl, 240) } : {}),
-        ...(entities.webFallbackBrowser ? { webFallbackBrowser: sanitizeText(entities.webFallbackBrowser, 40).toLowerCase() } : {})
+        ...(entities.webFallbackBrowser ? { webFallbackBrowser: sanitizeText(entities.webFallbackBrowser, 40).toLowerCase() } : {}),
+        ...(entities.webFallbackUrl ? { webRequested: true } : {})
       }
     };
   }
@@ -237,12 +238,24 @@ class SchedulerController {
     this.schedulePath = config?.app?.schedulesPath || dataPaths.schedulesPath;
     this._migrateWorkingDirectorySchedules(config);
     this._loadedSchedulesChanged = false;
-    this.scheduledItems = this._loadScheduledItems();
+    this._initialLoadPending = true;
+    this.scheduledItems = [];
     this.timers = new Map();
     this._cleanupLegacyWindowsTasks(config);
+  }
+
+  async _ensureSchedulesLoaded() {
+    if (!this._initialLoadPending) return;
+    this._initialLoadPending = false;
+    this.scheduledItems = await this._loadScheduledItems();
     if (this._loadedSchedulesChanged) {
-      this._saveScheduledItems();
+      this._loadedSchedulesChanged = false;
+      await this._saveScheduledItems();
     }
+  }
+
+  async init() {
+    await this._ensureSchedulesLoaded();
     this.scheduledItems.filter(item => item.status === 'scheduled').forEach(item => this._arm(item));
   }
 
@@ -271,7 +284,7 @@ class SchedulerController {
     });
   }
 
-  startStopwatch() {
+  async startStopwatch() {
     const existing = this._latestSchedule('Stopwatch', ['running', 'paused']);
     if (existing) {
       return { success: true, data: this._stopwatchData(existing) };
@@ -293,30 +306,30 @@ class SchedulerController {
       createdAt: now
     };
     this.scheduledItems.push(item);
-    this._saveScheduledItems();
+    await this._saveScheduledItems();
     return { success: true, data: this._stopwatchData(item) };
   }
 
-  pauseStopwatch() {
+  async pauseStopwatch() {
     const item = this._latestSchedule('Stopwatch', ['running']);
     if (!item) return { success: false, error: 'No running stopwatch found' };
     item.elapsedMs = this._stopwatchElapsedMs(item);
     item.status = 'paused';
     delete item.startedAt;
-    this._saveScheduledItems();
+    await this._saveScheduledItems();
     return { success: true, data: this._stopwatchData(item) };
   }
 
-  resumeStopwatch() {
+  async resumeStopwatch() {
     const item = this._latestSchedule('Stopwatch', ['paused']);
     if (!item) return { success: false, error: 'No paused stopwatch found' };
     item.startedAt = new Date().toISOString();
     item.status = 'running';
-    this._saveScheduledItems();
+    await this._saveScheduledItems();
     return { success: true, data: this._stopwatchData(item) };
   }
 
-  resetStopwatch() {
+  async resetStopwatch() {
     const item = this._latestSchedule('Stopwatch', ['running', 'paused']);
     if (!item) return this.startStopwatch();
     const wasRunning = item.status === 'running';
@@ -328,17 +341,17 @@ class SchedulerController {
       item.status = 'paused';
       delete item.startedAt;
     }
-    this._saveScheduledItems();
+    await this._saveScheduledItems();
     return { success: true, data: this._stopwatchData(item) };
   }
 
-  stopStopwatch() {
+  async stopStopwatch() {
     const item = this._latestSchedule('Stopwatch', ['running', 'paused']);
     if (!item) return { success: false, error: 'No active stopwatch found' };
     item.elapsedMs = this._stopwatchElapsedMs(item);
     item.status = 'completed';
     delete item.startedAt;
-    this._saveScheduledItems();
+    await this._saveScheduledItems();
     return { success: true, data: this._stopwatchData(item) };
   }
 
@@ -774,8 +787,9 @@ class SchedulerController {
     return { hours, minutes };
   }
 
-  _scheduleNotification({ kind, title, message, dueAt, category = null, symbol = null, metadata = {} }) {
+  async _scheduleNotification({ kind, title, message, dueAt, category = null, symbol = null, metadata = {} }) {
     try {
+      await this._ensureSchedulesLoaded();
       const normalizedKind = normalizeScheduleKind(kind);
       const targetDate = dueAt instanceof Date ? dueAt : new Date(dueAt);
       if (!Number.isFinite(targetDate.getTime()) || targetDate.getTime() <= Date.now()) {
@@ -836,7 +850,7 @@ class SchedulerController {
       } else {
         this.scheduledItems.push(item);
       }
-      this._saveScheduledItems();
+      await this._saveScheduledItems();
       this._arm(savedItem);
 
       return {
@@ -845,9 +859,9 @@ class SchedulerController {
           ...this._publicScheduleData(savedItem),
           operation: duplicate ? 'update' : 'schedule',
           duplicate,
-          verified: this._hasSchedule(savedItem.id),
+          verified: await this._hasSchedule(savedItem.id),
           verification: scheduleVerification(
-            this._hasSchedule(savedItem.id) ? 'passed' : 'failed',
+            await this._hasSchedule(savedItem.id) ? 'passed' : 'failed',
             'schedule-persisted',
             { id: savedItem.id, kind: savedItem.kind, dueAt: savedItem.dueAt }
           ),
@@ -896,10 +910,12 @@ class SchedulerController {
     };
   }
 
-  _hasSchedule(id) {
+  async _hasSchedule(id) {
     const target = String(id || '').trim();
     if (!target) return false;
-    return this._loadScheduledItems().some(item => item.id === target || item.taskName === target);
+    const local = this.scheduledItems.some(item => item.id === target || item.taskName === target);
+    if (local) return true;
+    return (await this._loadScheduledItems()).some(item => item.id === target || item.taskName === target);
   }
 
   _stateResult(item, operation, check = 'schedule-state') {
@@ -917,7 +933,7 @@ class SchedulerController {
     return { success: Boolean(item?.id), data, ...(item?.id ? {} : { error: 'Schedule state not available' }) };
   }
 
-  _loadScheduledItems() {
+  async _loadScheduledItems() {
     const parsed = readJsonFile(this.schedulePath, [], {
       createIfMissing: false,
       validate: value => Array.isArray(value)
@@ -962,7 +978,7 @@ class SchedulerController {
     child.unref();
   }
 
-  _saveScheduledItems() {
+  async _saveScheduledItems() {
     this.scheduledItems = this._compactSchedules(this.scheduledItems);
     writeJsonAtomic(this.schedulePath, this.scheduledItems, { backup: true });
     if (typeof this.eventBus?.subscribe === 'function') {
@@ -1070,7 +1086,7 @@ class SchedulerController {
 
     item.status = 'due';
     item.updatedAt = new Date().toISOString();
-    this._saveScheduledItems();
+    this._saveScheduledItems().catch(error => this.logger.error('Could not persist due schedule', error));
     this.eventBus?.publish?.(EVENTS.SCHEDULE_DUE, { ...item });
   }
 
@@ -1092,13 +1108,13 @@ class SchedulerController {
         completedAt: current.updatedAt,
         error: 'Scheduled action executor is unavailable'
       };
-      this._saveScheduledItems();
+      this._saveScheduledItems().catch(error => this.logger.error('Could not persist scheduled action', error));
       return current.scheduledActionResult;
     }
 
     current.status = 'running';
     current.updatedAt = new Date().toISOString();
-    this._saveScheduledItems();
+    await this._saveScheduledItems();
 
     try {
       const result = await this.actionExecutor(scheduledAction, current);
@@ -1112,7 +1128,7 @@ class SchedulerController {
         error: success ? null : sanitizeText(result?.error || 'Scheduled action failed', 180)
       };
       active.updatedAt = active.scheduledActionResult.completedAt;
-      this._saveScheduledItems();
+      await this._saveScheduledItems();
       return active.scheduledActionResult;
     } catch (error) {
       const active = this.scheduledItems.find(entry => entry.id === itemId || entry.taskName === itemId) || current;
@@ -1124,12 +1140,12 @@ class SchedulerController {
         error: sanitizeText(error.message || 'Scheduled action failed', 180)
       };
       active.updatedAt = active.scheduledActionResult.completedAt;
-      this._saveScheduledItems();
+      await this._saveScheduledItems();
       throw error;
     }
   }
 
-  snooze(id, minutes = 5) {
+  async snooze(id, minutes = 5) {
     const item = this.scheduledItems.find(entry => entry.id === id || entry.taskName === id);
     if (!item) return { success: false, error: 'Schedule not found' };
     const existingTimer = this.timers.get(item.id);
@@ -1138,12 +1154,12 @@ class SchedulerController {
     item.status = 'scheduled';
     item.dueAt = new Date(Date.now() + (Math.max(1, Number(minutes) || 5) * 60 * 1000)).toISOString();
     item.updatedAt = new Date().toISOString();
-    this._saveScheduledItems();
+    await this._saveScheduledItems();
     this._arm(item);
     return this._stateResult(item, 'snooze', 'schedule-snoozed');
   }
 
-  complete(id) {
+  async complete(id) {
     const item = this.scheduledItems.find(entry => entry.id === id || entry.taskName === id);
     if (!item) return { success: false, error: 'Schedule not found' };
     const timer = this.timers.get(item.id);
@@ -1157,11 +1173,11 @@ class SchedulerController {
       item.status = 'completed';
     }
     item.updatedAt = new Date().toISOString();
-    this._saveScheduledItems();
+    await this._saveScheduledItems();
     return this._stateResult(item, item.status === 'scheduled' ? 'reschedule' : 'complete', 'schedule-completed');
   }
 
-  removeSchedule(id) {
+  async removeSchedule(id) {
     const item = this.scheduledItems.find(entry => entry.id === id || entry.taskName === id);
     if (!item) return { success: false, error: 'Schedule not found' };
     const timer = this.timers.get(item.id);
@@ -1169,11 +1185,11 @@ class SchedulerController {
     this.timers.delete(item.id);
     item.status = 'dismissed';
     item.updatedAt = new Date().toISOString();
-    this._saveScheduledItems();
+    await this._saveScheduledItems();
     return this._stateResult(item, 'remove', 'schedule-removed');
   }
 
-  upsertSyncedSchedule(input = {}, metadata = {}) {
+  async upsertSyncedSchedule(input = {}, metadata = {}) {
     const normalized = this._normalizeIncomingSchedule(input, metadata);
     if (!normalized) return { success: false, error: 'Invalid schedule item' };
 
@@ -1195,16 +1211,17 @@ class SchedulerController {
     }
 
     const item = existingIndex >= 0 ? this.scheduledItems[existingIndex] : normalized;
-    this._saveScheduledItems();
+    await this._saveScheduledItems();
     if (item.status === 'scheduled') this._arm(item);
+    const persisted = await this._hasSchedule(item.id);
     return {
       success: true,
       data: {
         ...this._publicScheduleData(item),
         operation,
-        verified: this._hasSchedule(item.id),
+        verified: persisted,
         verification: scheduleVerification(
-          this._hasSchedule(item.id) ? 'passed' : 'failed',
+          persisted ? 'passed' : 'failed',
           'schedule-sync-persisted',
           { id: item.id, kind: item.kind, dueAt: item.dueAt }
         )
@@ -1223,7 +1240,7 @@ class SchedulerController {
     };
   }
 
-  pauseActiveTimer() {
+  async pauseActiveTimer() {
     const item = this._latestSchedule('Timer', ['scheduled']);
     if (!item) return { success: false, error: 'No active timer found' };
     const timer = this.timers.get(item.id);
@@ -1232,23 +1249,23 @@ class SchedulerController {
     item.remainingMs = Math.max(0, new Date(item.dueAt).getTime() - Date.now());
     item.status = 'paused';
     item.updatedAt = new Date().toISOString();
-    this._saveScheduledItems();
+    await this._saveScheduledItems();
     return this._stateResult(item, 'pause', 'schedule-paused');
   }
 
-  resumeActiveTimer() {
+  async resumeActiveTimer() {
     const item = this._latestSchedule('Timer', ['paused']);
     if (!item) return { success: false, error: 'No paused timer found' };
     item.dueAt = new Date(Date.now() + Math.max(1000, Number(item.remainingMs) || 1000)).toISOString();
     item.status = 'scheduled';
     delete item.remainingMs;
     item.updatedAt = new Date().toISOString();
-    this._saveScheduledItems();
+    await this._saveScheduledItems();
     this._arm(item);
     return this._stateResult(item, 'resume', 'schedule-resumed');
   }
 
-  resetActiveTimer() {
+  async resetActiveTimer() {
     const item = this._latestSchedule('Timer', ['scheduled', 'paused', 'due']);
     if (!item || !item.durationMinutes) return { success: false, error: 'No resettable timer found' };
     const timer = this.timers.get(item.id);
@@ -1258,7 +1275,7 @@ class SchedulerController {
     item.status = 'scheduled';
     delete item.remainingMs;
     item.updatedAt = new Date().toISOString();
-    this._saveScheduledItems();
+    await this._saveScheduledItems();
     this._arm(item);
     return this._stateResult(item, 'reset', 'schedule-reset');
   }
@@ -1339,13 +1356,13 @@ class SchedulerController {
     };
   }
 
-  cancelLatest(kind) {
+  async cancelLatest(kind) {
     const item = this._latestSchedule(kind, ['scheduled', 'paused', 'due']);
     if (!item) return { success: false, error: `No active ${String(kind || 'schedule').toLowerCase()} found` };
     return this.removeSchedule(item.id);
   }
 
-  clearSchedules(kind) {
+  async clearSchedules(kind) {
     const normalizedKind = String(kind || '').toLowerCase();
     const targets = this.scheduledItems.filter(item =>
       String(item.kind || '').toLowerCase() === normalizedKind && ['scheduled', 'paused', 'due'].includes(item.status));
@@ -1356,7 +1373,7 @@ class SchedulerController {
       item.status = 'dismissed';
       item.updatedAt = new Date().toISOString();
     }
-    this._saveScheduledItems();
+    await this._saveScheduledItems();
     return {
       success: true,
       data: {
@@ -1369,12 +1386,12 @@ class SchedulerController {
     };
   }
 
-  snoozeLatestAlarm(minutes = 5) {
+  async snoozeLatestAlarm(minutes = 5) {
     const item = this._latestSchedule('Alarm', ['scheduled', 'due']);
     return item ? this.snooze(item.id, minutes) : { success: false, error: 'No active alarm found' };
   }
 
-  snoozeLatestReminder(minutes = 5) {
+  async snoozeLatestReminder(minutes = 5) {
     const item = this._latestSchedule('Reminder', ['scheduled', 'due']);
     return item ? this.snooze(item.id, minutes) : { success: false, error: 'No active reminder found' };
   }

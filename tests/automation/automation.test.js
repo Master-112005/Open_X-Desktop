@@ -31,6 +31,9 @@ describe('Automation Engine', function() {
     assert.ok(actions.includes('browser.search'));
     assert.ok(actions.includes('browser.closeTab'));
     assert.ok(actions.includes('browser.listTabs'));
+    assert.ok(actions.includes('text.write'));
+    assert.ok(actions.includes('text.pasteFromFile'));
+    assert.ok(actions.includes('text.writeSearchResult'));
     assert.ok(actions.includes('form.fill'));
     assert.ok(actions.includes('message.compose'));
     assert.ok(actions.includes('email.compose'));
@@ -374,21 +377,54 @@ describe('Automation Engine', function() {
     assert.equal(sent[0].messageText, 'hi');
   });
 
-  it('should open recognized web apps in Chrome only after local app lookup fails', async function() {
+  it('should ask before opening a web app unless the user explicitly requests web', async function() {
+    const engine = new AutomationEngine({});
+    let browserOpened = false;
+
+    engine.apps.open = appName => ({
+      success: false,
+      error: `Could not find app: ${appName}`,
+      needsClarification: true,
+      data: {
+        clarificationType: 'app.open.webFallback',
+        app: appName,
+        webFallbackUrl: 'https://www.instagram.com/',
+        webFallbackBrowser: 'chrome',
+        confirmEntities: { webRequested: true, webFallbackUrl: 'https://www.instagram.com/', webFallbackBrowser: 'chrome' }
+      }
+    });
+    engine.folders.open = () => ({ success: false, error: 'not a folder' });
+    engine.browser.checkInternetConnection = async () => true;
+    engine.browser.open = (url, options) => {
+      browserOpened = true;
+      return { success: true, data: { url, browserName: options.browserName } };
+    };
+
+    const result = await engine.execute('app.open', {
+      appName: 'instagram',
+      webFallbackUrl: 'https://www.instagram.com/',
+      webFallbackBrowser: 'chrome'
+    });
+
+    assert.equal(result.success, false);
+    assert.equal(result.needsClarification, true);
+    assert.equal(result.data.clarificationType, 'app.open.webFallback');
+    assert.equal(browserOpened, false);
+  });
+
+  it('should open the web app directly when the user explicitly requests web', async function() {
     const engine = new AutomationEngine({});
     let opened = null;
 
-    engine.apps.open = appName => ({ success: false, error: `Could not find app: ${appName}` });
-    engine.folders.open = () => ({ success: false, error: 'not a folder' });
     engine.browser.checkInternetConnection = async () => true;
     engine.browser.open = (url, options) => {
       opened = { url, options };
       return { success: true, data: { url, browserName: options.browserName } };
     };
-    engine.verifier.controllers.apps.waitForVisibleApp = () => null;
 
     const result = await engine.execute('app.open', {
       appName: 'instagram',
+      webRequested: true,
       webFallbackUrl: 'https://www.instagram.com/',
       webFallbackBrowser: 'chrome'
     });
@@ -400,6 +436,34 @@ describe('Automation Engine', function() {
     assert.equal(result.data.webFallback, true);
     assert.equal(result.data.webFallbackBrowser, 'chrome');
     assert.equal(result.data.tabQuery, 'instagram');
+  });
+
+  it('should open a trusted web fallback launcher in the browser when the user explicitly requests web', async function() {
+    const engine = new AutomationEngine({});
+    let opened = null;
+
+    engine.apps._resolveStartApp = () => {
+      throw new Error('Start menu lookup should not run when the user explicitly requests web');
+    };
+    engine.browser.checkInternetConnection = async () => true;
+    engine.browser.open = (url, options) => {
+      opened = { url, options };
+      return { success: true, data: { url, browserName: options.browserName } };
+    };
+
+    const result = await engine.execute('app.open', {
+      appName: 'youtube',
+      webRequested: true,
+      webFallbackUrl: 'https://www.youtube.com/',
+      webFallbackBrowser: 'chrome'
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.launchMethod, 'chrome-web-app-fallback');
+    assert.equal(opened.url, 'https://www.youtube.com/');
+    assert.equal(opened.options.browserName, 'chrome');
+    assert.equal(result.data.webFallback, true);
+    assert.equal(result.data.tabQuery, 'youtube');
   });
 
   it('should not open unknown app requests in Chrome', async function() {
@@ -417,6 +481,162 @@ describe('Automation Engine', function() {
 
     assert.equal(result.success, false);
     assert.equal(browserOpened, false);
+  });
+
+  it('should write text into a requested app window by pasting', async function() {
+    const engine = new AutomationEngine({});
+    let openedApp = null;
+    let pasted = null;
+
+    engine.apps.open = appName => {
+      openedApp = appName;
+      return { success: true, data: { app: appName } };
+    };
+    engine.windows.pasteText = (windowName, text, options) => {
+      pasted = { windowName, text, options };
+      return { success: true, data: { matchedWindow: 'Untitled - Notepad', processName: 'notepad' } };
+    };
+
+    const result = await engine.execute('text.write', {
+      text: 'Rakesh',
+      appName: 'notepad'
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(openedApp, 'notepad');
+    assert.equal(pasted.windowName, 'notepad');
+    assert.equal(pasted.text, 'Rakesh');
+    assert.deepEqual(pasted.options.preferredProcessNames, ['notepad']);
+    assert.equal(result.data.launchMethod, 'clipboard-paste');
+  });
+
+  it('should auto-detect an open text editing window for untargeted writes', async function() {
+    const engine = new AutomationEngine({});
+    let pasted = null;
+
+    engine.windows.findWindow = () => ({
+      handle: 100,
+      title: 'Untitled - Notepad',
+      processName: 'notepad',
+      id: 1
+    });
+    engine.windows.listWindows = () => ([
+      { handle: 100, title: 'Untitled - Notepad', processName: 'notepad', id: 1 },
+      { handle: 200, title: 'Google Chrome', processName: 'chrome', id: 2 }
+    ]);
+    engine.windows.pasteText = (windowName, text, options) => {
+      pasted = { windowName, text, options };
+      return { success: true, data: { matchedWindow: 'Untitled - Notepad', processName: 'notepad' } };
+    };
+
+    const result = await engine.execute('text.write', { text: 'my name' });
+
+    assert.equal(result.success, true);
+    assert.equal(pasted.windowName, 'Untitled - Notepad');
+    assert.equal(pasted.text, 'my name');
+    assert.deepEqual(pasted.options.preferredTitleTokens, ['notepad']);
+    assert.equal(pasted.options.requireTitleTokenMatch, true);
+    assert.equal(result.data.targetWindow, 'Untitled - Notepad');
+  });
+
+  it('should fall back to the active window when no text host is open', async function() {
+    const engine = new AutomationEngine({});
+    let pasted = null;
+
+    engine.windows.findWindow = () => null;
+    engine.windows.listWindows = () => ([
+      { handle: 200, title: 'Google Chrome', processName: 'chrome', id: 2 }
+    ]);
+    engine.windows.pasteText = (windowName, text, options) => {
+      pasted = { windowName, text, options };
+      return { success: true, data: { matchedWindow: 'Google Chrome' } };
+    };
+
+    const result = await engine.execute('text.write', { text: 'hi' });
+
+    assert.equal(result.success, true);
+    assert.equal(pasted.windowName, '');
+    assert.equal(result.data.targetWindow, 'active window');
+  });
+
+  it('should paste text from a local file into a requested window', async function() {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-text-'));
+    const sourcePath = path.join(tempDir, 'notes.txt');
+    fs.writeFileSync(sourcePath, 'copy this info', 'utf8');
+    const engine = new AutomationEngine({});
+    let pastedText = null;
+
+    try {
+      engine.apps.open = () => ({ success: true });
+      engine.windows.pasteText = (windowName, text) => {
+        pastedText = text;
+        return { success: true, data: { matchedWindow: windowName } };
+      };
+
+      const result = await engine.execute('text.pasteFromFile', {
+        source: sourcePath,
+        appName: 'notepad'
+      });
+
+      assert.equal(result.success, true);
+      assert.equal(pastedText, 'copy this info');
+      assert.equal(result.data.sourcePath, sourcePath);
+      assert.equal(result.data.filename, 'notes.txt');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should append written text directly to an existing target file', async function() {
+    const documentsDir = path.join(process.env.USERPROFILE || os.homedir(), 'Documents');
+    fs.mkdirSync(documentsDir, { recursive: true });
+    const tempDir = fs.mkdtempSync(path.join(documentsDir, 'openx-text-target-'));
+    const targetPath = path.join(tempDir, 'notes.txt');
+    fs.writeFileSync(targetPath, 'first line', 'utf8');
+    const engine = new AutomationEngine({});
+
+    try {
+      const result = await engine.execute('text.write', {
+        text: 'second line',
+        filename: targetPath
+      });
+
+      assert.equal(result.success, true);
+      assert.equal(result.data.launchMethod, 'file-append');
+      assert.equal(fs.readFileSync(targetPath, 'utf8'), 'first line\nsecond line');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should open a browser result and write its metadata into notepad', async function() {
+    const engine = new AutomationEngine({});
+    let pastedText = null;
+
+    engine.browser.openFirstResult = async query => ({
+      success: true,
+      data: {
+        query,
+        title: 'OpenX Result',
+        url: 'https://example.com/openx'
+      }
+    });
+    engine.apps.open = () => ({ success: true });
+    engine.windows.pasteText = (windowName, text) => {
+      pastedText = text;
+      return { success: true, data: { matchedWindow: windowName } };
+    };
+
+    const result = await engine.execute('text.writeSearchResult', {
+      query: 'openx assistant',
+      appName: 'notepad'
+    });
+
+    assert.equal(result.success, true);
+    assert.match(pastedText, /Search: openx assistant/);
+    assert.match(pastedText, /Title: OpenX Result/);
+    assert.match(pastedText, /URL: https:\/\/example.com\/openx/);
+    assert.equal(result.data.query, 'openx assistant');
   });
 
   it('should use web search fallback only when an app request explicitly allows it', async function() {
@@ -443,6 +663,7 @@ describe('Automation Engine', function() {
 
     const result = await engine.execute('app.open', {
       appName: 'sparkdeck',
+      webRequested: true,
       allowWebSearchFallback: true,
       webSearchFallbackQuery: 'sparkdeck',
       webFallbackBrowser: 'chrome'
@@ -1363,18 +1584,18 @@ describe('Automation Engine', function() {
     assert.equal(monthName.getMonth(), 11);
   });
 
-  it('should preserve and reschedule recurring alarms', function() {
+  it('should preserve and reschedule recurring alarms', async function() {
     const SchedulerController = require('../../core/automation/scheduler');
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-scheduler-'));
     const scheduler = new SchedulerController({ app: { dataDir: tempDir } });
 
     try {
-      const result = scheduler.setAlarm('6:30 am', 'wake up', { recurrence: 'daily' });
+      const result = await scheduler.setAlarm('6:30 am', 'wake up', { recurrence: 'daily' });
       assert.equal(result.success, true);
       assert.equal(result.data.recurrence, 'daily');
       assert.equal(result.data.alarmLabel, 'wake up');
 
-      const completed = scheduler.complete(result.data.id);
+      const completed = await scheduler.complete(result.data.id);
       assert.equal(completed.success, true);
       assert.equal(completed.data.status, 'scheduled');
       assert.equal(completed.data.recurrence, 'daily');
@@ -1385,13 +1606,13 @@ describe('Automation Engine', function() {
     }
   });
 
-  it('should schedule recurring weekday alarms on the next matching day', function() {
+  it('should schedule recurring weekday alarms on the next matching day', async function() {
     const SchedulerController = require('../../core/automation/scheduler');
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-scheduler-weekday-'));
     const scheduler = new SchedulerController({ app: { dataDir: tempDir } });
 
     try {
-      const result = scheduler.setAlarm('8 pm', 'eat lunch', { recurrence: 'weekly:saturday,monday' });
+      const result = await scheduler.setAlarm('8 pm', 'eat lunch', { recurrence: 'weekly:saturday,monday' });
       assert.equal(result.success, true);
       assert.equal(result.data.recurrence, 'weekly:saturday,monday');
       const due = new Date(result.data.dueAt);
@@ -1399,7 +1620,7 @@ describe('Automation Engine', function() {
       assert.equal(due.getHours(), 20);
       assert.equal(due.getMinutes(), 0);
 
-      const completed = scheduler.complete(result.data.id);
+      const completed = await scheduler.complete(result.data.id);
       const next = new Date(completed.data.dueAt);
       assert.equal(completed.success, true);
       assert.equal(completed.data.status, 'scheduled');

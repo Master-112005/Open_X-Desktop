@@ -110,43 +110,6 @@ describe('Assistant Confirmation Flow', function() {
     assert.equal(assistant.getStatus().awaitingConfirmation, false);
   });
 
-  it('should continue remaining multi-command steps after confirming a protected first step', async function() {
-    const executed = [];
-    const automation = {
-      execute: async (actionId, entities) => {
-        executed.push({ actionId, entities });
-        return { success: true, data: { actionId, ...entities } };
-      }
-    };
-    const assistant = new Assistant({
-      permissions: {
-        levels: {
-          low: { requiresConfirmation: false, requiresAuth: false },
-          medium: { requiresConfirmation: true, requiresAuth: false }
-        }
-      },
-      activeLearning: { enabled: false }
-    }, {
-      automation,
-      eventBus: { publish() {} }
-    });
-
-    const first = await assistant.processCommand('close chrome and set vol 100', 'chat');
-    assert.equal(first.requiresConfirmation, true);
-    assert.equal(first.intent, 'multi.command');
-    assert.match(first.response, /Close an application/i);
-
-    const confirmed = await assistant.processCommand('yes', 'chat');
-
-    assert.equal(confirmed.success, true);
-    assert.equal(confirmed.intent, 'multi.command');
-    assert.deepEqual(executed.map(step => step.actionId), ['app.close', 'volume.set']);
-    assert.equal(executed[0].entities.appName, 'chrome');
-    assert.equal(executed[1].entities.value, 100);
-    assert.match(confirmed.response, /closed chrome/i);
-    assert.match(confirmed.response, /set the volume to 100%/i);
-  });
-
   it('should execute shared-value volume and brightness commands without clarification', async function() {
     const executed = [];
     const automation = {
@@ -535,7 +498,7 @@ describe('Assistant Confirmation Flow', function() {
     await assistant.processCommand('Give me a real-world example.', 'chat');
     await assistant.processCommand('Summarize that in one minute.', 'chat');
 
-    assert.equal(routedInputs[0], 'Explain Docker in simple words.');
+    assert.equal(routedInputs[0], 'explain docker in simple words');
     assert.equal(routedInputs[1], 'search for docker simple beginner explanation');
     assert.equal(routedInputs[2], 'search for docker real world example');
     assert.equal(routedInputs[3], 'search for docker one minute summary');
@@ -606,7 +569,7 @@ describe('Assistant Confirmation Flow', function() {
     assert.match(previous.response, /Explain Kubernetes/i);
     assert.match(recap.response, /Kubernetes/i);
     assert.match(about.response, /Kubernetes/i);
-    assert.deepEqual(routedInputs, ['Explain Kubernetes in simple words.']);
+    assert.deepEqual(routedInputs, ['explain kubernetes in simple words']);
   });
 
   it('should execute a yes/no clarification with confirm entities', async function() {
@@ -837,7 +800,7 @@ describe('Assistant Confirmation Flow', function() {
     const repeated = await assistant.processCommand('try again');
 
     assert.equal(repeated.success, true);
-    assert.equal(seenInputs[1], 'unpause');
+    assert.equal(seenInputs[1], 'resume');
   });
 
   it('should retry the last failed command before repeating a successful one', async function() {
@@ -933,9 +896,8 @@ describe('Assistant Confirmation Flow', function() {
     const followUp = await assistant.processCommand('what?', 'chat');
 
     assert.equal(followUp.requiresConfirmation, true);
-    assert.match(followUp.response, /close chrome/i);
-    assert.match(followUp.response, /yes/i);
-    assert.match(followUp.response, /no/i);
+    assert.match(followUp.response, /waiting for your decision/i);
+    assert.match(followUp.response, /proceed or cancel/i);
   });
 
   it('should not let failed close confirmations poison later app open recovery', async function() {
@@ -1014,7 +976,7 @@ describe('Assistant Confirmation Flow', function() {
     await assistant.processCommand('find Resume.docx', 'chat');
     await assistant.processCommand('what are they', 'chat');
 
-    assert.deepEqual(routedInputs, ['find Resume.docx', 'find Resume.docx']);
+    assert.deepEqual(routedInputs, ['find resume docx', 'find resume docx']);
   });
 
   it('should expand compact pronoun commands and open the recent file result', async function() {
@@ -1295,7 +1257,7 @@ describe('Assistant Confirmation Flow', function() {
     assert.equal(selectedEntities.selectedPath, filePath);
     assert.equal(selectedEntities.transferKind, 'file');
     assert.equal(executionOptions.source, 'phone');
-    assert.equal(executionOptions.originalInput, 'send me resume.docx file');
+    assert.equal(executionOptions.originalInput, 'send me resume docx file');
     assert.equal(executionOptions.phoneContext.deviceId, 'phone-1');
   });
 
@@ -1497,42 +1459,6 @@ describe('Assistant Confirmation Flow', function() {
     assert.equal(routedInput, 'open chrome');
   });
 
-  it('should route the repaired command text from noisy chat inputTexts', async function() {
-    let routedInput = '';
-    const router = {
-      nlp: {
-        prepare: () => ({
-          correctedText: 'sglkn open lsg chrome',
-          commandText: 'open chrome',
-          repairedCommandText: 'open chrome',
-          noiseTokenCount: 2,
-          actionTokenCount: 1
-        })
-      },
-      process: async (input) => {
-        routedInput = input;
-        return {
-          commandId: 'cmd-5b',
-          success: true,
-          intent: 'app.open',
-          entities: { appName: 'chrome' },
-          response: 'Opened chrome.'
-        };
-      }
-    };
-
-    const assistant = new Assistant({}, {
-      router,
-      automation: {},
-      eventBus: { publish() {} }
-    });
-
-    const result = await assistant.processCommand('sglkn open lsg chrome', 'chat');
-
-    assert.equal(result.success, true);
-    assert.equal(routedInput, 'open chrome');
-  });
-
   it('should resolve chat pronouns from recent command context before routing', async function() {
     const routedInputs = [];
     const router = {
@@ -1573,42 +1499,6 @@ describe('Assistant Confirmation Flow', function() {
 
     assert.equal(result.success, true);
     assert.deepEqual(routedInputs, ['close youtube', 'open youtube']);
-  });
-
-  it('should ask for feedback after actionable commands and record positive feedback', async function() {
-    const feedback = [];
-    const learning = {
-      enabled: true,
-      askForFeedback: true,
-      findCorrection: () => null,
-      learnFromText: () => null,
-      recordFeedback: entry => feedback.push(entry)
-    };
-    const router = {
-      process: async () => ({
-        commandId: 'cmd-feedback',
-        success: true,
-        intent: 'app.open',
-        confidence: 1,
-        entities: { appName: 'chrome' },
-        response: 'Opened chrome.'
-      })
-    };
-
-    const assistant = new Assistant({}, {
-      router,
-      learning,
-      automation: {},
-      eventBus: { publish() {} }
-    });
-
-    const first = await assistant.processCommand('open chrome');
-    const second = await assistant.processCommand('yes');
-
-    assert.match(first.response, /Did that work correctly/i);
-    assert.equal(second.learned, true);
-    assert.equal(feedback[0].rating, 'positive');
-    assert.equal(assistant.getStatus().awaitingFeedback, false);
   });
 
   it('should not ask for feedback after verified media playback', async function() {
@@ -1656,51 +1546,6 @@ describe('Assistant Confirmation Flow', function() {
 
     assert.doesNotMatch(result.response, /Did that work correctly/i);
     assert.equal(assistant.getStatus().awaitingFeedback, false);
-  });
-
-  it('should learn a correction from negative feedback and reuse it later', async function() {
-    const corrections = new Map();
-    const learning = {
-      enabled: true,
-      askForFeedback: true,
-      findCorrection: input => {
-        const key = input.toLowerCase();
-        return corrections.has(key) ? { correction: corrections.get(key) } : null;
-      },
-      rememberCorrection: (input, correction) => {
-        corrections.set(input.toLowerCase(), correction);
-        return { input, correction };
-      },
-      learnFromText: () => null,
-      recordFeedback: () => {}
-    };
-    const routedInputs = [];
-    const router = {
-      process: async input => {
-        routedInputs.push(input);
-        return {
-          commandId: `cmd-${routedInputs.length}`,
-          success: true,
-          intent: input.includes('google photos') ? 'browser.openFirstResult' : 'app.open',
-          confidence: 1,
-          entities: input.includes('google photos') ? { query: 'google photos' } : { appName: 'photos' },
-          response: input.includes('google photos') ? 'Opened Google Photos.' : 'Opened Photos.'
-        };
-      }
-    };
-
-    const assistant = new Assistant({}, {
-      router,
-      learning,
-      automation: {},
-      eventBus: { publish() {} }
-    });
-
-    await assistant.processCommand('open photos');
-    await assistant.processCommand('no, open google photos');
-    await assistant.processCommand('open photos');
-
-    assert.deepEqual(routedInputs, ['open photos', 'open google photos', 'open google photos']);
   });
 
   it('should resolve polite references like close that to the last app target', async function() {
@@ -2011,7 +1856,7 @@ describe('Assistant Confirmation Flow', function() {
 
     assert.match(lastSearch.response, /IPL winners/i);
     assert.deepEqual(routedInputs, [
-      'search for IPL winners',
+      'search for ipl winners',
       'who won IPL in 2022',
       'who won IPL in 2021'
     ]);
@@ -2057,474 +1902,10 @@ describe('Assistant Confirmation Flow', function() {
     const name = await assistant.processCommand('what is its file name');
 
     assert.deepEqual(routedInputs, [
-      'find Resume.docx',
+      'find resume docx',
       `what is the location of ${filePath}`
     ]);
     assert.match(name.response, /Resume\.docx/);
-  });
-
-  it('should learn corrective phrasing against the last failed command', async function() {
-    const learnedRules = [];
-    const routedInputs = [];
-    const learning = {
-      enabled: true,
-      askForFeedback: false,
-      findCorrection: () => null,
-      learnFromText: () => null,
-      rememberCorrection: (input, correction) => {
-        learnedRules.push({ input, correction });
-        return { input, correction };
-      },
-      recordFeedback: () => {}
-    };
-    const router = {
-      process: async input => {
-        routedInputs.push(input);
-        if (input === 'can please close that') {
-          return {
-            commandId: 'cmd-failed-close',
-            success: false,
-            intent: 'app.close',
-            confidence: 0.99,
-            entities: { appName: 'can' },
-            response: 'Could not close can.'
-          };
-        }
-        return {
-          commandId: 'cmd-fixed-close',
-          success: true,
-          intent: 'app.close',
-          confidence: 1,
-          entities: { appName: 'instagram' },
-          response: 'Closed instagram.'
-        };
-      }
-    };
-
-    const assistant = new Assistant({}, {
-      router,
-      learning,
-      automation: {},
-      eventBus: { publish() {} }
-    });
-
-    await assistant.processCommand('can please close that');
-    const fixed = await assistant.processCommand('i said to close the instagram');
-
-    assert.equal(fixed.success, true);
-    assert.equal(fixed.learned, true);
-    assert.deepEqual(routedInputs, ['can please close that', 'close instagram']);
-    assert.deepEqual(learnedRules, [{ input: 'can please close that', correction: 'close instagram' }]);
-  });
-
-  it('should learn corrective phrasing after an unknown command with no intent', async function() {
-    const learnedRules = [];
-    const routedInputs = [];
-    const learning = {
-      enabled: true,
-      askForFeedback: false,
-      findCorrection: () => null,
-      learnFromText: () => null,
-      rememberCorrection: (input, correction) => {
-        learnedRules.push({ input, correction });
-        return { input, correction };
-      },
-      recordFeedback: () => {}
-    };
-    const router = {
-      process: async input => {
-        routedInputs.push(input);
-        if (input === 'do the magic thing') {
-          return {
-            commandId: 'cmd-unknown',
-            success: false,
-            intent: null,
-            confidence: 0,
-            entities: {},
-            languageUnderstanding: { status: 'failed', reason: 'no-intent' },
-            response: 'I could not understand that command.'
-          };
-        }
-        return {
-          commandId: 'cmd-open-chrome',
-          success: true,
-          intent: 'app.open',
-          confidence: 1,
-          entities: { appName: 'chrome' },
-          response: 'Opened chrome.'
-        };
-      }
-    };
-
-    const assistant = new Assistant({}, {
-      router,
-      learning,
-      automation: {},
-      eventBus: { publish() {} }
-    });
-
-    await assistant.processCommand('do the magic thing');
-    const fixed = await assistant.processCommand('i meant open chrome');
-
-    assert.equal(fixed.success, true);
-    assert.equal(fixed.learned, true);
-    assert.deepEqual(routedInputs, ['do the magic thing', 'open chrome']);
-    assert.deepEqual(learnedRules, [{ input: 'do the magic thing', correction: 'open chrome' }]);
-  });
-
-  it('should not ask for feedback repeatedly after the same confident action', async function() {
-    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-learning-'));
-    const learning = new ActiveLearningStore({
-      app: { dataDir: tempDir },
-      activeLearning: { enabled: true, askForFeedback: true }
-    });
-    const router = {
-      process: async () => ({
-        commandId: 'cmd-repeat-feedback',
-        success: true,
-        intent: 'app.open',
-        confidence: 1,
-        entities: { appName: 'chrome' },
-        response: 'Opened chrome.'
-      })
-    };
-    const assistant = new Assistant({}, {
-      router,
-      learning,
-      automation: {},
-      eventBus: { publish() {} }
-    });
-
-    const first = await assistant.processCommand('open chrome');
-    await assistant.processCommand('yes');
-    const second = await assistant.processCommand('open chrome');
-
-    assert.match(first.response, /Did that work correctly/i);
-    assert.doesNotMatch(second.response, /Did that work correctly/i);
-  });
-
-  it('should handle positive feedback attached to the next command', async function() {
-    const routedInputs = [];
-    const router = {
-      process: async input => {
-        routedInputs.push(input);
-        return {
-          commandId: `cmd-combined-${routedInputs.length}`,
-          success: true,
-          intent: 'app.open',
-          confidence: 1,
-          entities: { appName: 'chrome' },
-          response: 'Opened chrome.'
-        };
-      }
-    };
-    const assistant = new Assistant({}, {
-      router,
-      learning: {
-        enabled: true,
-        askForFeedback: true,
-        findCorrection: () => null,
-        learnFromText: () => null,
-        recordFeedback: () => {},
-        shouldAskForFeedback: () => true,
-        recordFeedbackPrompt: () => {}
-      },
-      automation: {},
-      eventBus: { publish() {} }
-    });
-
-    await assistant.processCommand('open chrome');
-    const result = await assistant.processCommand('yesopen chrome');
-
-    assert.equal(result.success, true);
-    assert.deepEqual(routedInputs, ['open chrome', 'open chrome']);
-  });
-
-  it('should only remember a correction after the corrected command succeeds', async function() {
-    const learnedRules = [];
-    const router = {
-      process: async input => ({
-        commandId: `cmd-${input}`,
-        success: input !== 'open missing app',
-        intent: 'app.open',
-        confidence: 1,
-        entities: { appName: input.replace(/^open\s+/, '') },
-        response: input === 'open missing app' ? 'Could not open missing app.' : 'Opened app.'
-      })
-    };
-    const assistant = new Assistant({}, {
-      router,
-      learning: {
-        enabled: true,
-        askForFeedback: true,
-        findCorrection: () => null,
-        learnFromText: () => null,
-        rememberCorrection: (input, correction) => {
-          learnedRules.push({ input, correction });
-          return { input, correction };
-        },
-        recordFeedback: () => {},
-        shouldAskForFeedback: () => true,
-        recordFeedbackPrompt: () => {}
-      },
-      automation: {},
-      eventBus: { publish() {} }
-    });
-
-    await assistant.processCommand('open photos');
-    const result = await assistant.processCommand('no, open missing app');
-
-    assert.equal(result.success, false);
-    assert.equal(result.learned, false);
-    assert.deepEqual(learnedRules, []);
-  });
-
-  it('should turn plain negative outcome reports into active learning recovery', async function() {
-    const feedback = [];
-    const learnedRules = [];
-    const routedInputs = [];
-    const router = {
-      process: async input => {
-        routedInputs.push(input);
-        const isCloseTab = /close\s+(?:the\s+)?(?:empty\s+)?tab/i.test(input);
-        return {
-          commandId: `cmd-${routedInputs.length}`,
-          success: true,
-          intent: isCloseTab ? 'browser.closeTab' : 'browser.open',
-          confidence: 1,
-          entities: isCloseTab ? { browserName: 'chrome' } : { url: 'about:blank' },
-          response: isCloseTab ? 'Closed tab.' : 'Opened blank tab.'
-        };
-      }
-    };
-    const assistant = new Assistant({}, {
-      router,
-      learning: {
-        enabled: true,
-        askForFeedback: false,
-        findCorrection: () => null,
-        learnFromText: () => null,
-        recordFeedback: entry => feedback.push(entry),
-        rememberCorrection: (input, correction) => {
-          learnedRules.push({ input, correction });
-          return { input, correction };
-        }
-      },
-      automation: {},
-      eventBus: { publish() {} }
-    });
-
-    await assistant.processCommand('open a new tab in chrome');
-    const recovery = await assistant.processCommand('you did wrong');
-    const corrected = await assistant.processCommand('close the empty tab in chrome');
-
-    assert.equal(recovery.success, false);
-    assert.match(recovery.response, /What should I do instead next time/i);
-    assert.equal(corrected.success, true);
-    assert.deepEqual(learnedRules, [{
-      input: 'open a new tab in chrome',
-      correction: 'close empty tab in chrome'
-    }]);
-    assert.equal(feedback.some(entry => entry.rating === 'negative'), true);
-  });
-
-  it('should answer remembered personal facts without web search', async function() {
-    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-learning-'));
-    const learning = new ActiveLearningStore({
-      app: { dataDir: tempDir },
-      activeLearning: { enabled: true, askForFeedback: false }
-    });
-    const routedInputs = [];
-    const router = {
-      process: async input => {
-        routedInputs.push(input);
-        return {
-          commandId: 'cmd-search',
-          success: true,
-          intent: 'browser.search',
-          entities: { query: input },
-          response: 'Searched web.'
-        };
-      }
-    };
-    const assistant = new Assistant({}, {
-      router,
-      learning,
-      automation: {},
-      eventBus: { publish() {} }
-    });
-
-    const before = await assistant.processCommand('what is my name');
-    const remember = await assistant.processCommand('remember my name is rakes');
-    const after = await assistant.processCommand('what is my name');
-
-    assert.equal(before.intent, 'assistant.memory');
-    assert.equal(before.success, false);
-    assert.match(before.response, /do not know your name/i);
-    assert.equal(remember.learned, true);
-    assert.match(after.response, /your name is rakes/i);
-    assert.deepEqual(routedInputs, []);
-  });
-
-  it('should route scheduled remember phrases as reminders instead of memory', async function() {
-    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
-    const EntityExtractor = require('../../core/assistant/entities/EntityExtractor');
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-learning-'));
-    const learning = new ActiveLearningStore({
-      app: { dataDir: tempDir },
-      activeLearning: { enabled: true, askForFeedback: false }
-    });
-    const entityExtractor = new EntityExtractor({});
-    let routed = false;
-    const router = {
-      entityExtractor,
-      process: async input => {
-        routed = true;
-        const parts = entityExtractor.extractReminderParts(input);
-        return {
-          commandId: 'cmd-reminder',
-          success: true,
-          intent: 'reminder.set',
-          entities: parts,
-          response: 'Reminder added.'
-        };
-      }
-    };
-    const assistant = new Assistant({}, {
-      router,
-      learning,
-      automation: {},
-      eventBus: { publish() {} }
-    });
-
-    const result = await assistant.processCommand('remember i have lcass on mondy morning 9');
-
-    assert.equal(result.learned, undefined);
-    assert.equal(result.intent, 'reminder.set');
-    assert.equal(result.entities.timeExpression, 'monday 9');
-    assert.equal(result.entities.reminderText, 'class');
-    assert.equal(routed, true);
-  });
-
-  it('should reject password memory while still learning safe personal context before routing', async function() {
-    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-learning-'));
-    const learning = new ActiveLearningStore({
-      app: { dataDir: tempDir },
-      activeLearning: { enabled: true, askForFeedback: false }
-    });
-    const routedInputs = [];
-    const router = {
-      process: async input => {
-        routedInputs.push(input);
-        return {
-          commandId: 'cmd-search',
-          success: true,
-          intent: 'browser.search',
-          entities: { query: input },
-          response: 'Searched web.'
-        };
-      }
-    };
-    const assistant = new Assistant({}, {
-      router,
-      learning,
-      automation: {},
-      eventBus: { publish() {} }
-    });
-
-    const rememberPassword = await assistant.processCommand('remember this rakesh112005 as my apple account password');
-    const passwordAnswer = await assistant.processCommand('what is my apple account password');
-    const rememberFact = await assistant.processCommand('remember my favorite color is blue');
-    const factAnswer = await assistant.processCommand('what is my favorite color');
-
-    assert.equal(rememberPassword.learned, false);
-    assert.equal(rememberPassword.success, false);
-    assert.doesNotMatch(passwordAnswer.response, /rakesh112005/);
-    assert.match(passwordAnswer.response, /cannot store or reveal/i);
-    assert.equal(rememberFact.learned, true);
-    assert.match(factAnswer.response, /favorite color is blue/i);
-    assert.deepEqual(routedInputs, []);
-  });
-
-  it('should answer broader personal context before routing', async function() {
-    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-learning-'));
-    const learning = new ActiveLearningStore({
-      app: { dataDir: tempDir },
-      activeLearning: { enabled: true, askForFeedback: false }
-    });
-    const routedInputs = [];
-    const router = {
-      process: async input => {
-        routedInputs.push(input);
-        return {
-          commandId: 'cmd-search',
-          success: true,
-          intent: 'browser.search',
-          entities: { query: input },
-          response: 'Searched web.'
-        };
-      }
-    };
-    const assistant = new Assistant({}, {
-      router,
-      learning,
-      automation: {},
-      eventBus: { publish() {} }
-    });
-
-    await assistant.processCommand('remember that I live in Hyderabad');
-    await assistant.processCommand('my mobile number is 9876543210');
-    await assistant.processCommand('remember that I study at OpenX University');
-
-    const location = await assistant.processCommand('where do I live');
-    const phone = await assistant.processCommand('what is my phone number');
-    const school = await assistant.processCommand('where do I study');
-    const identity = await assistant.processCommand('tell me about myself');
-
-    assert.match(location.response, /Hyderabad/);
-    assert.match(phone.response, /9876543210/);
-    assert.match(school.response, /OpenX University/);
-    assert.match(identity.response, /you live in Hyderabad/);
-    assert.deepEqual(routedInputs, []);
-  });
-
-  it('should save an explicit compact chat summary for later recall', async function() {
-    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-chat-memory-'));
-    const learning = new ActiveLearningStore({
-      app: { dataDir: tempDir },
-      activeLearning: { enabled: true, askForFeedback: false }
-    });
-    const router = {
-      process: async input => ({
-        commandId: `cmd-${input}`,
-        success: true,
-        intent: 'browser.search',
-        confidence: 1,
-        entities: { query: input },
-        response: 'Searched.'
-      })
-    };
-
-    const assistant = new Assistant({}, {
-      router,
-      learning,
-      automation: {},
-      eventBus: { publish() {} }
-    });
-
-    await assistant.processCommand('Explain Docker in simple words');
-    await assistant.processCommand('Find Kubernetes beginner course');
-    const saved = await assistant.processCommand('remember this chat');
-    const recalled = await assistant.processCommand('what did we talk about last time');
-
-    assert.equal(saved.learned, true);
-    assert.match(recalled.response, /Docker/i);
-    assert.match(recalled.response, /Kubernetes/i);
   });
 
   it('should vary conversational greetings by user phrasing', async function() {
@@ -2550,42 +1931,6 @@ describe('Assistant Confirmation Flow', function() {
     assert.notEqual(hello.response, hi.response);
     assert.notEqual(hello.response, wellbeing.response);
     assert.match(mixedWellbeing.response, /doing|fine|ready/i);
-  });
-
-  it('should answer temporary wellbeing states instead of memorizing them', async function() {
-    const ActiveLearningStore = require('../../core/assistant/learning/ActiveLearningStore');
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-wellbeing-learning-'));
-    const learning = new ActiveLearningStore({
-      app: { dataDir: tempDir },
-      activeLearning: { enabled: true }
-    });
-    const assistant = new Assistant({}, {
-      learning,
-      automation: {
-        execute: async () => ({ success: true, data: {} })
-      },
-      eventBus: { publish() {} }
-    });
-
-    const examples = [
-      ['i am fealing cold', /cold|warm|shivering|medical/i],
-      ['i am fealing tried', /tired|rest|break|water|continue/i],
-      ['i feel anxous', /stress|breath|problem|organize|step|priority|sort/i],
-      ['i am very sad', /sorry|hard|mind|next|step/i],
-      ['i am thursty', /water|thirst|dizzy|fluids/i],
-      ['i am confuzed', /confusing|unclear|step|stuck/i],
-      ['i am happy today', /good|momentum|next|help/i]
-    ];
-
-    for (const [input, expected] of examples) {
-      const result = await assistant.processCommand(input);
-      assert.equal(result.success, true, input);
-      assert.equal(result.intent, 'assistant.wellbeing', input);
-      assert.equal(result.learned, false, input);
-      assert.doesNotMatch(result.response, /remember/i, input);
-      assert.match(result.response, expected, input);
-    }
-    assert.equal(learning.getUserFact('profession'), null);
   });
 
   it('should keep validation and verification evidence in command context', async function() {

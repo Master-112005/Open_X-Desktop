@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const Logger = require('../assistant/Data').Logger;
-const Normalizer = require('../assistant/Data').Normalizer;
 const Validator = require('../assistant/Data').Validator;
 const {
   findEntriesByName,
@@ -17,7 +16,8 @@ const {
   validateWindowsName,
   validateWindowsPathLength
 } = require('./common/path-utils');
-const { launchTarget } = require('./common/launcher');
+const launcher = require('./common/launcher');
+const { scoreName } = require('./common/search-scoring');
 
 const EXCLUDED_SEARCH_DIRECTORIES = new Set([
   '$recycle.bin',
@@ -191,7 +191,7 @@ class FolderController {
     };
   }
 
-  search(query, options = {}) {
+  async search(query, options = {}) {
     const cleanQuery = this._cleanSearchQuery(query);
     if (!cleanQuery) {
       return { success: false, error: 'No folder search query provided' };
@@ -224,7 +224,7 @@ class FolderController {
     };
 
     for (const root of roots) {
-      this._searchFoldersRecursive(root, cleanQuery.toLowerCase(), results, limits);
+      await this._searchFoldersRecursive(root, cleanQuery.toLowerCase(), results, limits);
       if (!hasSearchTimeRemaining(startedAt, limits.maxElapsedMs) || results.length >= limits.maxResults) {
         break;
       }
@@ -267,11 +267,20 @@ class FolderController {
     });
   }
 
-  _resolveFolderPath(folderName, targetPath = null) {
+  async _resolveFolderPath(folderName, targetPath = null) {
     if (!folderName) return null;
 
-    if (path.isAbsolute(folderName) && fs.existsSync(folderName) && fs.statSync(folderName).isDirectory()) {
-      return requireSafeUserPath(folderName, { allowRoot: true });
+    if (path.isAbsolute(folderName)) {
+      try {
+        const stats = await fs.promises.stat(folderName);
+        if (stats.isDirectory()) {
+          return requireSafeUserPath(folderName, { allowRoot: true });
+        }
+      } catch (err) {
+        if (/outside allowed user folders|protected system paths|not allowed/i.test(String(err?.message || ''))) {
+          throw err;
+        }
+      }
     }
 
     const parsed = splitNameAndLocation(folderName);
@@ -280,8 +289,11 @@ class FolderController {
 
     const specialFolders = getSpecialFolders();
     const asSpecialFolder = specialFolders[normalizeLocation(requestedName)];
-    if (asSpecialFolder && fs.existsSync(asSpecialFolder)) {
-      return asSpecialFolder;
+    if (asSpecialFolder) {
+      try {
+        await fs.promises.access(asSpecialFolder);
+        return asSpecialFolder;
+      } catch {}
     }
 
     const safeName = Validator.sanitizePath(requestedName);
@@ -291,9 +303,12 @@ class FolderController {
       if (!baseDir) return null;
 
       const candidate = path.join(baseDir, safeName);
-      if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
-        return candidate;
-      }
+      try {
+        const stats = await fs.promises.stat(candidate);
+        if (stats.isDirectory()) {
+          return candidate;
+        }
+      } catch {}
 
       return null;
     }
@@ -304,7 +319,7 @@ class FolderController {
     });
   }
 
-  create(folderName, targetPath) {
+  async create(folderName, targetPath) {
     if (!folderName) {
       return { success: false, error: 'No folder name provided' };
     }
@@ -329,16 +344,23 @@ class FolderController {
         });
       }
 
-      if (fs.existsSync(fullPath)) {
+      try {
+        await fs.promises.access(fullPath);
         return this._failure('Folder already exists', 'Folder already exists', {
           operation: 'create',
           path: fullPath,
           folderName: validation.name
         });
-      }
+      } catch {}
 
-      fs.mkdirSync(fullPath, { recursive: true });
-      if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isDirectory()) {
+      await fs.promises.mkdir(fullPath, { recursive: true });
+
+      try {
+        const stats = await fs.promises.stat(fullPath);
+        if (!stats.isDirectory()) {
+          throw new Error('Not a directory');
+        }
+      } catch {
         return this._failure('Could not verify that the folder was created', 'Could not verify folder creation', {
           operation: 'create',
           path: fullPath,
@@ -362,25 +384,43 @@ class FolderController {
     }
   }
 
-  delete(folderName, targetPath = null) {
+  async delete(folderName, targetPath = null) {
     if (!folderName) {
       return { success: false, error: 'No folder name provided' };
     }
 
     try {
-      const fullPath = this._resolveFolderPath(folderName, targetPath);
+      const fullPath = await this._resolveFolderPath(folderName, targetPath);
       if (!fullPath) {
         return { success: false, error: 'Folder not found' };
       }
       requireSafeUserPath(fullPath);
 
-      const stats = fs.statSync(fullPath);
+      const stats = await fs.promises.stat(fullPath);
       if (!stats.isDirectory()) {
         return { success: false, error: 'Path is a file, use file operations' };
       }
 
-      fs.rmSync(fullPath, { recursive: true, force: true });
-      if (fs.existsSync(fullPath)) {
+      await fs.promises.rm(fullPath, { recursive: true, force: true });
+
+      let fullyDeleted = false;
+      try {
+        await fs.promises.access(fullPath);
+      } catch {
+        fullyDeleted = true;
+      }
+
+      if (!fullyDeleted) {
+        try {
+          const remainingEntries = await fs.promises.readdir(fullPath);
+          if (remainingEntries.length > 0) {
+            return this._failure(
+              `Could not delete some entries inside ${path.basename(fullPath)}`,
+              'Partial folder deletion',
+              { operation: 'delete', path: fullPath, remainingCount: remainingEntries.length, partial: true }
+            );
+          }
+        } catch {}
         return this._failure('Could not verify that the folder was deleted', 'Could not verify folder deletion', {
           operation: 'delete',
           path: fullPath,
@@ -401,13 +441,13 @@ class FolderController {
     }
   }
 
-  move(source, destination) {
+  async move(source, destination) {
     if (!source || !destination) {
       return { success: false, error: 'Source and destination required' };
     }
 
     try {
-      const sourcePath = this._resolveFolderPath(source);
+      const sourcePath = await this._resolveFolderPath(source);
       if (!sourcePath) {
         return { success: false, error: 'Source folder not found' };
       }
@@ -443,18 +483,40 @@ class FolderController {
         });
       }
 
-      fs.mkdirSync(path.dirname(finalPath), { recursive: true });
-      const overwroteExisting = fs.existsSync(finalPath);
+      await fs.promises.mkdir(path.dirname(finalPath), { recursive: true });
+      let overwroteExisting = false;
+      try {
+        await fs.promises.access(finalPath);
+        overwroteExisting = true;
+      } catch {}
 
       try {
-        fs.renameSync(sourcePath, finalPath);
+        await fs.promises.rename(sourcePath, finalPath);
       } catch (err) {
-        fs.cpSync(sourcePath, finalPath, { recursive: true, force: true });
-        fs.rmSync(sourcePath, { recursive: true, force: true });
+        await fs.promises.cp(sourcePath, finalPath, { recursive: true, force: true });
+        await fs.promises.rm(sourcePath, { recursive: true, force: true });
       }
 
-      if (fs.existsSync(sourcePath) || !fs.existsSync(finalPath) || !fs.statSync(finalPath).isDirectory()) {
+      try {
+        await fs.promises.access(sourcePath);
         return this._failure('Could not verify the folder move because the original folder is still there', 'Could not verify folder move', {
+          operation: 'move',
+          source: sourcePath,
+          destination: finalPath
+        });
+      } catch {}
+
+      try {
+        const stats = await fs.promises.stat(finalPath);
+        if (!stats.isDirectory()) {
+          return this._failure('Could not verify the folder move because the destination is not a directory', 'Could not verify folder move', {
+            operation: 'move',
+            source: sourcePath,
+            destination: finalPath
+          });
+        }
+      } catch {
+        return this._failure('Could not verify the folder move because the destination does not exist', 'Could not verify folder move', {
           operation: 'move',
           source: sourcePath,
           destination: finalPath
@@ -481,27 +543,32 @@ class FolderController {
     }
   }
 
-  open(folderName, options = {}) {
+  async open(folderName, options = {}) {
     if (!folderName) {
       return { success: false, error: 'No folder name provided' };
     }
 
     try {
       const selectedPath = options.selectedPath || options.targetPath;
-      if (selectedPath && path.isAbsolute(selectedPath) && fs.existsSync(selectedPath) && fs.statSync(selectedPath).isDirectory()) {
-        const safeSelectedPath = requireSafeUserPath(selectedPath, { allowRoot: true });
-        this._openFolderPath(safeSelectedPath, options);
-        return {
-          success: true,
-          data: this._verifiedData('open', safeSelectedPath, {
-            path: safeSelectedPath,
-            folderName: path.basename(safeSelectedPath),
-            openWith: options.openWith || null
-          })
-        };
+      if (selectedPath && path.isAbsolute(selectedPath)) {
+        try {
+          const stats = await fs.promises.stat(selectedPath);
+          if (stats.isDirectory()) {
+            const safeSelectedPath = requireSafeUserPath(selectedPath, { allowRoot: true });
+            await this._openFolderPath(safeSelectedPath, options);
+            return {
+              success: true,
+              data: this._verifiedData('open', safeSelectedPath, {
+                path: safeSelectedPath,
+                folderName: path.basename(safeSelectedPath),
+                openWith: options.openWith || null
+              })
+            };
+          }
+        } catch {}
       }
 
-      const matches = this._findFolderMatches(folderName);
+      const matches = await this._findFolderMatches(folderName);
       if (matches.length > 1) {
         const choices = matches.slice(0, 8).map((folderPath, index) => ({
           index: index + 1,
@@ -546,7 +613,7 @@ class FolderController {
         }
 
         const matchedPath = requireSafeUserPath(matches[0], { allowRoot: true });
-        this._openFolderPath(matchedPath, options);
+        await this._openFolderPath(matchedPath, options);
         return {
           success: true,
           data: this._verifiedData('open', matchedPath, {
@@ -557,13 +624,13 @@ class FolderController {
         };
       }
 
-      const fullPath = this._resolveFolderPath(folderName);
+      const fullPath = await this._resolveFolderPath(folderName);
       if (!fullPath) {
         return { success: false, error: 'Folder not found' };
       }
       requireSafeUserPath(fullPath, { allowRoot: true });
 
-      this._openFolderPath(fullPath, options);
+      await this._openFolderPath(fullPath, options);
       return {
         success: true,
         data: this._verifiedData('open', fullPath, {
@@ -578,17 +645,24 @@ class FolderController {
     }
   }
 
-  _openFolderPath(folderPath, options = {}) {
+  async _openFolderPath(folderPath, options = {}) {
     const openWith = String(options.openWith || '').trim().toLowerCase();
     if (openWith === 'code' || openWith === 'vscode' || openWith === 'vs code') {
-      launchTarget('code', [folderPath]);
+      await this._launchTarget('code', [folderPath]);
       return;
     }
 
-    launchTarget(folderPath);
+    await this._launchTarget(folderPath);
   }
 
-  _findFolderMatches(folderName) {
+  async _launchTarget(target, args = []) {
+    if (typeof launcher.launchTargetAsync === 'function') {
+      return launcher.launchTargetAsync(target, args);
+    }
+    return launcher.launchTarget(target, args);
+  }
+
+  async _findFolderMatches(folderName) {
     if (!folderName) {
       return [];
     }
@@ -600,7 +674,7 @@ class FolderController {
     const parsed = splitNameAndLocation(folderName);
     const requestedName = parsed.name || folderName;
     if (parsed.location) {
-      const resolved = this._resolveFolderPath(folderName);
+      const resolved = await this._resolveFolderPath(folderName);
       return resolved ? [resolved] : [];
     }
 
@@ -617,7 +691,7 @@ class FolderController {
       return cached;
     }
 
-    const exactMatches = findEntriesByName(safeName, {
+    const exactMatches = await findEntriesByName(safeName, {
       roots: searchRoots(),
       type: 'directory',
       maxDepth: FOLDER_SEARCH_LIMITS.maxDepth,
@@ -629,29 +703,31 @@ class FolderController {
       return this._rememberCache(this._matchCache, cacheKey, exactMatches);
     }
 
-    return this._rememberCache(this._matchCache, cacheKey, this._findFuzzyFolderMatches(safeName));
+    return this._rememberCache(this._matchCache, cacheKey, await this._findFuzzyFolderMatches(safeName));
   }
 
-  _findFuzzyFolderMatches(folderName) {
+async _findFuzzyFolderMatches(folderName) {
     const results = [];
     const roots = searchRoots();
     const lowerQuery = String(folderName || '').trim().toLowerCase();
     const visitedDirectories = new Set();
+    const startedAt = Date.now();
 
     for (const root of roots) {
-      this._searchFoldersRecursive(root, lowerQuery, results, {
-        ...FOLDER_SEARCH_LIMITS,
-        maxResults: 100,
-        visitedDirectories
-      });
-      if (results.length >= 12) {
+      if (!hasSearchTimeRemaining(startedAt, FOLDER_SEARCH_LIMITS.maxElapsedMs) || results.length >= 12) {
         break;
       }
+      await this._searchFoldersRecursive(root, lowerQuery, results, {
+        ...FOLDER_SEARCH_LIMITS,
+        maxResults: 100,
+        visitedDirectories,
+        startedAt
+      });
     }
 
     return uniquePaths(results)
       .map(resultPath => ({ path: resultPath, score: this._folderNameMatchScore(path.basename(resultPath), folderName) }))
-      .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))
+      .sort((left, right) => right.score - left.score || left.path.split(path.sep).length - right.path.split(path.sep).length || left.path.localeCompare(right.path))
       .slice(0, 12)
       .map(entry => entry.path);
   }
@@ -682,8 +758,13 @@ class FolderController {
     return score >= (explicitLocation ? 72 : 76);
   }
 
-  _searchFoldersRecursive(root, lowerQuery, results, options = {}) {
-    if (!root || !fs.existsSync(root) || results.length >= (options.maxResults || 12)) {
+  async _searchFoldersRecursive(root, lowerQuery, results, options = {}) {
+    if (!root || results.length >= (options.maxResults || 12)) {
+      return;
+    }
+    try {
+      await fs.promises.access(root);
+    } catch {
       return;
     }
 
@@ -714,7 +795,7 @@ class FolderController {
 
       let entries = [];
       try {
-        entries = fs.readdirSync(directory, { withFileTypes: true });
+        entries = await fs.promises.readdir(directory, { withFileTypes: true });
       } catch (err) {
         continue;
       }
@@ -753,46 +834,8 @@ class FolderController {
     return this._folderNameMatchScore(entryName, lowerQuery) > 0;
   }
 
-  _folderNameMatchScore(entryName, lowerQuery) {
-    const query = String(lowerQuery || '').trim().toLowerCase();
-    const name = String(entryName || '').trim().toLowerCase();
-    if (!query || !name) {
-      return 0;
-    }
-
-    const normalizedName = Normalizer.normalizeText(name.replace(/[_-]+/g, ' '));
-    const normalizedQuery = Normalizer.normalizeText(query.replace(/[_-]+/g, ' '));
-    const compactName = normalizedName.replace(/\s+/g, '');
-    const compactQuery = normalizedQuery.replace(/\s+/g, '');
-    if (normalizedName === normalizedQuery) return 100;
-    if (normalizedName.startsWith(normalizedQuery)) return 90;
-    if (normalizedName.includes(normalizedQuery)) return 82;
-    if (compactQuery.length >= 4 && compactName === compactQuery) return 88;
-    if (compactQuery.length >= 4 && compactName.includes(compactQuery)) return 78;
-
-    const nameTokens = normalizedName.split(/\s+/).filter(Boolean);
-    const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
-    const matchedTokens = queryTokens.filter(token => (
-      nameTokens.some(nameToken => (
-        nameToken.includes(token) ||
-        (nameToken.length >= 4 && nameToken.length / token.length >= 0.6 && token.includes(nameToken))
-      )) ||
-      Normalizer.findClosestOption(token, nameTokens, {
-        minSimilarity: token.length >= 7 ? 0.64 : 0.7,
-        maxDistance: token.length >= 7 ? 3 : 2
-      })
-    )).length;
-    if (queryTokens.length > 0 && matchedTokens === queryTokens.length) {
-      return 60 + Math.round((matchedTokens / queryTokens.length) * 15);
-    }
-    if (queryTokens.length >= 3 && matchedTokens >= queryTokens.length - 1) {
-      return 50 + matchedTokens;
-    }
-
-    return normalizedQuery.length >= 4 && Normalizer.findClosestOption(normalizedQuery, [normalizedName], {
-      minSimilarity: normalizedQuery.length >= 8 ? 0.64 : 0.7,
-      maxDistance: normalizedQuery.length >= 8 ? 3 : 2
-    }) ? 55 : 0;
+_folderNameMatchScore(entryName, lowerQuery) {
+    return scoreName(String(lowerQuery || ''), String(entryName || ''));
   }
 
   _cleanSearchQuery(query) {

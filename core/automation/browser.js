@@ -89,7 +89,7 @@ const SITE_SEARCH_TARGETS = [
   },
   {
     key: 'chatgpt',
-    aliases: ['chatgpt', 'chat gpt'],
+    aliases: ['chatgpt', 'chat gpt', 'chat gp', 'chat dp', 'chat d p', 'chart d p'],
     homeUrl: 'https://chatgpt.com/',
     buildUrl: query => `https://chatgpt.com/?q=${encodeURIComponent(query)}`
   }
@@ -579,8 +579,10 @@ class BrowserController {
   }
 
   async _searchWebInBackground(query) {
-    const instantResults = await this._searchInstantAnswer(query);
-    const htmlResults = await this._searchDuckDuckGoHtml(query);
+    const [instantResults, htmlResults] = await Promise.all([
+      this._searchInstantAnswer(query),
+      this._searchDuckDuckGoHtml(query)
+    ]);
     const combined = this._mergeSearchResults(query, [...instantResults, ...htmlResults]);
     if (combined.length > 0) {
       return combined;
@@ -606,6 +608,8 @@ class BrowserController {
           body += chunk;
           if (body.length > 250000) {
             request.destroy();
+            resolve([]);
+            return;
           }
         });
         response.on('end', () => {
@@ -638,6 +642,8 @@ class BrowserController {
           body += chunk;
           if (body.length > 120000) {
             request.destroy();
+            resolve([]);
+            return;
           }
         });
         response.on('end', () => {
@@ -718,6 +724,8 @@ class BrowserController {
           body += chunk;
           if (body.length > 250000) {
             request.destroy();
+            resolve([]);
+            return;
           }
         });
         response.on('end', () => {

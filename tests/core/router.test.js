@@ -1248,6 +1248,40 @@ describe('Action Router', function() {
     assert.equal(result.entities.folderName, 'rakesh');
   });
 
+  it('should route named document folders from voice and chat to folder automation', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const voiceOpen = await router.process('open personal documents', 'voice');
+    const chatOpen = await router.process('open personal documents', 'chat');
+    const voiceFind = await router.process('find personal documents folder', 'voice');
+    const chatLocate = await router.process('locate personal documents folder', 'chat');
+
+    assert.equal(voiceOpen.intent, 'folder.open');
+    assert.equal(voiceOpen.entities.folderName, 'personal documents');
+    assert.equal(chatOpen.intent, 'folder.open');
+    assert.equal(chatOpen.entities.folderName, 'personal documents');
+    assert.equal(voiceFind.intent, 'folder.search');
+    assert.equal(voiceFind.entities.query, 'personal documents');
+    assert.equal(chatLocate.intent, 'folder.search');
+    assert.equal(chatLocate.entities.query, 'personal documents');
+    assert.deepEqual(executed.map(step => step.actionId), [
+      'folder.open',
+      'folder.open',
+      'folder.search',
+      'folder.search'
+    ]);
+  });
+
   it('should route folders opened in VS Code as folder.open with editor context', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
@@ -1275,9 +1309,14 @@ describe('Action Router', function() {
       }
     };
     const router = new ActionRouter(config, stubEngine);
-    const result = await router.process('open apple music', 'chat');
-    assert.equal(result.intent, 'app.open');
-    assert.equal(result.entities.appName, 'apple music');
+    const music = await router.process('open apple music', 'chat');
+    const code = await router.process('open visual studio code', 'chat');
+    const youtube = await router.process('open youtube music', 'chat');
+    assert.equal(music.intent, 'app.open');
+    assert.equal(music.entities.appName, 'apple music');
+    assert.equal(code.intent, 'app.open');
+    assert.equal(code.entities.appName, 'visual studio code');
+    assert.notEqual(youtube.intent, 'folder.open');
   });
 
   it('should route commands.md Windows app aliases to concrete app opening', async function() {
@@ -1919,7 +1958,7 @@ describe('Action Router', function() {
     assert.equal(clean.entities.browserName, 'chrome');
   });
 
-  it('should route open target in chrome to first browser result instead of app.open', async function() {
+  it('should open a trusted target directly in the browser when the user asks for chrome', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -1932,8 +1971,9 @@ describe('Action Router', function() {
 
     const result = await router.process('open chatgpt in chrome', 'chat');
 
-    assert.equal(result.intent, 'browser.openFirstResult');
-    assert.equal(result.entities.query, 'chatgpt');
+    assert.equal(result.intent, 'browser.open');
+    assert.equal(result.entities.url, 'https://chatgpt.com/');
+    assert.equal(result.entities.browserName, 'chrome');
   });
 
   it('should route plain known web app opens through local app resolution first', async function() {
@@ -1950,12 +1990,16 @@ describe('Action Router', function() {
     const router = new ActionRouter(config, stubEngine);
 
     const result = await router.process('open chatgpt', 'chat');
+    const voiceTypo = await router.process('open chart d p', 'voice');
 
     assert.equal(result.intent, 'app.open');
     assert.equal(result.entities.appName, 'chatgpt');
     assert.equal(result.entities.webFallbackUrl, 'https://chatgpt.com/');
     assert.equal(result.entities.webFallbackBrowser, 'chrome');
-    assert.deepEqual(executed.map(step => step.actionId), ['app.open']);
+    assert.equal(voiceTypo.intent, 'app.open');
+    assert.equal(voiceTypo.entities.appName, 'chatgpt');
+    assert.equal(voiceTypo.entities.webFallbackUrl, 'https://chatgpt.com/');
+    assert.deepEqual(executed.map(step => step.actionId), ['app.open', 'app.open']);
   });
 
   it('should route trusted Google web product opens as apps with Chrome fallback', async function() {
@@ -2026,7 +2070,7 @@ describe('Action Router', function() {
     assert.equal(result.entities.webSearchFallbackQuery, 'sparkdeck');
   });
 
-  it('should route natural web-app open phrasing through trusted web targets', async function() {
+  it('should open trusted web-app phrasing directly in the browser', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
     };
@@ -2040,10 +2084,10 @@ describe('Action Router', function() {
     const photos = await router.process('please pull up google photes website', 'chat');
     const maps = await router.process('show me google maps site', 'chat');
 
-    assert.equal(photos.intent, 'browser.openFirstResult');
-    assert.equal(photos.entities.query, 'google photos');
-    assert.equal(maps.intent, 'browser.openFirstResult');
-    assert.equal(maps.entities.query, 'google maps');
+    assert.equal(photos.intent, 'browser.open');
+    assert.equal(photos.entities.url, 'https://photos.google.com/');
+    assert.equal(maps.intent, 'browser.open');
+    assert.equal(maps.entities.url, 'https://maps.google.com/');
   });
 
   it('should route local photos requests to the Windows Photos app when the user says laptop', async function() {
@@ -3202,6 +3246,8 @@ describe('Action Router', function() {
     const brightness = await router.process('keep brightness at 60', 'chat');
     const localSearch = await router.process('look inside downloads for pdfs', 'chat');
     const minimizeAll = await router.process('Minimize all windows', 'chat');
+    const minimiseAll = await router.process('minimise all windows', 'voice');
+    const minimizeEverything = await router.process('minimize everything', 'voice');
     const collapseFolders = await router.process('Collapse all folders', 'chat');
 
     assert.equal(maximize.intent, 'window.maximize');
@@ -3211,6 +3257,12 @@ describe('Action Router', function() {
     assert.equal(minimizeAll.intent, 'window.minimize');
     assert.equal(minimizeAll.entities.windowName, 'all windows');
     assert.equal(minimizeAll.entities.allWindows, true);
+    assert.equal(minimiseAll.intent, 'window.minimize');
+    assert.equal(minimiseAll.entities.windowName, 'all windows');
+    assert.equal(minimiseAll.entities.allWindows, true);
+    assert.equal(minimizeEverything.intent, 'window.minimize');
+    assert.equal(minimizeEverything.entities.windowName, 'all windows');
+    assert.equal(minimizeEverything.entities.allWindows, true);
     assert.equal(collapseFolders.intent, 'window.minimize');
     assert.equal(collapseFolders.entities.windowName, 'all windows');
     assert.equal(collapseFolders.entities.allWindows, true);
@@ -3226,6 +3278,8 @@ describe('Action Router', function() {
       'volume.set',
       'brightness.set',
       'file.search',
+      'window.minimize',
+      'window.minimize',
       'window.minimize',
       'window.minimize'
     ]);
@@ -3859,6 +3913,7 @@ describe('Action Router', function() {
 
     assert.equal(result.intent, 'app.open');
     assert.equal(result.entities.appName, 'youtube');
+    assert.equal(result.entities.preferLocalApp, true);
     assert.deepEqual(executed.map(entry => entry.actionId), ['app.open']);
   });
 
@@ -3881,6 +3936,7 @@ describe('Action Router', function() {
     assert.equal(result.intent, 'app.open');
     assert.equal(result.entities.appName, 'youtube');
     assert.equal(result.entities.webFallbackUrl, 'https://www.youtube.com/');
+    assert.equal(result.entities.preferLocalApp, undefined);
     assert.equal(homepage.intent, 'browser.open');
     assert.equal(homepage.entities.url, 'https://www.youtube.com/');
     assert.deepEqual(executed.map(entry => entry.actionId), ['app.open', 'browser.open']);
@@ -4011,6 +4067,7 @@ describe('Action Router', function() {
 
     assert.equal(create.intent, 'file.create');
     assert.equal(create.entities.filename, 'report.pdf');
+    assert.equal(create.entities.fileType, 'pdf');
     assert.equal(create.entities.path, 'desktop');
     assert.equal(location.intent, 'file.search');
     assert.equal(location.entities.query, 'report.md');
@@ -4018,6 +4075,112 @@ describe('Action Router', function() {
     assert.equal(locate.entities.query, 'report.pdf');
     assert.equal(implicitLocate.intent, 'file.search');
     assert.equal(implicitLocate.entities.query, 'dlnlp labmanual');
+  });
+
+  it('should ask only for missing create-file details from voice commands', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const complete = await router.process('create report pdf on desktop', 'voice');
+    const missingLocation = await router.process('create report pdf file', 'voice');
+    const missingName = await router.process('create a pdf file on desktop', 'voice');
+    const missingType = await router.process('create report file on desktop', 'voice');
+    const namedCode = await router.process('create a python file named script on desktop', 'voice');
+
+    assert.equal(complete.intent, 'file.create');
+    assert.equal(complete.success, true);
+    assert.equal(complete.entities.filename, 'report.pdf');
+    assert.equal(complete.entities.fileType, 'pdf');
+    assert.equal(complete.entities.path, 'desktop');
+
+    assert.equal(missingLocation.intent, 'file.create');
+    assert.equal(missingLocation.needsClarification, true);
+    assert.deepEqual(missingLocation.validation.missing, ['path']);
+    assert.match(missingLocation.response, /where should i create the file/i);
+
+    assert.equal(missingName.intent, 'file.create');
+    assert.equal(missingName.needsClarification, true);
+    assert.deepEqual(missingName.validation.missing, ['filename']);
+    assert.match(missingName.response, /what should i name the file/i);
+    assert.equal(missingName.entities.fileType, 'pdf');
+    assert.equal(missingName.entities.path, 'desktop');
+
+    assert.equal(missingType.intent, 'file.create');
+    assert.equal(missingType.needsClarification, true);
+    assert.deepEqual(missingType.validation.missing, ['fileType']);
+    assert.match(missingType.response, /what file type should it be/i);
+    assert.equal(missingType.entities.filename, 'report');
+    assert.equal(missingType.entities.path, 'desktop');
+
+    assert.equal(namedCode.intent, 'file.create');
+    assert.equal(namedCode.success, true);
+    assert.equal(namedCode.entities.filename, 'script.py');
+    assert.equal(namedCode.entities.fileType, 'py');
+    assert.equal(namedCode.entities.path, 'desktop');
+    assert.deepEqual(executed.map(step => step.actionId), ['file.create', 'file.create']);
+  });
+
+  it('should route text writing commands to text automation', async function() {
+    const config = {
+      user: { name: 'Rakesh' },
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const named = await router.process('write my name in notepad', 'voice');
+    const direct = await router.process('type hello world', 'chat');
+    const fileTarget = await router.process('write hello in notes.txt', 'chat');
+
+    assert.equal(named.intent, 'text.write');
+    assert.equal(named.entities.text, 'Rakesh');
+    assert.equal(named.entities.appName, 'notepad');
+    assert.equal(direct.intent, 'text.write');
+    assert.equal(direct.entities.text, 'hello world');
+    assert.equal(fileTarget.intent, 'text.write');
+    assert.equal(fileTarget.entities.text, 'hello');
+    assert.equal(fileTarget.entities.filename, 'notes.txt');
+    assert.deepEqual(executed.map(step => step.actionId), ['text.write', 'text.write', 'text.write']);
+  });
+
+  it('should route file paste and search-write commands to text automation', async function() {
+    const config = {
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    };
+    const executed = [];
+    const stubEngine = {
+      execute(actionId, entities) {
+        executed.push({ actionId, entities });
+        return { success: true, data: { actionId, ...entities } };
+      }
+    };
+    const router = new ActionRouter(config, stubEngine);
+
+    const paste = await router.process('copy info from notes.txt and paste it in notepad', 'voice');
+    const search = await router.process('search openx assistant and write it in notepad', 'chat');
+
+    assert.equal(paste.intent, 'text.pasteFromFile');
+    assert.equal(paste.entities.source, 'notes.txt');
+    assert.equal(paste.entities.appName, 'notepad');
+    assert.equal(search.intent, 'text.writeSearchResult');
+    assert.equal(search.entities.query, 'openx assistant');
+    assert.equal(search.entities.appName, 'notepad');
+    assert.deepEqual(executed.map(step => step.actionId), ['text.pasteFromFile', 'text.writeSearchResult']);
   });
 
   it('should clean conversational words from file-open commands', async function() {
@@ -4185,5 +4348,101 @@ describe('Action Router', function() {
     const router = new ActionRouter(config, engine);
     const result = await router.process('', 'chat');
     assert.equal(result.success, false);
+  });
+
+  describe('computer action plan engine', function() {
+    function buildComputerActionConfig() {
+      return {
+        permissions: {
+          levels: {
+            low: { requiresConfirmation: false, requiresAuth: false },
+            medium: { requiresConfirmation: false, requiresAuth: false }
+          }
+        }
+      };
+    }
+
+    function stubEngine(executed) {
+      return {
+        execute(actionId, entities) {
+          executed.push({ actionId, entities });
+          return { success: true, data: { actionId, ...entities } };
+        }
+      };
+    }
+
+    it('should open an app and write the resolved name through the computer action engine', async function() {
+      const executed = [];
+      const router = new ActionRouter(buildComputerActionConfig(), stubEngine(executed));
+      const result = await router.process('open notepad and write my name rakesh', 'chat');
+
+      assert.equal(result.intent, 'multi.command');
+      assert.deepEqual(result.entities.commands, ['open notepad', 'write my name rakesh']);
+      assert.deepEqual(executed.map(call => call.actionId), ['app.open', 'text.write']);
+      assert.equal(executed[0].entities.appName, 'notepad');
+      assert.equal(executed[1].entities.text, 'rakesh');
+      assert.equal(executed[1].entities.appName, 'notepad');
+      assert.equal(result.steps[0].intent, 'app.open');
+      assert.equal(result.steps[1].intent, 'text.write');
+      assert.match(result.response, /opened Notepad/i);
+      assert.match(result.response, /wrote "rakesh" in Notepad/i);
+      assert.doesNotMatch(result.response, /completed 2 commands/i);
+    });
+
+    it('should open an app and run a calculation in one compound command', async function() {
+      const executed = [];
+      const router = new ActionRouter(buildComputerActionConfig(), stubEngine(executed));
+      const result = await router.process('open calculator and calculate 125 x 48', 'chat');
+
+      assert.equal(result.intent, 'multi.command');
+      assert.deepEqual(executed.map(call => call.actionId), ['app.open', 'system.calculate']);
+      assert.ok(/^(?:calc|calculator)$/i.test(executed[0].entities.appName));
+      assert.equal(result.steps[1].intent, 'system.calculate');
+      assert.match(result.response, /calculated/i);
+    });
+
+    it('should create a file inside a compound command and carry the app target', async function() {
+      const executed = [];
+      const router = new ActionRouter(buildComputerActionConfig(), stubEngine(executed));
+      const result = await router.process('open chrome and create a file called test.js', 'chat');
+
+      assert.equal(result.intent, 'multi.command');
+      assert.deepEqual(executed.map(call => call.actionId), ['app.open', 'file.create']);
+      assert.equal(executed[0].entities.appName, 'chrome');
+      assert.equal(executed[1].entities.filename, 'test.js');
+    });
+
+    it('should keep pure app-open lists and app+search compounds on the legacy multi path', async function() {
+      const executed = [];
+      const router = new ActionRouter(buildComputerActionConfig(), stubEngine(executed));
+
+      const appList = await router.process('open chrome and whatsapp', 'chat');
+      assert.equal(appList.intent, 'multi.command');
+      assert.deepEqual(
+        executed.map(call => call.actionId).slice(0, 2),
+        ['app.open', 'app.open']
+      );
+
+      const withSearch = await router.process('open chrome and search for latest news', 'chat');
+      assert.equal(withSearch.intent, 'multi.command');
+      assert.deepEqual(executed.map(call => call.actionId), [
+        'app.open',
+        'app.open',
+        'app.open',
+        'browser.search'
+      ]);
+    });
+
+    it('should carry previous content into a trailing save clause in a plan', async function() {
+      const executed = [];
+      const router = new ActionRouter(buildComputerActionConfig(), stubEngine(executed));
+      const result = await router.process("open notepad and write today's date and save it as notes.txt", 'chat');
+
+      assert.equal(result.intent, 'multi.command');
+      assert.deepEqual(executed.map(call => call.actionId), ['app.open', 'text.write', 'text.write']);
+      assert.equal(executed[2].entities.filename, 'notes.txt');
+      assert.ok(String(executed[1].entities.text || '').length > 0);
+      assert.equal(executed[2].entities.text, executed[1].entities.text);
+    });
   });
 });
