@@ -21,17 +21,17 @@ const MouseController = require('./mouse');
 const { HomeAutomationManager } = require('../home-automation');
 const FormAutomation = require('../../plugins/forms');
 const ActionVerifier = require('./common/action-verification');
-const { resolveTrustedWebTarget } = require('../assistant/semantic/WebTargets');
+const { resolveTrustedWebTarget } = require('../assistant/understanding/WebTargets');
 const {
   cleanEntityName,
   requireSafeUserPath,
   resolveDirectory
 } = require('./common/path-utils');
-const { isCancellationError, throwIfAborted } = require('../assistant/utils');
+const { isCancellationError, throwIfAborted } = require('../assistant/shared');
 const { scoreName } = require('./common/search-scoring');
 
 class AutomationEngine {
-  constructor(config) {
+  constructor(config, dependencies = {}) {
     this.logger = new Logger(config?.logging || { level: 'info' });
     this.config = config;
 
@@ -45,11 +45,12 @@ class AutomationEngine {
     this.communications = new CommunicationsController(config);
     this.system = new SystemController(config);
     this.windows = new WindowsController(config);
-    this.text = new TextController(config, {
+this.text = new TextController(config, {
       windows: this.windows,
       files: this.files,
       browser: this.browser,
-      apps: this.apps
+      apps: this.apps,
+      llm: dependencies.llm || null
     });
     this.remote = new RemoteController(config, { windows: this.windows });
     this.homeAutomation = new HomeAutomationManager(config?.homeAutomation || {});
@@ -158,6 +159,7 @@ class AutomationEngine {
       'text.write': (entities) => this.text.write(entities.text, entities),
       'text.pasteFromFile': (entities) => this.text.pasteFromFile(entities.source || entities.filename, entities),
       'text.writeSearchResult': (entities) => this.text.writeSearchResult(entities.query, entities),
+      'document.create': (entities) => this.text.createDocument(entities),
       'remote.listTargets': () => this.remote.listTargets(),
       'remote.control': (entities) => this.remote.sendControl(entities),
       'home.devices.list': (entities) => this.homeAutomation.listDevices(entities),
@@ -224,6 +226,7 @@ class AutomationEngine {
       'stopwatch.elapsed': () => this.scheduler.getStopwatchElapsed(),
       'reminder.list': (entities) => this.scheduler.listSchedules('Reminder', entities.scope || 'active'),
       'reminder.cancel': () => this.scheduler.cancelLatest('Reminder'),
+      'reminder.remove': (entities) => this._removeReminder(entities),
       'reminder.clear': () => this.scheduler.clearSchedules('Reminder'),
       'reminder.snooze': (entities) => this.scheduler.snoozeLatestReminder(entities.duration || 5),
       'alarm.snooze': (entities) => this.scheduler.snoozeLatestAlarm(entities.duration || 5),
@@ -254,6 +257,8 @@ class AutomationEngine {
         : this.system.getProcessCount(),
       'system.insight': (entities) => this.system.getInsight(entities.insightType),
       'system.bluetooth': (entities) => this.system.bluetooth(entities.enabled),
+      'system.emptyRecycleBin': () => this.system.emptyRecycleBin(),
+      'system.openTaskManager': () => this.system.openTaskManager(),
       'assistant.identity': () => ({ success: true, data: { name: this.config?.assistant?.displayName || 'OpenX' } }),
       'assistant.userName': () => ({ success: true, data: { known: false } }),
       'assistant.capability': (entities) => ({
@@ -269,6 +274,10 @@ class AutomationEngine {
       'window.minimize': (entities) => this.windows.minimizeWindow(entities.windowName),
       'window.maximize': (entities) => this.windows.maximizeWindow(entities.windowName),
       'window.close': (entities) => this.windows.closeWindow(entities.windowName),
+      'window.showDesktop': () => this.windows.showDesktop(),
+      'window.restore': (entities) => this.windows.restoreWindow(entities.windowName),
+      'window.switch': () => this.windows.switchWindows(),
+      'window.snap': (entities) => this.windows.snapWindow(entities.direction),
       'window.keys': (entities, context) => this.windows.sendKeys(entities.windowName || entities.appName, entities.keys, {
         hold: entities.hold,
         signal: context?.signal || context?.executionContext?.signal || null
@@ -438,6 +447,27 @@ class AutomationEngine {
       recurrence: entities.recurrence,
       scheduledAction: entities.scheduledAction
     });
+  }
+
+  async _removeReminder(entities = {}) {
+    const explicitId = String(entities.scheduleId || entities.reminderId || entities.id || '').trim();
+    if (explicitId) {
+      return this.scheduler.removeSchedule(explicitId);
+    }
+    const targets = [entities.target, entities.targetAlt]
+      .map(value => String(value || '').trim())
+      .filter((value, index, list) => value && list.indexOf(value) === index);
+    let result = {
+      success: false,
+      error: 'Please say which reminder to delete.'
+    };
+    for (const target of targets) {
+      result = await this.scheduler.removeMatchingSchedules('Reminder', target);
+      if (result.success || (result.data && result.data.count > 0)) {
+        return result;
+      }
+    }
+    return result;
   }
 
   async _setMultipleReminders(entities = {}, timeExpressions = []) {

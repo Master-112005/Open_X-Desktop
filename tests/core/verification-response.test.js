@@ -19,7 +19,7 @@ function automationResult(input = {}) {
 
 describe('Assistant Verification and Response Layer', function() {
   it('produces deterministic immutable VerificationResult and graph', async function() {
-    const { createDefaultVerificationManager, VerificationResult } = require('../../core/assistant/verification/index.js');
+    const { createDefaultVerificationManager, VerificationResult } = require('../../core/assistant/respond/index.js');
     const manager = createDefaultVerificationManager();
     const first = await manager.verify(automationResult());
     const second = await manager.verify(automationResult());
@@ -33,8 +33,8 @@ describe('Assistant Verification and Response Layer', function() {
   });
 
   it('produces deterministic AssistantResponse', async function() {
-    const { createDefaultVerificationManager } = require('../../core/assistant/verification/index.js');
-    const { createDefaultResponseManager, AssistantResponse } = require('../../core/assistant/response/index.js');
+    const { createDefaultVerificationManager } = require('../../core/assistant/respond/index.js');
+    const { createDefaultResponseManager, AssistantResponse } = require('../../core/assistant/respond/index.js');
     const verification = await createDefaultVerificationManager().verify(automationResult());
     const first = await createDefaultResponseManager().generate(verification);
     const second = await createDefaultResponseManager().generate(verification);
@@ -47,8 +47,8 @@ describe('Assistant Verification and Response Layer', function() {
   });
 
   it('keeps verifier and response generator order configurable', function() {
-    const { createDefaultVerificationManager } = require('../../core/assistant/verification/index.js');
-    const { createDefaultResponseManager } = require('../../core/assistant/response/index.js');
+    const { createDefaultVerificationManager } = require('../../core/assistant/respond/index.js');
+    const { createDefaultResponseManager } = require('../../core/assistant/respond/index.js');
     const verifiers = createDefaultVerificationManager({
       configuration: { verifiers: { 'verification.cloud': { enabled: false } } }
     }).getStatus().verifiers;
@@ -65,7 +65,7 @@ describe('Assistant Verification and Response Layer', function() {
   });
 
   it('summarizes verification confidence and links evidence to graph nodes', async function() {
-    const { createDefaultVerificationManager } = require('../../core/assistant/verification/index.js');
+    const { createDefaultVerificationManager } = require('../../core/assistant/respond/index.js');
     const result = await createDefaultVerificationManager().verify(automationResult());
 
     assert.equal(result.verified, true);
@@ -77,7 +77,7 @@ describe('Assistant Verification and Response Layer', function() {
   });
 
   it('marks failed automation evidence as not verified', async function() {
-    const { createDefaultVerificationManager } = require('../../core/assistant/verification/index.js');
+    const { createDefaultVerificationManager } = require('../../core/assistant/respond/index.js');
     const result = await createDefaultVerificationManager().verify(automationResult({
       executionStatus: 'FAILED',
       completedActions: [],
@@ -96,7 +96,7 @@ describe('Assistant Verification and Response Layer', function() {
       VerificationConfiguration,
       VerificationRegistry,
       VERIFICATION_VERSION
-    } = require('../../core/assistant/verification/index.js');
+    } = require('../../core/assistant/respond/index.js');
     const registry = new VerificationRegistry();
     const verifier = new BaseVerifier({ id: 'verification.custom' });
     const configuration = new VerificationConfiguration({ maxEvidence: 42, minVerifiedConfidence: 0.75 });

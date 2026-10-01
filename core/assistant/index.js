@@ -7,19 +7,22 @@ const {
 } = require('./Data');
 const ActionRouter = require('./automation/ActionRouter');
 const AutomationEngine = require('../automation/index');
-const ContextManager = require('./context/ContextManager');
-const Personality = require('./response/Personality');
-const ResponseGenerator = require('./response/ResponseGenerator');
+const ContextManager = require('./knowledge/ContextManager');
+const Personality = require('./respond/Personality');
+const ResponseGenerator = require('./respond/ResponseGenerator');
+const LearningStore = require('./knowledge/LearningStore');
+const StatementCapture = require('./knowledge/StatementCapture');
+const FactRecall = require('./knowledge/FactRecall');
 const PluginManager = require('../../plugins/plugin-controller');
-const { classifyHumanState } = require('./semantic').HumanStateLanguage;
+const { classifyHumanState } = require('./understanding').HumanStateLanguage;
 const AssistantEngine = require('./AssistantEngine');
 const { PipelineManager } = require('./pipeline');
-const { createDefaultInputSourceManager } = require('./acquisition');
+const { createDefaultInputSourceManager } = require('./input');
 const {
   abortController,
   createCancellationError,
   linkAbortSignal
-} = require('./utils');
+} = require('./shared');
 const { createDefaultLocalLlmManager } = require('./llm');
 
 const CONFIRM_PHRASES = [
@@ -122,6 +125,26 @@ const CLEAR_TASK_NOUNS = /\b(?:reminder|remind\s+me|alarm|timer|stopwatch|screen
 
 const CLEAR_DATA_QUERIES = /\b(?:what\s+(?:is|'s)\s+the\s+(?:time|date|day|weather|temperature|forecast)|what\s+time\s+is\s+it\b|what\s+(?:day|date)\s+is\s+it\b|today'?s\s+(?:date|day)\b|how'?s\s+the\s+weather|weather\s+(?:today|now|outside|tonight|tomorrow)|temperature\s+(?:now|today|outside)|calculate|convert\s+\d+|stock\s+price)\b/i;
 
+const WINDOW_DESKTOP_COMMANDS = new RegExp(
+  '\\b(?:minimi[sz]e|maximi[sz]e|unminimi[sz]e|restore)\\b' +
+  '|\\b(?:show|go\\s+to|take\\s+me\\s+to|bring\\s+me\\s+to|switch\\s+to|navigate\\s+to|open)\\b[^.?!]*\\b(?:desktop|window|screen|apps?|applications?|programs?)\\b' +
+  '|\\bdesktop\\s+view\\b' +
+  '|\\b(?:hide|close)\\s+(?:all\\s+)?(?:windows?|apps?|applications?|programs?)\\b' +
+  '|\\b(?:switch|cycle)\\s+(?:between\\s+)?(?:windows?|apps?|applications?|programs?)\\b' +
+  '|\\bnext\\s+(?:window|app|application|program)\\b' +
+  '|\\balt[\\s-]?tab\\b' +
+  '|\\b(?:bring|pull)\\s+back\\b[^.?!]*\\b(?:windows?|apps?|applications?|programs?)\\b' +
+  '|\\bsnap\\b[^.?!]*\\b(?:left|right|windows?|screen)\\b' +
+  '|\\b(?:move|put|place|dock)\\b[^.?!]*\\bwindows?\\b[^.?!]*\\b(?:left|right)\\b' +
+  '|\\b(?:bring|pull)\\s+up\\b' +
+  '|\\bfocus\\s+(?:on\\s+)?(?:the\\s+)?(?:window|app|application|desktop)\\b' +
+  '|\\b(?:empty|clear)\\s+(?:the\\s+)?(?:recycle\\s*bin|trash)\\b' +
+  '|\\b(?:open|show|launch|start)\\s+(?:the\\s+)?task\\s*manager\\b',
+  'i'
+);
+
+const LLM_COMPLETION_CLAIM = /\b(?:i(?:'ve| have| have now| just| already)\s+(?:minimi[sz]ed|maximi[sz]ed|open(?:ed)?|close(?:d)?|done|completed|finished|switched|moved|sent|scheduled|created|deleted|removed|copied|renamed|locked|unlocked|turned\s+(?:on|off)|launched|started|stopped|paused|played|shown|taken|sampled)|(?:has|have|had)\s+(?:now\s+|just\s+|already\s+)?been\s+(?:minimi[sz]ed|maximi[sz]ed|open(?:ed)?|close(?:d)?|completed|done|finished|created|deleted|removed|sent|scheduled|locked|launched)|(?:is|are|it'?s)\s+(?:now\s+|already\s+)?(?:minimi[sz]ed|maximi[sz]ed|open(?:ed)?|close(?:d)?|done|complete|completed|on\s+your\s+desktop)|successfully\s+(?:minimi[sz]ed|maximi[sz]ed|open(?:ed)?|close(?:d)?|completed|created|deleted|sent|scheduled|launched|done)|(?:the\s+)?task\s+(?:is\s+|has\s+been\s+)?(?:done|complete|completed))\b/i;
+
 const SMALL_TALK_HINTS = /\b(?:how\s+(?:are\s+you|r\s+u|'?s\s+everything|'?s\s+it\s+going|'?s\s+your\s+day)|what\s+(?:are\s+you\s+doing|are\s+u\s+doing|r\s+u\s+doing|'?s\s+up)|i\s+(?:am|'m)\s+(?:doing\s+)?(?:fine|good|great|ok(?:ay)?)\b|my\s+day\b|thank\s+you\b|thanks\b|you\s+too\b|tell\s+me\s+a\s+joke\b|who\s+are\s+you\b|what\s+is\s+your\s+name\b|what\s+should\s+i\s+call\s+you\b|good\s+(?:morning|afternoon|evening|night)\b|how\s+about\s+you\b|are\s+you\s+there\b)\b/i;
 
 const LIVE_DATA_QUERIES = /\b(?:what(?:'s|\s+is)\s+(?:the\s+)?(?:weather|forecast|temperature)\b|weather\s+(?:in|at|today|tonight|tomorrow|now|outside)\b|(?:latest|today'?s|breaking|top)\s+news\b|news\s+(?:today|now|headlines|updates)\b|headlines\b|sports?\s+score|score\s+(?:of|for|today)\b|who\s+won\b|match\s+result|stock\s+(?:price|market)\b|share\s+price\b|bitcoin\s+price\b|gold\s+price\b|crypto(?:currency)?\s+price\b|(?:price of|price for|cost of)\s+(?:bitcoin|crypto(?:currency)?|gold|silver|stocks?|shares?|a\s+share)\b|how\s+much\s+(?:is|are)\s+(?:bitcoin|btc|ethereum|eth|crypto|gold|silver)\b|how\s+is\s+the\s+market\b|what\s+happened\s+(?:today|yesterday|last\s+night|this\s+week)\b|what(?:'s|\s+is)\s+(?:going\s+on|happening)\s+(?:today|right\s+now|in\s+the\s+world)\b|current\s+events\b|breaking\s+(?:news|story)\b|election\s+(?:results|updates|news)\b|live\s+(?:scores?|updates?|results?)\b|latest\s+updates?\b)\b/i;
@@ -178,11 +201,44 @@ class Assistant extends EventEmitter {
     this.automation = dependencies.automation || new AutomationEngine({
       ...(config || {}),
       eventBus: this.eventBus
+    }, {
+      llm: (text) => this._repairWrittenText(text)
     });
     this.router = dependencies.router || new ActionRouter(config, this.automation);
     this.context = new ContextManager(config);
     this.personality = new Personality(config);
     this.responses = new ResponseGenerator(config);
+    this.learningStore = dependencies.learningStore ||
+      (config?.learning?.enabled === true ? new LearningStore(config) : null);
+    if (this.learningStore) {
+      try {
+        this.learningStore.initialize();
+      } catch (error) {
+        this.logger.warn('Learning store unavailable', error.message);
+        this.learningStore = null;
+      }
+    }
+    if (this.learningStore && config && typeof config === 'object') {
+      config.learningStore = this.learningStore;
+    }
+    this.onUserNameChanged = typeof dependencies.onUserNameChanged === 'function'
+      ? dependencies.onUserNameChanged
+      : (typeof config?.onUserNameChanged === 'function' ? config.onUserNameChanged : null);
+    this.userName = null;
+    if (this.learningStore) {
+      const storedName = typeof this.learningStore.getUserName === 'function'
+        ? this.learningStore.getUserName()
+        : null;
+      const configName = String(config?.assistant?.userProfile?.fullName || config?.userProfile?.fullName || '').trim();
+      if (storedName) {
+        this._syncUserName(storedName, { notify: false, persistLearning: false });
+      } else if (configName) {
+        this.applyUserProfileName(configName, { source: 'imported', reason: 'startup_sync', notify: false });
+      }
+    }
+    this.capture = this.learningStore ? new StatementCapture() : null;
+    this.factRecall = this.learningStore ? new FactRecall(this.learningStore) : null;
+    this.pendingCaptureConfirmation = null;
     this.localLlm = Object.prototype.hasOwnProperty.call(dependencies, 'localLlm')
       ? dependencies.localLlm
       : createDefaultLocalLlmManager(config, { logger: this.logger });
@@ -266,6 +322,11 @@ class Assistant extends EventEmitter {
         return this._finalizeAssistantResult(confirmationResult, { input, source });
       }
 
+      const captureConfirmationResult = this._handlePendingCaptureConfirmation(input, source);
+      if (captureConfirmationResult) {
+        return this._finalizeAssistantResult(captureConfirmationResult, { input, source });
+      }
+
       const clarificationResult = await this._handlePendingClarification(input, source);
       if (clarificationResult) {
         return this._finalizeAssistantResult(clarificationResult, { input, source });
@@ -293,6 +354,17 @@ class Assistant extends EventEmitter {
       const identityResult = this._answerIdentityQuestion(input, source);
       if (identityResult) {
         return this._finalizeAssistantResult(identityResult, { input, source });
+      }
+
+      const recallResult = this._answerLearningRecall(input, source);
+      if (recallResult) {
+        this.context.record(input, {}, recallResult);
+        return this._finalizeAssistantResult(recallResult, { input, source });
+      }
+
+      const captureResult = this._respondToCapturedStatement(input, source);
+      if (captureResult) {
+        return this._finalizeAssistantResult(captureResult, { input, source });
       }
 
       const conversationFirstResult = await this._tryConversationFirstReply(input, source);
@@ -830,6 +902,264 @@ class Assistant extends EventEmitter {
     };
   }
 
+  _answerLearningRecall(input, source) {
+    if (!this.factRecall) {
+      return null;
+    }
+    let answer;
+    try {
+      answer = this.factRecall.answer(input);
+    } catch (_) {
+      return null;
+    }
+    if (!answer) {
+      return null;
+    }
+    return {
+      commandId: null,
+      success: true,
+      learned: false,
+      intent: answer.intent || 'learning.recall',
+      confidence: 1,
+      entities: answer.entities || {},
+      data: answer.data || {},
+      response: this.personality.applyToResponse(answer.response),
+      source
+    };
+  }
+
+  _respondToCapturedStatement(input, source) {
+    if (!this.learningStore || !this.capture) {
+      return null;
+    }
+    let candidates;
+    try {
+      candidates = this.capture.extract(input);
+    } catch (_) {
+      return null;
+    }
+    if (!Array.isArray(candidates) || candidates.length === 0) {
+      return null;
+    }
+    const candidate = candidates[0];
+    const known = this._findKnownFact(candidate);
+    if (known && known.same) {
+      return this._finalizeCaptureCandidateResult(candidate, source, null, known.fact.object, 'already');
+    }
+    return this._finalizeCaptureCandidateResult(
+      candidate,
+      source,
+      known ? known.fact : null,
+      known ? known.fact.object : null,
+      'pending'
+    );
+  }
+
+  _findKnownFact(candidate) {
+    const facts = this.learningStore.findFacts(candidate.subject, candidate.predicate);
+    const confirmed = (facts || []).filter(fact => fact.user_confirmed);
+    if (confirmed.length === 0) {
+      return null;
+    }
+    const norm = value => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const same = confirmed.find(fact => norm(fact.object) === norm(candidate.object));
+    return same ? { fact: same, same: true } : { fact: confirmed[0], same: false };
+  }
+
+  _finalizeCaptureCandidateResult(candidate, source, existingFact, existingObject, mode) {
+    if (mode === 'already') {
+      const label = this._factLabel(candidate);
+      return {
+        success: true,
+        learned: false,
+        intent: 'learning.capture',
+        confidence: 1,
+        entities: {
+          domain: candidate.domain,
+          predicate: candidate.predicate,
+          object: candidate.object
+        },
+        data: { stored: false, duplicate: true },
+        response: this.personality.applyToResponse(
+          `I already remember that your ${label} is "${existingObject}".`
+        ),
+        source
+      };
+    }
+    const question = StatementCapture.buildQuestion(candidate, existingObject || null);
+    this.pendingCaptureConfirmation = {
+      candidate,
+      existingId: existingFact ? existingFact.id : null,
+      existingObject: existingObject || null,
+      question,
+      source
+    };
+    return {
+      success: true,
+      learned: false,
+      requiresConfirmation: true,
+      intent: 'learning.capture',
+      confidence: 1,
+      entities: {
+        domain: candidate.domain,
+        predicate: candidate.predicate,
+        object: candidate.object,
+        proposed: true
+      },
+      data: { stored: false, awaitingConfirmation: true },
+      response: this.personality.applyToResponse(question),
+      source
+    };
+  }
+
+  _handlePendingCaptureConfirmation(input, source) {
+    if (!this.learningStore || !this.pendingCaptureConfirmation) {
+      return null;
+    }
+    const normalized = this._normalizeConfirmationText(input);
+    const pending = this.pendingCaptureConfirmation;
+    if (this._isCancelPhrase(normalized)) {
+      this.pendingCaptureConfirmation = null;
+      return {
+        success: true,
+        learned: false,
+        intent: 'learning.capture',
+        confidence: 1,
+        entities: {},
+        data: { stored: false, cancelled: true },
+        response: this.personality.applyToResponse('Got it - I will not remember that.'),
+        source
+      };
+    }
+    if (this._isConfirmPhrase(normalized)) {
+      const stored = this._commitCapturedStatement(pending);
+      this.pendingCaptureConfirmation = null;
+      if (stored.success) {
+        const candidate = pending.candidate;
+        if (candidate.subject === 'user' && candidate.predicate === 'has_name') {
+          this._syncUserName(candidate.object, { notify: true });
+        }
+        const phrase = candidate.subject === 'user'
+          ? `your ${this._factLabel(candidate)}`
+          : `your ${candidate.subject}`;
+        return {
+          success: true,
+          learned: true,
+          intent: 'learning.capture',
+          confidence: 1,
+          entities: {
+            domain: candidate.domain,
+            predicate: candidate.predicate,
+            object: candidate.object,
+            stored: true
+          },
+          data: { stored: true, updated: Boolean(pending.existingId) },
+          response: this.personality.applyToResponse(
+            `Done - I will remember that ${phrase} is "${candidate.object}".`
+          ),
+          source
+        };
+      }
+      return {
+        success: false,
+        intent: 'learning.capture',
+        confidence: 1,
+        entities: {},
+        data: { stored: false, error: stored.error },
+        response: this.personality.applyToResponse('I was not able to store that. Please try again.'),
+        source
+      };
+    }
+    return {
+      success: false,
+      requiresConfirmation: true,
+      intent: 'learning.capture',
+      confidence: 1,
+      entities: {},
+      response: this.personality.applyToResponse(
+        `${pending.question} Please say yes to remember it, or no to skip it.`,
+        { sentenceLimit: 3 }
+      ),
+      source
+    };
+  }
+
+  _commitCapturedStatement(pending) {
+    const candidate = pending.candidate;
+    try {
+      if (pending.existingId) {
+        const updated = this.learningStore.updateFact(
+          pending.existingId,
+          { object: candidate.object, reason: 'explicit_correction' },
+          { confirmed: true }
+        );
+        return { success: Boolean(updated.success), error: updated.error || null };
+      }
+      const added = this.learningStore.addFact({ ...candidate }, { confirmed: true });
+      return { success: Boolean(added.success), error: added.error || null };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  applyUserProfileName(name, options = {}) {
+    const value = String(name || '').trim();
+    if (!value) {
+      return { success: false, error: 'name_required' };
+    }
+    let result = { success: true, unchanged: true };
+    if (this.learningStore && typeof this.learningStore.setUserName === 'function') {
+      result = this.learningStore.setUserName(value, {
+        source: options.source || 'explicit_statement',
+        reason: options.reason || 'profile_sync'
+      });
+    }
+    this._syncUserName(value, { notify: options.notify === true, persistLearning: false });
+    return result;
+  }
+
+  _syncUserName(value, options = {}) {
+    const clean = String(value || '').trim();
+    if (!clean) {
+      return;
+    }
+    this.userName = clean;
+    if (this.config && typeof this.config === 'object') {
+      if (!this.config.userProfile || typeof this.config.userProfile !== 'object') {
+        this.config.userProfile = {};
+      }
+      this.config.userProfile.fullName = clean;
+      if (this.config.assistant && typeof this.config.assistant === 'object') {
+        this.config.assistant.userName = clean;
+      }
+    }
+    if (options.notify === true && typeof this.onUserNameChanged === 'function') {
+      try {
+        this.onUserNameChanged(clean);
+      } catch (error) {
+        this.logger.warn('User profile sync handler failed', error.message);
+      }
+    }
+    try {
+      this.eventBus?.publish?.(EVENTS.USER_PROFILE_CHANGED, { name: clean });
+    } catch (_) {
+      // ignore event bus failures
+    }
+  }
+
+  _factLabel(candidate) {
+    if (candidate.predicate === 'has_name') {
+      return candidate.subject === 'user' ? 'name' : candidate.subject;
+    }
+    if (candidate.predicate === 'has_location') {
+      return 'hometown';
+    }
+    if (candidate.predicate === 'date_of_birth') {
+      return 'birthday';
+    }
+    return candidate.predicate;
+  }
+
   _directContextResult(source, response) {
     return {
       commandId: null,
@@ -1020,6 +1350,13 @@ class Assistant extends EventEmitter {
       if (!response) {
         return null;
       }
+      if (this._claimsPerformedAction(response)) {
+        this.logger.warn('Rejected fallback LLM reply that claimed a desktop action', {
+          input: String(input || '').slice(0, 120),
+          llm: response.slice(0, 140)
+        });
+        return null;
+      }
       return {
         commandId: routedResult.commandId || `llm-${Date.now()}`,
         success: true,
@@ -1091,7 +1428,14 @@ class Assistant extends EventEmitter {
     if (CLEAR_DATA_QUERIES.test(lowered)) {
       return true;
     }
+    if (WINDOW_DESKTOP_COMMANDS.test(lowered)) {
+      return true;
+    }
     return false;
+  }
+
+  _claimsPerformedAction(text) {
+    return LLM_COMPLETION_CLAIM.test(String(text || ''));
   }
 
   _looksLikeSmallTalk(lowered) {
@@ -1139,6 +1483,13 @@ class Assistant extends EventEmitter {
       });
       const response = String(llmResult?.response || llmResult?.text || '').trim();
       if (!response) {
+        return null;
+      }
+      if (this._claimsPerformedAction(response)) {
+        this.logger.warn('Rejected conversational LLM reply that claimed a desktop action', {
+          input: String(input || '').slice(0, 120),
+          llm: response.slice(0, 140)
+        });
         return null;
       }
       return {
@@ -1321,6 +1672,14 @@ class Assistant extends EventEmitter {
       });
       return result;
     }
+    if (!result.success && groundedResponse && this._claimsPerformedAction(groundedResponse)) {
+      this.logger.warn('Rejected contradictory LLM reply for failed task', {
+        intent: result.intent,
+        llm: groundedResponse.slice(0, 140),
+        fallback: String(result.response || '').slice(0, 140)
+      });
+      return result;
+    }
 
     return {
       ...result,
@@ -1370,6 +1729,32 @@ class Assistant extends EventEmitter {
         }
       }
     };
+  }
+
+  async _repairWrittenText(text) {
+    if (!this.localLlm || typeof this.localLlm.reply !== 'function' || !this.localLlm.isEnabled()) {
+      return null;
+    }
+    const input = String(text || '').trim();
+    if (!input) return null;
+    try {
+      const llmResult = await this.localLlm.reply(
+        'Restore the missing spaces in this voice-spoken text so it reads as normal typed English.\n' +
+        'Rules: output ONLY the corrected text. Do not add quotes, explanations, or new words. Do not change the words or names. Keep numbers.\n' +
+        `Input: ${input}`,
+        { source: 'write-repair', now: new Date().toISOString() }
+      );
+      const response = String(llmResult?.response || '').trim();
+      if (!response || response === input) {
+        return null;
+      }
+      return response;
+    } catch (error) {
+      this.logger?.warn?.('Write text repair via local LLM failed', {
+        error: String(error?.message || error)
+      });
+      return null;
+    }
   }
 
   _buildLocalLlmMemorySummary() {

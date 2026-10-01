@@ -1,7 +1,7 @@
 const assert = require('assert');
 
 function blueprint(input = {}) {
-  const { ExecutionBlueprint } = require('../../core/assistant/planning/index.js');
+  const { ExecutionBlueprint } = require('../../core/assistant/reasoning/index.js');
   return new ExecutionBlueprint({
     tasks: [{
       id: 'open.application',
@@ -112,7 +112,7 @@ describe('Assistant Decision, Validation, and Automation Layer', function() {
   });
 
   it('applies allow-list and task metadata policy blocks', async function() {
-    const { createDefaultDecisionManager } = require('../../core/assistant/decision/index.js');
+    const { createDefaultDecisionManager } = require('../../core/assistant/reasoning/index.js');
     const allowedDecision = await createDefaultDecisionManager({
       configuration: { allowedActions: ['OPEN_APPLICATION'] }
     }).decide(blueprint({
@@ -136,7 +136,7 @@ describe('Assistant Decision, Validation, and Automation Layer', function() {
   });
 
   it('detects target-aware conflicts without blocking unrelated app actions', async function() {
-    const { createDefaultDecisionManager } = require('../../core/assistant/decision/index.js');
+    const { createDefaultDecisionManager } = require('../../core/assistant/reasoning/index.js');
     const unrelated = await createDefaultDecisionManager().decide(blueprint({
       tasks: [
         { id: 'open.chrome', label: 'open chrome', action: 'OPEN_APPLICATION', metadata: { entities: { appName: 'chrome' } } },
@@ -217,7 +217,7 @@ describe('Assistant Decision, Validation, and Automation Layer', function() {
 
   it('keeps validation route coverage aligned with dispatcher routes', function() {
     const { AutomationDispatcher } = require('../../core/assistant/automation/index.js');
-    const { AutomationValidator } = require('../../core/assistant/validation/index.js');
+    const { AutomationValidator } = require('../../core/assistant/respond/index.js');
 
     assert.deepEqual(AutomationValidator.ACTION_ROUTES, AutomationDispatcher.ACTION_ROUTES);
     for (const action of ['OPEN_APPLICATION', 'CLOSE_APPLICATION', 'SEARCH_WEB', 'PLAY_MEDIA', 'PAUSE_MEDIA', 'SET_VOLUME', 'OPEN_FOLDER', 'DELETE_FILE', 'MOVE_FILE', 'CREATE_REMINDER']) {
@@ -226,8 +226,8 @@ describe('Assistant Decision, Validation, and Automation Layer', function() {
   });
 
   it('keeps decision and validation component order configurable', function() {
-    const { createDefaultDecisionManager } = require('../../core/assistant/decision/index.js');
-    const { createDefaultValidationManager } = require('../../core/assistant/validation/index.js');
+    const { createDefaultDecisionManager } = require('../../core/assistant/reasoning/index.js');
+    const { createDefaultValidationManager } = require('../../core/assistant/respond/index.js');
     const decisions = createDefaultDecisionManager({
       configuration: { decisions: { 'decision.policy': { enabled: false } } }
     }).getStatus().decisions;
@@ -244,7 +244,7 @@ describe('Assistant Decision, Validation, and Automation Layer', function() {
   });
 
   it('lets a disabled decision pipeline bypass decisions without blocking execution', async function() {
-    const { createDefaultDecisionManager } = require('../../core/assistant/decision/index.js');
+    const { createDefaultDecisionManager } = require('../../core/assistant/reasoning/index.js');
     const result = await createDefaultDecisionManager({
       configuration: { enabled: false }
     }).decide(blueprint());
@@ -254,7 +254,7 @@ describe('Assistant Decision, Validation, and Automation Layer', function() {
   });
 
   it('supports decision registry lookup and removal for extensions', function() {
-    const { DecisionRegistry, BaseDecision } = require('../../core/assistant/decision/index.js');
+    const { DecisionRegistry, BaseDecision } = require('../../core/assistant/reasoning/index.js');
     const registry = new DecisionRegistry();
     const decision = new BaseDecision({ id: 'decision.custom' });
 

@@ -1,7 +1,7 @@
 'use strict';
 
 const ReasoningDiagnostics = require('./ReasoningDiagnostics');
-const { deepFreeze } = require('../utils');
+const { deepFreeze } = require('../shared/UtilsCore');
 const PipelineStage = require('../pipeline/PipelineStage');
 const StageResult = require('../pipeline/StageResult');
 

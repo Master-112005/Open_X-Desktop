@@ -5,7 +5,7 @@ const path = require('path');
 
 const ActionRouter = require('../../core/assistant/automation/ActionRouter');
 const Assistant = require('../../core/assistant');
-const EntityExtractor = require('../../core/assistant/entities/EntityExtractor');
+const EntityExtractor = require('../../core/assistant/understanding/EntityExtractor');
 const SchedulerController = require('../../core/automation/scheduler');
 
 describe('Reminder Extraction', function() {
@@ -15,7 +15,10 @@ describe('Reminder Extraction', function() {
     app: { dataDir: tempDir, cleanupLegacySchedules: false },
     logging: { console: false, file: false }
   });
-  const router = new ActionRouter({ logging: { console: false, file: false } }, {});
+  const router = new ActionRouter(
+    { logging: { console: false, file: false } },
+    { execute: () => ({ success: false, error: 'stub engine' }) }
+  );
 
   after(function() {
     scheduler.destroy();

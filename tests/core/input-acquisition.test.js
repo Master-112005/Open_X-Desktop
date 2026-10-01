@@ -2,7 +2,7 @@ const assert = require('assert');
 
 describe('Assistant Input Acquisition Layer', function() {
   it('creates a standard RawUserInput for every supported input source', function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
     const manager = createDefaultInputSourceManager();
     const samples = [
       ['chat', 'open chrome', {}],
@@ -38,7 +38,7 @@ describe('Assistant Input Acquisition Layer', function() {
       PipelineStage,
       StageResult
     } = require('../../core/assistant/pipeline');
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
 
     let observedRawInput = null;
     class ObserveStage extends PipelineStage {
@@ -71,7 +71,7 @@ describe('Assistant Input Acquisition Layer', function() {
   });
 
   it('routes desktop voice transcripts through the assistant engine', async function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
     const AssistantEngine = require('../../core/assistant/AssistantEngine');
 
     let observed = null;

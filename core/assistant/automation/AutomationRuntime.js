@@ -1,7 +1,7 @@
 'use strict';
 
-const { deepFreeze } = require('../utils');
-const { isCancellationError, throwIfAborted } = require('../utils');
+const { deepFreeze } = require('../shared/UtilsCore');
+const { isCancellationError, throwIfAborted } = require('../shared/UtilsCore');
 const PipelineStage = require('../pipeline/PipelineStage');
 const StageResult = require('../pipeline/StageResult');
 

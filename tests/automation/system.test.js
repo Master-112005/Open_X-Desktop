@@ -90,4 +90,44 @@ describe('SystemController', function() {
     assert.equal(result.data.controllerVerified, false);
     assert.equal(result.data.verification.status, 'unknown');
   });
+
+  it('should empty the recycle bin through PowerShell', async function() {
+    let script = '';
+    const system = controllerWithRunner(value => {
+      script = value;
+      return 'ok';
+    });
+
+    const result = await system.emptyRecycleBin();
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.operation, 'emptyRecycleBin');
+    assert.equal(result.data.metricSource, 'powershell-clear-recyclebin');
+    assert.match(script, /Clear-RecycleBin/);
+  });
+
+  it('should report a failure when the recycle bin cannot be emptied', async function() {
+    const system = controllerWithRunner(() => {
+      throw new Error('access denied');
+    });
+
+    const result = await system.emptyRecycleBin();
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /recycle bin/i);
+  });
+
+  it('should open Task Manager through PowerShell', async function() {
+    let script = '';
+    const system = controllerWithRunner(value => {
+      script = value;
+      return '';
+    });
+
+    const result = await system.openTaskManager();
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.operation, 'openTaskManager');
+    assert.match(script, /Start-Process taskmgr/);
+  });
 });

@@ -473,7 +473,6 @@ Plugin actions are registered with the assistant/automation layer and remain sub
 | `npm test` | Run all Mocha tests. |
 | `npm run test:core` | Run core tests. |
 | `npm run test:automation` | Run automation tests. |
-| `npm run test:context` | Run context-awareness and human-context tests. |
 | `npm run test:learning` | Run learning tests. |
 | `npm run test:ui` | Run UI tests. |
 | `npm run validate` | Run lint plus full tests. |
@@ -498,7 +497,6 @@ Plugin actions are registered with the assistant/automation layer and remain sub
 |---|---|
 | `tests/core/` | Assistant, NLP, routing, learning, security, cloud, gallery, visual memory, chat, chat, settings, scheduler, validation, verification. |
 | `tests/automation/` | Apps, browser, files, media, volume, brightness, communications, windows/session automation. |
-| `tests/context-awareness/` | Context engine and mode engine. |
 | `tests/ui/` | Renderer UI contracts for chat, gallery, planner, timer widget, schedule alerts. |
 | `tests/media-handling/` | Media handling behavior. |
 
@@ -2293,13 +2291,6 @@ OpenX/
 |   |   |-- CommunicationResult.js
 |   |   |-- index.js
 |   |   `-- OperationScheduler.js
-|   |-- context-awareness/
-|   |   |-- active-window.js
-|   |   |-- app-registry.js
-|   |   |-- context-engine.js
-|   |   |-- mode-engine.js
-|   |   |-- process-monitor.js
-|   |   `-- signals.js
 |   `-- vision/
 |       |-- confidence/
 |       |   `-- ConfidenceEngine.js
@@ -2400,9 +2391,6 @@ OpenX/
 |   |   |-- volume-brightness.test.js
 |   |   |-- windows-session.test.js
 |   |   `-- windows.test.js
-|   |-- context-awareness/
-|   |   |-- context-awareness.test.js
-|   |   `-- mode-engine.test.js
 |   |-- core/
 |   |   |-- acquisition-layer.test.js
 |   |   |-- active-learning-v2.test.js
@@ -2439,7 +2427,6 @@ OpenX/
 |   |   |-- entity-understanding.test.js
 |   |   |-- face-memory.test.js
 |   |   |-- gallery-recent.test.js
-|   |   |-- human-context.test.js
 |   |   |-- input-acquisition.test.js
 |   |   |-- intents.test.js
 |   |   |-- language-normalization.test.js

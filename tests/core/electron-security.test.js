@@ -344,6 +344,10 @@ describe('Electron Security Boundary', function() {
       IPC_VALIDATORS['island:snooze']({ id: 'reminder-1', kind: 'reminder', minutes: 90 }),
       { id: 'reminder-1', kind: 'reminder', minutes: 60 }
     );
+    assert.deepEqual(IPC_VALIDATORS['voice:setHeight']({ height: 320.6 }), { height: 321 });
+    assert.deepEqual(IPC_VALIDATORS['voice:setHeight']({ height: 12 }), { height: 62 });
+    assert.deepEqual(IPC_VALIDATORS['voice:setHeight']({ height: 9999 }), { height: 600 });
+    assert.throws(() => IPC_VALIDATORS['voice:setHeight']({ height: 'tall' }), /invalid/);
     assert.deepEqual(
       IPC_VALIDATORS['island:stop']({ id: 'assistant-card', kind: 'assistant' }),
       { id: 'assistant-card', kind: 'assistant' }
@@ -402,7 +406,7 @@ describe('Electron Security Boundary', function() {
       'command:process', 'command:confirm', 'assistant:status',
       'browser:openExternal',
       'window:openChat', 'window:hideChat', 'window:openVoice',
-      'voice:close', 'voice:getActivation', 'voice:getSettings', 'voice:updateSettings', 'voice:transcribe',
+      'voice:close', 'voice:getActivation', 'voice:getSettings', 'voice:updateSettings', 'voice:transcribe', 'voice:setHeight',
       'window:openPeopleChat', 'window:openSettings', 'window:openPlanner', 'window:closePlanner',
       'config:get', 'settings:get',
       'assistantChatHistory:get', 'assistantChatHistory:getSync', 'assistantChatHistory:save', 'assistantChatHistory:saveSync', 'assistantChatHistory:clear',

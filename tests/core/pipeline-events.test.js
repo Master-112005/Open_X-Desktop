@@ -2,7 +2,7 @@ const assert = require('assert');
 
 describe('Pipeline Events', function() {
   it('dispatches immutable events with history and wildcard subscribers', function() {
-    const { PipelineEventDispatcher, PipelineEvents } = require('../../core/assistant/events');
+    const { PipelineEventDispatcher, PipelineEvents } = require('../../core/assistant/shared');
     const dispatcher = new PipelineEventDispatcher({ historyLimit: 2 });
     const received = [];
     const wildcard = [];
@@ -33,7 +33,7 @@ describe('Pipeline Events', function() {
   });
 
   it('serializes errors and keeps listener failures from breaking dispatch', function() {
-    const { PipelineEventDispatcher, PipelineEvents } = require('../../core/assistant/events');
+    const { PipelineEventDispatcher, PipelineEvents } = require('../../core/assistant/shared');
     const dispatcher = new PipelineEventDispatcher();
     let delivered = false;
 
@@ -55,7 +55,7 @@ describe('Pipeline Events', function() {
   });
 
   it('exports event validation helpers', function() {
-    const { PipelineEvents, createPipelineEventDispatcher, isPipelineEvent } = require('../../core/assistant/events');
+    const { PipelineEvents, createPipelineEventDispatcher, isPipelineEvent } = require('../../core/assistant/shared');
     const dispatcher = createPipelineEventDispatcher();
 
     assert.equal(isPipelineEvent(PipelineEvents.STAGE_FAILED), true);

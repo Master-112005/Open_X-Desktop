@@ -2,7 +2,8 @@ const { Logger } = require('../../core/assistant/Data');
 const { Normalizer } = require('../../core/assistant/Data');
 
 const FIELD_TYPE_PATTERNS = {
-  name: /^(?:first\s*name|full\s*name|given\s*name|your\s*name|user\s*name|name)$/i,
+  firstName: /^(?:first\s*name|given\s*name|forename)$/i,
+  middleName: /^(?:middle\s*name|middle\s*initial|initials)$/i,
   lastName: /^(?:last\s*name|surname|family\s*name|second\s*name)$/i,
   email: /^(?:email|e-?mail|gmail|google\s*mail|mail\s*address|email\s*address)$/i,
   phone: /^(?:phone|mobile|telephone|cell|contact\s*number|phone\s*number|mobile\s*number)$/i,
@@ -27,7 +28,8 @@ const FIELD_TYPE_PATTERNS = {
   quantity: /^(?:quantity|amount|number\s*of|how\s*many)$/i,
   cardNumber: /^(?:card\s*number|credit\s*card|debit\s*card|card\s*details)$/i,
   expiryDate: /^(?:expiry|expiration|valid\s*until|validity)$/i,
-  cvv: /^(?:cvv|cvc|security\s*code|card\s*cvv)$/i
+  cvv: /^(?:cvv|cvc|security\s*code|card\s*cvv)$/i,
+  name: /^(?:full\s*name|your\s*name|name)$/i
 };
 
 class FormUnderstanding {
@@ -87,6 +89,8 @@ class FormUnderstanding {
 
     if (/\b(?:name|first|last|full|given)\b/i.test(normalized)) {
       if (/\blast|surname|family|second\b/i.test(normalized)) return 'lastName';
+      if (/\bfirst|given|forename\b/i.test(normalized)) return 'firstName';
+      if (/\bmiddle\b/i.test(normalized)) return 'middleName';
       return 'name';
     }
 

@@ -1,7 +1,7 @@
 const assert = require('assert');
 
 function resolved(rawInput, extra = {}) {
-  const { ResolvedContext } = require('../../core/assistant/memory/index.js');
+  const { ResolvedContext } = require('../../core/assistant/knowledge/index.js');
   return new ResolvedContext({
     metadata: { rawInput },
     ...extra

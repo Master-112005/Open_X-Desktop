@@ -484,6 +484,19 @@ const INTENT_DEFINITIONS = [
     description: 'Search in the browser and write the result metadata into the active or requested application window'
   },
   {
+    id: 'document.create',
+    patterns: ['create a document', 'make a document', 'new document', 'create a note', 'make a note', 'new note', 'create notes', 'create a memo'],
+    permissionLevel: 'low',
+    action: 'document.create',
+    entities: [
+      { name: 'documentType', type: 'string', required: false },
+      { name: 'title', type: 'string', required: false },
+      { name: 'content', type: 'string', required: false },
+      { name: 'appName', type: 'string', required: false }
+    ],
+    description: 'Create a new document or note in an editor such as Notepad or Word'
+  },
+  {
     id: 'browser.closeTab',
     patterns: ['close tab', 'close current tab', 'close active tab', 'close empty tab', 'close blank tab'],
     permissionLevel: 'low',
@@ -732,6 +745,10 @@ const INTENT_DEFINITIONS = [
     action: 'reminder.cancel', entities: [], description: 'Cancel the latest reminder'
   },
   {
+    id: 'reminder.remove', patterns: ['delete reminder', 'remove reminder', 'delete a reminder', 'remove a reminder'], permissionLevel: 'low',
+    action: 'reminder.remove', entities: [{ name: 'target', type: 'string', required: false }], description: 'Delete a specific reminder by name or number'
+  },
+  {
     id: 'reminder.clear', patterns: ['delete all reminders', 'clear reminders', 'cancel all reminders', 'remove all reminders'], permissionLevel: 'low',
     action: 'reminder.clear', entities: [], description: 'Cancel all reminders'
   },
@@ -894,6 +911,22 @@ const INTENT_DEFINITIONS = [
     description: 'Get or change Bluetooth state'
   },
   {
+    id: 'system.emptyRecycleBin',
+    patterns: ['empty recycle bin', 'empty the recycle bin', 'clear recycle bin', 'empty trash', 'clear the trash', 'empty the trash'],
+    permissionLevel: 'low',
+    action: 'system.emptyRecycleBin',
+    entities: [],
+    description: 'Empty the recycle bin'
+  },
+  {
+    id: 'system.openTaskManager',
+    patterns: ['open task manager', 'open the task manager', 'show task manager', 'launch task manager', 'start task manager'],
+    permissionLevel: 'low',
+    action: 'system.openTaskManager',
+    entities: [],
+    description: 'Open Task Manager'
+  },
+  {
     id: 'window.minimize',
     patterns: ['minimize', 'minimize window', 'minimize all'],
     permissionLevel: 'low',
@@ -916,6 +949,38 @@ const INTENT_DEFINITIONS = [
     action: 'window.close',
     entities: [{ name: 'windowName', type: 'string', required: false }],
     description: 'Close active window'
+  },
+  {
+    id: 'window.showDesktop',
+    patterns: ['show desktop', 'show the desktop', 'go to desktop', 'take me to the desktop', 'desktop view', 'show my desktop'],
+    permissionLevel: 'low',
+    action: 'window.showDesktop',
+    entities: [],
+    description: 'Show the desktop'
+  },
+  {
+    id: 'window.restore',
+    patterns: ['restore window', 'restore the window', 'unminimize', 'unminimize window', 'bring back the window', 'restore all windows', 'bring all windows back'],
+    permissionLevel: 'low',
+    action: 'window.restore',
+    entities: [{ name: 'windowName', type: 'string', required: false }],
+    description: 'Restore a minimized window'
+  },
+  {
+    id: 'window.switch',
+    patterns: ['switch windows', 'switch between windows', 'next window', 'cycle windows', 'alt tab', 'switch apps'],
+    permissionLevel: 'low',
+    action: 'window.switch',
+    entities: [],
+    description: 'Switch between open windows'
+  },
+  {
+    id: 'window.snap',
+    patterns: ['snap window left', 'snap window right', 'snap left', 'snap right', 'snap the window left', 'snap the window right', 'snap this window left', 'snap this window right'],
+    permissionLevel: 'low',
+    action: 'window.snap',
+    entities: [{ name: 'direction', type: 'string', required: true }],
+    description: 'Snap the active window left or right'
   },
   {
     id: 'assistant.identity',

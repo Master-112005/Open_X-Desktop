@@ -4,7 +4,7 @@ describe('Response Generator', function() {
   let ResponseGenerator;
 
   before(function() {
-    ResponseGenerator = require('../../core/assistant/response/ResponseGenerator');
+    ResponseGenerator = require('../../core/assistant/respond/ResponseGenerator');
   });
 
   it('should report unchanged home relay state instead of claiming a new action', function() {
@@ -604,7 +604,7 @@ describe('Response Generator', function() {
   });
 
   it('should expose configurable personality response style', function() {
-    const Personality = require('../../core/assistant/response/Personality');
+    const Personality = require('../../core/assistant/respond/Personality');
     const personality = new Personality({ assistant: { responseStyle: 'concise', addressing: { useHonorific: false } } });
     const response = personality.applyToResponse('Done, sir. I also checked the next step.');
 

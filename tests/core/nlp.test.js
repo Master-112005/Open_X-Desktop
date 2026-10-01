@@ -4,7 +4,7 @@ describe('NLP Processor', function() {
   let NlpProcessor, IntentRegistry;
 
   before(function() {
-    NlpProcessor = require('../../core/assistant/linguistic/NlpProcessor');
+    NlpProcessor = require('../../core/assistant/input/NlpProcessor');
     IntentRegistry = require('../../core/assistant/reasoning/IntentRegistry').IntentRegistry;
   });
 

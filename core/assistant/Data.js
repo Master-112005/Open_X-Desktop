@@ -144,6 +144,7 @@ function buildDataPaths(config = {}) {
     personalDir,
     personalVaultPath: path.join(personalDir, 'personal-vault.db'),
     personalVaultKeyPath: path.join(personalDir, 'personal-vault.key'),
+    learningDir: path.join(root, 'learning'),
     homeDevicesPath: path.join(root, 'home-devices.json'),
     homeOwnerIdPath: path.join(root, 'home-owner-id.json'),
     logsDir: path.join(root, 'logs'),
@@ -998,6 +999,7 @@ const EVENTS = Object.freeze({
   RESPONSE_COMPLETED: 'response.completed',
   SCHEDULE_DUE: 'schedule.due',
   SCHEDULE_CHANGED: 'schedule.changed',
+  USER_PROFILE_CHANGED: 'user.profile.changed',
   UI_STATE_CHANGED: 'ui.state.changed',
 });
 

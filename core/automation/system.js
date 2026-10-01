@@ -775,6 +775,30 @@ class SystemController {
     }
   }
 
+  async emptyRecycleBin() {
+    try {
+      await this._runPowerShell("Clear-RecycleBin -Force -ErrorAction Stop; 'ok'", { timeoutMs: 15000 });
+      return this._success('emptyRecycleBin', {}, {
+        metricSource: 'powershell-clear-recyclebin',
+        responseVariantSeed: `emptyRecycleBin:${Date.now()}`
+      });
+    } catch (err) {
+      return { success: false, error: 'Unable to empty the recycle bin' };
+    }
+  }
+
+  async openTaskManager() {
+    try {
+      await this._runPowerShell('Start-Process taskmgr.exe', { timeoutMs: 8000 });
+      return this._success('openTaskManager', {}, {
+        metricSource: 'powershell-start-process',
+        responseVariantSeed: `openTaskManager:${Date.now()}`
+      });
+    } catch (err) {
+      return { success: false, error: 'Unable to open Task Manager' };
+    }
+  }
+
   async getStatus() {
     this._clearExpiredCache();
     const cpu = await this.getCPUUsage();

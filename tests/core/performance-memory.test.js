@@ -1,6 +1,6 @@
 const assert = require('assert');
 
-const ContextManager = require('../../core/assistant/context/ContextManager');
+const ContextManager = require('../../core/assistant/knowledge/ContextManager');
 const ReasoningDiagnostics = require('../../core/assistant/reasoning/ReasoningDiagnostics');
 
 describe('Performance Memory Guards', function() {

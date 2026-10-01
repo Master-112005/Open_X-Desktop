@@ -96,4 +96,85 @@ describe('WindowsController', function() {
     assert.equal(verified.verification.check, 'windows-lock-request');
     assert.equal(verified.verification.blocking, false);
   });
+
+  it('should treat "all apps" and "everything" as every window when minimizing', function() {
+    const { controller } = createController();
+    let minimizedAll = 0;
+    controller.session.minimizeAllWindows = () => {
+      minimizedAll += 1;
+      return { success: true, data: { action: 'minimizeAll', matchedWindow: 'all windows' } };
+    };
+    controller.session.minimizeWindow = () => {
+      throw new Error('minimizeWindow should not be called for every-window targets');
+    };
+
+    controller.minimizeWindow('all apps');
+    controller.minimizeWindow('all windows');
+    controller.minimizeWindow('everything');
+
+    assert.equal(minimizedAll, 3);
+  });
+
+  it('should show the desktop through the session controller', function() {
+    const { controller } = createController();
+    let called = 0;
+    controller.session.showDesktop = () => {
+      called += 1;
+      return { success: true, data: { action: 'showDesktop', matchedWindow: 'desktop' } };
+    };
+
+    const result = controller.showDesktop();
+
+    assert.equal(called, 1);
+    assert.equal(result.data.action, 'showDesktop');
+  });
+
+  it('should treat every-window targets as restore-all and delegate named restores', function() {
+    const { controller } = createController();
+    let restoredAll = 0;
+    let restoredNamed = 0;
+    controller.session.restoreAllWindows = () => {
+      restoredAll += 1;
+      return { success: true, data: { action: 'restoreAll', matchedWindow: 'all windows' } };
+    };
+    controller.session.restoreWindow = windowName => {
+      restoredNamed += 1;
+      return { success: true, data: { action: 'restore', matchedWindow: windowName } };
+    };
+
+    controller.restoreWindow('all apps');
+    controller.restoreWindow('everything');
+    controller.restoreWindow('chrome');
+
+    assert.equal(restoredAll, 2);
+    assert.equal(restoredNamed, 1);
+  });
+
+  it('should switch windows through the session controller', function() {
+    const { controller } = createController();
+    let called = 0;
+    controller.session.switchWindows = () => {
+      called += 1;
+      return { success: true, data: { action: 'switchWindows', matchedWindow: 'active window' } };
+    };
+
+    const result = controller.switchWindows();
+
+    assert.equal(called, 1);
+    assert.equal(result.data.action, 'switchWindows');
+  });
+
+  it('should snap a window through the session controller', function() {
+    const { controller } = createController();
+    let direction = '';
+    controller.session.snapWindow = value => {
+      direction = value;
+      return { success: true, data: { action: value === 'right' ? 'snapRight' : 'snapLeft', matchedWindow: 'active window' } };
+    };
+
+    const result = controller.snapWindow('right');
+
+    assert.equal(direction, 'right');
+    assert.equal(result.data.action, 'snapRight');
+  });
 });

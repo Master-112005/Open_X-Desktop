@@ -22,7 +22,7 @@ function reasoning(input = {}) {
 
 describe('Assistant Task Planning Engine', function() {
   it('produces deterministic immutable ExecutionBlueprint without automation, validation, or responses', async function() {
-    const { createDefaultPlanningManager, ExecutionBlueprint } = require('../../core/assistant/planning/index.js');
+    const { createDefaultPlanningManager, ExecutionBlueprint } = require('../../core/assistant/reasoning/index.js');
     const manager = createDefaultPlanningManager();
     const first = await manager.plan(reasoning());
     const second = await manager.plan(reasoning());
@@ -40,7 +40,7 @@ describe('Assistant Task Planning Engine', function() {
   });
 
   it('builds deterministic dependencies and ordering', async function() {
-    const { createDefaultPlanningManager } = require('../../core/assistant/planning/index.js');
+    const { createDefaultPlanningManager } = require('../../core/assistant/reasoning/index.js');
     const blueprint = await createDefaultPlanningManager().plan(reasoning());
 
     assert.ok(blueprint.dependencies.some(item => item.from === 'compose.email' && item.to === 'attach.document'));
@@ -51,7 +51,7 @@ describe('Assistant Task Planning Engine', function() {
   });
 
   it('carries action entities and explicit dependencies into the execution blueprint', async function() {
-    const { createDefaultPlanningManager } = require('../../core/assistant/planning/index.js');
+    const { createDefaultPlanningManager } = require('../../core/assistant/reasoning/index.js');
     const blueprint = await createDefaultPlanningManager().plan(reasoning({
       metadata: { rawInput: 'open chrome then search ai news', entities: { appName: 'chrome' } },
       candidateTasks: [{ task: 'Open Chrome', action: 'OPEN_APPLICATION', confidence: 0.8 }],
@@ -71,7 +71,7 @@ describe('Assistant Task Planning Engine', function() {
   });
 
   it('builds parallel and recovery metadata deterministically', async function() {
-    const { createDefaultPlanningManager } = require('../../core/assistant/planning/index.js');
+    const { createDefaultPlanningManager } = require('../../core/assistant/reasoning/index.js');
     const blueprint = await createDefaultPlanningManager().plan(reasoning({
       resolvedGoal: { id: 'application.control', name: 'Application Control', confidence: 0.8 },
       candidateGoals: [{ id: 'application.control', name: 'Application Control', confidence: 0.8 }],
@@ -87,7 +87,7 @@ describe('Assistant Task Planning Engine', function() {
   });
 
   it('uses action-aware recovery and duration estimates', async function() {
-    const { createDefaultPlanningManager } = require('../../core/assistant/planning/index.js');
+    const { createDefaultPlanningManager } = require('../../core/assistant/reasoning/index.js');
     const blueprint = await createDefaultPlanningManager().plan(reasoning({
       candidateTasks: [],
       candidateActions: [
@@ -103,7 +103,7 @@ describe('Assistant Task Planning Engine', function() {
   });
 
   it('keeps graph references valid after optimization', async function() {
-    const { createDefaultPlanningManager } = require('../../core/assistant/planning/index.js');
+    const { createDefaultPlanningManager } = require('../../core/assistant/reasoning/index.js');
     const blueprint = await createDefaultPlanningManager().plan(reasoning({
       candidateTasks: [],
       candidateActions: [
@@ -120,7 +120,7 @@ describe('Assistant Task Planning Engine', function() {
   });
 
   it('enforces max task limits deterministically', async function() {
-    const { createDefaultPlanningManager } = require('../../core/assistant/planning/index.js');
+    const { createDefaultPlanningManager } = require('../../core/assistant/reasoning/index.js');
     const blueprint = await createDefaultPlanningManager({
       configuration: { maxTasks: 2 }
     }).plan(reasoning({
@@ -137,7 +137,7 @@ describe('Assistant Task Planning Engine', function() {
   });
 
   it('keeps planner order configurable', function() {
-    const { createDefaultPlanningManager } = require('../../core/assistant/planning/index.js');
+    const { createDefaultPlanningManager } = require('../../core/assistant/reasoning/index.js');
     const manager = createDefaultPlanningManager({
       configuration: {
         planners: {
@@ -154,7 +154,7 @@ describe('Assistant Task Planning Engine', function() {
   });
 
   it('supports planning registry lookup and removal for extensions', function() {
-    const { PlanningRegistry, BasePlanner } = require('../../core/assistant/planning/index.js');
+    const { PlanningRegistry, BasePlanner } = require('../../core/assistant/reasoning/index.js');
     const registry = new PlanningRegistry();
     const planner = new BasePlanner({ id: 'planning.custom' });
 

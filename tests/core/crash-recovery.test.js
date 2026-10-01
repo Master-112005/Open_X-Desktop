@@ -153,7 +153,7 @@ describe('Crash Recovery Policy', function() {
       uptimeMs: 4567,
       assistantInitialized: true,
       chatState: 'LISTENING',
-      windows: { chat: true, chat: true, planner: false, timer: false },
+      windows: { chat: true, planner: false, timer: false },
       memory: { rss: 10, heapUsed: 20, external: 30 }
     }), true);
 

@@ -32,4 +32,29 @@ describe('Voice Renderer UI', function() {
     assert.doesNotMatch(script, /handleAudioChunk\(event\.data, audioContext\.sampleRate\)/);
     assert.doesNotMatch(script, /handleAudioChunk\(event\.inputBuffer\.getChannelData\(0\), audioContext\.sampleRate\)/);
   });
+
+  it('should render search results and numbered options inside the voice window', function() {
+    assert.match(script, /results: document\.getElementById\('voice-results'\)/);
+    assert.match(script, /function normalizeResultEntries\(result\) \{/);
+    assert.match(script, /intent === 'browser\.search'/);
+    assert.match(script, /\['file\.search', 'folder\.search', 'file\.smartFind', 'file\.list'\]/);
+    assert.match(script, /function buildResultList\(entries\)/);
+    assert.match(script, /function buildChoiceList\(choices\)/);
+    assert.match(script, /function renderVoiceReply\(result\) \{[\s\S]*result\?\.data\?\.choices[\s\S]*buildChoiceList\(currentChoices\)/);
+    assert.match(script, /list\.className = 'voice-result-list';/);
+    assert.match(script, /list\.className = 'voice-choices';/);
+  });
+
+  it('should let the user pick an option by click or by speaking its number', function() {
+    assert.match(script, /button\.addEventListener\('click', \(\) => \{[\s\S]*selectVoiceChoice\(choiceIndex\)/);
+    assert.match(script, /async function selectVoiceChoice\(index\) \{[\s\S]*await sendVoiceCommand\(text\)[\s\S]*presentReply\(text, reply, currentTurn\)/);
+    assert.match(script, /await presentReply\(text, reply, currentTurn\);/);
+  });
+
+  it('should resize the transparent voice window to fit its rendered content', function() {
+    assert.match(script, /function applyContentHeight\(\) \{[\s\S]*setVoiceHeight\?\.\(clamped \+ VOICE_CONTENT_PADDING\)/);
+    assert.match(script, /function measureContentHeight\(\) \{[\s\S]*getBoundingClientRect\(\)\.height/);
+    assert.match(script, /function scheduleContentHeight\(\) \{[\s\S]*requestAnimationFrame/);
+    assert.match(script, /if \(freshActivation\) clearResults\(\);/);
+  });
 });

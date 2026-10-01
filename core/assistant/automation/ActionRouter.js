@@ -3,20 +3,20 @@ const path = require('path');
 const IdGenerator = require('../Data').IdGenerator;
 const Normalizer = require('../Data').Normalizer;
 const IntentRegistry = require('../reasoning/IntentRegistry').IntentRegistry;
-const InputParser = require('../linguistic/InputParser');
-const EntityExtractor = require('../entities/EntityExtractor');
+const InputParser = require('../input/InputParser');
+const EntityExtractor = require('../understanding/EntityExtractor');
 const PermissionValidator = require('../../../apps/desktop/permissions');
 const { NaturalLanguageExecution } = require('./AutomationRuntime');
 const ActionValidation = require('../../automation/common/action-velidation');
 const ActionConfirmation = require('../../automation/common/action-confirm');
-const NlpProcessor = require('../linguistic/NlpProcessor');
-const { normalizeWebTarget, resolveTrustedWebTarget } = require('../semantic/WebTargets');
+const NlpProcessor = require('../input/NlpProcessor');
+const { normalizeWebTarget, resolveTrustedWebTarget } = require('../understanding/WebTargets');
 const { MediaCommandRouter } = require('../../automation/media');
 const { HomeAutomationRouter } = require('../../home-automation');
-const { CommandFrameParser } = require('../linguistic/InputParser');
-const NaturalLanguageRouter = require('../semantic/NaturalLanguageRouter');
+const { CommandFrameParser } = require('../input/InputParser');
+const NaturalLanguageRouter = require('../understanding/NaturalLanguageRouter');
 const { AppCommandLanguage, BrowserCommandLanguage } = NaturalLanguageRouter;
-const ResponseGenerator = require('../response/ResponseGenerator');
+const ResponseGenerator = require('../respond/ResponseGenerator');
 const {
   ComputerActionPlanner,
   ComputerActionEngine
@@ -24,7 +24,8 @@ const {
 const {
   isCancellationError,
   throwIfAborted
-} = require('../utils');
+} = require('../shared/UtilsCore');
+const ProfileFacts = require('../knowledge/ProfileFacts');
 
 const CONFIDENCE_THRESHOLD = 0.5;
 const PHONE_TRANSFER_ACTION_PATTERN = /^(?:(?:please|can\s+you|could\s+you|would\s+you|can\s+u)\s+)?(?:send|share|transfer|copy|export|push|move|give|get|bring|send\s+over|send\s+across)\b/i;
@@ -444,9 +445,12 @@ class ActionRouter {
       ['_resolveSystemIntent', () => this._resolveSystemIntent(rawCommandText, preparedInput)],
       ['_resolvePhoneTransferIntent', () => this._resolvePhoneTransferIntent(rawCommandText, preparedInput, source)],
       ['_resolveTextAutomationIntent', () => this._resolveTextAutomationIntent(rawCommandText, preparedInput)],
+      ['_resolveProfileWriteIntent', () => this._resolveProfileWriteIntent(rawCommandText, preparedInput)],
+      ['_resolveExplicitDocumentIntent', () => this._resolveExplicitDocumentIntent(rawCommandText, preparedInput)],
       ['_resolveFileSystemIntent', () => this._resolveFileSystemIntent(rawCommandText, preparedInput)],
       ['_resolveWorkspaceSetupIntent', () => this._resolveWorkspaceSetupIntent(rawCommandText, preparedInput)],
       ['_resolveScreenshotIntent', () => this._resolveScreenshotIntent(rawCommandText, preparedInput)],
+      ['_resolveExplicitWindowIntent', () => this._resolveExplicitWindowIntent(rawCommandText, preparedInput)],
       ['_resolveFormFillIntent', () => this._resolveFormFillIntent(rawCommandText, preparedInput)],
       ['_resolveExplicitCommunicationIntent', () => this._resolveExplicitCommunicationIntent(rawCommandText, preparedInput)],
       ['_resolveEarlyCapabilityCommandIntent', () => this._resolveEarlyCapabilityCommandIntent(rawCommandText, preparedInput)],
@@ -591,11 +595,73 @@ class ActionRouter {
 
   _resolveSystemIntent(rawText, preparedInput) {
     return this._resolveSystemPowerIntent(rawText, preparedInput) ||
+           this._resolveExplicitSystemUtilityIntent(rawText, preparedInput) ||
            this._resolveSystemSettingsIntent(rawText, preparedInput) ||
            this._resolveSystemInsightIntent(rawText, preparedInput);
   }
 
+  _resolveExplicitSystemUtilityIntent(rawText, preparedInput) {
+    const correctedText = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
+    if (!correctedText) {
+      return null;
+    }
+
+    if (/\b(?:empty|clear)\s+(?:the\s+)?(?:recycle\s*bin|trash|trash\s*can)\b/.test(correctedText) ||
+      /\b(?:recycle\s*bin|trash)\s+(?:empty|empty\s+it|clear)\b/.test(correctedText)) {
+      const intent = this.intentRegistry.get('system.emptyRecycleBin');
+      if (intent) {
+        return { intent, confidence: 1, entities: {} };
+      }
+    }
+
+    if (/\b(?:open|show|launch|start|bring\s+up)\s+(?:the\s+)?task\s*manager\b/.test(correctedText) ||
+      /\btask\s*manager\b/.test(correctedText) && /\b(?:open|show|launch|start|view)\b/.test(correctedText)) {
+      const intent = this.intentRegistry.get('system.openTaskManager');
+      if (intent) {
+        return { intent, confidence: 1, entities: {} };
+      }
+    }
+
+    return null;
+  }
+
+  _resolveExplicitDocumentIntent(rawText, preparedInput) {
+    const text = `${String(rawText || '')} ${String(preparedInput?.correctedText || rawText || '')}`
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+    if (!text) {
+      return null;
+    }
+    if (!/\b(?:create|make|start|write|compose|draft)\s+(?:(?:a|an|the|new|blank|quick|short|my|another|meeting|work|study|today'?s|plain|empty)\s+)*(?:documents?|notes?|memos?)\b/.test(text)) {
+      return null;
+    }
+    if (/\b(?:files?|folders?|directories?|directory|zip|backup|backups|copies|copy|shortcuts?)\b/.test(text)) {
+      return null;
+    }
+    const intent = this.intentRegistry.get('document.create');
+    if (!intent) {
+      return null;
+    }
+    const documentType = /\bnotes?\b/.test(text) ? 'note' : 'document';
+    const entities = { documentType };
+    if (/\bword\b/.test(text)) {
+      entities.appName = 'word';
+    } else if (/\bnotepad\b/.test(text)) {
+      entities.appName = 'notepad';
+    } else if (/\bwordpad\b/.test(text)) {
+      entities.appName = 'wordpad';
+    }
+    return { intent, confidence: 1, entities };
+  }
+
   _resolveFileSystemIntent(rawText, preparedInput) {
+    const windowText = String(preparedInput?.correctedText || rawText || '').trim().toLowerCase();
+    if (/\b(?:show|go\s+to|take\s+me\s+to|bring\s+me\s+to|switch\s+to|view|back\s+to|navigate\s+to)\s+(?:the\s+|my\s+|our\s+)?desktop\b/.test(windowText) &&
+      !/\b(?:file|files|folder|folders|directory|directories|document|documents|photo|photos|picture|pictures)\b/.test(windowText)) {
+      return null;
+    }
+
     return this._resolveFolderOpenInAppIntent(rawText, preparedInput) ||
            this._resolveExplicitFolderIntent(rawText, preparedInput) ||
            this._resolveSmartFileIntent(rawText, preparedInput) ||
@@ -1270,7 +1336,11 @@ class ActionRouter {
     if (!corrected) {
       return true;
     }
-    if (this._looksLikeExplicitCreateFileCommand(`${raw} ${corrected}`)) {
+if (this._looksLikeExplicitCreateFileCommand(`${raw} ${corrected}`)) {
+      return false;
+    }
+
+    if (this._looksLikeProfileWriteCommand(raw) || this._looksLikeProfileWriteCommand(corrected)) {
       return false;
     }
 
@@ -2573,6 +2643,11 @@ class ActionRouter {
       const target = this._formatDisplayName(entity('appName') || entity('windowName'));
       return target ? `pasted ${this._quoteHumanValue(source)} into ${target}` : `pasted ${this._quoteHumanValue(source)}`;
     }
+    if (intent === 'document.create') {
+      const kind = entity('documentType') === 'note' ? 'note' : 'document';
+      const editor = this._formatDisplayName(entity('appName') || 'notepad');
+      return `created a new ${kind} in ${editor}`;
+    }
     if (intent === 'system.calculate') {
       const expression = entity('expression') || entity('calculation') || '';
       return expression ? `calculated ${expression}` : 'calculated the expression';
@@ -3116,6 +3191,10 @@ class ActionRouter {
       return false;
     }
 
+    if (this._looksLikeProfileWriteCommand(rawText)) {
+      return false;
+    }
+
     if (/\b(?:setup|session|workspace|focus\s+mode|everything\s+i\s+need|apps?\s+i\s+use)\b/i.test(String(rawText || ''))) {
       return false;
     }
@@ -3537,6 +3616,16 @@ class ActionRouter {
       return null;
     }
 
+    if (/\b(?:show|go\s+to|take\s+me\s+to|bring\s+me\s+to|switch\s+to|view|back\s+to|navigate\s+to)\s+(?:the\s+|my\s+|our\s+)?(?:desktop|desktop\s+view)\b/.test(correctedText) ||
+      /\bdesktop\s+view\b/.test(correctedText)) {
+      if (!/\b(?:file|files|folder|folders|directory|directories|document|documents|photo|photos|picture|pictures)\b/.test(correctedText)) {
+        const desktopIntent = this.intentRegistry.get('window.showDesktop');
+        if (desktopIntent) {
+          return { intent: desktopIntent, confidence: 1, entities: {} };
+        }
+      }
+    }
+
     if (/\b(?:minimi[sz]e|collapse|hide|shrink)\b/.test(correctedText)) {
       const intent = this.intentRegistry.get('window.minimize');
       if (intent) {
@@ -3563,10 +3652,61 @@ class ActionRouter {
       }
     }
 
-    if (/\b(?:maximi[sz]e|fullscreen|expand|enlarge)\b/.test(correctedText)) {
+    const mediaFullscreenText = /\b(?:youtube|video|media|player|song|track|music)\b/.test(correctedText) &&
+      /\b(?:fullscreen|full\s+screen|fill\s+the\s+whole\s+screen)\b/.test(correctedText);
+    const exitFullscreenText = /\b(?:exit|leave|close)\s+(?:fullscreen|full\s+screen)\b/.test(correctedText);
+    if (!mediaFullscreenText && !exitFullscreenText && /\b(?:maximi[sz]e|fullscreen|expand|enlarge)\b/.test(correctedText)) {
       const intent = this.intentRegistry.get('window.maximize');
       if (intent) {
         if (this._isAllWindowTarget(correctedText)) {
+          return {
+            intent,
+            confidence: 1,
+            entities: { windowName: 'all windows', allWindows: true }
+          };
+        }
+        const target = this._cleanWindowTarget(preparedInput?.semanticFrame?.targetText || correctedText);
+        if (this._isAllWindowTarget(target)) {
+          return {
+            intent,
+            confidence: 1,
+            entities: { windowName: 'all windows', allWindows: true }
+          };
+        }
+        return {
+          intent,
+          confidence: 1,
+          entities: target ? { windowName: target } : undefined
+        };
+      }
+    }
+
+    const snapText = `${String(rawText || '').trim().toLowerCase()} ${correctedText}`.replace(/\s+/g, ' ');
+    if (/\b(?:snap|dock|move|put|place)\b[^.?!]*\b(?:left|right)\b/.test(snapText) &&
+      /\b(?:window|windows|the window|this window|active window|screen)\b/.test(snapText)) {
+      const intent = this.intentRegistry.get('window.snap');
+      if (intent) {
+        return {
+          intent,
+          confidence: 1,
+          entities: { direction: /\bright\b/.test(snapText) ? 'right' : 'left' }
+        };
+      }
+    }
+
+    if (/\b(?:alt[\s-]?tab|switch\s+(?:between\s+)?(?:windows?|apps?|applications?|programs?)|next\s+(?:window|app|application|program)|cycle\s+(?:windows?|apps?|applications?|programs?))\b/.test(correctedText)) {
+      const intent = this.intentRegistry.get('window.switch');
+      if (intent) {
+        return { intent, confidence: 1, entities: {} };
+      }
+    }
+
+    const restoreVerb = /\b(?:un-?minimi[sz]e|un-?minimi[sz]ed|restore|bring\s+back|unhide)\b/.test(correctedText);
+    const restoreTarget = /\b(?:windows?|apps?|applications?|programs?|minimi[sz]ed|desktop)\b/.test(correctedText);
+    if (restoreVerb && restoreTarget && !/\b(?:file|files|folder|folders|document|documents|backup|database|settings?|defaults?)\b/.test(correctedText)) {
+      const intent = this.intentRegistry.get('window.restore');
+      if (intent) {
+        if (this._isAllWindowTarget(correctedText) || /\b(?:all|every|everything)\b/.test(correctedText)) {
           return {
             intent,
             confidence: 1,
@@ -4203,6 +4343,7 @@ class ActionRouter {
   }
 
   _collectUserFacts() {
+    const merged = this._userProfileFactMap() || {};
     const config = this.config || {};
     const candidates = [
       config.userFactsProvider,
@@ -4216,14 +4357,14 @@ class ActionRouter {
       }
       try {
         const facts = provider.call(config);
-        if (facts && typeof facts === 'object' && Object.keys(facts).length > 0) {
-          return facts;
+        if (facts && typeof facts === 'object') {
+          Object.assign(merged, facts);
         }
       } catch {
         // Ignore a failing facts provider and fall through to the next one.
       }
     }
-    return null;
+    return Object.keys(merged).length > 0 ? merged : null;
   }
 
   _buildSmartFileEntities(input) {
@@ -4374,6 +4515,64 @@ class ActionRouter {
     return { intent, confidence: 1 };
   }
 
+  _resolveProfileWriteIntent(rawText, preparedInput = {}) {
+    const sources = Array.from(new Set([
+      String(rawText || '').trim(),
+      String(preparedInput?.correctedText || '').trim()
+    ].filter(Boolean)));
+    const profile = ProfileFacts.profileFromConfig(this.config);
+
+    for (const source of sources) {
+      const input = source.replace(/\s+/g, ' ').trim();
+      if (!input) {
+        continue;
+      }
+
+      const targetMatch = input.match(/\s+(?:in|into|to|on)\s+(.+?)(?:\s+and\s+.*)?$/i);
+      const target = targetMatch?.[1] ? targetMatch[1].trim() : '';
+      const bare = targetMatch ? input.slice(0, input.length - targetMatch[0].length).trim() : input;
+      const verbMatch = bare.match(/^(?:(?:please|kindly|can\s+(?:you|u)|could\s+(?:you|u)|would\s+(?:you|u)|hey)\s+)?(?:write|type|type\s+out|paste|enter|sign|put|insert|print|autograph|jot\s+down|fill)\s+(?:(?:down|in)\s+)?(?:the\s+)?/i);
+      if (!verbMatch) {
+        continue;
+      }
+
+      const phrase = bare.slice(verbMatch[0].length);
+      const resolved = this._resolveProfilePersonalText(phrase, profile);
+      if (!resolved) {
+        continue;
+      }
+
+      const intent = this.intentRegistry.get('text.write');
+      if (!intent) {
+        return null;
+      }
+
+      return {
+        intent,
+        confidence: 0.98,
+        entities: {
+          text: resolved,
+          ...this._textTargetEntities(target)
+        }
+      };
+    }
+
+    return null;
+  }
+
+  _looksLikeProfileWriteCommand(rawText) {
+    const text = String(rawText || '').trim();
+    if (!text) {
+      return false;
+    }
+    const verbPattern = /^\s*(?:(?:please|kindly|can\s+(?:you|u)|could\s+(?:you|u)|would\s+(?:you|u)|hey)\s+)?(?:write|type|type\s+out|paste|enter|sign|put|insert|print|autograph|jot\s+down|fill)\s+(?:(?:down|in)\s+)?(?:the\s+)?/i;
+    if (!verbPattern.test(text)) {
+      return false;
+    }
+    const personalPattern = /\bmy\s+(?:own\s+)?(?:(?:first|middle|last|full|job|phone|e-mail|email|postal|street|home|office)\s+)?(?:name|names|email|e-mail|gmail|phone|number|mobile|cell|contact|address|city|state|country|zip|postal\s+code|company|organization|organisation|job\s+title|role|position|department|team|username|user\s+name|website|web\s+site|site|url|linkedin|github|twitter|date\s+of\s+birth|birth\s+date|birthday|dob|gender|sex|nationality|citizenship|details|detail|information|info|particulars|credentials|profile|signature)\b/i;
+    return personalPattern.test(text);
+  }
+
   _resolveTextAutomationIntent(rawText, preparedInput = {}) {
     const raw = String(rawText || '').trim();
     const input = String(preparedInput?.correctedText || rawText || '').trim();
@@ -4440,14 +4639,14 @@ class ActionRouter {
       .trim();
   }
 
-  _resolveWritableText(value = '') {
+_resolveWritableText(value = '') {
     const text = this._cleanTextAutomationPhrase(value)
       .replace(/^["']|["']$/g, '')
       .trim();
     if (!text) {
       return '';
     }
-if (/^(?:my\s+name|name|user\s+name|username)$/i.test(text)) {
+    if (/^(?:my\s+name|name|user\s+name|username)$/i.test(text)) {
       return this._currentUserDisplayName();
     }
     const namedText = text.match(/^(?:my\s+name\s+is|my\s+name|name\s+is|name)\s+(?!of\b|for\b)(.+?)(?:\s+please)?$/i);
@@ -4458,13 +4657,48 @@ if (/^(?:my\s+name|name|user\s+name|username)$/i.test(text)) {
     if (voicedName?.[1]) {
       return String(voicedName[1]).replace(/\s+please\s*$/i, '').trim();
     }
+    const profile = ProfileFacts.profileFromConfig(this.config);
+    const personal = this._resolveProfilePersonalText(text, profile);
+    if (personal) {
+      return personal;
+    }
     return text;
   }
 
-  _currentUserDisplayName() {
-    const configured = this.config?.user?.name || this.config?.profile?.name;
+  _resolveProfilePersonalText(text = '', profile = {}) {
+    const detailsPattern = /^(?:my\s+)?(?:own\s+)?(?:full\s+|all\s+|complete\s+)?(?:personal\s+|profile\s+)?(?:details|detail|information|info|particulars|credentials)\b/i;
+    if (detailsPattern.test(text)) {
+      const block = ProfileFacts.composeProfileDetails(profile);
+      if (block) {
+        return block;
+      }
+    }
+    const resolved = ProfileFacts.resolveProfileField(profile, text);
+    if (resolved?.value) {
+      return resolved.value;
+    }
+    const userFacts = this._collectUserFacts() || {};
+    const normalized = ProfileFacts.normalizeText(text)
+      .replace(/^(?:my|the|a|an|own|your)\s+/i, '')
+      .replace(/\s+(?:please|now)$/i, '')
+      .trim();
+    if (normalized && userFacts[normalized]) {
+      return String(userFacts[normalized]);
+    }
+    return '';
+  }
+
+_currentUserDisplayName() {
+    const profile = ProfileFacts.profileFromConfig(this.config);
+    const profileName = String(profile.fullName || profile.name || '').trim();
+    const configured = profileName || this.config?.user?.name || this.config?.profile?.name;
     const candidate = String(configured || process.env.OPENX_USER_NAME || process.env.USERNAME || path.basename(process.env.USERPROFILE || '') || '').trim();
     return candidate || 'Rakesh';
+  }
+
+  _userProfileFactMap() {
+    const profile = ProfileFacts.profileFromConfig(this.config);
+    return ProfileFacts.profileToFacts(profile);
   }
 
   _textTargetEntities(targetText = '') {
@@ -6766,13 +7000,15 @@ const newTabMatch = input.match(
   }
 
   _resolveScheduleManagementIntent(rawText, preparedInput) {
-    const input = String(preparedInput?.correctedText || rawText || '')
+    const normalizeManagementText = value => String(value || '')
       .trim()
       .toLowerCase()
       .replace(/\b(?:cancle|cancl|canel)\b/g, 'cancel')
       .replace(/\b(?:clane|cleane)\b/g, 'clear')
       .replace(/\b(?:remindee|remider|remideres|reminderss)\b/g, 'reminder')
       .replace(/\b(?:alram|alaram|alarmsm)\b/g, 'alarm');
+    const input = normalizeManagementText(preparedInput?.correctedText || rawText);
+    const rawInput = normalizeManagementText(rawText);
     if (!input) return null;
     const routes = [
       ['timer.clear', /^(?:delete|clear|cancel|stop)\s+all\s+(?:active\s+)?timers?$/],
@@ -6785,17 +7021,33 @@ const newTabMatch = input.match(
       ['reminder.clear', /^(?:delete|clear|cancel|remove)\s+all\s+(?:my\s+)?reminders?$/],
       ['reminder.list', /^(?:(?:show|list|tell|check|what(?:'s|\s+is|\s+are)?)\b.*\breminders?\b|(?:how\s+many|count|do\s+i\s+have|are\s+there|any)\b.*\breminders?\b|reminders?\b.*\b(?:today|tomorrow|active|upcoming|scheduled)\b)/],
       ['reminder.snooze', /^snooze\s+(?:this\s+|the\s+|my\s+)?reminder(?:\s+for\s+.+)?$/],
+      ['reminder.remove', /^(?:delete|clear|cancel|remove|dismiss)\s+(?:the\s+|my\s+)?reminder\s+(?:about\s+|to\s+|for\s+|called\s+|named\s+)?(.+)$/],
       ['reminder.cancel', /^(?:delete|clear|cancel|stop|remove|dismiss)\s+(?:this\s+|the\s+|my\s+)?reminder$/],
+      ['reminder.remove', /^(?:delete|clear|cancel|remove|dismiss)\s+(?:the\s+|my\s+)?(.+?)\s+reminders?$/],
       ['alarm.clear', /^(?:delete|clear|cancel|stop|remove)\s+all\s+(?:my\s+)?alarms?$/],
       ['alarm.snooze', /^snooze\s+(?:the\s+|my\s+)?alarm(?:\s+for\s+.+)?$/],
       ['alarm.list', /^(?:(?:show|list|tell|check|what(?:'s|\s+is|\s+are)?)\b.*\b(?:active\s+)?alarms?\b|(?:how\s+many|count|do\s+i\s+have|are\s+there|any)\b.*\b(?:active\s+)?alarms?\b)/],
       ['alarm.cancel', /^(?:delete|clear|cancel|stop|remove|dismiss)\s+(?:this\s+|the\s+|my\s+)?alarm$/]
     ];
     for (const [intentId, pattern] of routes) {
-      if (!pattern.test(input)) continue;
+      const match = input.match(pattern) || rawInput.match(pattern);
+      if (!match) continue;
       const intent = this.intentRegistry.get(intentId);
       if (!intent) return null;
       const entities = this.entityExtractor.extract(intent, rawText);
+      if (intentId === 'reminder.remove') {
+        const rawMatch = rawInput.match(pattern);
+        const rawTarget = rawMatch?.[1];
+        const correctedTarget = match[1];
+        const target = String(rawTarget || correctedTarget || '').replace(/\s+/g, ' ').trim();
+        if (target) {
+          entities.target = target;
+          const alt = String(correctedTarget || '').replace(/\s+/g, ' ').trim();
+          if (alt && alt.toLowerCase() !== target.toLowerCase()) {
+            entities.targetAlt = alt;
+          }
+        }
+      }
       if (/\.(?:list)$/.test(intentId)) {
         if (/\btoday\b/.test(input)) entities.scope = 'today';
         else if (/\ball\b/.test(input)) entities.scope = 'all';

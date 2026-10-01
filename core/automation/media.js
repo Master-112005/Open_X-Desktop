@@ -781,7 +781,7 @@ class MediaController {
         success: true,
         data: this._mediaSuccessData('pause', {
           action: 'pause',
-          ...this._sendMediaControl('k', 179)
+          ...this._sendMediaControl('k', VK_MEDIA_PLAY_PAUSE)
         })
       };
     } catch (err) {
@@ -795,7 +795,7 @@ class MediaController {
         success: true,
         data: this._mediaSuccessData('resume', {
           action: 'resume',
-          ...this._sendMediaControl('k', 179)
+          ...this._sendMediaControl('k', VK_MEDIA_PLAY_PAUSE)
         })
       };
     } catch (err) {
@@ -809,7 +809,7 @@ class MediaController {
         success: true,
         data: this._mediaSuccessData('stop', {
           action: 'stop',
-          ...this._sendMediaControl('k', 179)
+          ...this._sendMediaControl('k', VK_MEDIA_PLAY_PAUSE)
         })
       };
     } catch (err) {

@@ -2,8 +2,8 @@ const assert = require('assert');
 
 describe('Assistant Language Normalization Layer', function() {
   it('normalizes language into a deterministic NormalizedInput object', async function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-    const { createDefaultNormalizationManager, NormalizedInput } = require('../../core/assistant/normalization');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+    const { createDefaultNormalizationManager, NormalizedInput } = require('../../core/assistant/input');
 
     const rawUserInput = createDefaultInputSourceManager().acquire('  opne   chromee!!!  ', 'chat', {
       metadata: { chatConfidence: 0.9 }
@@ -22,8 +22,8 @@ describe('Assistant Language Normalization Layer', function() {
   });
 
   it('records dates, times, units, numbers, emojis, and language regions without doing intent work', async function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/input');
 
     const rawUserInput = createDefaultInputSourceManager().acquire("don't remind me tomorrow at 3 pm for twenty one minutes \u{1F4C1}", 'chat');
     const normalized = await createDefaultNormalizationManager().normalize(rawUserInput);
@@ -39,8 +39,8 @@ describe('Assistant Language Normalization Layer', function() {
   });
 
   it('builds command-ready intent text across normalizer modules', async function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/input');
 
     const rawUserInput = createDefaultInputSourceManager().acquire('bro pls opne blue tooth settings at 8 p m for twenty-one mins', 'chat');
     const normalized = await createDefaultNormalizationManager().normalize(rawUserInput);
@@ -54,8 +54,8 @@ describe('Assistant Language Normalization Layer', function() {
   });
 
   it('keeps correction cues and command hints for follow-up edits', async function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/input');
 
     const rawUserInput = createDefaultInputSourceManager().acquire('no no set it to 40', 'chat');
     const normalized = await createDefaultNormalizationManager().normalize(rawUserInput);
@@ -66,8 +66,8 @@ describe('Assistant Language Normalization Layer', function() {
   });
 
   it('preserves media title interiors while still producing command metadata', async function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/input');
 
     const rawUserInput = createDefaultInputSourceManager().acquire('play Stars and Stripes Forever song', 'chat');
     const normalized = await createDefaultNormalizationManager().normalize(rawUserInput);
@@ -78,8 +78,8 @@ describe('Assistant Language Normalization Layer', function() {
   });
 
   it('recognizes compact times, units, and recurring weekday lists without rewriting text', async function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/input');
 
     const rawUserInput = createDefaultInputSourceManager().acquire('remind me every saturday and monday at 8pm for 15min', 'chat');
     const normalized = await createDefaultNormalizationManager().normalize(rawUserInput);
@@ -92,8 +92,8 @@ describe('Assistant Language Normalization Layer', function() {
   });
 
   it('bounds diagnostics and observations for long noisy commands', async function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/input');
 
     const manager = createDefaultNormalizationManager({
       configuration: {
@@ -156,8 +156,8 @@ describe('Assistant Language Normalization Layer', function() {
   });
 
   it('can disable individual normalizers through configuration', async function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/input');
     const manager = createDefaultNormalizationManager({
       configuration: {
         normalizers: {

@@ -1,7 +1,7 @@
 const Logger = require('../assistant/Data').Logger;
 const { launchTarget } = require('./common/launcher');
 const WindowsSessionController = require('./common/windows-session');
-const { resolveTrustedWebTarget } = require('../assistant/semantic/WebTargets');
+const { resolveTrustedWebTarget } = require('../assistant/understanding/WebTargets');
 const dns = require('dns');
 const fs = require('fs');
 const https = require('https');

@@ -255,15 +255,29 @@ const fieldIds = {
   assistantDisplayName: 'assistant-display-name',
   assistantHonorific: 'assistant-honorific',
   profileFullName: 'profile-full-name',
+  profileFirstName: 'profile-first-name',
+  profileMiddleName: 'profile-middle-name',
+  profileLastName: 'profile-last-name',
   profileEmail: 'profile-email',
   profilePhone: 'profile-phone',
+  profileDateOfBirth: 'profile-date-of-birth',
+  profileGender: 'profile-gender',
+  profileNationality: 'profile-nationality',
+  profileUsername: 'profile-username',
   profileAddressLine1: 'profile-address-line1',
+  profileAddressLine2: 'profile-address-line2',
   profileCity: 'profile-city',
   profileState: 'profile-state',
   profilePostalCode: 'profile-postal-code',
   profileCountry: 'profile-country',
   profileCompany: 'profile-company',
+  profileJobTitle: 'profile-job-title',
+  profileDepartment: 'profile-department',
   profileRole: 'profile-role',
+  profileWebsite: 'profile-website',
+  profileLinkedin: 'profile-linkedin',
+  profileGithub: 'profile-github',
+  profileTwitter: 'profile-twitter',
   chatMaxHistory: 'chat-max-history',
   glassTint: 'glass-tint',
   systemPermissionLevel: 'system-permission-level',
@@ -278,13 +292,16 @@ const PROFILE_SUMMARY_FIELDS = [
   { key: 'fullName', label: 'Name', fieldId: fieldIds.profileFullName },
   { key: 'email', label: 'Email', fieldId: fieldIds.profileEmail },
   { key: 'phone', label: 'Phone', fieldId: fieldIds.profilePhone },
+  { key: 'jobTitle', label: 'Job Title', fieldId: fieldIds.profileJobTitle },
   { key: 'company', label: 'Company', fieldId: fieldIds.profileCompany },
   { key: 'role', label: 'Role', fieldId: fieldIds.profileRole },
-  { key: 'country', label: 'Country', fieldId: fieldIds.profileCountry },
   { key: 'addressLine1', label: 'Address', fieldId: fieldIds.profileAddressLine1 },
   { key: 'city', label: 'City', fieldId: fieldIds.profileCity },
   { key: 'state', label: 'State', fieldId: fieldIds.profileState },
-  { key: 'postalCode', label: 'Postal Code', fieldId: fieldIds.profilePostalCode }
+  { key: 'postalCode', label: 'Postal Code', fieldId: fieldIds.profilePostalCode },
+  { key: 'country', label: 'Country', fieldId: fieldIds.profileCountry },
+  { key: 'username', label: 'Username', fieldId: fieldIds.profileUsername },
+  { key: 'website', label: 'Website', fieldId: fieldIds.profileWebsite }
 ];
 
 function getAssistantDisplayName() {
@@ -2988,16 +3005,31 @@ function populateSettingsForm() {
 
   setFieldValue(fieldIds.assistantDisplayName, settings.assistant.displayName);
   setFieldValue(fieldIds.assistantHonorific, settings.assistant.honorific);
-  setFieldValue(fieldIds.profileFullName, settings.userProfile.fullName);
-  setFieldValue(fieldIds.profileEmail, settings.userProfile.email);
-  setFieldValue(fieldIds.profilePhone, settings.userProfile.phone);
-  setFieldValue(fieldIds.profileAddressLine1, settings.userProfile.addressLine1);
-  setFieldValue(fieldIds.profileCity, settings.userProfile.city);
-  setFieldValue(fieldIds.profileState, settings.userProfile.state);
-  setFieldValue(fieldIds.profilePostalCode, settings.userProfile.postalCode);
-  setFieldValue(fieldIds.profileCountry, settings.userProfile.country);
-  setFieldValue(fieldIds.profileCompany, settings.userProfile.company);
-  setFieldValue(fieldIds.profileRole, settings.userProfile.role);
+  const userProfile = settings.userProfile || {};
+  setFieldValue(fieldIds.profileFullName, userProfile.fullName);
+  setFieldValue(fieldIds.profileFirstName, userProfile.firstName);
+  setFieldValue(fieldIds.profileMiddleName, userProfile.middleName);
+  setFieldValue(fieldIds.profileLastName, userProfile.lastName);
+  setFieldValue(fieldIds.profileEmail, userProfile.email);
+  setFieldValue(fieldIds.profilePhone, userProfile.phone);
+  setFieldValue(fieldIds.profileDateOfBirth, userProfile.dateOfBirth);
+  setFieldValue(fieldIds.profileGender, userProfile.gender);
+  setFieldValue(fieldIds.profileNationality, userProfile.nationality);
+  setFieldValue(fieldIds.profileUsername, userProfile.username);
+  setFieldValue(fieldIds.profileAddressLine1, userProfile.addressLine1);
+  setFieldValue(fieldIds.profileAddressLine2, userProfile.addressLine2);
+  setFieldValue(fieldIds.profileCity, userProfile.city);
+  setFieldValue(fieldIds.profileState, userProfile.state);
+  setFieldValue(fieldIds.profilePostalCode, userProfile.postalCode);
+  setFieldValue(fieldIds.profileCountry, userProfile.country);
+  setFieldValue(fieldIds.profileCompany, userProfile.company);
+  setFieldValue(fieldIds.profileJobTitle, userProfile.jobTitle);
+  setFieldValue(fieldIds.profileDepartment, userProfile.department);
+  setFieldValue(fieldIds.profileRole, userProfile.role);
+  setFieldValue(fieldIds.profileWebsite, userProfile.website);
+  setFieldValue(fieldIds.profileLinkedin, userProfile.linkedin);
+  setFieldValue(fieldIds.profileGithub, userProfile.github);
+  setFieldValue(fieldIds.profileTwitter, userProfile.twitter);
   setFieldValue(fieldIds.chatMaxHistory, String(settings.chat.maxHistory));
   setFieldValue(fieldIds.glassTint, String(settings.chat.glassTint ?? 42));
   applyGlassTint(settings.chat.glassTint ?? 42);
@@ -3346,15 +3378,29 @@ function collectSettingsPayload() {
     },
     userProfile: {
       fullName: document.getElementById(fieldIds.profileFullName).value.trim(),
+      firstName: document.getElementById(fieldIds.profileFirstName).value.trim(),
+      middleName: document.getElementById(fieldIds.profileMiddleName).value.trim(),
+      lastName: document.getElementById(fieldIds.profileLastName).value.trim(),
       email: document.getElementById(fieldIds.profileEmail).value.trim(),
       phone: document.getElementById(fieldIds.profilePhone).value.trim(),
+      dateOfBirth: document.getElementById(fieldIds.profileDateOfBirth).value.trim(),
+      gender: document.getElementById(fieldIds.profileGender).value.trim(),
+      nationality: document.getElementById(fieldIds.profileNationality).value.trim(),
+      username: document.getElementById(fieldIds.profileUsername).value.trim(),
       addressLine1: document.getElementById(fieldIds.profileAddressLine1).value.trim(),
+      addressLine2: document.getElementById(fieldIds.profileAddressLine2).value.trim(),
       city: document.getElementById(fieldIds.profileCity).value.trim(),
       state: document.getElementById(fieldIds.profileState).value.trim(),
       postalCode: document.getElementById(fieldIds.profilePostalCode).value.trim(),
       country: document.getElementById(fieldIds.profileCountry).value.trim(),
       company: document.getElementById(fieldIds.profileCompany).value.trim(),
-      role: document.getElementById(fieldIds.profileRole).value.trim()
+      jobTitle: document.getElementById(fieldIds.profileJobTitle).value.trim(),
+      department: document.getElementById(fieldIds.profileDepartment).value.trim(),
+      role: document.getElementById(fieldIds.profileRole).value.trim(),
+      website: document.getElementById(fieldIds.profileWebsite).value.trim(),
+      linkedin: document.getElementById(fieldIds.profileLinkedin).value.trim(),
+      github: document.getElementById(fieldIds.profileGithub).value.trim(),
+      twitter: document.getElementById(fieldIds.profileTwitter).value.trim()
     },
     system: {
       permissionLevel: document.getElementById(fieldIds.systemPermissionLevel)?.value || settingsSnapshot?.settings?.system?.permissionLevel || 'medium'
@@ -4564,6 +4610,7 @@ if (window.openx) {
       if (!text) return;
       addMessage(text, type, entry?.meta || (type === 'user' ? 'Voice - just now' : assistantMeta('voice')), {
         persist: false,
+        choices: type === 'assistant' && result ? result.data?.choices : [],
         resultEntries: type === 'assistant' && result ? normalizeResultEntries(result) : []
       });
     });

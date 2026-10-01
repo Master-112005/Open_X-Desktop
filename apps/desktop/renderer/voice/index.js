@@ -8,6 +8,11 @@
   const DUPLICATE_TRANSCRIPT_WINDOW_MS = 5000;
   const RELISTEN_DELAY_MS = 250;
   const MAX_SPOKEN_RESPONSE_CHARS = 280;
+  const MAX_RESULT_CARDS = 6;
+  const MAX_CHOICE_BUTTONS = 8;
+  const MIN_VOICE_HEIGHT = 62;
+  const MAX_VOICE_HEIGHT = 560;
+  const VOICE_CONTENT_PADDING = 24;
   const DEFAULT_VOICE_SETTINGS = Object.freeze({
     microphoneDeviceId: null,
     voiceVolume: 1,
@@ -35,7 +40,8 @@
     orbCore: document.getElementById('orb-core'),
     label: document.getElementById('voice-label'),
     heard: document.getElementById('voice-heard'),
-    reply: document.getElementById('voice-reply')
+    reply: document.getElementById('voice-reply'),
+    results: document.getElementById('voice-results')
   };
 
   let settings = { ...DEFAULT_VOICE_SETTINGS };
@@ -63,6 +69,9 @@
   let currentMicrophone = null;
   let attemptedDeviceIds = new Set();
   let captureGeneration = 0;
+  let currentChoices = [];
+  let voiceSubmitting = false;
+  let heightFrame = 0;
 
   function attemptKey(deviceId) {
     return deviceId || 'default';
@@ -191,7 +200,41 @@
 
   function setExpanded(expanded) {
     elements.window.dataset.mode = expanded ? 'expanded' : 'compact';
-    elements.window.style.setProperty('--voice-height', expanded ? '104px' : '62px');
+    scheduleContentHeight();
+  }
+
+  function hasVoiceContent() {
+    const hasResults = Boolean(elements.results && elements.results.childElementCount > 0);
+    const hasTranscript = Boolean(settings.showVoiceTranscript && (elements.heard.textContent || elements.reply.textContent));
+    return hasResults || hasTranscript;
+  }
+
+  function measureContentHeight() {
+    if (!elements.window) return MIN_VOICE_HEIGHT;
+    const previous = elements.window.style.getPropertyValue('--voice-height');
+    elements.window.style.setProperty('--voice-height', 'auto');
+    const measured = Math.ceil(elements.window.getBoundingClientRect().height);
+    elements.window.style.setProperty('--voice-height', previous || `${MIN_VOICE_HEIGHT}px`);
+    return measured;
+  }
+
+  function applyContentHeight() {
+    const clamped = Math.max(MIN_VOICE_HEIGHT, Math.min(MAX_VOICE_HEIGHT, measureContentHeight()));
+    elements.window.style.setProperty('--voice-height', `${clamped}px`);
+    window.openx?.setVoiceHeight?.(clamped + VOICE_CONTENT_PADDING)?.catch?.(() => {});
+  }
+
+  function scheduleContentHeight() {
+    if (heightFrame) return;
+    heightFrame = requestAnimationFrame(() => {
+      heightFrame = 0;
+      applyContentHeight();
+    });
+  }
+
+  function clearResults() {
+    currentChoices = [];
+    if (elements.results) elements.results.textContent = '';
   }
 
   function setLevel(level) {
@@ -202,7 +245,143 @@
   function setTranscript(heard, reply) {
     elements.heard.textContent = heard || '';
     elements.reply.textContent = reply || '';
-    setExpanded(Boolean(settings.showVoiceTranscript && (heard || reply)));
+    setExpanded(hasVoiceContent());
+  }
+
+  function formatDueDate(value) {
+    const dueAt = new Date(value);
+    if (Number.isNaN(dueAt.getTime())) return 'Time unavailable';
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const sameDay = (left, right) => left.getFullYear() === right.getFullYear()
+      && left.getMonth() === right.getMonth()
+      && left.getDate() === right.getDate();
+    const day = sameDay(dueAt, today)
+      ? 'Today'
+      : (sameDay(dueAt, tomorrow)
+        ? 'Tomorrow'
+        : dueAt.toLocaleDateString([], { month: 'short', day: 'numeric' }));
+    return `${day}, ${dueAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  }
+
+  function normalizeResultEntries(result) {
+    const intent = String(result?.intent || '');
+    if (intent === 'browser.search') {
+      const sources = Array.isArray(result?.data?.searchSummary?.sources)
+        ? result.data.searchSummary.sources
+        : (Array.isArray(result?.data?.results) ? result.data.results : []);
+      return sources.slice(0, 4).map((entry, index) => ({
+        index: index + 1,
+        name: String(entry?.title || entry?.sourceDomain || `Source ${index + 1}`),
+        type: 'web',
+        path: String(entry?.url || ''),
+        location: String(entry?.sourceDomain || ''),
+        snippet: String(entry?.snippet || '')
+      }));
+    }
+    if (['reminder.list', 'alarm.list', 'timer.list'].includes(intent)) {
+      const entries = Array.isArray(result?.data?.entries) ? result.data.entries : [];
+      return entries.slice(0, MAX_RESULT_CARDS).map((entry, index) => ({
+        index: index + 1,
+        name: String(entry?.message || entry?.title || `Schedule ${index + 1}`),
+        type: 'schedule',
+        path: String(entry?.dueAt || ''),
+        location: String(entry?.kind || (intent === 'alarm.list' ? 'Alarm' : intent === 'timer.list' ? 'Timer' : 'Reminder')),
+        snippet: [
+          entry?.dueAt ? formatDueDate(entry.dueAt) : '',
+          entry?.recurrence ? `repeats ${String(entry.recurrence).replace(/[:-]/g, ' ')}` : '',
+          entry?.status ? String(entry.status) : ''
+        ].filter(Boolean).join(' - ')
+      }));
+    }
+    if (!['file.search', 'folder.search', 'file.smartFind', 'file.list'].includes(intent)) {
+      return [];
+    }
+    const entries = Array.isArray(result?.data?.entries) ? result.data.entries : [];
+    return entries.slice(0, MAX_RESULT_CARDS).map((entry, index) => ({
+      index: index + 1,
+      name: String(entry?.name || entry?.path?.split(/[\\/]/).filter(Boolean).pop() || `Result ${index + 1}`),
+      type: String(entry?.type || (intent === 'folder.search' ? 'folder' : 'file')),
+      path: String(entry?.path || ''),
+      location: String(entry?.location || ''),
+      snippet: ''
+    }));
+  }
+
+  function buildResultList(entries) {
+    const list = document.createElement('ol');
+    list.className = 'voice-result-list';
+    for (const entry of entries) {
+      const item = document.createElement('li');
+      item.className = `voice-result voice-result-${entry.type}`;
+      const number = document.createElement('span');
+      number.className = 'voice-result-index';
+      number.textContent = String(entry.index);
+      const body = document.createElement('span');
+      body.className = 'voice-result-body';
+      const name = document.createElement('strong');
+      name.textContent = entry.name;
+      body.appendChild(name);
+      const detail = entry.snippet || [entry.location, entry.path].filter(Boolean).join(' - ');
+      if (detail) {
+        const small = document.createElement('small');
+        small.textContent = detail;
+        body.appendChild(small);
+      }
+      item.append(number, body);
+      list.appendChild(item);
+    }
+    return list;
+  }
+
+  function buildChoiceList(choices) {
+    const list = document.createElement('ol');
+    list.className = 'voice-choices';
+    for (const choice of choices) {
+      const choiceIndex = Number(choice.index) || list.children.length + 1;
+      const choicePath = String(choice.path || '');
+      const fallbackTitle = String(choice.title || `Option ${choiceIndex}`);
+      const choiceName = choicePath.split(/[\\/]/).filter(Boolean).pop()
+        || fallbackTitle.replace(/\s+-\s+[A-Za-z]:\\.*$/, '')
+        || `Option ${choiceIndex}`;
+      const item = document.createElement('li');
+      const button = document.createElement('button');
+      button.className = 'voice-choice';
+      button.type = 'button';
+      button.dataset.choiceIndex = String(choiceIndex);
+      const number = document.createElement('span');
+      number.className = 'voice-choice-number';
+      number.textContent = String(choiceIndex);
+      const copy = document.createElement('span');
+      copy.className = 'voice-choice-copy';
+      const name = document.createElement('strong');
+      name.textContent = choiceName;
+      copy.appendChild(name);
+      if (choicePath) {
+        const location = document.createElement('small');
+        location.textContent = choicePath;
+        copy.appendChild(location);
+      }
+      button.append(number, copy);
+      button.addEventListener('click', () => {
+        selectVoiceChoice(choiceIndex).catch(error => failVoice(error));
+      });
+      item.appendChild(button);
+      list.appendChild(item);
+    }
+    return list;
+  }
+
+  function renderVoiceReply(result) {
+    if (!elements.results) return;
+    elements.results.textContent = '';
+    currentChoices = Array.isArray(result?.data?.choices) ? result.data.choices.slice(0, MAX_CHOICE_BUTTONS) : [];
+    const entries = result?.needsClarification ? [] : normalizeResultEntries(result);
+    if (entries.length > 0) elements.results.appendChild(buildResultList(entries));
+    if (currentChoices.length > 0) elements.results.appendChild(buildChoiceList(currentChoices));
+    setExpanded(hasVoiceContent());
+    scheduleContentHeight();
   }
 
   function microphoneScore(device) {
@@ -564,12 +743,39 @@
 
     const reply = await sendVoiceCommand(text);
     if (currentTurn !== turnId) return;
+    await presentReply(text, reply, currentTurn);
+  }
+
+  async function presentReply(text, reply, currentTurn) {
     const responseText = String(reply?.response || reply?.message || reply?.text || '').trim();
     if (responseText) setTranscript(`You said: ${text}`, responseText);
+    renderVoiceReply(reply);
     if (settings.speakRepliesEnabled && responseText) {
       await speak(responseText, currentTurn);
     }
     listenAfterTurn(currentTurn, responseText ? RELISTEN_DELAY_MS : 700, responseText ? 1200 : 700);
+  }
+
+  async function selectVoiceChoice(index) {
+    if (voiceSubmitting || state === 'processing') return;
+    voiceSubmitting = true;
+    const currentTurn = ++turnId;
+    clearRelistenTimer();
+    try {
+      if (listening) {
+        await stopListening().catch(() => {});
+      }
+      setState('processing', 'Thinking');
+      const text = String(index);
+      setTranscript(`You said: ${text}`, '');
+      const reply = await sendVoiceCommand(text);
+      if (currentTurn !== turnId) return;
+      await presentReply(text, reply, currentTurn);
+    } catch (error) {
+      failVoice(error);
+    } finally {
+      voiceSubmitting = false;
+    }
   }
 
   async function sendVoiceCommand(text) {
@@ -632,6 +838,7 @@
     clearRelistenTimer();
     const captureToken = captureGeneration + 1;
     captureGeneration = captureToken;
+    const freshActivation = Boolean(activation.reason || activation.activatedAt || activation.greetingText || activation.greeting);
     if (activation.resetAttempts !== false) attemptedDeviceIds = new Set();
     if (activation.deviceId !== undefined) settings = { ...settings, microphoneDeviceId: activation.deviceId };
     attemptedDeviceIds.add(attemptKey(settings.microphoneDeviceId));
@@ -639,6 +846,7 @@
     window.speechSynthesis?.cancel?.();
     await stopListening().catch(() => {});
     showWindow();
+    if (freshActivation) clearResults();
     setTranscript('', activation.greetingText || activation.greeting || '');
     setState('processing', activation.statusText || 'Starting microphone...');
     resetCaptureState();

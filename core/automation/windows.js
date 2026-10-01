@@ -56,10 +56,35 @@ class WindowsController {
   }
 
   minimizeWindow(windowName) {
-    if (/^(?:all\s+windows?|all|everything)$/i.test(String(windowName || '').trim())) {
+    if (this._isAllWindowTarget(windowName)) {
       return this.session.minimizeAllWindows();
     }
     return this.session.minimizeWindow(windowName);
+  }
+
+  _isAllWindowTarget(windowName) {
+    const value = String(windowName || '').trim();
+    return /^(?:all|everything|every)(?:\s+(?:windows?|apps?|applications?|programs?|folders?))?$/i.test(value) ||
+      /^(?:windows?|apps?|applications?|programs?|folders?)\s+(?:all|everything)$/i.test(value);
+  }
+
+  restoreWindow(windowName) {
+    if (this._isAllWindowTarget(windowName)) {
+      return this.session.restoreAllWindows();
+    }
+    return this.session.restoreWindow(windowName);
+  }
+
+  switchWindows() {
+    return this.session.switchWindows();
+  }
+
+  snapWindow(direction) {
+    return this.session.snapWindow(direction);
+  }
+
+  showDesktop() {
+    return this.session.showDesktop();
   }
 
   maximizeWindow(windowName) {

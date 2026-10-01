@@ -92,6 +92,91 @@ describe('Windows Session Controller', function() {
     assert.match(script, /MinimizeAll/);
   });
 
+  it('should show the desktop by minimizing all windows', function() {
+    const controller = new WindowsSessionController({});
+    let script = '';
+    controller._runScript = value => {
+      script = value;
+    };
+
+    const result = controller.showDesktop();
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.action, 'showDesktop');
+    assert.equal(result.data.matchedWindow, 'desktop');
+    assert.match(script, /MinimizeAll/);
+  });
+
+  it('should restore all windows without requiring a title match', function() {
+    const controller = new WindowsSessionController({});
+    let script = '';
+    controller._runScript = value => {
+      script = value;
+    };
+
+    const result = controller.restoreAllWindows();
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.action, 'restoreAll');
+    assert.match(script, /UndoMinimizeAll/);
+  });
+
+  it('should switch windows by sending Alt+Tab', function() {
+    const controller = new WindowsSessionController({});
+    let script = '';
+    controller._runScript = value => {
+      script = value;
+    };
+
+    const result = controller.switchWindows();
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.action, 'switchWindows');
+    assert.match(script, /SendKeys\('%\{TAB\}'\)/);
+  });
+
+  it('should snap the active window left or right with the Win key', function() {
+    const controller = new WindowsSessionController({});
+    let script = '';
+    controller._runScript = value => {
+      script = value;
+    };
+
+    const left = controller.snapWindow('left');
+    assert.equal(left.success, true);
+    assert.equal(left.data.action, 'snapLeft');
+    assert.match(script, /keybd_event\(0x5B, 0, 0/);
+    assert.match(script, /keybd_event\(0x25, 0, 0/);
+
+    const right = controller.snapWindow('right');
+    assert.equal(right.success, true);
+    assert.equal(right.data.action, 'snapRight');
+    assert.match(script, /keybd_event\(0x27, 0, 0/);
+  });
+
+  it('should restore a named window by unminimizing and focusing it', function() {
+    const controller = new WindowsSessionController({});
+    let script = '';
+    controller.listWindows = () => ([{
+      handle: 100,
+      title: 'Untitled - Notepad',
+      processName: 'notepad',
+      id: 10
+    }]);
+    controller._getForegroundWindowHandle = () => 0;
+    controller._runScript = value => {
+      script = value;
+    };
+
+    const result = controller.restoreWindow('notepad');
+
+    assert.equal(result.success, true);
+    assert.equal(result.data.action, 'restore');
+    assert.match(script, /\$hwnd = \[IntPtr\]100/);
+    assert.match(script, /ShowWindowAsync\(\$hwnd, 9\)/);
+    assert.match(script, /SetForegroundWindow/);
+  });
+
   it('should run PowerShell through hidden non-interactive execution options', function() {
     const calls = [];
     const controller = new WindowsSessionController({

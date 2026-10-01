@@ -17,7 +17,7 @@ const {
   Timer,
   UTILS_VERSION,
   ValidationHelpers
-} = require('../../core/assistant/utils');
+} = require('../../core/assistant/shared');
 
 describe('Assistant Utility Layer', function() {
   it('exports a versioned utility surface', function() {

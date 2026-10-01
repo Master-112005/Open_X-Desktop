@@ -7,6 +7,36 @@ const {
   readSecureJsonFile: readJsonFile,
   writeSecureJsonAtomic: writeJsonAtomic
 } = require('../../core/assistant/Data');
+const {
+  SAVE_FIELDS: PROFILE_FIELD_KEYS
+} = require('../../core/assistant/knowledge/ProfileFacts');
+
+const PROFILE_MAX_LENGTHS = {
+  fullName: 120,
+  firstName: 80,
+  middleName: 80,
+  lastName: 80,
+  dateOfBirth: 40,
+  gender: 40,
+  nationality: 60,
+  email: 160,
+  phone: 40,
+  username: 80,
+  website: 200,
+  linkedin: 200,
+  github: 200,
+  twitter: 200,
+  company: 120,
+  jobTitle: 80,
+  department: 80,
+  role: 80,
+  addressLine1: 180,
+  addressLine2: 180,
+  city: 80,
+  state: 80,
+  postalCode: 40,
+  country: 80
+};
 
 const DEFAULT_CLOUD_RELAY_URL = 'wss://openx-server.onrender.com/ws';
 const LEGACY_DEFAULT_CLOUD_RELAY_URLS = new Set([
@@ -264,6 +294,17 @@ function normalizePhoneNumber(value) {
   return source.startsWith('+') ? `+${digits}` : digits;
 }
 
+function buildUserProfile(source = {}) {
+  return Object.fromEntries(PROFILE_FIELD_KEYS.map(key => {
+    if (key === 'phone') {
+      return [key, normalizePhoneNumber(source.phone || '')];
+    }
+    const raw = String(source[key] || '');
+    const max = PROFILE_MAX_LENGTHS[key] || 120;
+    return [key, raw.replace(/\s+/g, ' ').trim().slice(0, max)];
+  }));
+}
+
 function createStableCloudId(prefix, seed) {
   const hash = crypto
     .createHash('sha256')
@@ -312,18 +353,7 @@ class SettingsService {
         title: String(this.baseConfig?.assistant?.title || 'Desktop Assistant').trim(),
         honorific: String(this.baseConfig?.assistant?.honorific || 'sir').trim().toLowerCase()
       },
-      userProfile: {
-        fullName: String(this.baseConfig?.assistant?.userProfile?.fullName || '').trim(),
-        email: String(this.baseConfig?.assistant?.userProfile?.email || '').trim(),
-        phone: normalizePhoneNumber(this.baseConfig?.assistant?.userProfile?.phone || ''),
-        addressLine1: String(this.baseConfig?.assistant?.userProfile?.addressLine1 || '').trim(),
-        city: String(this.baseConfig?.assistant?.userProfile?.city || '').trim(),
-        state: String(this.baseConfig?.assistant?.userProfile?.state || '').trim(),
-        postalCode: String(this.baseConfig?.assistant?.userProfile?.postalCode || '').trim(),
-        country: String(this.baseConfig?.assistant?.userProfile?.country || '').trim(),
-        company: String(this.baseConfig?.assistant?.userProfile?.company || '').trim(),
-        role: String(this.baseConfig?.assistant?.userProfile?.role || '').trim()
-      },
+      userProfile: buildUserProfile(this.baseConfig?.assistant?.userProfile),
 
       system: {
         volumeStep: clampNumber(this.baseConfig?.system?.volumeStep, 1, 20, 5),
@@ -478,18 +508,7 @@ class SettingsService {
         title: String(source.assistant?.title || this.defaults.assistant.title).trim() || this.defaults.assistant.title,
         honorific
       },
-      userProfile: {
-        fullName: String(source.userProfile?.fullName || '').trim(),
-        email: String(source.userProfile?.email || '').trim(),
-        phone: normalizePhoneNumber(source.userProfile?.phone || ''),
-        addressLine1: String(source.userProfile?.addressLine1 || '').trim(),
-        city: String(source.userProfile?.city || '').trim(),
-        state: String(source.userProfile?.state || '').trim(),
-        postalCode: String(source.userProfile?.postalCode || '').trim(),
-        country: String(source.userProfile?.country || '').trim(),
-        company: String(source.userProfile?.company || '').trim(),
-        role: String(source.userProfile?.role || '').trim()
-      },
+      userProfile: buildUserProfile(source.userProfile),
 
       system: {
         volumeStep: clampNumber(source.system?.volumeStep, 1, 20, this.defaults.system.volumeStep),

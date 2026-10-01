@@ -18,7 +18,7 @@ function blueprint(input = {}) {
 
 describe('Assistant Validation Layer', function() {
   it('validates a normal executable command with default chat source', async function() {
-    const { createDefaultValidationManager, ValidationResult } = require('../../core/assistant/validation');
+    const { createDefaultValidationManager, ValidationResult } = require('../../core/assistant/respond');
     const result = await createDefaultValidationManager().validate(blueprint(), {
       status: 'EXECUTE',
       confirmationRequired: []
@@ -31,7 +31,7 @@ describe('Assistant Validation Layer', function() {
   });
 
   it('rejects missing required entities and source permission denial', async function() {
-    const { createDefaultValidationManager } = require('../../core/assistant/validation');
+    const { createDefaultValidationManager } = require('../../core/assistant/respond');
     const manager = createDefaultValidationManager({
       configuration: { permissions: { phone: false } }
     });
@@ -47,7 +47,7 @@ describe('Assistant Validation Layer', function() {
   });
 
   it('checks duplicate task ids, bad ordering, and dependency cycles', async function() {
-    const { createDefaultValidationManager } = require('../../core/assistant/validation');
+    const { createDefaultValidationManager } = require('../../core/assistant/respond');
     const result = await createDefaultValidationManager().validate(blueprint({
       tasks: [
         { id: 'a', label: 'a', action: 'OPEN_APPLICATION', metadata: { entities: { appName: 'chrome' } } },
@@ -69,7 +69,7 @@ describe('Assistant Validation Layer', function() {
       ValidationConfiguration,
       ValidationRegistry,
       VALIDATION_VERSION
-    } = require('../../core/assistant/validation');
+    } = require('../../core/assistant/respond');
     const registry = new ValidationRegistry();
     const validator = new BaseValidator({ id: 'validation.custom' });
     const configuration = new ValidationConfiguration({

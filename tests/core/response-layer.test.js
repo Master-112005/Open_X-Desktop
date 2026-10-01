@@ -15,7 +15,7 @@ const {
   ResponseStyleManager,
   ResponseQualityEvaluator,
   ResponseGenerator
-} = require('../../core/assistant/response');
+} = require('../../core/assistant/respond');
 
 function verificationResult(input = {}) {
   return {

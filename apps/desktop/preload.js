@@ -32,6 +32,9 @@ const openxApi = {
   updateVoiceSettings: (settings = {}) =>
     ipcRenderer.invoke('voice:updateSettings', settings),
 
+  setVoiceHeight: (height) =>
+    ipcRenderer.invoke('voice:setHeight', { height }),
+
   transcribeVoice: (samples) =>
     ipcRenderer.invoke('voice:transcribe', samples),
 

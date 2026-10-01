@@ -2,8 +2,8 @@
 
 const PipelineStage = require('../pipeline/PipelineStage');
 const StageResult = require('../pipeline/StageResult');
-const { createDefaultDecisionManager } = require('../decision');
-const { createDefaultValidationManager } = require('../validation');
+const { createDefaultDecisionManager } = require('../reasoning');
+const { createDefaultValidationManager } = require('../respond');
 const { AutomationDispatcher } = require('./AutomationRuntime');
 
 class DecisionValidationAutomationManager {

@@ -1,6 +1,6 @@
 'use strict';
 
-const { deepFreeze, serializeError } = require('../utils');
+const { deepFreeze, serializeError } = require('../shared/UtilsCore');
 
 class StageResult {
   constructor({ stageId = '', success = true, skipped = false, cancelled = false, output = null, diagnostics = [], durationMs = 0, error = null, metadata = {} } = {}) {

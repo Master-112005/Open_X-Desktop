@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const Logger = require('../assistant/Data').Logger;
+const TextRepair = require('./common/text-repair');
 const { requireSafeUserPath } = require('./common/path-utils');
 
 const DEFAULT_TEXT_TARGET = 'active window';
@@ -44,6 +45,14 @@ class TextController {
     this.files = dependencies.files;
     this.browser = dependencies.browser;
     this.apps = dependencies.apps;
+    this.repairer = dependencies.repairer || new TextRepair({ llm: dependencies.llm });
+  }
+
+  async _repairWrittenContent(content) {
+    if (!this.repairer || typeof this.repairer.repair !== 'function') {
+      return { text: content, changed: false, method: 'none', confidence: 1 };
+    }
+    return await this.repairer.repair(content);
   }
 
   async write(text, target = {}) {
@@ -58,12 +67,15 @@ class TextController {
       return await this.writeToFile(content, target);
     }
 
+    const repaired = await this._repairWrittenContent(content);
+    const writeContent = repaired.text || content;
+
     const prepared = await this._prepareTargetWindow(target);
     if (!prepared.success) {
       return prepared;
     }
 
-    const result = this.windows.pasteText(prepared.windowName, content, prepared.options);
+    const result = this.windows.pasteText(prepared.windowName, writeContent, prepared.options);
     if (!result?.success) {
       return result;
     }
@@ -73,10 +85,11 @@ class TextController {
       data: {
         action: 'text.write',
         targetWindow: prepared.displayTarget,
-        textLength: content.length,
-        preview: previewText(content),
+        textLength: writeContent.length,
+        preview: previewText(writeContent),
         launchMethod: 'clipboard-paste',
         verified: true,
+        ...(repaired.changed ? { repairMethod: repaired.method } : {}),
         ...result.data
       }
     };
@@ -173,6 +186,42 @@ class TextController {
         preview: previewText(content),
         launchMethod: 'file-append',
         verified: true
+      }
+    };
+  }
+
+  async createDocument(target = {}) {
+    const documentType = normalizeText(target.documentType).toLowerCase() === 'note' ? 'note' : 'document';
+    const requestedEditor = normalizeText(target.appName || target.editor);
+    const editor = requestedEditor || (documentType === 'note' ? 'notepad' : 'notepad');
+
+    let openResult = { success: true };
+    if (this.apps && typeof this.apps.open === 'function') {
+      openResult = await this.apps.open(editor, { skipAlreadyOpenCheck: false });
+      if (!openResult?.success && !/already|visible|focus/i.test(String(openResult?.error || ''))) {
+        return openResult;
+      }
+    }
+
+    const content = normalizeText(target.text ?? target.content);
+    let writeData = null;
+    if (content) {
+      const writeResult = await this.write(content, { appName: editor, windowName: target.windowName });
+      if (!writeResult.success) {
+        return writeResult;
+      }
+      writeData = writeResult.data;
+    }
+
+    return {
+      success: true,
+      data: {
+        action: 'document.create',
+        editor,
+        documentType,
+        title: normalizeText(target.title) || null,
+        ready: true,
+        ...(writeData ? { textLength: writeData.textLength, preview: writeData.preview } : {})
       }
     };
   }

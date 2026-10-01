@@ -14,7 +14,7 @@ const {
   SourceNormalizer,
   SourceConfidenceCalculator,
   createDefaultInputSourceManager
-} = require('../../core/assistant/acquisition');
+} = require('../../core/assistant/input');
 
 describe('Assistant Acquisition Layer', function() {
   it('exports a versioned acquisition surface', function() {

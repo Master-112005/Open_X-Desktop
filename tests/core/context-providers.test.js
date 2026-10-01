@@ -15,7 +15,7 @@ const {
   TimeContext,
   UserContext,
   WindowContext
-} = require('../../core/assistant/context');
+} = require('../../core/assistant/knowledge');
 
 function contextFixture() {
   return {

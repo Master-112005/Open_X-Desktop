@@ -10,13 +10,13 @@ function readVarint(buffer, pos) {
   let result = 0n;
   let shift = 0n;
   let cursor = pos;
-  while (true) {
-    const byte = buffer[cursor];
+  let byte;
+  do {
+    byte = buffer[cursor];
     cursor += 1;
     result |= BigInt(byte & 0x7f) << shift;
-    if ((byte & 0x80) === 0) break;
     shift += 7n;
-  }
+  } while ((byte & 0x80) !== 0);
   return [result, cursor];
 }
 

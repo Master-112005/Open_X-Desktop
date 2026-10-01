@@ -4,7 +4,7 @@ describe('Input Parser', function() {
   let InputParser;
 
   before(function() {
-    InputParser = require('../../core/assistant/linguistic/InputParser');
+    InputParser = require('../../core/assistant/input/InputParser');
   });
 
   it('should parse a simple command', function() {
@@ -149,7 +149,7 @@ describe('Input Parser', function() {
   });
 
   it('should classify reminder and alarm frames as schedule work', function() {
-    const { CommandFrameParser } = require('../../core/assistant/linguistic/InputParser');
+    const { CommandFrameParser } = require('../../core/assistant/input/InputParser');
     const frame = new CommandFrameParser().parse('remind me every saturday and monday to eat lunch at 8 pm');
 
     assert.equal(frame.domain, 'schedule');
@@ -158,7 +158,7 @@ describe('Input Parser', function() {
   });
 
   it('should classify phone transfer command frames with natural aliases', function() {
-    const { CommandFrameParser } = require('../../core/assistant/linguistic/InputParser');
+    const { CommandFrameParser } = require('../../core/assistant/input/InputParser');
     const frame = new CommandFrameParser().parse('copy latest screenshot onto my mobile');
 
     assert.equal(frame.action, 'send');
@@ -172,7 +172,7 @@ describe('Input Parser', function() {
   });
 
   it('should let explicit app-domain wording override file words', function() {
-    const { CommandFrameParser } = require('../../core/assistant/linguistic/InputParser');
+    const { CommandFrameParser } = require('../../core/assistant/input/InputParser');
     const frame = new CommandFrameParser().parse('open resume app not file');
 
     assert.equal(frame.action, 'open');

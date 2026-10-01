@@ -1,7 +1,7 @@
 const assert = require('assert');
 
 function structured(rawInput, entities = {}) {
-  const { StructuredEntities } = require('../../core/assistant/entities/index.js');
+  const { StructuredEntities } = require('../../core/assistant/understanding/index.js');
   return new StructuredEntities({
     ...entities,
     metadata: { rawInput }
@@ -10,12 +10,12 @@ function structured(rawInput, entities = {}) {
 
 describe('Assistant Memory and Context Layer', function() {
   it('exports a versioned memory layer', function() {
-    const { MEMORY_LAYER_VERSION } = require('../../core/assistant/memory/index.js');
+    const { MEMORY_LAYER_VERSION } = require('../../core/assistant/knowledge/index.js');
     assert.match(MEMORY_LAYER_VERSION, /^\d+\.\d+\.\d+$/);
   });
 
   it('produces immutable ResolvedContext without intent, planning, or automation', async function() {
-    const { createDefaultMemoryManager, ResolvedContext } = require('../../core/assistant/memory/index.js');
+    const { createDefaultMemoryManager, ResolvedContext } = require('../../core/assistant/knowledge/index.js');
     const manager = createDefaultMemoryManager({
       configuration: {
         contextProviders: {
@@ -37,7 +37,7 @@ describe('Assistant Memory and Context Layer', function() {
   });
 
   it('resolves conversation pronouns repeatably', async function() {
-    const { createDefaultMemoryManager } = require('../../core/assistant/memory/index.js');
+    const { createDefaultMemoryManager } = require('../../core/assistant/knowledge/index.js');
     const manager = createDefaultMemoryManager({
       configuration: {
         contextProviders: {
@@ -57,7 +57,7 @@ describe('Assistant Memory and Context Layer', function() {
   });
 
   it('uses action context when resolving pronoun targets', async function() {
-    const { createDefaultMemoryManager } = require('../../core/assistant/memory/index.js');
+    const { createDefaultMemoryManager } = require('../../core/assistant/knowledge/index.js');
     const manager = createDefaultMemoryManager({
       configuration: {
         contextProviders: {
@@ -82,7 +82,7 @@ describe('Assistant Memory and Context Layer', function() {
   });
 
   it('recognizes broader follow-up references without treating durations as references', async function() {
-    const { createDefaultMemoryManager } = require('../../core/assistant/memory/index.js');
+    const { createDefaultMemoryManager } = require('../../core/assistant/knowledge/index.js');
     const manager = createDefaultMemoryManager({
       configuration: {
         contextProviders: {
@@ -102,7 +102,7 @@ describe('Assistant Memory and Context Layer', function() {
   });
 
   it('expires working memory without deleting conversation memory', async function() {
-    const { createDefaultMemoryManager } = require('../../core/assistant/memory/index.js');
+    const { createDefaultMemoryManager } = require('../../core/assistant/knowledge/index.js');
     const manager = createDefaultMemoryManager({
       configuration: {
         workingMemoryTtlMs: 1,
@@ -123,7 +123,7 @@ describe('Assistant Memory and Context Layer', function() {
   });
 
   it('captures current app, browser, and selection from read-only snapshots', async function() {
-    const { createDefaultMemoryManager } = require('../../core/assistant/memory/index.js');
+    const { createDefaultMemoryManager } = require('../../core/assistant/knowledge/index.js');
     const manager = createDefaultMemoryManager({
       configuration: {
         contextProviders: {
@@ -155,7 +155,7 @@ describe('Assistant Memory and Context Layer', function() {
   });
 
   it('keeps conversation, dialogue, and entity snapshots bounded and newest-first for recall', async function() {
-    const { createDefaultMemoryManager } = require('../../core/assistant/memory/index.js');
+    const { createDefaultMemoryManager } = require('../../core/assistant/knowledge/index.js');
     const manager = createDefaultMemoryManager({
       configuration: {
         memoryLimit: 3,
@@ -196,8 +196,8 @@ describe('Assistant Memory and Context Layer', function() {
     const {
       BaseMemoryProvider,
       createDefaultMemoryManager
-    } = require('../../core/assistant/memory/index.js');
-    const { sleep } = require('../../core/assistant/utils');
+    } = require('../../core/assistant/knowledge/index.js');
+    const { sleep } = require('../../core/assistant/shared');
 
     class SlowMemoryProvider extends BaseMemoryProvider {
       async apply(context) {
@@ -224,7 +224,7 @@ describe('Assistant Memory and Context Layer', function() {
       BaseMemoryProvider,
       ConfigurationError,
       createDefaultMemoryManager
-    } = require('../../core/assistant/memory/index.js');
+    } = require('../../core/assistant/knowledge/index.js');
 
     class TestProvider extends BaseMemoryProvider {}
     const manager = createDefaultMemoryManager({ defaultProviders: false });
@@ -239,7 +239,7 @@ describe('Assistant Memory and Context Layer', function() {
   });
 
   it('adds memory confidence and topic into the assistant pipeline context', async function() {
-    const { MemoryContextStage } = require('../../core/assistant/memory/index.js');
+    const { MemoryContextStage } = require('../../core/assistant/knowledge/index.js');
     const { PipelineContext } = require('../../core/assistant/pipeline');
 
     const stage = new MemoryContextStage({

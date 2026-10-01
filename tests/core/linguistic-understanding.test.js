@@ -2,9 +2,9 @@ const assert = require('assert');
 
 describe('Assistant Linguistic Understanding Layer', function() {
   it('builds an immutable LinguisticGraph from NormalizedInput', async function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
-    const { createDefaultLinguisticManager, LinguisticGraph } = require('../../core/assistant/linguistic');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/input');
+    const { createDefaultLinguisticManager, LinguisticGraph } = require('../../core/assistant/input');
 
     const raw = createDefaultInputSourceManager().acquire('John opened Chrome because he needed it.', 'chat');
     const normalized = await createDefaultNormalizationManager().normalize(raw);
@@ -24,9 +24,9 @@ describe('Assistant Linguistic Understanding Layer', function() {
   });
 
   it('resolves pronouns only within the same sentence', async function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
-    const { createDefaultLinguisticManager } = require('../../core/assistant/linguistic');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/input');
+    const { createDefaultLinguisticManager } = require('../../core/assistant/input');
 
     const raw = createDefaultInputSourceManager().acquire('John opened Chrome because he needed it. Then close it.', 'chat');
     const normalized = await createDefaultNormalizationManager().normalize(raw);
@@ -39,7 +39,7 @@ describe('Assistant Linguistic Understanding Layer', function() {
   });
 
   it('keeps analyzer ordering deterministic and configurable', async function() {
-    const { createDefaultLinguisticManager } = require('../../core/assistant/linguistic');
+    const { createDefaultLinguisticManager } = require('../../core/assistant/input');
     const manager = createDefaultLinguisticManager({
       configuration: {
         analyzers: {
@@ -57,9 +57,9 @@ describe('Assistant Linguistic Understanding Layer', function() {
   });
 
   it('keeps coordinated media titles as one command target', async function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
-    const { createDefaultLinguisticManager } = require('../../core/assistant/linguistic');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/input');
+    const { createDefaultLinguisticManager } = require('../../core/assistant/input');
 
     const raw = createDefaultInputSourceManager().acquire('Play Stars and Stripes Forever song.', 'chat');
     const normalized = await createDefaultNormalizationManager().normalize(raw);
@@ -71,9 +71,9 @@ describe('Assistant Linguistic Understanding Layer', function() {
   });
 
   it('still splits true chained actions at action-starting connectors', async function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
-    const { createDefaultLinguisticManager } = require('../../core/assistant/linguistic');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/input');
+    const { createDefaultLinguisticManager } = require('../../core/assistant/input');
 
     const raw = createDefaultInputSourceManager().acquire('Open Chrome and search latest news.', 'chat');
     const normalized = await createDefaultNormalizationManager().normalize(raw);
@@ -84,9 +84,9 @@ describe('Assistant Linguistic Understanding Layer', function() {
   });
 
   it('marks correction-style turns without treating no no as a hard failure', async function() {
-    const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-    const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
-    const { createDefaultLinguisticManager } = require('../../core/assistant/linguistic');
+    const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+    const { createDefaultNormalizationManager } = require('../../core/assistant/input');
+    const { createDefaultLinguisticManager } = require('../../core/assistant/input');
 
     const raw = createDefaultInputSourceManager().acquire('no no set it to 40', 'chat');
     const normalized = await createDefaultNormalizationManager().normalize(raw);

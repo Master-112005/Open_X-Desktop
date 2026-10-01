@@ -1,7 +1,7 @@
 'use strict';
 
-const PipelineEventDispatcher = require('../events/PipelineEventDispatcher');
-const { ServiceContainer, PerformanceTracker, deepFreeze, IdGenerator, Stopwatch, withTimeout, serializeError, normalizeError, safeLogger } = require('../utils');
+const PipelineEventDispatcher = require('../shared/PipelineEventDispatcher');
+const { ServiceContainer, PerformanceTracker, deepFreeze, IdGenerator, Stopwatch, withTimeout, serializeError, normalizeError, safeLogger } = require('../shared/UtilsCore');
 const StageResult = require('./StageResult');
 const {
   CancellationError,
@@ -11,20 +11,20 @@ const {
   TimeoutError
 } = require('./PipelineError');
 
-const { LanguageNormalizationStage } = require('../normalization');
-const { LinguisticUnderstandingStage } = require('../linguistic');
-const { SemanticUnderstandingStage } = require('../semantic');
-const { EntityUnderstandingStage } = require('../entities/index.js');
-const { MemoryContextStage } = require('../memory/index.js');
+const { LanguageNormalizationStage } = require('../input');
+const { LinguisticUnderstandingStage } = require('../input');
+const { SemanticUnderstandingStage } = require('../understanding');
+const { EntityUnderstandingStage } = require('../understanding/index.js');
+const { MemoryContextStage } = require('../knowledge/index.js');
 const { GoalIntentReasoningStage } = require('../reasoning/index.js');
-const { TaskPlanningStage } = require('../planning/index.js');
+const { TaskPlanningStage } = require('../reasoning/index.js');
 const { AssistantExecutionStage, DecisionValidationAutomationStage } = require('../automation/index.js');
-const { VerificationResponseStage } = require('../verification/index.js');
+const { VerificationResponseStage } = require('../respond/index.js');
 
 const PIPELINE_LAYER_VERSION = '1.1.0';
 
 const PipelineEvents = Object.freeze({
-  ...require('../events/PipelineEvents'),
+  ...require('../shared/PipelineEvents'),
   PIPELINE_EVENTS_BRIDGE_VERSION: '1.1.0'
 });
 

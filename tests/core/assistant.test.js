@@ -435,7 +435,7 @@ describe('Assistant Confirmation Flow', function() {
   });
 
   it('should route full recurring reminder commands after a pending reminder clarification', async function() {
-    const EntityExtractor = require('../../core/assistant/entities/EntityExtractor');
+    const EntityExtractor = require('../../core/assistant/understanding/EntityExtractor');
     const entityExtractor = new EntityExtractor({});
     const routedInputs = [];
     const router = {

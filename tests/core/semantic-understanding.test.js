@@ -1,10 +1,10 @@
 const assert = require('assert');
 
 async function buildSemanticRepresentation(text) {
-  const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-  const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
-  const { createDefaultLinguisticManager } = require('../../core/assistant/linguistic');
-  const { createDefaultSemanticManager } = require('../../core/assistant/semantic');
+  const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+  const { createDefaultNormalizationManager } = require('../../core/assistant/input');
+  const { createDefaultLinguisticManager } = require('../../core/assistant/input');
+  const { createDefaultSemanticManager } = require('../../core/assistant/understanding');
   const raw = createDefaultInputSourceManager().acquire(text, 'chat');
   const normalized = await createDefaultNormalizationManager().normalize(raw);
   const linguisticGraph = await createDefaultLinguisticManager().analyze(normalized);
@@ -13,7 +13,7 @@ async function buildSemanticRepresentation(text) {
 
 describe('Assistant Semantic Understanding Layer', function() {
   it('builds an immutable SemanticRepresentation from a LinguisticGraph', async function() {
-    const { SemanticRepresentation } = require('../../core/assistant/semantic');
+    const { SemanticRepresentation } = require('../../core/assistant/understanding');
     const representation = await buildSemanticRepresentation('Could you launch Chrome?');
 
     assert.ok(representation instanceof SemanticRepresentation);
@@ -37,7 +37,7 @@ describe('Assistant Semantic Understanding Layer', function() {
   });
 
   it('keeps semantic analyzer ordering configurable', function() {
-    const { createDefaultSemanticManager } = require('../../core/assistant/semantic');
+    const { createDefaultSemanticManager } = require('../../core/assistant/understanding');
     const manager = createDefaultSemanticManager({
       configuration: {
         analyzers: {

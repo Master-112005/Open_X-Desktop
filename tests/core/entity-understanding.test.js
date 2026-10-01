@@ -1,11 +1,11 @@
 const assert = require('assert');
 
 async function buildStructuredEntities(text) {
-  const { createDefaultInputSourceManager } = require('../../core/assistant/acquisition');
-  const { createDefaultNormalizationManager } = require('../../core/assistant/normalization');
-  const { createDefaultLinguisticManager } = require('../../core/assistant/linguistic');
-  const { createDefaultSemanticManager } = require('../../core/assistant/semantic');
-  const { createDefaultEntityManager } = require('../../core/assistant/entities/index.js');
+  const { createDefaultInputSourceManager } = require('../../core/assistant/input');
+  const { createDefaultNormalizationManager } = require('../../core/assistant/input');
+  const { createDefaultLinguisticManager } = require('../../core/assistant/input');
+  const { createDefaultSemanticManager } = require('../../core/assistant/understanding');
+  const { createDefaultEntityManager } = require('../../core/assistant/understanding/index.js');
   const raw = createDefaultInputSourceManager().acquire(text, 'chat');
   const normalized = await createDefaultNormalizationManager().normalize(raw);
   const linguisticGraph = await createDefaultLinguisticManager().analyze(normalized);
@@ -15,7 +15,7 @@ async function buildStructuredEntities(text) {
 
 describe('Assistant Entity Understanding Layer', function() {
   it('extracts immutable structured entities without producing intent', async function() {
-    const { StructuredEntities } = require('../../core/assistant/entities/index.js');
+    const { StructuredEntities } = require('../../core/assistant/understanding/index.js');
     const entities = await buildStructuredEntities('Open Chrome tomorrow at 5 PM.');
 
     assert.ok(entities instanceof StructuredEntities);
@@ -30,7 +30,7 @@ describe('Assistant Entity Understanding Layer', function() {
   });
 
   it('keeps extractor order deterministic and configurable', function() {
-    const { createDefaultEntityManager } = require('../../core/assistant/entities/index.js');
+    const { createDefaultEntityManager } = require('../../core/assistant/understanding/index.js');
     const manager = createDefaultEntityManager({
       configuration: {
         extractors: {
@@ -68,7 +68,7 @@ describe('Assistant Entity Understanding Layer', function() {
   });
 
   it('supports custom entity types and processors without engine changes', async function() {
-    const { createDefaultEntityManager, BaseEntityExtractor } = require('../../core/assistant/entities/index.js');
+    const { createDefaultEntityManager, BaseEntityExtractor } = require('../../core/assistant/understanding/index.js');
 
     class ProjectExtractor extends BaseEntityExtractor {
       extract(context) {
@@ -145,7 +145,7 @@ describe('Assistant Entity Understanding Layer', function() {
   });
 
   it('extracts reply contacts through the legacy entity extractor', function() {
-    const { EntityExtractor } = require('../../core/assistant/entities/index.js');
+    const { EntityExtractor } = require('../../core/assistant/understanding/index.js');
     const extractor = new EntityExtractor({});
     const entities = extractor.extract({
       entities: [

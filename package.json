@@ -30,7 +30,6 @@
     "test": "mocha \"tests/**/*.test.js\"",
     "test:core": "mocha \"tests/core/**/*.test.js\"",
     "test:automation": "mocha \"tests/automation/**/*.test.js\"",
-    "test:context": "mocha \"tests/context-awareness/**/*.test.js\" \"tests/core/human-context.test.js\"",
     "test:learning": "mocha \"tests/core/active-learning-v2.test.js\" \"tests/core/learning.test.js\" \"tests/core/learning-repair.test.js\"",
     "test:ui": "mocha \"tests/ui/**/*.test.js\"",
     "validate": "npm run lint && npm test",
@@ -38,7 +37,6 @@
     "package": "electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {
-    "active-win": "8.2.1",
     "archiver": "^8.0.0",
     "fuse.js": "7.4.1",
     "node-llama-cpp": "^3.20.0",

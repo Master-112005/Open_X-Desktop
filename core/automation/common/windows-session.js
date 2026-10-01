@@ -374,6 +374,107 @@ $shell.MinimizeAll()
     }
   }
 
+  showDesktop() {
+    const script = `
+$ErrorActionPreference = 'Stop'
+$shell = New-Object -ComObject Shell.Application
+$shell.MinimizeAll()
+`;
+
+    try {
+      this._runScript(script, 6000);
+      return {
+        success: true,
+        data: {
+          action: 'showDesktop',
+          matchedWindow: 'desktop'
+        }
+      };
+    } catch (err) {
+      return { success: false, error: 'Unable to show the desktop' };
+    }
+  }
+
+  restoreWindow(windowName, options = {}) {
+    return this._applyWindowAction('restore', windowName, options);
+  }
+
+  restoreAllWindows() {
+    const script = `
+$ErrorActionPreference = 'Stop'
+$shell = New-Object -ComObject Shell.Application
+$shell.UndoMinimizeAll()
+`;
+
+    try {
+      this._runScript(script, 6000);
+      return {
+        success: true,
+        data: {
+          action: 'restoreAll',
+          matchedWindow: 'all windows'
+        }
+      };
+    } catch (err) {
+      return { success: false, error: 'Unable to restore the windows' };
+    }
+  }
+
+  switchWindows() {
+    const script = `
+$ErrorActionPreference = 'Stop'
+$wshell = New-Object -ComObject WScript.Shell
+$wshell.SendKeys('%{TAB}')
+`;
+
+    try {
+      this._runScript(script, 6000);
+      return {
+        success: true,
+        data: {
+          action: 'switchWindows',
+          matchedWindow: 'active window'
+        }
+      };
+    } catch (err) {
+      return { success: false, error: 'Unable to switch windows' };
+    }
+  }
+
+  snapWindow(direction) {
+    const normalized = String(direction || '').toLowerCase();
+    const keyCode = normalized === 'right' ? '0x27' : '0x25';
+    const action = normalized === 'right' ? 'snapRight' : 'snapLeft';
+    const script = `
+$ErrorActionPreference = 'Stop'
+$signature = @'
+using System;
+using System.Runtime.InteropServices;
+public static class SnapKeyApi {
+  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+}
+'@
+Add-Type -TypeDefinition $signature -ErrorAction SilentlyContinue | Out-Null
+[SnapKeyApi]::keybd_event(0x5B, 0, 0, [UIntPtr]::Zero)
+[SnapKeyApi]::keybd_event(${keyCode}, 0, 0, [UIntPtr]::Zero)
+[SnapKeyApi]::keybd_event(${keyCode}, 0, 2, [UIntPtr]::Zero)
+[SnapKeyApi]::keybd_event(0x5B, 0, 2, [UIntPtr]::Zero)
+`;
+
+    try {
+      this._runScript(script, 6000);
+      return {
+        success: true,
+        data: {
+          action,
+          matchedWindow: 'active window'
+        }
+      };
+    } catch (err) {
+      return { success: false, error: `Unable to snap the window ${normalized === 'right' ? 'right' : 'left'}` };
+    }
+  }
+
   maximizeWindow(windowName, options = {}) {
     return this._applyWindowAction('maximize', windowName, options);
   }
@@ -728,6 +829,15 @@ if ([Win32WindowApi]::IsIconic($hwnd)) {
 } else {
   [Win32WindowApi]::ShowWindowAsync($hwnd, 5) | Out-Null
 }
+[Win32WindowApi]::SetForegroundWindow($hwnd) | Out-Null
+$wshell = New-Object -ComObject WScript.Shell
+$null = $wshell.AppActivate(${safeTarget.id})
+`,
+      restore: `
+$ErrorActionPreference = 'Stop'
+${USER32_BOOTSTRAP}
+$hwnd = [IntPtr]${safeTarget.handle}
+[Win32WindowApi]::ShowWindowAsync($hwnd, 9) | Out-Null
 [Win32WindowApi]::SetForegroundWindow($hwnd) | Out-Null
 $wshell = New-Object -ComObject WScript.Shell
 $null = $wshell.AppActivate(${safeTarget.id})

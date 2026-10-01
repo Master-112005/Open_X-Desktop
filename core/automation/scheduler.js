@@ -34,6 +34,12 @@ const SCHEDULED_ACTION_IDS = new Set([
   'media.stop'
 ]);
 const SCHEDULED_ACTION_BROWSER_NAMES = new Set(['browser', 'chrome', 'edge', 'firefox']);
+const SCHEDULE_QUERY_STOP_WORDS = new Set([
+  'the', 'this', 'that', 'these', 'those', 'my', 'our', 'your', 'a', 'an',
+  'about', 'for', 'from', 'with', 'to', 'of', 'and', 'or', 'reminder', 'reminders',
+  'alarm', 'alarms', 'timer', 'timers', 'delete', 'remove', 'cancel', 'clear',
+  'stop', 'dismiss', 'please'
+]);
 
 const REMINDER_PRESENTATIONS = Object.freeze({
   education: { symbol: '\u{1F393}', label: 'School & college' },
@@ -1352,6 +1358,83 @@ class SchedulerController {
         operation: 'list',
         verified: true,
         verification: scheduleVerification('passed', 'schedule-list', { count: entries.length, scope })
+      }
+    };
+  }
+
+  _activeSchedules(kind = null) {
+    const normalizedKind = String(kind || '').trim().toLowerCase();
+    return this.scheduledItems.filter(item =>
+      ['scheduled', 'paused', 'due'].includes(item.status) &&
+      (!normalizedKind || String(item.kind || '').toLowerCase() === normalizedKind));
+  }
+
+  findSchedules(kind = null, query = '') {
+    const entries = this._activeSchedules(kind);
+    const raw = String(query || '').trim();
+    let matches = entries;
+    if (raw) {
+      const indexMatch = raw.match(/^(?:#|number\s+)?(\d{1,3})$/i);
+      if (indexMatch) {
+        const index = Number(indexMatch[1]);
+        matches = entries[index - 1] ? [entries[index - 1]] : [];
+      } else {
+        const tokens = raw.toLowerCase()
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .split(/\s+/)
+          .filter(token => token.length > 2 && !SCHEDULE_QUERY_STOP_WORDS.has(token));
+        const scored = tokens.length === 0
+          ? []
+          : entries.map(item => {
+            const haystack = `${item.message || ''} ${item.title || ''} ${item.category || ''} ${item.taskName || ''}`.toLowerCase();
+            return { item, score: tokens.reduce((total, token) => total + (haystack.includes(token) ? 1 : 0), 0) };
+          }).filter(candidate => candidate.score > 0);
+        const bestScore = scored.reduce((best, candidate) => Math.max(best, candidate.score), 0);
+        matches = bestScore > 0 ? scored.filter(candidate => candidate.score === bestScore).map(candidate => candidate.item) : [];
+      }
+    }
+    return {
+      success: true,
+      data: {
+        kind: kind || 'Schedule',
+        scope: 'matching',
+        query: raw,
+        count: matches.length,
+        entries: matches.map(item => ({ ...item })),
+        operation: 'find',
+        verified: true,
+        verification: scheduleVerification('passed', 'schedule-find', { count: matches.length, query: raw })
+      }
+    };
+  }
+
+  async removeMatchingSchedules(kind = null, query = '') {
+    const found = this.findSchedules(kind, query);
+    const entries = Array.isArray(found?.data?.entries) ? found.data.entries : [];
+    const normalizedKind = kind || 'Schedule';
+    if (entries.length === 1) {
+      return this.removeSchedule(entries[0].id);
+    }
+    const label = String(normalizedKind).toLowerCase();
+    const ambiguous = entries.length > 1;
+    return {
+      success: false,
+      ...(ambiguous ? { needsClarification: true } : {}),
+      error: entries.length === 0
+        ? `No active ${label} found${query ? ` matching "${query}"` : ''}.`
+        : `I found ${entries.length} matching ${label}s. Which one should I delete?`,
+      data: {
+        kind: normalizedKind,
+        operation: 'remove',
+        query: String(query || '').trim(),
+        count: entries.length,
+        clarificationType: 'schedule.remove',
+        choices: entries.slice(0, 8).map((item, index) => ({
+          index: index + 1,
+          title: item.message || item.title || item.taskName || `${normalizedKind} ${index + 1}`,
+          id: item.id,
+          entities: { scheduleId: item.id, reminderId: item.id }
+        }))
       }
     };
   }

@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { BrowserCommandLanguage } = require('../../core/assistant/semantic/NaturalLanguageRouter');
+const { BrowserCommandLanguage } = require('../../core/assistant/understanding/NaturalLanguageRouter');
 
 describe('Browser Command Language', function() {
   const language = new BrowserCommandLanguage();

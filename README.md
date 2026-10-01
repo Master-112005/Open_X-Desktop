@@ -348,7 +348,6 @@ npm run lint
 npm test
 npm run test:core
 npm run test:automation
-npm run test:context
 npm run test:learning
 npm run test:ui
 ```
@@ -651,7 +650,6 @@ OpenX/
 |   |   |-- CloudTransferIntegrity.js
 |   |   `-- index.js
 |   |-- communication/
-|   |-- context-awareness/
 |   `-- vision/
 |       |-- confidence/
 |       |-- configuration/
@@ -694,7 +692,6 @@ OpenX/
 |   `-- start-electron.js
 |-- tests/
 |   |-- automation/
-|   |-- context-awareness/
 |   |-- core/
 |   |-- media-handling/
 |   `-- ui/

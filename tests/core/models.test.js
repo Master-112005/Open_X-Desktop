@@ -7,7 +7,7 @@ describe('Assistant Model Layer', function() {
       AssistantRequest,
       RawUserInput,
       ProcessedInput
-    } = require('../../core/assistant/models');
+    } = require('../../core/assistant/shared');
 
     assert.match(MODELS_LAYER_VERSION, /^\d+\.\d+\.\d+$/);
 
@@ -48,7 +48,7 @@ describe('Assistant Model Layer', function() {
       ExecutionMetadata,
       StageMetadata,
       TimingInformation
-    } = require('../../core/assistant/models');
+    } = require('../../core/assistant/shared');
 
     const response = new AssistantResponse({
       success: true,
@@ -94,7 +94,7 @@ describe('Assistant Model Layer', function() {
   });
 
   it('bounds mutable pipeline metadata while preserving assistant keys', function() {
-    const { PipelineMetadata } = require('../../core/assistant/models');
+    const { PipelineMetadata } = require('../../core/assistant/shared');
     const metadata = new PipelineMetadata({ 'assistant.commandIntentText': 'open chrome' }, { maxEntries: 10 });
 
     for (let index = 0; index < 20; index += 1) {

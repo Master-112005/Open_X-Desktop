@@ -3,8 +3,6 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
-const { pathToFileURL } = require('url');
-const WebSocket = require('ws');
 
 const BASE_CONFIG = require('../../../config');
 const Assistant = require('../../../core/assistant/index');
@@ -28,7 +26,6 @@ const {
   assertTrustedIpcSender,
   createSecureWebPreferences,
   getIpcSenderUrl,
-  isPlainObject,
   isTrustedRendererUrl
 } = require('./security');
 const { selectHomeBluetoothDevice } = require('./home-bluetooth-selection');
@@ -57,6 +54,7 @@ const TEMP_CLEANUP_MAX_DELETE_ENTRIES = 128;
 const TEMP_CLEANUP_CONCURRENCY = 4;
 const VOICE_WINDOW_WIDTH = 460;
 const VOICE_WINDOW_HEIGHT = 144;
+const VOICE_WINDOW_MAX_HEIGHT = 600;
 const ISLAND_WINDOW_WIDTH = 460;
 const ISLAND_WINDOW_HEIGHT = 144;
 const VOICE_MODEL_PRELOAD_DELAY_MS = 90 * 1000;
@@ -1468,22 +1466,63 @@ function broadcastScheduleSync(snapshot = null) {
 
 const PROFILE_SYNC_FIELDS = [
   'fullName',
+  'firstName',
+  'middleName',
+  'lastName',
+  'dateOfBirth',
+  'gender',
+  'nationality',
   'email',
   'phone',
+  'username',
+  'website',
+  'linkedin',
+  'github',
+  'twitter',
+  'company',
+  'jobTitle',
+  'department',
+  'role',
   'addressLine1',
+  'addressLine2',
   'city',
   'state',
   'postalCode',
-  'country',
-  'company',
-  'role'
+  'country'
 ];
+
+const PROFILE_SYNC_FIELD_MAX_LENGTH = {
+  fullName: 120,
+  firstName: 80,
+  middleName: 80,
+  lastName: 80,
+  dateOfBirth: 40,
+  gender: 40,
+  nationality: 60,
+  email: 160,
+  phone: 40,
+  username: 80,
+  website: 200,
+  linkedin: 200,
+  github: 200,
+  twitter: 200,
+  company: 120,
+  jobTitle: 80,
+  department: 80,
+  role: 80,
+  addressLine1: 180,
+  addressLine2: 180,
+  city: 80,
+  state: 80,
+  postalCode: 40,
+  country: 80
+};
 
 function normalizeProfileSyncProfile(profile = {}) {
   const source = profile && typeof profile === 'object' ? profile : {};
   return Object.fromEntries(PROFILE_SYNC_FIELDS.map(field => [
     field,
-    String(source[field] || '').replace(/\s+/g, ' ').trim().slice(0, field === 'addressLine1' ? 180 : 120)
+    String(source[field] || '').replace(/\s+/g, ' ').trim().slice(0, PROFILE_SYNC_FIELD_MAX_LENGTH[field] || 120)
   ]));
 }
 
@@ -2726,6 +2765,13 @@ function setupIPC() {
     return saved.voice;
   });
 
+  registerIpcHandler('voice:setHeight', async (_event, payload) => {
+    if (!voiceWindow || voiceWindow.isDestroyed()) return { success: false, height: VOICE_WINDOW_HEIGHT };
+    const height = Math.max(62, Math.min(VOICE_WINDOW_MAX_HEIGHT, Math.round(Number(payload?.height) || VOICE_WINDOW_HEIGHT)));
+    voiceWindow.setBounds(topCenterBounds(VOICE_WINDOW_WIDTH, height));
+    return { success: true, height };
+  });
+
   registerIpcHandler('voice:transcribe', async (_event, { samples }) => {
     const startedAt = Date.now();
     try {
@@ -3488,7 +3534,22 @@ function registerVoiceShortcut() {
 async function initializeAssistant() {
   ensureDataDir();
   runtimeConfig = settingsService.buildRuntimeConfig();
-  assistant = new Assistant(runtimeConfig, { eventBus });
+  assistant = new Assistant(runtimeConfig, {
+    eventBus,
+    onUserNameChanged: (name) => {
+      const value = String(name || '').trim();
+      if (!value) return;
+      try {
+        settingsService.saveSettings({ userProfile: { fullName: value } });
+        broadcastProfileSync();
+        if (chatWindow?.webContents) {
+          chatWindow.webContents.send('settings:changed', buildSettingsSnapshot());
+        }
+      } catch (error) {
+        mainLogger.warn('[PROFILE] Could not persist assistant-supplied name', { error: error.message });
+      }
+    }
+  });
   await assistant.automation.init();
   assistant.router.permissionValidator.setUserLevel(
     settingsService.getSettings().system.permissionLevel

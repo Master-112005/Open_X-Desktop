@@ -665,6 +665,13 @@ function validateEmpty(payload) {
   return undefined;
 }
 
+function validateVoiceHeight(payload = {}) {
+  requirePlainObject(payload, 'voice');
+  const height = Number(payload.height);
+  if (!Number.isFinite(height)) throw new TypeError('voice height is invalid');
+  return { height: Math.round(Math.max(62, Math.min(600, height))) };
+}
+
 const IPC_VALIDATORS = Object.freeze({
   'command:process': validateCommand,
   'command:confirm': validateConfirmation,
@@ -678,6 +685,7 @@ const IPC_VALIDATORS = Object.freeze({
   'voice:getSettings': validateEmpty,
   'voice:updateSettings': validateVoiceSettings,
   'voice:transcribe': validateVoiceTranscribe,
+  'voice:setHeight': validateVoiceHeight,
   'window:openPeopleChat': validateEmpty,
   'window:openSettings': validateEmpty,
   'window:openPlanner': validatePlannerView,

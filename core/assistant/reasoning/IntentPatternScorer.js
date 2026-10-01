@@ -1,5 +1,5 @@
 const Normalizer = require('../Data').Normalizer;
-const { correctTokenWithLexicon } = require('../normalization/AssistantLexicon');
+const { correctTokenWithLexicon } = require('../input/AssistantLexicon');
 
 function comparableToken(token) {
   return correctTokenWithLexicon(token, { explicitOnly: true }) || token;

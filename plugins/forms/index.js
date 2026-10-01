@@ -3,6 +3,7 @@ const { Logger } = require('../../core/assistant/Data');
 const { execFileSync } = require('child_process');
 const http = require('http');
 const https = require('https');
+const ProfileFacts = require('../../core/assistant/knowledge/ProfileFacts');
 
 const COMMON_FORM_ACTIONS = [
   'fill form',
@@ -23,38 +24,60 @@ const COMMON_FORM_ACTIONS = [
 ];
 
 const FIELD_MAPPINGS = {
-  name: ['name', 'firstName', 'first_name', 'yourName'],
+  name: ['name', 'fullName', 'firstName', 'first_name', 'yourName'],
+  firstName: ['firstName', 'first_name', 'givenName', 'given_name'],
+  middleName: ['middleName', 'middle_name'],
   lastName: ['lastName', 'surname', 'last_name', 'familyName'],
+  dateOfBirth: ['dateOfBirth', 'date_of_birth', 'birthDate', 'birth_date', 'birthday', 'dob', 'DOB'],
+  gender: ['gender', 'sex', 'genderSelect'],
+  nationality: ['nationality', 'citizenship', 'nation'],
   email: ['email', 'emailAddress', 'gmail', 'googleMail', 'mail', 'e-mail'],
   phone: ['phone', 'phoneNumber', 'mobile', 'mobileNumber', 'contact'],
   occupation: ['occupation', 'profession', 'job', 'work', 'jobTitle'],
+  jobTitle: ['jobTitle', 'job_title', 'position', 'designation', 'title'],
+  department: ['department', 'team', 'division', 'unit'],
   company: ['company', 'workplace', 'organization', 'organisation', 'employer'],
-  address: ['address', 'location', 'streetAddress', 'street'],
+  address: ['address', 'addressLine1', 'address_line1', 'location', 'streetAddress', 'street'],
+  addressLine1: ['addressLine1', 'address_line1', 'streetAddress', 'street'],
+  addressLine2: ['addressLine2', 'address_line2', 'apartment', 'suite', 'unit'],
   city: ['city', 'location', 'town', 'cityName'],
   state: ['state', 'province', 'region'],
   zip: ['zip', 'zipCode', 'postalCode', 'pinCode', 'postcode'],
   country: ['country', 'nation', 'nationality'],
   age: ['age', 'yourAge', 'personAge'],
-  gender: ['gender', 'sex', 'genderSelect'],
   website: ['website', 'webSite', 'url', 'siteUrl'],
+  linkedin: ['linkedin', 'linkedIn', 'linkedInUrl'],
+  github: ['github', 'gitHub', 'gitHubUrl'],
+  twitter: ['twitter', 'twitterHandle', 'xHandle'],
   username: ['username', 'userName', 'loginName', 'userId']
 };
 
 const TYPE_TO_FACT_KEY = {
   name: 'name',
+  firstName: 'first_name',
+  middleName: 'middle_name',
   lastName: 'last_name',
+  dateOfBirth: 'date_of_birth',
+  gender: 'gender',
+  nationality: 'nationality',
   email: 'email',
   phone: 'phone',
   occupation: 'profession',
+  jobTitle: 'job_title',
+  department: 'department',
   company: 'workplace',
   address: 'location',
+  addressLine1: 'address_line1',
+  addressLine2: 'address_line2',
   city: 'location',
   state: 'state',
   zip: 'zipcode',
   country: 'country',
   age: 'age',
-  gender: 'gender',
   website: 'website',
+  linkedin: 'linkedin',
+  github: 'github',
+  twitter: 'twitter',
   username: 'username'
 };
 
@@ -66,6 +89,11 @@ class FormAutomation {
     this.browser = dependencies.browser || null;
     this.windows = dependencies.windows || null;
     this.userFacts = {};
+  }
+
+  _profileFacts() {
+    const profile = ProfileFacts.profileFromConfig(this.config);
+    return ProfileFacts.profileToFacts(profile);
   }
 
   canHandle(input) {
@@ -117,7 +145,7 @@ class FormAutomation {
   }
 
   fillFormFromContext(fields, options = {}) {
-    const userFacts = { ...this.userFacts, ...(options.userFacts || {}) };
+    const userFacts = { ...this._profileFacts(), ...this.userFacts, ...(options.userFacts || {}) };
     const filledData = {};
     const filledFields = [];
     const skippedFields = [];
@@ -166,7 +194,7 @@ class FormAutomation {
   }
 
   async fill(entities = {}) {
-    const userFacts = { ...this.userFacts, ...(entities.userFacts || {}) };
+    const userFacts = { ...this._profileFacts(), ...this.userFacts, ...(entities.userFacts || {}) };
     const fieldOverrides = entities.fieldOverrides || {};
     const url = this._extractUrl(entities.url || entities.command || entities.targetForm || '');
     if (url && this._isGoogleFormUrl(url)) {
