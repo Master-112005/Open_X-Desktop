@@ -292,7 +292,7 @@ class ActionRouter {
     if (options.allowMulti !== false &&
       !textAutomationPreflight &&
       (!commandLooksLikeCapability || capabilityAllowsMulti)) {
-      const multiPlan = this._buildMultiCommandPlan(rawCommandText, source);
+      const multiPlan = this._buildMultiCommandPlan(rawCommandText, source, options);
       if (multiPlan) {
         return this._executeMultiCommand(commandId, multiPlan, source, options);
       }
@@ -1692,10 +1692,22 @@ if (this._looksLikeExplicitCreateFileCommand(`${raw} ${corrected}`)) {
     return intent;
   }
 
-  _buildMultiCommandPlan(rawText, source) {
+  _buildMultiCommandPlan(rawText, source, options = {}) {
     const text = String(rawText || '').trim();
     if (!text) {
       return null;
+    }
+
+    const plannedClauses = Array.isArray(options.plannedClauses)
+      ? options.plannedClauses.map(clause => String(clause || '').trim()).filter(Boolean).slice(0, 8)
+      : [];
+    const groundingRequest = options.planRequestText || text;
+    const actionBudgets = this._planActionBudgets(groundingRequest);
+    if (plannedClauses.length >= 2 && plannedClauses.every(clause =>
+      clause.length <= 180 && this._isPlanClauseGrounded(clause, groundingRequest, actionBudgets) &&
+      this._clauseLooksActionable(clause, source) && this._resolvePlanClauseIntent(clause, source)
+    )) {
+      return plannedClauses;
     }
 
     const mediaWithVolumePlan = this._splitMediaPlaybackWithVolumeCommand(text);
@@ -1791,6 +1803,51 @@ if (this._looksLikeExplicitCreateFileCommand(`${raw} ${corrected}`)) {
     }
 
     return clauses;
+  }
+
+  _planActionBudgets(request) {
+    const actionGroups = [
+      ['open', 'launch', 'start', 'run'], ['play', 'stream', 'listen', 'watch'],
+      ['take', 'capture'], ['create', 'make'], ['save', 'move', 'put', 'place', 'store'],
+      ['close', 'quit', 'exit'], ['set', 'change', 'turn', 'increase', 'decrease', 'raise', 'lower'],
+      ['send', 'share', 'transfer', 'copy'], ['delete', 'remove', 'erase']
+    ];
+    const words = String(request || '').toLowerCase().match(/[a-z0-9]+/g) || [];
+    return actionGroups.map((group, index) => {
+      const count = group.reduce((total, word) => total + words.filter(item => item === word).length, 0);
+      return count || ((index === 2 && words.includes('screenshot')) ||
+        (index === 3 && words.includes('new')) ? 1 : 0);
+    });
+  }
+
+  _isPlanClauseGrounded(clause, request, actionBudgets) {
+    const words = value => String(value || '').toLowerCase().match(/[a-z0-9]+/g) || [];
+    const actionGroups = [
+      ['open', 'launch', 'start', 'run'], ['play', 'stream', 'listen', 'watch'],
+      ['take', 'capture'], ['create', 'make'],
+      ['save', 'move', 'put', 'place', 'store'], ['close', 'quit', 'exit'],
+      ['set', 'change', 'turn', 'increase', 'decrease', 'raise', 'lower'],
+      ['send', 'share', 'transfer', 'copy'], ['delete', 'remove', 'erase']
+    ];
+    const clauseWords = words(clause);
+    const requestWords = new Set(words(request));
+    let clauseActionIndex = actionGroups.findIndex(group => group.some(word => clauseWords.includes(word)));
+    if (clauseActionIndex < 0 && clauseWords.includes('screenshot')) clauseActionIndex = 2;
+    if (clauseActionIndex >= 0) {
+      const requestedActionCount = actionBudgets?.[clauseActionIndex] ?? actionGroups[clauseActionIndex]
+        .reduce((count, word) => count + (requestWords.has(word) ? 1 : 0), 0);
+      if (requestedActionCount < 1) return false;
+      if (actionBudgets) {
+        if (actionBudgets[clauseActionIndex] < 1) return false;
+        actionBudgets[clauseActionIndex] -= 1;
+      }
+    }
+    const ignored = new Set([
+      ...actionGroups.flat().filter(word => word !== 'screenshot'), 'a', 'an', 'the', 'it', 'this', 'that', 'there', 'then', 'and',
+      'to', 'in', 'into', 'on', 'with', 'my', 'me', 'just', 'taken', 'called', 'named',
+      'new', 'folder', 'directory', 'file', 'please', 'you'
+    ]);
+    return clauseWords.some(word => !ignored.has(word) && requestWords.has(word));
   }
 
   _hasImplicitMultiCommand(text) {
@@ -1911,6 +1968,15 @@ if (this._looksLikeExplicitCreateFileCommand(`${raw} ${corrected}`)) {
     for (const rawClause of clauses) {
       const prepared = this._safePrepareInput(rawClause);
       const corrected = String(prepared?.correctedText || rawClause || '').trim();
+      const mediaApp = corrected.match(/^(open|launch|start)\s+(youtube|you\s*tube|spotify)\s+(?:(and)\s+)?(play|stream|listen\s+to|watch)\s+(.+)$/i);
+      if (mediaApp) {
+        const platform = /spotify/i.test(mediaApp[2]) ? 'Spotify' : 'YouTube';
+        result.push(`${mediaApp[1]} ${platform}`);
+        result.push(`${mediaApp[4]} ${mediaApp[5]} on ${platform.toLowerCase()}`);
+        carriedVerb = null;
+        changed = true;
+        continue;
+      }
       const normalized = corrected.toLowerCase();
       const leadingVerb = normalized.match(/^(open|launch|start|run|close|quit|exit|terminate|minimize|maximize|switch|focus)\b/)?.[1] || '';
       const standaloneAction = normalized.match(/^(search|google|look\s+up|find|play|pause|resume|unpause|stop|set|turn|send|share|transfer|copy|move|message|text|call|remind|notify|alert|create|delete|rename|save|show|list)\b/);
@@ -2080,6 +2146,11 @@ if (this._looksLikeExplicitCreateFileCommand(`${raw} ${corrected}`)) {
 
     return clauses.map(clause => {
       const originalClause = String(clause || '').trim();
+      const namedFolder = originalClause.match(/^(create|make|new)\s+(?:a\s+)?(?:new\s+)?(?:folder|directory)\s+name\s+(?:it|the\s+folder)\s+(.+)$/i);
+      if (namedFolder?.[2]) {
+        carriedVerb = null;
+        return `create folder called ${namedFolder[2].replace(/[?.!]+$/g, '').trim()}`;
+      }
       if (/^(?:save|compare|download|archive|organize|analyze|schedule|bookmark|categorize|evaluate|write|type|paste|create|calculate|calc)\b/i.test(originalClause)) {
         carriedVerb = null;
         return originalClause;
@@ -2095,7 +2166,7 @@ if (this._looksLikeExplicitCreateFileCommand(`${raw} ${corrected}`)) {
         return `search for ${standaloneQuestionMatch[1].trim()}`;
       }
 
-      if (/^(?:ask|tell|send|message|text|search|google|look\s+up|find|show|list|what|who|when|where|why|how|which|remind|set|turn|save|saved)\b/.test(normalized)) {
+      if (/^(?:ask|tell|send|message|text|search|google|look\s+up|find|show|list|take|capture|play|listen|watch|what|who|when|where|why|how|which|remind|set|turn|save|saved)\b/.test(normalized)) {
         carriedVerb = null;
         const settingMatch = normalized.match(/^set\s+(?:the\s+)?(?:vol|volume|sound|audio|brightness|screen|display)\b/);
         if (settingMatch) {
@@ -2247,10 +2318,104 @@ if (this._looksLikeExplicitCreateFileCommand(`${raw} ${corrected}`)) {
 
     const steps = [];
     let browserContext = null;
+    let latestScreenshotPath = '';
+    let latestCreatedFolderPath = '';
+    let activeAppName = '';
+    let latestSearchQuery = '';
+    const workflowClauses = clauses.map((clause, index) => {
+      const create = String(clause || '').match(/^(?:create|make)\s+(?:a\s+)?(.+?)\s*$/i);
+      const laterFolderReference = clauses.slice(index + 1).some(next =>
+        /\binside\s+(?:it|that|the\s+folder)\b/i.test(next) ||
+        /\b(?:save|move|put|place|store)\b.*\bscreenshot\b.*\b(?:there|it|that)\b/i.test(next));
+      if (create && laterFolderReference && !/\b(?:file|folder|directory)\b/i.test(create[1])) {
+        return `create folder called ${create[1]}`;
+      }
+      return clause;
+    });
 
-    for (const clause of clauses) {
-      const routedClause = this._applyBrowserContextToSearchClause(clause, browserContext, source);
-      let result = await this.process(routedClause, source, {
+    for (let clauseIndex = 0; clauseIndex < workflowClauses.length; clauseIndex += 1) {
+      const clause = workflowClauses[clauseIndex];
+      let routedClause = this._applyBrowserContextToSearchClause(clause, browserContext, source);
+      const nestedFolder = clause.match(/^(?:create|make)\s+(?:a\s+)?(.+?)\s+inside\s+(?:it|that|the\s+folder)\s*$/i);
+      if (nestedFolder && latestCreatedFolderPath) {
+        routedClause = `create folder called ${nestedFolder[1]} in "${latestCreatedFolderPath}"`;
+      }
+      const bareTextEntry = clause.match(/^(write|type|paste)\s+(.+)$/i);
+      if (bareTextEntry && !/\b(?:in|into|to|on)\b/i.test(bareTextEntry[2]) && activeAppName) {
+        const content = bareTextEntry[2].replace(/^['"“”‘’]|['"“”‘’]$/g, '').trim();
+        routedClause = `${bareTextEntry[1]} "${content}" in ${activeAppName}`;
+      }
+      const vaguePlayback = clause.match(/^(?:play|watch|start\s+playing)\s+(?:(?:the|a|first)\s+)?(?:song|video|result|first\s+result)\s*[.!]?$/i);
+      if (vaguePlayback && latestSearchQuery) {
+        const platform = /youtube/i.test(`${activeAppName} ${browserContext || ''}`) ? ' on YouTube' : '';
+        routedClause = `play "${latestSearchQuery}"${platform}`;
+      }
+      const dependsOnCreatedScreenshot = /^(?:save|move|put|place|store)\b/i.test(clause) &&
+        /\b(?:screenshot|screen\s*shot|screen\s*capture)\b/i.test(clause) &&
+        /\b(?:folder|directory|there|it|that)\b/i.test(clause);
+      if (dependsOnCreatedScreenshot && !latestScreenshotPath && /^save\s+(?:a|an)\s+screenshot\b/i.test(clause)) {
+        const capture = await this.process('take a screenshot', source, {
+          allowMulti: false,
+          permissionGuard: options.permissionGuard,
+          phoneContext: options.phoneContext || null,
+          signal: options.signal,
+          executionContext: options.executionContext || null
+        });
+        steps.push({
+          commandId: capture.commandId || null,
+          input: 'take a screenshot',
+          routedInput: 'take a screenshot',
+          success: capture.success,
+          intent: capture.intent,
+          entities: capture.entities,
+          response: capture.response,
+          error: capture.error || null,
+          data: capture.data || null
+        });
+        if (capture.success && capture.intent === 'system.screenshot') {
+          latestScreenshotPath = String(capture.data?.filePath || capture.data?.path || '');
+        }
+      }
+      if (dependsOnCreatedScreenshot && (!latestScreenshotPath || !latestCreatedFolderPath)) {
+        steps.push({
+          commandId: null,
+          input: clause,
+          routedInput: '',
+          success: false,
+          intent: 'file.move',
+          error: 'The screenshot and destination folder must both be created and verified first.'
+        });
+        break;
+      }
+      if (dependsOnCreatedScreenshot) {
+        routedClause = `move "${latestScreenshotPath}" to "${latestCreatedFolderPath}"`;
+      }
+      const vaguePlaybackNeedsClarification = Boolean(vaguePlayback && !latestSearchQuery);
+      const textIntent = bareTextEntry && activeAppName ? this.intentRegistry.get('text.write') : null;
+      const textValue = bareTextEntry?.[2]?.replace(/^['"“”‘’]|['"“”‘’]$/g, '').trim();
+      const textEntities = textIntent && textValue ? { text: textValue, appName: activeAppName } : null;
+      const mediaSearch = clause.match(/^(?:search|find)\s+(?:for\s+)?(.+?)\s*[.!]?$/i);
+      const mediaSearchPlatform = /^(?:youtube|spotify|soundcloud|gaana|jiosaavn|apple music|amazon music)$/i.test(activeAppName)
+        ? activeAppName
+        : '';
+      const mediaSearchIntent = mediaSearchPlatform && mediaSearch ? this.intentRegistry.get('media.search') : null;
+      const mediaSearchQuery = mediaSearch?.[1]?.replace(/^['"“”‘’]|['"“”‘’]$/g, '').trim();
+      const mediaSearchEntities = mediaSearchIntent && mediaSearchQuery
+        ? { mediaQuery: mediaSearchQuery, mediaPlatform: mediaSearchPlatform }
+        : null;
+      let result = vaguePlaybackNeedsClarification
+        ? {
+            success: false,
+            needsClarification: true,
+            intent: 'media.play',
+            error: 'Missing media title or search result',
+            response: 'Which song or video should I play?'
+          }
+        : mediaSearchIntent && mediaSearchEntities
+          ? await this._execute(IdGenerator.generate(), { intent: mediaSearchIntent, confidence: 0.98, entities: mediaSearchEntities }, mediaSearchEntities, clause, source, null, options)
+        : textIntent && textEntities
+          ? await this._execute(IdGenerator.generate(), { intent: textIntent, confidence: 0.98, entities: textEntities }, textEntities, clause, source, null, options)
+        : await this.process(routedClause, source, {
         allowMulti: false,
         permissionGuard: options.permissionGuard,
         phoneContext: options.phoneContext || null,
@@ -2273,10 +2438,22 @@ if (this._looksLikeExplicitCreateFileCommand(`${raw} ${corrected}`)) {
         languageUnderstanding: result.languageUnderstanding || null,
         response: result.response,
         error: result.error || null,
+        data: result.data || null,
         requiresConfirmation: Boolean(result.requiresConfirmation),
         confirmationMessage: result.confirmationMessage || null,
         permissionLevel: result.permissionLevel || null
       });
+      if (result.success && result.intent === 'system.screenshot') {
+        latestScreenshotPath = String(result.data?.filePath || result.data?.path || '');
+      } else if (result.success && result.intent === 'folder.create') {
+        latestCreatedFolderPath = String(result.data?.path || result.data?.directory || '');
+      }
+      if (result.success && result.intent === 'app.open') {
+        activeAppName = String(result.entities?.appName || result.entities?.targetApp || result.data?.appName || activeAppName);
+      }
+      if (result.success && ['browser.search', 'media.search'].includes(result.intent)) {
+        latestSearchQuery = String(result.entities?.query || result.entities?.searchQuery || result.entities?.mediaQuery || latestSearchQuery);
+      }
       browserContext = this._deriveBrowserContextFromResult(result, browserContext);
 
       if (result.requiresConfirmation || result.needsClarification) {
@@ -3974,7 +4151,7 @@ if (this._looksLikeExplicitCreateFileCommand(`${raw} ${corrected}`)) {
     }
 
     try {
-      const result = remote.listTargets();
+      const result = remote.listTargets({ cacheOnly: true });
       const targets = Array.isArray(result?.data?.targets) ? result.data.targets : [];
       const presentation = targets.find(target => (
         target?.id === 'powerpoint' ||
@@ -4899,7 +5076,7 @@ _currentUserDisplayName() {
 
   _cleanCreateFileName(value, fileType = '') {
     let result = String(value || '')
-      .replace(/^["']|["']$/g, '')
+      .replace(/^['"“”‘’]|['"“”‘’]$/g, '')
       .replace(/^(?:the|a|an|my)\s+/i, '')
       .replace(/\b(?:file|document)\b/gi, ' ')
       .replace(/\s+/g, ' ')
@@ -5020,6 +5197,9 @@ _currentUserDisplayName() {
       const entities = { ...correctedEntities, ...rawEntities };
       if (correctedEntities.destination && correctedEntities.destination !== rawEntities.destination) {
         entities.destination = correctedEntities.destination;
+      }
+      if (rawEntities.destination && /[a-z]:[\\/]/i.test(rawText)) {
+        entities.destination = rawEntities.destination;
       }
       if (correctedEntities.path && correctedEntities.path !== rawEntities.path) {
         entities.path = correctedEntities.path;
@@ -7215,6 +7395,9 @@ _resolveExplicitTimerIntent(rawText, preparedInput) {
 
   _resolveLocalInfoIntent(rawText, preparedInput) {
     const input = this._normalizeSystemCommandText(preparedInput?.correctedText || rawText);
+    if (/^(?:move|copy)\b/i.test(rawText) && /\b(?:file|folder|directory|screenshot|screen\s*shot)\b|[a-z]:[\\/]/i.test(rawText)) return null;
+    if (/^(?:create|new|make)\b/.test(input) && /\b(?:folder|directory)\b/.test(input)) return null;
+    if (/^(?:move|copy)\b/.test(input) && /(?:[a-z]:[\\/]|[\\/]{2})/i.test(input)) return null;
     if (/\b(?:tabs?|tabbed|tabbing)\b/.test(input) && /\b(?:chrome|browser|edge|firefox)\b/.test(input)) {
       return null;
     }

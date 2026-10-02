@@ -18,9 +18,10 @@ describe('Chat Renderer UI', function() {
     assert.doesNotMatch(html, /id="alarm-overlay"/);
     assert.doesNotMatch(script, /alarmOverlay|alarm-dismiss-btn|alarm-snooze-btn/);
     assert.match(headerActions, /class="view-switcher" id="view-switcher"[\s\S]*data-active-view="chat"/);
-    assert.match(headerActions, /id="chat-view-btn"[\s\S]*id="activity-view-btn"[\s\S]*id="apps-view-btn"[\s\S]*id="remote-view-btn"[\s\S]*id="close-btn"/);
+    assert.match(headerActions, /id="chat-view-btn"[\s\S]*id="activity-view-btn"[\s\S]*id="apps-view-btn"[\s\S]*id="cloud-status-toggle"[\s\S]*id="close-btn"/);
     assert.doesNotMatch(viewSwitcher, /id="remote-view-btn"|>Remote</);
-    assert.match(headerActions, /class="window-btn remote-header-btn" id="remote-view-btn"[\s\S]*class="remote-header-icon"/);
+    assert.match(headerActions, /class="window-btn connection-indicator" id="cloud-status-toggle"/);
+    assert.match(html, /class="connection-indicator-phone"/);
     assert.doesNotMatch(headerActions, /assistant-mute-btn|chat-start-btn/);
     assert.match(script, /const viewSwitcherEl = document\.getElementById\('view-switcher'\)/);
     assert.match(script, /viewSwitcherEl\.dataset\.activeView = activeSwitcherView/);
@@ -30,9 +31,9 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /\.view-switcher\[data-active-view="activity"\]::before\s*\{[\s\S]*left:\s*calc\(33\.333333% \+ 1px\)/);
     assert.match(css, /\.view-switcher\[data-active-view="apps"\]::before\s*\{[\s\S]*left:\s*calc\(66\.666667% - 1px\)/);
     assert.doesNotMatch(css, /\.view-switcher\[data-active-view="remote"\]/);
-    assert.match(css, /\.remote-header-btn\.active/);
+    assert.match(css, /\.connection-indicator\.server-connected/);
     assert.doesNotMatch(html, /id="quick-actions"|class="chip-btn"|Downloads|Volume up|System status|What can you do\?/);
-    assert.match(script, /panelHeader\.insertBefore\(panelActions, settingsCloseBtn\)/);
+    assert.match(script, /settingsCloseBtn\.addEventListener\('click', closeSettingsPanel\)/);
     assert.match(html, /Alarms & reminders/);
     assert.doesNotMatch(html, /Upcoming alarms, timers, reminders, and recent assistant notices\./);
     assert.match(script, /runHeaderApp\(calendarAppBtn, \(\) => window\.openx\?\.openPlanner\?\.\('calendar'\)\)/);
@@ -198,7 +199,7 @@ describe('Chat Renderer UI', function() {
     assert.match(script, /function remoteTargetProfile\(target = \{\}\)/);
     assert.match(script, /function renderRemoteControlButtons\(\)/);
     assert.match(script, /function scheduleRemoteTargetsRender\(\)/);
-    assert.match(script, /const REMOTE_TARGET_REFRESH_TTL_MS = 2500/);
+    assert.match(script, /const REMOTE_TARGET_REFRESH_TTL_MS = 10000/);
     assert.match(script, /const SCHEDULE_SYNC_FAILURE_TOAST_COOLDOWN_MS = 60000/);
     assert.match(script, /let remoteTargetsLastLoadedAt = 0/);
     assert.match(script, /now - remoteTargetsLastLoadedAt < REMOTE_TARGET_REFRESH_TTL_MS/);
@@ -224,7 +225,8 @@ describe('Chat Renderer UI', function() {
   it('should keep settings compact without contact-storage controls', function() {
     assert.doesNotMatch(html, /id="minimize-btn"/);
     assert.doesNotMatch(html, /data-section-target="contacts"/);
-    assert.match(script, /initializeCompactSettingsLayout/);
+    assert.match(html, /Settings save automatically\./);
+    assert.doesNotMatch(html, /id="settings-save-btn"|id="settings-reset-btn"/);
     assert.doesNotMatch(html, /settings-section-contacts|contact-save-btn|contact-delete-btn/);
     assert.doesNotMatch(script, /saveContact|deleteContact|renderContacts/);
     assert.match(glassCss, /Compact in-window settings/);

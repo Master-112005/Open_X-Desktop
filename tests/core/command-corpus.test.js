@@ -97,7 +97,13 @@ function loadCommands() {
   if (fs.existsSync(commandsFile)) {
     return fs.readFileSync(commandsFile, 'utf8')
       .split(/\r?\n/)
-      .map(line => line.match(/^\s*\d+\.\s*(.+?)\s*$/)?.[1])
+      .map(line => {
+        const numbered = line.match(/^\s*\d+\.\s*(.+?)\s*$/)?.[1];
+        if (numbered) return numbered;
+        const plain = line.trim();
+        return /^(?:open|launch|start|create|make|take|capture|search|set|play|write|type|calculate|remind)\b/i.test(plain) &&
+          /,|\band\b|\bthen\b/i.test(plain) ? plain : null;
+      })
       .filter(Boolean);
   }
 
@@ -110,6 +116,16 @@ function loadCommands() {
   }
 
   return FALLBACK_COMMANDS;
+}
+
+function loadMultiActionCommands() {
+  const commandsFile = path.join(__dirname, '..', '..', 'commands.md');
+  return fs.readFileSync(commandsFile, 'utf8')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => !/^\d+\./.test(line) &&
+      /^(?:open|launch|start|create|make|take|capture|search|set|play|write|type|calculate|remind)\b/i.test(line) &&
+      /,|\band\b|\bthen\b/i.test(line));
 }
 
 function createSandboxRouter() {
@@ -133,12 +149,15 @@ function createSandboxRouter() {
       if (isSandboxedDangerousAction(actionId, entities)) {
         throw new Error(`Dangerous action escaped sandbox confirmation: ${actionId}`);
       }
+      const data = { actionId, ...(entities || {}) };
+      if (actionId === 'system.screenshot') {
+        data.filePath = path.join(process.env.USERPROFILE || os.homedir(), 'Pictures', 'OpenX-test-screenshot.png');
+      } else if (actionId === 'folder.create') {
+        data.path = path.join(entities?.path || process.env.USERPROFILE || os.homedir(), entities?.folderName || 'OpenX-test-folder');
+      }
       return {
         success: true,
-        data: {
-          actionId,
-          ...(entities || {})
-        }
+        data
       };
     }
   };
@@ -185,6 +204,49 @@ function restoreEnv(name, value) {
 
 describe('Assistant command corpus routing', function() {
   this.timeout(600000);
+
+  it('executes every unnumbered multi-action workflow in commands.md in the sandbox', async function() {
+    const originalUserProfile = process.env.USERPROFILE;
+    const tempProfile = fs.mkdtempSync(path.join(os.tmpdir(), 'openx-multi-command-corpus-'));
+    ['Desktop', 'Documents', 'Downloads', 'Pictures', 'Music', 'Videos'].forEach(folder => {
+      fs.mkdirSync(path.join(tempProfile, folder), { recursive: true });
+    });
+    process.env.USERPROFILE = tempProfile;
+
+    const router = createSandboxRouter();
+    const failures = [];
+    try {
+      for (const command of loadMultiActionCommands()) {
+        const executionStart = router.getSandboxExecutions().length;
+        const result = await router.process(command, 'chat');
+        if (/search for lofi music, play a result/i.test(command)) {
+          const workflowExecutions = router.getSandboxExecutions().slice(executionStart);
+          const searched = workflowExecutions.find(step => step.actionId === 'media.search');
+          const played = workflowExecutions.find(step => step.actionId === 'media.play');
+          assert.equal(searched?.entities.mediaQuery, 'lofi music');
+          assert.equal(played?.entities.mediaQuery, 'lofi music');
+        }
+        if (!result.success) {
+          failures.push({
+            command,
+            failedSteps: result.steps?.filter(step => !step.success).map(step => ({
+              input: step.input,
+              intent: step.intent || null,
+              error: step.error || null,
+              response: step.response || null
+            })) || [],
+            requiresConfirmation: Boolean(result.requiresConfirmation),
+            needsClarification: Boolean(result.needsClarification)
+          });
+        }
+      }
+    } finally {
+      restoreEnv('USERPROFILE', originalUserProfile);
+      fs.rmSync(tempProfile, { recursive: true, force: true });
+    }
+
+    assert.equal(failures.length, 0, JSON.stringify(failures, null, 2));
+  });
 
   it('should handle every command in commands.md without executing real dangerous actions', async function() {
     const originalUserProfile = process.env.USERPROFILE;

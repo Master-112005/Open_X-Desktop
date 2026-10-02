@@ -1257,7 +1257,7 @@ describe('Assistant Confirmation Flow', function() {
     assert.equal(selectedEntities.selectedPath, filePath);
     assert.equal(selectedEntities.transferKind, 'file');
     assert.equal(executionOptions.source, 'phone');
-    assert.equal(executionOptions.originalInput, 'send me resume docx file');
+    assert.equal(executionOptions.originalInput, 'send me resume.docx file');
     assert.equal(executionOptions.phoneContext.deviceId, 'phone-1');
   });
 

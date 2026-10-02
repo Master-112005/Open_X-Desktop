@@ -2,9 +2,11 @@ const Logger = require('../assistant/Data').Logger;
 const Normalizer = require('../assistant/Data').Normalizer;
 
 const BROWSER_PROCESSES = Object.freeze(['chrome', 'msedge', 'firefox', 'brave', 'opera']);
-const MAX_TARGETS = 8;
-const DEFAULT_TARGET_CACHE_TTL_MS = 3000;
+const MAX_TARGETS = 20;
+const DEFAULT_TARGET_CACHE_TTL_MS = 10000;
 const DEFAULT_CONTROL_SETTLE_DELAY_MS = 80;
+const GENERIC_WINDOW_CONTROLS = Object.freeze({ up: '{UP}', down: '{DOWN}', left: '{LEFT}', right: '{RIGHT}', center: '{ENTER}', back: '{ESC}', fullscreen: '{F11}', playPause: ' ' });
+const NON_APP_PROCESSES = /^(?:openx(?:_desktop)?|electron|explorer|searchhost|shellexperiencehost|startmenuexperiencehost|textinputhost|lockapp)$/i;
 const REMOTE_ACTION_ALIASES = Object.freeze({
   ok: 'center',
   enter: 'center',
@@ -192,15 +194,39 @@ class RemoteController {
     }
 
     const now = Date.now();
+    if (options.cacheOnly === true) {
+      return this.targetCache.result && this.targetCache.expiresAt > now
+        ? cloneResult(this.targetCache.result)
+        : { success: true, data: { targets: [], count: 0 } };
+    }
     if (options.force !== true && this.targetCache.result && this.targetCache.expiresAt > now) {
       return cloneResult(this.targetCache.result);
     }
 
     const windows = this._safeListWindows();
     const browserTabs = this._safeListBrowserTabs();
+    return this._buildTargetResult(windows, browserTabs, now);
+  }
+
+  async listTargetsAsync(options = {}) {
+    if (!this.windows) {
+      return { success: false, error: 'Window control is unavailable.', data: { targets: [] } };
+    }
+    const now = Date.now();
+    if (options.force !== true && this.targetCache.result && this.targetCache.expiresAt > now) {
+      return cloneResult(this.targetCache.result);
+    }
+    const windows = typeof this.windows.listWindowsAsync === 'function'
+      ? await this.windows.listWindowsAsync()
+      : this._safeListWindows();
+    return this._buildTargetResult(windows, [], now);
+  }
+
+  _buildTargetResult(windows, browserTabs, now) {
     const targets = [];
     const seen = new Set();
 
+    const matchedHandles = new Set();
     for (const definition of TARGET_DEFINITIONS) {
       const match = this._matchesForDefinition(definition, windows, browserTabs)
         .sort((a, b) => Number(b.active === true) - Number(a.active === true))[0];
@@ -221,6 +247,28 @@ class RemoteController {
       if (seen.has(key)) continue;
       seen.add(key);
       targets.push(target);
+      if (target.handle) matchedHandles.add(target.handle);
+      if (targets.length >= MAX_TARGETS) break;
+    }
+
+    for (const window of windows) {
+      const handle = cleanNumber(window.handle);
+      const processId = cleanNumber(window.processId || window.id);
+      const processName = cleanText(window.processName || '', 80);
+      const title = cleanText(window.title || '', 160);
+      if (!handle || !processId || !title || !processName || matchedHandles.has(handle) || NON_APP_PROCESSES.test(processName)) continue;
+      targets.push({
+        id: `window:${processId}`,
+        label: title,
+        kind: 'application',
+        handle,
+        processId,
+        processName,
+        windowTitle: title,
+        tabTitle: '',
+        active: window.active === true,
+        source: 'window'
+      });
       if (targets.length >= MAX_TARGETS) break;
     }
 
@@ -317,6 +365,53 @@ class RemoteController {
     };
   }
 
+  async sendControlAsync(input = {}) {
+    const action = normalizeRemoteAction(input.action || input.command || 'center');
+    const requested = input.targetId || input.target || input.appName || '';
+    let target = this._targetFromInput(input);
+    const currentTarget = this._isCurrentTargetAlias(requested);
+    let definition = this._resolveDefinition(target?.id || requested);
+    let targets = [];
+    if (!target || currentTarget || !definition || (!target.handle && !target.tabTitle && !target.windowTitle)) {
+      const scan = await this.listTargetsAsync();
+      targets = Array.isArray(scan?.data?.targets) ? scan.data.targets : [];
+    }
+    if (!target || currentTarget) {
+      target = targets.find(item => item.active) || targets[0] || target;
+    }
+    definition = this._resolveDefinition(target?.id || requested) || definition;
+    if (!definition) return { success: false, error: 'Choose a supported remote target first.', data: { action: 'remote.control' } };
+    if (!target || (!target.handle && !target.tabTitle && !target.windowTitle)) {
+      target = targets.find(item => item.id === definition.id) || target;
+    }
+    if (!target) return { success: false, error: `Could not find ${definition.label} in the open apps.`, data: { action: 'remote.control', targetId: definition.id } };
+    const keys = definition.controls[action];
+    if (!keys) return { success: false, error: `${definition.label} does not support ${action} from the remote yet.`, data: { action: 'remote.control', targetId: definition.id, command: action } };
+    if (!this.windows?.sendKeysAsync) return this.sendControl({ ...input, targetId: definition.id, targetHandle: target.handle });
+
+    const tabTitle = cleanText(input.tabTitle || target.tabTitle || '', 160);
+    const isBrowserTarget = BROWSER_PROCESSES.some(name => definition.preferredProcessNames?.includes(name));
+    if (tabTitle && isBrowserTarget && target.active !== true) {
+      this.windows.focusBrowserTab?.(tabTitle, definition.preferredProcessNames);
+    }
+    const windowName = cleanText(tabTitle || input.windowTitle || target.windowTitle || definition.windowName || definition.label, 220);
+    const result = await this.windows.sendKeysAsync(windowName, keys, {
+      targetHandle: cleanNumber(input.targetHandle || target.handle),
+      targetProcessId: cleanNumber(input.targetProcessId || target.processId),
+      targetTitle: cleanText(input.windowTitle || target.windowTitle || tabTitle || definition.label, 220),
+      targetProcessName: cleanText(input.processName || target.processName || '', 80),
+      settleDelayMs: this.controlSettleDelayMs
+    });
+    return result?.success ? {
+      success: true,
+      data: { action: 'remote.control', targetId: definition.id, targetLabel: definition.label, command: action, keys, matchedWindow: result.data?.matchedWindow || windowName, matchedHandle: result.data?.matchedHandle || null, processId: result.data?.processId || target.processId || null, processName: result.data?.processName || '', verified: true }
+    } : {
+      success: false,
+      error: result?.error || `Could not control ${definition.label}.`,
+      data: { action: 'remote.control', targetId: definition.id, targetLabel: definition.label, command: action, keys, verified: false }
+    };
+  }
+
   _safeListWindows() {
     try {
       return this.windows?.listWindows?.() || [];
@@ -369,7 +464,7 @@ class RemoteController {
         handle: window.handle || null,
         processId: window.processId || window.id || null,
         processName: window.processName || '',
-        active: true
+        active: window.active === true
       });
     }
 
@@ -420,11 +515,16 @@ class RemoteController {
   _resolveDefinition(value) {
     const requested = normalizeText(value);
     if (!requested) return null;
-    return TARGET_DEFINITIONS.find(definition => (
+    const known = TARGET_DEFINITIONS.find(definition => (
       requested === definition.id ||
       requested === normalizeText(definition.label) ||
       (definition.aliases || []).some(alias => requested === normalizeText(alias))
-    )) || null;
+    ));
+    if (known) return known;
+    const target = this.targetCache.result?.data?.targets?.find(item => item.id === value);
+    return target?.kind === 'application'
+      ? { ...target, controls: GENERIC_WINDOW_CONTROLS, preferredProcessNames: [target.processName] }
+      : null;
   }
 }
 

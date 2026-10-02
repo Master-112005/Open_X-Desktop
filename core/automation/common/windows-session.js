@@ -1,7 +1,9 @@
-const { execFileSync } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
+const { promisify } = require('util');
 const Logger = require('../../assistant/Data').Logger;
 const Normalizer = require('../../assistant/Data').Normalizer;
 const { scoreName } = require('./search-scoring');
+const execFileAsync = promisify(execFile);
 
 const POWERSHELL_EXECUTABLE = 'powershell.exe';
 const DEFAULT_POWERSHELL_TIMEOUT_MS = 6000;
@@ -109,6 +111,28 @@ class WindowsSessionController {
         '| ConvertTo-Json -Compress'
       ].join(' '), { timeout: WINDOW_ENUMERATION_TIMEOUT_MS, encoding: 'utf8' });
 
+      return parseJsonArray(output);
+    } catch (err) {
+      this.logger.warn('Failed to enumerate desktop windows', err.message);
+      return [];
+    }
+  }
+
+  async listWindowsAsync() {
+    try {
+      const output = await this._runPowerShellAsync(`
+$ErrorActionPreference = 'Stop'
+$signature = 'using System; using System.Runtime.InteropServices; public static class OpenXRemoteWindowApi { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); }'
+Add-Type -TypeDefinition $signature -ErrorAction SilentlyContinue | Out-Null
+$foreground = [int64][OpenXRemoteWindowApi]::GetForegroundWindow()
+Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle } |
+Select-Object @{Name='handle';Expression={[int64]$_.MainWindowHandle}},
+  @{Name='title';Expression={$_.MainWindowTitle}},
+  @{Name='processName';Expression={$_.ProcessName}},
+  @{Name='id';Expression={$_.Id}},
+  @{Name='active';Expression={[int64]$_.MainWindowHandle -eq $foreground}} |
+ConvertTo-Json -Compress
+`, { timeout: WINDOW_ENUMERATION_TIMEOUT_MS, encoding: 'utf8' });
       return parseJsonArray(output);
     } catch (err) {
       this.logger.warn('Failed to enumerate desktop windows', err.message);
@@ -618,6 +642,46 @@ $wshell.SendKeys('${escapePowerShell(safeKeys)}')
     }
   }
 
+  async sendKeysAsync(windowName, keys, options = {}) {
+    const directHandle = toSafeOptionalInteger(options.targetHandle || options.matchedHandle);
+    const target = directHandle ? {
+      handle: directHandle,
+      id: toSafeOptionalInteger(options.targetProcessId || options.processId) || 0,
+      title: options.targetTitle || windowName || 'the matched window',
+      processName: options.targetProcessName || options.processName || 'unknown'
+    } : this.findWindow(windowName, options);
+    if (!target) return { success: false, error: this._missingWindowMessage(windowName, options) };
+
+    let safeTarget;
+    let safeKeys;
+    try {
+      safeTarget = this._coerceWindowTarget(target);
+      safeKeys = normalizeLimitedText(keys, 'Keys', MAX_SEND_KEYS_LENGTH);
+      if (!safeKeys) return { success: false, error: 'No keys provided for window control' };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+    const settleDelayMs = boundedInteger(options.settleDelayMs, DEFAULT_SEND_KEYS_SETTLE_DELAY_MS, 40, DEFAULT_SEND_KEYS_SETTLE_DELAY_MS);
+    const script = `
+$ErrorActionPreference = 'Stop'
+${USER32_BOOTSTRAP}
+$hwnd = [IntPtr]${safeTarget.handle}
+if ([Win32WindowApi]::IsIconic($hwnd)) { [Win32WindowApi]::ShowWindowAsync($hwnd, 9) | Out-Null }
+else { [Win32WindowApi]::ShowWindowAsync($hwnd, 5) | Out-Null }
+[Win32WindowApi]::SetForegroundWindow($hwnd) | Out-Null
+$wshell = New-Object -ComObject WScript.Shell
+$null = $wshell.AppActivate(${safeTarget.id})
+Start-Sleep -Milliseconds ${settleDelayMs}
+$wshell.SendKeys('${escapePowerShell(safeKeys)}')
+`;
+    try {
+      await this._runPowerShellAsync(script, { timeout: 6000 });
+      return { success: true, data: { action: 'sendKeys', keys: safeKeys, matchedWindow: safeTarget.title, matchedHandle: safeTarget.handle, processId: safeTarget.id || null, processName: safeTarget.processName } };
+    } catch (_) {
+      return { success: false, error: `Unable to control the ${safeTarget.title} window` };
+    }
+  }
+
   pasteText(windowName, text, options = {}) {
     const directHandle = toSafeOptionalInteger(options.targetHandle || options.matchedHandle);
     const target = directHandle
@@ -945,6 +1009,17 @@ if ($process) {
       encoding: options.encoding,
       windowsHide: true
     });
+  }
+
+  _runPowerShellAsync(script, options = {}) {
+    return execFileAsync(POWERSHELL_EXECUTABLE, [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script
+    ], {
+      timeout: Number(options.timeout || this.defaultTimeoutMs),
+      encoding: options.encoding,
+      windowsHide: true,
+      maxBuffer: 4 * 1024 * 1024
+    }).then(result => result.stdout);
   }
 }
 

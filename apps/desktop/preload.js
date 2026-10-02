@@ -77,8 +77,8 @@ const openxApi = {
   clearAssistantChatHistory: () =>
     ipcRenderer.invoke('assistantChatHistory:clear'),
 
-  listRemoteTargets: () =>
-    ipcRenderer.invoke('remote:listTargets'),
+  listRemoteTargets: (options = {}) =>
+    ipcRenderer.invoke('remote:listTargets', options),
 
   sendRemoteControl: (payload = {}) =>
     ipcRenderer.invoke('remote:control', payload),

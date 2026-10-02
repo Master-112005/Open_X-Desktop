@@ -133,6 +133,6 @@ describe('Remote command routing', function() {
 
     assert.equal(context.routeSource, 'presentation-active-window');
     assert.equal(context.strong, true);
-    assert.deepEqual(calls, [undefined]);
+    assert.deepEqual(calls, [{ cacheOnly: true }]);
   });
 });

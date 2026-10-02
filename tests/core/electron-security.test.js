@@ -420,7 +420,7 @@ describe('Electron Security Boundary', function() {
       'cloud:status', 'cloud:connect', 'cloud:disconnect',
       'cloud:pairingQR:create', 'cloud:pairing:status', 'cloud:pairing:approve', 'cloud:pairing:reject',
       'cloud:devices:list', 'cloud:device:rename', 'cloud:device:remove',
-      'settings:save', 'settings:reset',
+      'settings:save',
       'schedule:alertAction', 'island:stop', 'island:snooze', 'island:idle',
       'cloud:fileTransferAction', 'schedule:getSnapshot', 'timerWidget:getState', 'timerWidget:close',
       'timerWidget:stopStopwatch', 'timerWidget:resumeStopwatch',

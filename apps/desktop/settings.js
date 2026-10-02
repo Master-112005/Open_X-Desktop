@@ -395,7 +395,7 @@ class SettingsService {
         commandQueueMode: this.baseConfig?.cloud?.commandQueueMode === 'busy' ? 'busy' : 'queue',
         commandMaxQueueSize: clampNumber(this.baseConfig?.cloud?.commandMaxQueueSize, 1, 250, 25),
         retryQueueMaxItems: clampNumber(this.baseConfig?.cloud?.retryQueueMaxItems, 1, 500, 100),
-        fileTransferChunkBytes: clampNumber(this.baseConfig?.cloud?.fileTransferChunkBytes, 1024, 16384, 12288),
+        fileTransferChunkBytes: clampNumber(this.baseConfig?.cloud?.fileTransferChunkBytes, 1024, 16384, 16384),
         fileTransferTimeoutMs: clampNumber(this.baseConfig?.cloud?.fileTransferTimeoutMs, 30000, 3600000, 10 * 60 * 1000)
       },
       communication: {

@@ -14,6 +14,7 @@ describe('App Controller', async function() {
     const controller = new AppController({});
     let launched = null;
     controller.findVisibleApp = () => null;
+    controller.waitForVisibleApp = async () => ({ MainWindowTitle: 'Discord', ProcessName: 'Discord' });
 
     controller._resolveStartApp = (name) => {
       assert.equal(name, 'discord');
@@ -36,6 +37,7 @@ describe('App Controller', async function() {
     const controller = new AppController({});
     let launched = null;
     controller.findVisibleApp = () => null;
+    controller.waitForVisibleApp = async () => ({ MainWindowTitle: 'Recycle Bin', ProcessName: 'explorer' });
 
     controller._resolveStartApp = () => null;
     controller._launchSpecialApp = (name) => {
@@ -784,6 +786,7 @@ describe('App Controller', async function() {
     let launched = null;
 
     controller.findVisibleApp = () => null;
+    controller.waitForVisibleApp = async () => ({ MainWindowTitle: 'Instagram', ProcessName: 'Instagram' });
     controller._launchSpecialApp = () => ({ success: false });
     controller._resolveStartApp = name => {
       assert.equal(name, 'instagram');
@@ -806,6 +809,7 @@ describe('App Controller', async function() {
     let specialUsed = false;
 
     controller.findVisibleApp = () => null;
+    controller.waitForVisibleApp = async () => ({ MainWindowTitle: 'YouTube', ProcessName: 'chrome' });
     controller._resolveStartApp = name => {
       assert.equal(name, 'youtube');
       return { name: 'YouTube', appId: 'YouTube.App' };
@@ -831,6 +835,7 @@ it('should always search the system before falling back to the web, even with a 
     let launched = null;
 
     controller.findVisibleApp = () => null;
+    controller.waitForVisibleApp = async () => ({ MainWindowTitle: 'YouTube', ProcessName: 'chrome' });
     controller._resolveStartApp = () => ({ name: 'YouTube', appId: 'YouTube.App' });
     controller._launchStartApp = startApp => {
       launched = startApp;
@@ -893,6 +898,7 @@ it('should always search the system before falling back to the web, even with a 
     let launched = null;
 
     controller.findVisibleApp = () => null;
+    controller.waitForVisibleApp = async () => ({ MainWindowTitle: 'YouTube', ProcessName: 'chrome' });
     controller._resolveStartApp = () => ({ name: 'YouTube', appId: 'YouTube.App' });
     controller._launchStartApp = startApp => {
       launched = startApp;

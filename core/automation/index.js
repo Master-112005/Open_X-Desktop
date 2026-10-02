@@ -160,8 +160,8 @@ this.text = new TextController(config, {
       'text.pasteFromFile': (entities) => this.text.pasteFromFile(entities.source || entities.filename, entities),
       'text.writeSearchResult': (entities) => this.text.writeSearchResult(entities.query, entities),
       'document.create': (entities) => this.text.createDocument(entities),
-      'remote.listTargets': () => this.remote.listTargets(),
-      'remote.control': (entities) => this.remote.sendControl(entities),
+      'remote.listTargets': () => this.remote.listTargetsAsync(),
+      'remote.control': (entities) => this.remote.sendControlAsync(entities),
       'home.devices.list': (entities) => this.homeAutomation.listDevices(entities),
       'home.device_control': (entities, context) => this.homeAutomation.handleAssistantRequest({
         ...entities,

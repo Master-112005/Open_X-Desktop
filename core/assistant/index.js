@@ -298,7 +298,7 @@ class Assistant extends EventEmitter {
       this.pendingScheduleCompletion) {
       return this._processCommandDirect(input, source, options);
     }
-    return this.engine.processCommand(input, source, options);
+    return this.engine.processCommand(input, source, { ...options, originalInput: input });
   }
 
   async _processCommandDirect(input, source = 'chat', options = {}) {
@@ -383,6 +383,8 @@ class Assistant extends EventEmitter {
 
       const routedInput = this._buildRoutedInput(input);
       const pipelineContext = options.pipelineContext || null;
+      const planRequestText = options.originalInput || input;
+      const plannedClauses = await this._planCompoundCommand(planRequestText, source);
       let result = await this._runWithCommandTimeout(({ signal, executionContext }) => this.router.process(routedInput, source, {
         contextualRewrite: this._lastContextualRewrite,
         conversation: this.context.buildConversationDigest({ limit: 4 }),
@@ -393,6 +395,8 @@ class Assistant extends EventEmitter {
         linguisticGraph: pipelineContext?.linguisticGraph || null,
         permissionGuard: options.permissionGuard,
         phoneContext: options.phoneContext || null,
+        plannedClauses,
+        planRequestText,
         signal,
         executionContext
       }), { input, routedInput, source, stage: 'router.process', signal: options.signal });
@@ -430,7 +434,7 @@ class Assistant extends EventEmitter {
           commandId: pendingStep?.commandId || result.commandId,
           intentId: pendingStep?.intent || result.intent,
           entities: { ...(pendingStep?.entities || result.entities || {}) },
-          originalInput: input,
+          originalInput: options.originalInput || input,
           source,
           permissionGuard: options.permissionGuard,
           phoneContext: options.phoneContext || null,
@@ -453,7 +457,7 @@ class Assistant extends EventEmitter {
           entities: { ...(result.entities || {}) },
           data: result.data || {},
           response,
-          originalInput: input,
+          originalInput: options.originalInput || input,
           source,
           permissionGuard: options.permissionGuard,
           phoneContext: options.phoneContext || null
@@ -1221,6 +1225,31 @@ class Assistant extends EventEmitter {
 
   _isLocalLlmFallbackCandidate(result = {}) {
     return this._isLocalLlmConversationResult(result);
+  }
+
+  async _planCompoundCommand(input, source) {
+    if (!/\b(?:and|then|after that|afterwards)\b/i.test(input) ||
+      (String(input).match(/\b(?:open|launch|play|stream|listen|watch|take|capture|create|make|save|move|copy|close|delete|set|turn|send)\b/gi) || []).length < 3) {
+      return null;
+    }
+    const status = this.localLlm?.getStatus?.();
+    if (!status?.enabled || !status.modelReady || typeof this.localLlm?.reply !== 'function') {
+      return null;
+    }
+
+    try {
+      const result = await this.localLlm.reply(input, { turn: 'commandPlan', source: 'command-planner' });
+      if (!result?.success) return null;
+      const json = String(result?.response || '').match(/\{[\s\S]*\}/)?.[0];
+      const steps = json ? JSON.parse(json).steps : null;
+      return Array.isArray(steps) && steps.length >= 2 && steps.length <= 8 &&
+        steps.every(step => typeof step === 'string' && step.trim() && step.length <= 180)
+        ? steps.map(step => step.trim())
+        : null;
+    } catch (error) {
+      this.logger?.warn?.('Local LLM command planning skipped', error?.message || error);
+      return null;
+    }
   }
 
   _isLocalLlmConversationResult(result = {}) {

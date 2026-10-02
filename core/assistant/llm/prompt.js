@@ -108,6 +108,19 @@ function buildTurnPrompt(userText, context = {}) {
   return lines.join('\n');
 }
 
+function buildCommandPlanPrompt(userText) {
+  return [
+    "Convert the user's computer request into an ordered JSON array of short, independent OpenX commands.",
+    'Return only JSON in this form: {"steps":["command one","command two"]}.',
+    'Preserve every requested action, order, names, and search terms. Split combined actions such as opening YouTube and playing a named song.',
+    'Use a later step to refer to files or folders created earlier, such as "move the screenshot just taken into the Space folder".',
+    'Do not add steps, infer a different song or app, claim that anything was done, or include explanations.',
+    'If the request is not a sequence of at least two computer actions, return {"steps":[]}.',
+    'User request:',
+    String(userText || '').trim()
+  ].join('\n');
+}
+
 function buildCasualChatTurnPrompt(userText, context = {}) {
   const safeUser = String(userText || '').trim();
   const safeName = sanitizePromptValue(context.assistantName || 'OpenX', 80);
@@ -133,6 +146,7 @@ module.exports = {
   buildSystemPrompt,
   buildTaskOutcomeBlock,
   buildTurnPrompt,
+  buildCommandPlanPrompt,
   buildCasualChatTurnPrompt,
   languageInstruction,
   responseStyleInstruction,

@@ -1248,6 +1248,77 @@ describe('Action Router', function() {
     assert.equal(result.entities.folderName, 'rakesh');
   });
 
+  it('should sequence YouTube playback, screenshot, folder creation, and screenshot move', async function() {
+    const calls = [];
+    const router = new ActionRouter({
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    }, {
+      async execute(actionId, entities) {
+        calls.push({ actionId, entities });
+        if (actionId === 'system.screenshot') return { success: true, data: { filePath: 'C:/Users/test/Pictures/OpenX-shot.png' } };
+        if (actionId === 'folder.create') return { success: true, data: { path: 'C:/Users/test/Space' } };
+        return { success: true, data: entities };
+      }
+    });
+
+    const result = await router.process(
+      'open youtube play 295 song and take a screenshot and create a new folder name it space and save screenshot in the folder',
+      'chat'
+    );
+
+    assert.equal(result.success, true);
+    assert.deepEqual(calls.map(call => call.actionId), [
+      'app.open', 'media.play', 'system.screenshot', 'folder.create', 'file.move'
+    ]);
+    assert.equal(calls[1].entities.mediaQuery, '295 song');
+    assert.equal(calls[2].actionId, 'system.screenshot');
+    assert.equal(calls[3].entities.folderName, 'space');
+    assert.deepEqual(calls[4].entities, {
+      source: 'C:/Users/test/Pictures/OpenX-shot.png',
+      destination: 'C:/Users/test/Space'
+    });
+  });
+
+  it('should reject LLM-planned steps that add an action absent from the request', function() {
+    const router = new ActionRouter({}, { execute: async () => ({ success: true }) });
+    const clauses = router._buildMultiCommandPlan('open YouTube and take a screenshot', 'chat', {
+      plannedClauses: ['open YouTube', 'delete all files']
+    });
+
+    assert.deepEqual(clauses, ['open youtube', 'take a screenshot']);
+  });
+
+  it('should reject LLM plans that repeat a requested action', function() {
+    const router = new ActionRouter({}, { execute: async () => ({ success: true }) });
+    const actionBudgets = router._planActionBudgets('play 295 song and take a screenshot');
+
+    assert.equal(router._isPlanClauseGrounded('play 295 song', 'play 295 song and take a screenshot', actionBudgets), true);
+    assert.equal(router._isPlanClauseGrounded('play 295 song again', 'play 295 song and take a screenshot', actionBudgets), false);
+  });
+
+  it('should not move a prior screenshot when the requested screenshot step fails', async function() {
+    const calls = [];
+    const router = new ActionRouter({
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    }, {
+      async execute(actionId, entities) {
+        calls.push(actionId);
+        return actionId === 'system.screenshot'
+          ? { success: false, error: 'Screenshot failed' }
+          : { success: true, data: entities };
+      }
+    });
+
+    const result = await router.process(
+      'take a screenshot and create Space folder and save screenshot in the folder',
+      'chat'
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(calls.includes('file.move'), false);
+    assert.match(result.steps.at(-1).error, /must both be created and verified/);
+  });
+
   it('should route named document folders from voice and chat to folder automation', async function() {
     const config = {
       permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }

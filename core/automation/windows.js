@@ -99,6 +99,10 @@ class WindowsController {
     return this.session.sendKeys(windowName, keys, options);
   }
 
+  sendKeysAsync(windowName, keys, options = {}) {
+    return this.session.sendKeysAsync(windowName, keys, options);
+  }
+
   pasteText(windowName, text, options = {}) {
     return this.session.pasteText(windowName, text, options);
   }

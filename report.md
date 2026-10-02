@@ -1,10 +1,10 @@
 # OpenX Repository Report
 
-Report date: 2026-10-01
+Report date: 2026-10-02
 Repository: OpenX_Desktop
 Package name: openx
 Branch: visiualremove
-HEAD at report time: 4c100f6
+HEAD at report time: 447dcd1
 Package version in package.json: 11.0.00
 
 ## Scope Scanned
@@ -187,6 +187,9 @@ Cloud relay packet
 -> shared command and verification route
 -> cloud command response is serialized and sent through the relay
 
+Compound desktop command route:
+
+User request -> LocalLlmManager command-plan prompt (only for multi-action requests when model is available) -> ordered candidate clauses -> ActionRouter validates each clause against both the user request and registered intents -> sequential AutomationEngine actions -> verified result data is passed into dependent steps -> one multi-command result is returned. If the model is unavailable or its plan is invalid, ActionRouter uses the deterministic multi-command splitter. For example, opening YouTube, playing a named song, capturing a screenshot, creating a folder, and moving that screenshot into the new folder uses the verified screenshot and folder paths from earlier steps.
 Plugin route:
 
 PluginManager.loadAll()
@@ -476,10 +479,14 @@ This snapshot includes staged and unstaged edits from earlier work sessions. Thi
 | apps/desktop/renderer/voice/index.js | Queues voice notifications until renderer readiness and supports hidden audio-only reminder playback. |
 | core/automation/scheduler.js | Adds persisted overdue-item scan for system resume. |
 | core/automation/apps.js | Checks for visible matching windows after launch and returns failure if opening cannot be verified. |
-| core/assistant/index.js | Protects automation replies from unsupported LLM rewrites, includes volume/brightness action intents, and validates LLM reminder text against saved reminder phrase. |
+| core/assistant/index.js and core/assistant/llm/ | Adds constrained LLM command-plan proposals for compound requests, validates candidate actions through ActionRouter, executes clauses sequentially with data from prior verified results, and falls back to deterministic splitting. |
+| apps/desktop/electron/main.js and apps/desktop/preload.js | Use asynchronous remote target enumeration/control APIs and pass scan options through IPC; cloud transfer chunk default is 16 KiB. |
+| core/automation/remote.js and core/automation/common/windows-session.js | Cache remote targets, enumerate windows asynchronously, identify generic active application windows, and send controls through asynchronous PowerShell execution. |
+| core/automation/index.js, core/automation/windows.js, and core/assistant/automation/ActionRouter.js | Route remote control through the asynchronous controller and use cached targets for presentation checks. |
+| apps/desktop/renderer/chat/index.html, index.css, and index.js | Replace the Remote header control with a server/mobile connection indicator and add connect/disconnect interaction. |
 | package.json | Unstaged version change from 10.3.44 to 11.0.00. package-lock.json remains at 10.3.44. |
 
-Modified source paths at report time: apps/desktop/electron/main.js, apps/desktop/electron/security.js, apps/desktop/preload.js, apps/desktop/renderer/chat/index.html, apps/desktop/renderer/chat/index.js, apps/desktop/renderer/island/index.js, apps/desktop/renderer/voice/index.js, core/assistant/index.js, core/automation/apps.js, core/automation/scheduler.js, package.json.
+Modified source paths at report time: apps/desktop/electron/main.js, apps/desktop/electron/security.js, apps/desktop/preload.js, apps/desktop/renderer/chat/index.html, apps/desktop/renderer/chat/index.css, apps/desktop/renderer/chat/index.js, apps/desktop/renderer/island/index.js, apps/desktop/renderer/voice/index.js, core/assistant/index.js, core/assistant/automation/ActionRouter.js, core/automation/apps.js, core/automation/common/windows-session.js, core/automation/index.js, core/automation/remote.js, core/automation/scheduler.js, core/automation/windows.js, config.js, package.json.
 
 ## Test And Validation Commands
 
@@ -491,7 +498,7 @@ Modified source paths at report time: apps/desktop/electron/main.js, apps/deskto
 - npm run lint
 - npm run validate
 
-The documentation refresh did not run tests or a package build. Review .mocharc.cjs and the individual suite files before choosing focused validation.
+Validation on 2026-10-02: Desktop `npm run lint` passed. The full Desktop `npm test` run passed all 1,230 tests in 8 minutes, including sandbox execution of all 200 unnumbered multi-action workflows in `commands.md`; the assistant pipeline dispatches each planned step through the normal validated action router and verifies action results. `OpenX_Server` passed all 27 tests and its local relay smoke test transferred 100 MiB in 6,400 chunks (latest run: 6,681 ms). `OpenX_Mobile` passed Expo Doctor (21/21), Android JavaScript export, and its schedule self-check (9/9). `OpenX_Device` built successfully with PlatformIO for `esp32dev`. No Android device or ESP32 board was available for hardware-in-loop verification.
 
 ## Known Documentation And Workspace Risks
 

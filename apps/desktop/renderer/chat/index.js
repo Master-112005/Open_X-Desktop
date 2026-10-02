@@ -74,10 +74,11 @@ const viewSwitcherEl = document.getElementById('view-switcher');
 const chatViewBtn = document.getElementById('chat-view-btn');
 const activityViewBtn = document.getElementById('activity-view-btn');
 const appsViewBtn = document.getElementById('apps-view-btn');
-const remoteViewBtn = document.getElementById('remote-view-btn');
+const cloudStatusToggleBtn = document.getElementById('cloud-status-toggle');
 const calendarAppBtn = document.getElementById('calendar-app-btn');
 const remindersAppBtn = document.getElementById('reminders-app-btn');
 const mobileAppBtn = document.getElementById('mobile-app-btn');
+const remoteAppBtn = document.getElementById('remote-app-btn');
 const homeAutomationAppBtn = document.getElementById('home-automation-app-btn');
 const settingsAppBtn = document.getElementById('settings-app-btn');
 const conversationView = document.getElementById('conversation-view');
@@ -160,7 +161,7 @@ const DEFAULT_CHAT_HISTORY_LIMIT = 300;
 const MIN_CHAT_HISTORY_LIMIT = 50;
 const MAX_CHAT_HISTORY_LIMIT = 1000;
 const MAX_RENDERED_MESSAGES = MAX_CHAT_HISTORY_LIMIT;
-const REMOTE_TARGET_REFRESH_TTL_MS = 2500;
+const REMOTE_TARGET_REFRESH_TTL_MS = 10000;
 const HOME_CONNECTION_WAIT_DELAY_MS = 700;
 const HOME_BLE_SERVICE_UUID = '6f18c610-7a95-4a5d-9f7a-5f1fd7f3a201';
 const HOME_BLE_DEVICE_INFO_UUID = '6f18c611-7a95-4a5d-9f7a-5f1fd7f3a201';
@@ -911,8 +912,7 @@ function setWorkspaceView(viewName) {
   activityViewBtn.setAttribute('aria-pressed', String(showingActivity));
   appsViewBtn.classList.toggle('active', showingApps);
   appsViewBtn.setAttribute('aria-pressed', String(showingApps));
-  remoteViewBtn?.classList.toggle('active', showingRemote);
-  remoteViewBtn?.setAttribute('aria-pressed', String(showingRemote));
+  remoteAppBtn?.classList.toggle('active', showingRemote);
   if (showingActivity) {
     renderActivity();
   } else if (showingReminders) {
@@ -1031,7 +1031,7 @@ async function refreshRemoteTargets(options = {}) {
   scheduleRemoteTargetsRender();
   if (!options.quiet) setRemoteStatus('Scanning active remote apps...', 'info');
   try {
-    const result = await window.openx.listRemoteTargets();
+    const result = await window.openx.listRemoteTargets({ force: options.quiet !== true });
     remoteTargets = Array.isArray(result?.data?.targets) ? result.data.targets : [];
     remoteTargetsLastLoadedAt = Date.now();
     setRemoteStatus(remoteTargets.length
@@ -3783,6 +3783,20 @@ function updateMobileAppPresentation() {
       ? 'Connected'
       : 'Scan a QR code from OpenX Mobile to pair this desktop.';
   }
+  updateConnectionIndicator();
+}
+
+function updateConnectionIndicator() {
+  if (!cloudStatusToggleBtn) return;
+  const serverConnected = latestCloudStatus?.connected === true;
+  const mobileConnected = isConfirmedMobileConnection(primaryManagedMobileDevice());
+  const busy = ['Connecting', 'Reconnecting', 'Disconnecting'].includes(String(latestCloudStatus?.state || ''));
+  cloudStatusToggleBtn.classList.toggle('server-connected', serverConnected);
+  cloudStatusToggleBtn.classList.toggle('mobile-connected', mobileConnected);
+  cloudStatusToggleBtn.disabled = busy;
+  const label = `Server ${serverConnected ? 'connected' : 'disconnected'}; phone ${mobileConnected ? 'connected' : 'not connected'}. Click to ${serverConnected ? 'disconnect' : 'connect'}.`;
+  cloudStatusToggleBtn.title = label;
+  cloudStatusToggleBtn.setAttribute('aria-label', label);
 }
 
 function renderCloudStatus(status) {
@@ -3805,14 +3819,13 @@ function renderCloudStatus(status) {
     cloudConnectBtn.disabled = busy;
     cloudConnectBtn.textContent = safeStatus.connected ? 'Disconnect Server' : 'Connect Server';
   }
+  updateConnectionIndicator();
+  loadPhoneDevices();
   if (cloudGenerateQrBtn) {
     cloudGenerateQrBtn.disabled = safeStatus.connected !== true;
   }
   if (safeStatus.connected !== true && cloudPairingStatusEl) {
     cloudPairingStatusEl.textContent = 'Connect to Relay Server first.';
-  }
-  if (activeWorkspaceView === 'mobile') {
-    loadPhoneDevices();
   }
   updateMobileAppPresentation();
 }
@@ -4038,8 +4051,9 @@ async function requestSecurityPasswordForPairing() {
 }
 
 async function toggleCloudConnection() {
-  if (!window.openx || !cloudConnectBtn) return;
-  cloudConnectBtn.disabled = true;
+  if (!window.openx || (!cloudConnectBtn && !cloudStatusToggleBtn)) return;
+  if (cloudConnectBtn) cloudConnectBtn.disabled = true;
+  if (cloudStatusToggleBtn) cloudStatusToggleBtn.disabled = true;
   try {
     const isConnected = latestCloudStatus?.connected === true;
     const status = isConnected
@@ -4051,7 +4065,8 @@ async function toggleCloudConnection() {
   } catch (_) {
     setSettingsStatus('Unable to update cloud connection.', 'error');
   } finally {
-    cloudConnectBtn.disabled = false;
+    if (cloudConnectBtn) cloudConnectBtn.disabled = false;
+    updateConnectionIndicator();
   }
 }
 
@@ -4345,7 +4360,11 @@ sendBtn.addEventListener('click', handleSend);
 chatViewBtn.addEventListener('click', () => setWorkspaceView('chat'));
 activityViewBtn.addEventListener('click', () => setWorkspaceView('activity'));
 appsViewBtn.addEventListener('click', () => setWorkspaceView('apps'));
-remoteViewBtn?.addEventListener('click', () => setWorkspaceView('remote'));
+remoteAppBtn?.addEventListener('click', () => {
+  remoteAppBtn.classList.add('opening');
+  setWorkspaceView('remote');
+  window.setTimeout(() => remoteAppBtn.classList.remove('opening'), 180);
+});
 calendarAppBtn?.addEventListener('click', () => {
   runHeaderApp(calendarAppBtn, () => window.openx?.openPlanner?.('calendar'));
 });
@@ -4541,6 +4560,7 @@ securityUnlockPasswordEl?.addEventListener('keydown', (event) => {
   }
 });
 cloudConnectBtn?.addEventListener('click', toggleCloudConnection);
+cloudStatusToggleBtn?.addEventListener('click', toggleCloudConnection);
 cloudGenerateQrBtn?.addEventListener('click', generateCloudPairingQR);
 phoneDeviceRemoveDialog?.addEventListener('click', (event) => {
   if (event.target === phoneDeviceRemoveDialog) closePhoneDeviceRemoveDialog();

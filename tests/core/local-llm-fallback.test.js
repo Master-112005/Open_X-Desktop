@@ -7,11 +7,14 @@ describe('Assistant Local LLM Fallback', function() {
   let stripLeadingPrivateContext;
   let buildSystemPrompt;
   let buildTurnPrompt;
+  let buildCommandPlanPrompt;
+  let ActionRouter;
 
   before(function() {
     Assistant = require('../../core/assistant/index');
+    ActionRouter = require('../../core/assistant/automation/ActionRouter');
     ({ stripLeadingPrivateContext } = require('../../core/assistant/llm/LeakGuard'));
-    ({ buildSystemPrompt, buildTurnPrompt } = require('../../core/assistant/llm/prompt'));
+    ({ buildSystemPrompt, buildTurnPrompt, buildCommandPlanPrompt } = require('../../core/assistant/llm/prompt'));
   });
 
   function createAssistant(router, localLlm) {
@@ -58,8 +61,99 @@ describe('Assistant Local LLM Fallback', function() {
     assert.equal(result.data?.routedFallback, undefined);
   });
 
-  it('phrases successful task replies through the local LLM while keeping routing metadata', async function() {
-    let llmOptions = null;
+  it('asks the local LLM for ordered command clauses without allowing it to execute actions', function() {
+    const prompt = buildCommandPlanPrompt('open YouTube, play 295, take a screenshot, save it in Space');
+    assert.match(prompt, /ordered JSON array/);
+    assert.match(prompt, /Return only JSON/);
+    assert.match(prompt, /Do not add steps/);
+    assert.match(prompt, /open YouTube, play 295, take a screenshot, save it in Space/);
+  });
+
+  it('passes a validated local LLM plan into the normal command router', async function() {
+    let routeOptions;
+    let plannedInput;
+    const assistant = createAssistant({
+      process: async (_input, _source, options) => {
+        routeOptions = options;
+        return { success: true, intent: 'multi.command', response: 'Done.', steps: [] };
+      }
+    }, {
+      getStatus: () => ({ enabled: true, modelReady: true, status: 'ready' }),
+      reply: async (input, options) => {
+        if (options.turn === 'commandPlan') plannedInput = input;
+        return {
+          success: true,
+          response: JSON.stringify({ steps: [
+            'open YouTube', 'play 295 song on YouTube', 'take a screenshot',
+            'create folder called Space', 'move the screenshot just taken into the Space folder'
+          ] })
+        };
+      }
+    });
+
+    await assistant._processCommandDirect(
+      'open youtube and play 295 song then take screenshot and create folder space and save screenshot there',
+      'chat',
+      { originalInput: 'Open YouTube and play 295 song, take a screenshot, create folder Space, then save it there' }
+    );
+
+    assert.equal(plannedInput, 'Open YouTube and play 295 song, take a screenshot, create folder Space, then save it there');
+    assert.equal(routeOptions.planRequestText, plannedInput);
+    assert.deepEqual(routeOptions.plannedClauses, [
+      'open YouTube', 'play 295 song on YouTube', 'take a screenshot',
+      'create folder called Space', 'move the screenshot just taken into the Space folder'
+    ]);
+  });
+
+  it('executes the full YouTube and screenshot workflow through the assistant pipeline', async function() {
+    const request = 'open youtube play 295 song and take a screenshot and create a new folder name it space and save the screenshot in the folder';
+    const actionCalls = [];
+    const router = new ActionRouter({
+      permissions: { levels: { low: { requiresConfirmation: false, requiresAuth: false } } }
+    }, {
+      async execute(actionId, entities) {
+        actionCalls.push({ actionId, entities });
+        if (actionId === 'system.screenshot') return { success: true, data: { filePath: 'C:/Users/test/Pictures/OpenX-shot.png' } };
+        if (actionId === 'folder.create') return { success: true, data: { path: 'C:/Users/test/Space' } };
+        return { success: true, data: entities };
+      }
+    });
+    const llmSteps = [
+      'open YouTube', 'play 295 song on YouTube', 'take a screenshot',
+      'create folder called Space', 'move the screenshot just taken into the Space folder'
+    ];
+    assert.deepEqual(router._buildMultiCommandPlan(request, 'chat', {
+      plannedClauses: llmSteps,
+      planRequestText: request
+    }), llmSteps);
+    const assistant = createAssistant(router, {
+      getStatus: () => ({ enabled: true, modelReady: true, status: 'ready' }),
+      async reply(input, options) {
+        if (options.turn === 'commandPlan') {
+          return {
+            success: true,
+            response: JSON.stringify({ steps: llmSteps })
+          };
+        }
+        return { success: true, response: input };
+      }
+    });
+
+    const result = await assistant.processCommand(request, 'chat');
+
+    assert.equal(result.success, true);
+    assert.deepEqual(actionCalls.map(call => call.actionId), [
+      'app.open', 'media.play', 'system.screenshot', 'folder.create', 'file.move'
+    ]);
+    assert.deepEqual(actionCalls[4].entities, {
+      source: 'C:/Users/test/Pictures/OpenX-shot.png',
+      destination: 'C:/Users/test/Space'
+    });
+    assert.ok(result.steps.every(step => step.success));
+  });
+
+  it('keeps verified automation replies grounded instead of rephrasing them with the local LLM', async function() {
+    let llmCalled = false;
     const assistant = createAssistant({
       process: async () => ({
         commandId: 'cmd-open',
@@ -75,8 +169,8 @@ describe('Assistant Local LLM Fallback', function() {
     }, {
       isEnabled: () => true,
       validate: () => ({ success: true, modelName: 'test.gguf' }),
-      reply: async (input, options) => {
-        llmOptions = options;
+      reply: async () => {
+        llmCalled = true;
         return {
           success: true,
           response: 'Chrome is open and ready for you.',
@@ -89,12 +183,8 @@ describe('Assistant Local LLM Fallback', function() {
 
     assert.equal(result.success, true);
     assert.equal(result.intent, 'app.open');
-    assert.match(result.response, /^Chrome is open/);
-    assert.equal(result.data.nlpTemplateResponse, 'Opened Chrome.');
-    assert.equal(result.data.localLlmReply.mode, 'task-reply');
-    assert.equal(llmOptions.taskOutcome.kind, 'task');
-    assert.equal(llmOptions.taskOutcome.intent, 'app.open');
-    assert.equal(llmOptions.taskOutcome.success, true);
+    assert.equal(result.response, 'Opened Chrome.');
+    assert.equal(llmCalled, false);
   });
 
   it('does not let the local LLM rewrite automation replies with missing verification', async function() {
@@ -205,8 +295,8 @@ describe('Assistant Local LLM Fallback', function() {
     assert.equal(result.data.localLlmReply.mode, 'conversation-first');
   });
 
-  it('phrases failed task replies through the local LLM without flipping the failure state', async function() {
-    let llmOptions = null;
+  it('keeps failed automation replies grounded instead of rephrasing them with the local LLM', async function() {
+    let llmCalled = false;
     const assistant = createAssistant({
       process: async () => ({
         commandId: 'cmd-close',
@@ -219,8 +309,8 @@ describe('Assistant Local LLM Fallback', function() {
     }, {
       isEnabled: () => true,
       validate: () => ({ success: true, modelName: 'test.gguf' }),
-      reply: async (input, options) => {
-        llmOptions = options;
+      reply: async () => {
+        llmCalled = true;
         return {
           success: true,
           response: 'I could not close Chrome. It may already be stopped.',
@@ -233,8 +323,8 @@ describe('Assistant Local LLM Fallback', function() {
 
     assert.equal(result.success, false);
     assert.equal(result.intent, 'app.close');
-    assert.equal(llmOptions.taskOutcome.success, false);
-    assert.equal(llmOptions.taskOutcome.error, 'Could not close Chrome');
+    assert.match(result.response, /^I could not close Chrome/);
+    assert.equal(llmCalled, false);
   });
 
   it('does not use the local LLM as a substitute for unimplemented capability actions', async function() {

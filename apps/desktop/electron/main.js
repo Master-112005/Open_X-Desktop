@@ -1806,14 +1806,14 @@ function handleCloudModesSyncPacket(message = {}) {
   return false;
 }
 
-function getRemoteControlTargets() {
-  const result = assistant?.automation?.remote?.listTargets?.();
+async function getRemoteControlTargets() {
+  const result = await assistant?.automation?.remote?.listTargetsAsync?.();
   if (result?.success === false) return result;
   return result || { success: true, data: { targets: [], count: 0 } };
 }
 
-function sendRemoteControlAction(payload = {}) {
-  const result = assistant?.automation?.remote?.sendControl?.(payload);
+async function sendRemoteControlAction(payload = {}) {
+  const result = await assistant?.automation?.remote?.sendControlAsync?.(payload);
   return result || {
     success: false,
     error: 'Remote control is not ready.',
@@ -1823,10 +1823,10 @@ function sendRemoteControlAction(payload = {}) {
 
 async function handleCloudRemoteControl(payload = {}) {
   if (payload.action === 'listTargets') {
-    return getRemoteControlTargets();
+    return await getRemoteControlTargets();
   }
   if (payload.action === 'control') {
-    return sendRemoteControlAction({
+    return await sendRemoteControlAction({
       targetId: payload.targetId,
       action: payload.command,
       windowTitle: payload.windowTitle,
@@ -2453,7 +2453,7 @@ function initializeCloudFileTransfers() {
     logger: mainLogger,
     receiveDirectory: runtimeConfig?.app?.dataPaths?.cloudReceivedDir,
     tempDirectory: runtimeConfig?.app?.dataPaths?.cloudTempDir,
-    chunkBytes: runtimeConfig?.cloud?.fileTransferChunkBytes || 12 * 1024,
+    chunkBytes: runtimeConfig?.cloud?.fileTransferChunkBytes || 16 * 1024,
     timeoutMs: runtimeConfig?.cloud?.fileTransferTimeoutMs || 10 * 60 * 1000
   });
   cloudFileTransferManager.on('incoming-transfer', transfer => {
@@ -2897,8 +2897,8 @@ function setupIPC() {
     return clearAssistantChatHistory();
   });
 
-  registerIpcHandler('remote:listTargets', async () => {
-    return getRemoteControlTargets();
+  registerIpcHandler('remote:listTargets', async (_event, options = {}) => {
+    return assistant?.automation?.remote?.listTargetsAsync?.(options) || getRemoteControlTargets();
   });
 
   registerIpcHandler('remote:control', async (_event, payload) => {
