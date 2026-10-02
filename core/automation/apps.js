@@ -397,7 +397,33 @@ try {
       launchArguments: Array.isArray(context.launchArgs) ? context.launchArgs : []
     };
     if (!context.forceNewWindow) {
-      return { ...result, data };
+      let openedWindow = await this.waitForVisibleApp(name, { attempts: 8, intervalMs: 250 });
+      if (!openedWindow && result.data?.resolvedName) {
+        const window = this.windowSession.findWindow(result.data.resolvedName);
+        if (window) {
+          openedWindow = {
+            MainWindowTitle: window.title,
+            ProcessName: window.processName
+          };
+        }
+      }
+      if (!openedWindow) {
+        return {
+          ...result,
+          success: false,
+          error: `Could not verify an open ${data.app} window`,
+          data: { ...data, verified: false }
+        };
+      }
+      return {
+        ...result,
+        data: {
+          ...data,
+          verified: true,
+          matchedWindow: openedWindow.MainWindowTitle || openedWindow.title || null,
+          processName: openedWindow.ProcessName || openedWindow.processName || null
+        }
+      };
     }
 
     const beforeWindowCount = Number.isFinite(context.beforeWindowCount)

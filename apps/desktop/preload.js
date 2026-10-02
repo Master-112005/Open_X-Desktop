@@ -173,9 +173,6 @@ const openxApi = {
   saveSettings: (settings) =>
     ipcRenderer.invoke('settings:save', settings),
 
-  resetSettings: () =>
-    ipcRenderer.invoke('settings:reset'),
-
   handleScheduleAlert: (id, action, minutes = 5) =>
     ipcRenderer.invoke('schedule:alertAction', { id, action, minutes }),
 
@@ -315,6 +312,13 @@ const openxApi = {
     const handler = (_event, payload) => callback(payload || {});
     ipcRenderer.on('voice:interrupted', handler);
     return () => ipcRenderer.removeListener('voice:interrupted', handler);
+  },
+
+  onVoiceNotification: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('Voice notification listener must be a function');
+    const handler = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('voice:notification', handler);
+    return () => ipcRenderer.removeListener('voice:notification', handler);
   },
 
   onIslandShow: (callback) => {

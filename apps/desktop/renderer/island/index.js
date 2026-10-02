@@ -27,7 +27,8 @@
       dueAt: item.dueAt || item.createdAt || item.time || null,
       visibleMs: Math.max(1800, Math.min(60000, Number(item.visibleMs) || DEFAULT_VISIBLE_MS)),
       snoozeMinutes: Math.max(1, Math.min(60, Number(item.snoozeMinutes) || 5)),
-      primaryAction: String(item.primaryAction || '').trim()
+      primaryAction: String(item.primaryAction || '').trim(),
+      sticky: item.sticky === true
     };
   }
 
@@ -67,7 +68,7 @@
     elements.snooze.hidden = !shouldShowSnooze(item);
     elements.island.dataset.phase = 'shown';
     clearTimeout(phaseTimer);
-    phaseTimer = setTimeout(() => hideCurrent(false), item.visibleMs);
+    if (!item.sticky) phaseTimer = setTimeout(() => hideCurrent(false), item.visibleMs);
   }
 
   function showNext() {
@@ -106,23 +107,37 @@
     elements.stop.disabled = true;
     elements.snooze.disabled = true;
     const item = current;
+    let completed = false;
     try {
       if (action === 'snooze') {
-        await window.openx?.snoozeIsland?.({ id: item.id, kind: item.kind, minutes: item.snoozeMinutes });
+        const result = await window.openx?.snoozeIsland?.({ id: item.id, kind: item.kind, minutes: item.snoozeMinutes });
+        completed = result?.success === true;
       } else {
-        await window.openx?.stopIsland?.({ id: item.id, kind: item.kind });
+        const result = await window.openx?.stopIsland?.({ id: item.id, kind: item.kind });
+        completed = result?.success === true;
       }
+    } catch (error) {
+      console.error('[ISLAND] Schedule action failed', error);
     } finally {
       busy = false;
       elements.stop.disabled = false;
       elements.snooze.disabled = false;
-      hideCurrent(true);
+      if (completed) hideCurrent(true);
     }
   }
 
   function enqueue(item) {
     const normalized = normalizeItem(item);
     if (!normalized.text && !normalized.title) return;
+    if (current?.id === normalized.id) {
+      render({ ...current, ...normalized });
+      return;
+    }
+    const queued = queue.findIndex(entry => entry.id === normalized.id);
+    if (queued >= 0) {
+      queue[queued] = { ...queue[queued], ...normalized };
+      return;
+    }
     queue.push(normalized);
     showNext();
   }

@@ -84,7 +84,7 @@ const LOCAL_LLM_CONVERSATION_INTENTS = new Set([
   'assistant.wellbeing'
 ]);
 
-const AUTOMATION_TASK_INTENT_PATTERN = /^(?:(?:app|media|window|text|form|presentation|calendar|timetable|planner)\.[\w]+|file\.(?:create|open|delete|rename|copy|move)|folder\.(?:create|open|delete|move)|browser\.(?:open|openTab|closeTab|openFirstResult)|home\.device_control|timer\.(?:set|pause|resume|cancel|reset|clear)|reminder\.(?:set|cancel|clear|snooze)|alarm\.(?:set|cancel|clear|snooze)|stopwatch\.(?:start|pause|resume|reset|cancel)|system\.(?:shutdown|restart|sleep|lock|screenshot))$/i;
+const AUTOMATION_TASK_INTENT_PATTERN = /^(?:(?:app|media|window|text|form|presentation|calendar|timetable|planner)\.[\w]+|file\.(?:create|open|delete|rename|copy|move)|folder\.(?:create|open|delete|move)|browser\.(?:open|openTab|closeTab|openFirstResult)|home\.device_control|timer\.(?:set|pause|resume|cancel|reset|clear)|reminder\.(?:set|cancel|clear|snooze)|alarm\.(?:set|cancel|clear|snooze)|stopwatch\.(?:start|pause|resume|reset|cancel)|(?:brightness|volume)\.(?:up|down|set|get)|system\.(?:shutdown|restart|sleep|lock|screenshot))$/i;
 
 const CONVERSATION_FIRST_PATTERNS = [
   /^(?:hi|hii+|hello|hey|heya|yo|hola|namaste|salaam|welcome|greetings)(?:\s+(?:there|openx|boss|sir|madam|maam|mam|friend|dude|bro|guys?))?[\s.,!]*$/,
@@ -1583,6 +1583,41 @@ class Assistant extends EventEmitter {
     return parts.join(', ');
   }
 
+  async generateScheduledNotification(schedule = {}) {
+    if (!this.localLlm || typeof this.localLlm.reply !== 'function' || this.localLlm.isEnabled?.() === false) return '';
+    const reminder = String(schedule.message || schedule.title || '').trim().slice(0, 500);
+    if (!reminder) return '';
+    const details = JSON.stringify({
+      kind: String(schedule.kind || 'reminder'),
+      message: reminder,
+      dueAt: schedule.dueAt || null
+    });
+    try {
+      const result = await this.localLlm.reply(
+        `Tell the user this reminder in one short sentence. Preserve the exact reminder words and their order. You may add only these words: sir, you, asked, me, to, remind, about, please, now, remember. Do not add any other information. Reminder data: ${details}`,
+        {
+          assistantName: this.config?.assistant?.displayName || 'OpenX',
+          responseStyle: this.config?.assistant?.localLlm?.responseStyle || this.config?.localLlm?.responseStyle || 'concise',
+          language: this.config?.assistant?.localLlm?.language || this.config?.localLlm?.language || 'system',
+          source: 'schedule-notification',
+          now: new Date().toISOString()
+        }
+      );
+      const response = String(result?.response || '').trim();
+      const words = value => String(value).toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+      const reminderWords = words(reminder);
+      const responseWords = words(response);
+      const allowedExtraWords = new Set(['sir', 'you', 'asked', 'me', 'to', 'remind', 'about', 'please', 'now', 'remember']);
+      const containsReminder = reminderWords.length > 0 && responseWords.some((_, start) =>
+        reminderWords.every((word, offset) => responseWords[start + offset] === word));
+      const grounded = responseWords.every(word => reminderWords.includes(word) || allowedExtraWords.has(word));
+      return responseWords.length <= 24 && containsReminder && grounded ? response : reminder;
+    } catch (error) {
+      this.logger.warn('Scheduled notification response generation failed', error?.message || error);
+      return '';
+    }
+  }
+
   _hasUnknownAutomationVerification(result = {}) {
     if (!result || result.success !== true) {
       return false;
@@ -1611,6 +1646,9 @@ class Assistant extends EventEmitter {
 
   async _applyLocalLlmTaskReply(input, routedInput, source, result = {}) {
     if (!result || typeof result !== 'object') {
+      return result;
+    }
+    if (result.success !== true || AUTOMATION_TASK_INTENT_PATTERN.test(String(result.intent || ''))) {
       return result;
     }
     if (result.intent === 'assistant.llm' || result.data?.routedFallback) {

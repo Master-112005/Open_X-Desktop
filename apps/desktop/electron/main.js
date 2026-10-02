@@ -269,6 +269,8 @@ let voiceWindow = null;
 let islandWindow = null;
 let islandReady = false;
 let pendingVoiceActivation = null;
+let voiceReady = false;
+let pendingVoiceNotifications = [];
 let pendingIslandItems = [];
 let timerWidgetWindow = null;
 let timerWidgetMode = null;
@@ -346,7 +348,6 @@ const IPC_CHANNELS = [
   'cloud:device:rename',
   'cloud:device:remove',
   'settings:save',
-  'settings:reset',
   'schedule:alertAction',
   'island:stop',
   'island:snooze',
@@ -884,11 +885,18 @@ function createVoiceWindow() {
     createWindow: createVoiceWindow
   });
   forwardRendererConsole(voiceWindow, 'voice-ui');
+  voiceWindow.webContents.once('did-finish-load', () => {
+    voiceReady = true;
+    while (pendingVoiceNotifications.length > 0 && voiceWindow && !voiceWindow.isDestroyed()) {
+      voiceWindow.webContents.send('voice:notification', pendingVoiceNotifications.shift());
+    }
+  });
   voiceWindow.loadFile(voiceFile).catch(error => {
     mainLogger.error('[VOICE] Failed to load voice renderer', { error: error.message });
   });
   voiceWindow.on('closed', () => {
     voiceWindow = null;
+    voiceReady = false;
   });
   return voiceWindow;
 }
@@ -998,7 +1006,8 @@ function showIslandItem(item = {}) {
     dueAt: item.dueAt || item.createdAt || new Date().toISOString(),
     visibleMs: Number(item.visibleMs) || undefined,
     snoozeMinutes: Number(item.snoozeMinutes) || ISLAND_DEFAULT_SNOOZE_MINUTES,
-    primaryAction: String(item.primaryAction || '').trim()
+    primaryAction: String(item.primaryAction || '').trim(),
+    sticky: item.sticky === true
   };
   window.setBounds(topCenterBounds(ISLAND_WINDOW_WIDTH, ISLAND_WINDOW_HEIGHT));
   window.setAlwaysOnTop(true, 'screen-saver');
@@ -1029,8 +1038,43 @@ function buildScheduleIslandItem(schedule = {}) {
     title: kind === 'timer' ? 'Timer' : (kind === 'alarm' ? 'Alarm' : (kind === 'calendar' || kind === 'schedule' ? 'Schedule' : 'Reminder')),
     text,
     dueAt: schedule.dueAt || schedule.date || new Date().toISOString(),
-    snoozeMinutes: ISLAND_DEFAULT_SNOOZE_MINUTES
+    snoozeMinutes: ISLAND_DEFAULT_SNOOZE_MINUTES,
+    sticky: true
   };
+}
+
+function showVoiceNotification(text) {
+  const window = createVoiceWindow();
+  const payload = { text: String(text || '').trim(), audioOnly: true };
+  if (!payload.text) return;
+  window.hide();
+  if (!voiceReady || window.webContents.isLoading()) pendingVoiceNotifications.push(payload);
+  else window.webContents.send('voice:notification', payload);
+}
+
+async function handleScheduleDue(schedule = {}) {
+  const islandItem = buildScheduleIslandItem(schedule);
+  showIslandItem(islandItem);
+  const reminderText = String(schedule.message || schedule.title || '').trim();
+  const dueAt = Date.parse(schedule.dueAt || schedule.date);
+  mainLogger.info('[SCHEDULE] Reminder due', {
+    id: schedule.id,
+    lateByMs: Number.isFinite(dueAt) ? Math.max(0, Date.now() - dueAt) : null
+  });
+  if (reminderText) {
+    if (chatWindow && !chatWindow.isDestroyed() && !chatWindow.webContents.isLoading()) {
+      chatWindow.webContents.send('schedule:due', { ...schedule, notificationText: reminderText });
+    }
+  }
+  try {
+    const text = await assistant?.generateScheduledNotification?.(schedule) || reminderText;
+    if (!text) return;
+    showIslandItem({ ...islandItem, text });
+    showVoiceNotification(text);
+  } catch (error) {
+    mainLogger.warn('[SCHEDULE] Could not generate due notification', { error: error.message });
+    if (reminderText) showVoiceNotification(reminderText);
+  }
 }
 
 async function runIslandScheduleAction({ id, kind }, action, minutes = ISLAND_DEFAULT_SNOOZE_MINUTES) {
@@ -1969,13 +2013,13 @@ function showTimerWidget(preferredId = null, options = {}) {
 function handleTimerWidgetCommand(payload) {
   if (!payload?.success || !payload.intent) return;
   const intent = String(payload.intent);
-  if (!/^stopwatch\./.test(intent)) return;
-  if (intent === 'stopwatch.cancel') {
+  if (!/^(?:stopwatch|timer)\./.test(intent)) return;
+  if (intent === 'stopwatch.cancel' || intent === 'timer.cancel') {
     hideTimerWidget();
     return;
   }
   const preferredId = payload.data?.id || payload.data?.taskName || null;
-  if (intent === 'stopwatch.start' || intent === 'stopwatch.reset') {
+  if (intent === 'stopwatch.start' || intent === 'stopwatch.reset' || intent === 'timer.set' || intent === 'timer.reset') {
     showTimerWidget(preferredId, { includeStopwatch: intent.startsWith('stopwatch.') });
     return;
   }
@@ -3196,19 +3240,6 @@ function setupIPC() {
     };
   });
 
-  registerIpcHandler('settings:reset', async () => {
-    settingsService.resetSettings();
-    await reloadRuntimeServices();
-    const manager = initializeCloudConnection();
-    await manager.disconnect('settings-reset');
-    manager.updateSettings(currentCloudSettings());
-    broadcastModesSync();
-    return {
-      ...buildSettingsSnapshot(),
-      cloudStatus: manager.getStatus()
-    };
-  });
-
   registerIpcHandler('schedule:alertAction', async (_event, { id, action, minutes }) => {
     const scheduler = assistant?.automation?.scheduler;
     const result = action === 'snooze'
@@ -3603,7 +3634,11 @@ async function reloadRuntimeServices() {
 function registerPowerRecoveryHandlers() {
   if (powerRecoveryHandlersRegistered || !powerMonitor || typeof powerMonitor.on !== 'function') return;
   powerRecoveryHandlersRegistered = true;
-
+  powerMonitor.on('resume', () => {
+    assistant?.automation?.scheduler?.checkDueSchedules?.().catch(error => {
+      mainLogger.warn('[SCHEDULE] Could not deliver overdue schedules after resume', { error: error.message });
+    });
+  });
 }
 
 function normalizeError(reason) {
@@ -3712,7 +3747,9 @@ app.whenReady().then(async () => {
   runtimeConfig = settingsService.buildRuntimeConfig();
   eventBus = new AssistantEventBus();
   eventBus.subscribe(EVENTS.SCHEDULE_DUE, envelope => {
-    showIslandItem(buildScheduleIslandItem(envelope.payload));
+    handleScheduleDue(envelope.payload).catch(error => {
+      mainLogger.error('[SCHEDULE] Due notification failed', { error: error.message });
+    });
     sendPlannerEntries('calendar');
     sendScheduleActivitySnapshot('schedule-due');
   });

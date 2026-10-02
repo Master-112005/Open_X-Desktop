@@ -269,6 +269,19 @@ class SchedulerController {
     this.actionExecutor = typeof executor === 'function' ? executor : null;
   }
 
+  async checkDueSchedules() {
+    await this._ensureSchedulesLoaded();
+    const now = Date.now();
+    for (const item of this.scheduledItems) {
+      if (item.status === 'scheduled' && Date.parse(item.dueAt) <= now) {
+        const timer = this.timers.get(item.id);
+        if (timer) clearTimeout(timer);
+        this.timers.delete(item.id);
+        this._publishDue(item);
+      }
+    }
+  }
+
   setTimer(durationMinutes) {
     const minutes = Number(durationMinutes);
     if (!Number.isFinite(minutes) || minutes <= 0) {

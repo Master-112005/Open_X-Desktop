@@ -744,7 +744,6 @@ const IPC_VALIDATORS = Object.freeze({
   'cloud:device:rename': validateCloudDeviceRename,
   'cloud:device:remove': validateCloudDevice,
   'settings:save': validateSettings,
-  'settings:reset': validateEmpty,
   'schedule:alertAction': validateScheduleAction,
   'island:stop': validateIslandAction,
   'island:snooze': validateIslandAction,

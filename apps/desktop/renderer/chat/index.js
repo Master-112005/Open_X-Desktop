@@ -7,7 +7,6 @@ const settingsCloseBtn = document.getElementById('settings-close-btn');
 const settingsNavEl = document.getElementById('settings-nav');
 const settingsNavButtons = document.querySelectorAll('.settings-nav-chip');
 const settingsSections = document.querySelectorAll('[data-settings-section]');
-const settingsFooterSection = document.getElementById('settings-footer-section');
 const systemOptionsEl = document.getElementById('system-options');
 const systemOptionButtons = document.querySelectorAll('.system-option');
 const systemBlocks = document.querySelectorAll('[data-system-block]');
@@ -196,6 +195,8 @@ const STORAGE_SAVE_DEBOUNCE_MS = 180;
 let isProcessing = false;
 let pendingConfirmation = null;
 let settingsSnapshot = null;
+let settingsSaveTimer = null;
+let settingsSaveQueue = Promise.resolve();
 let selectedThemeId = 'graphite';
 let activeSettingsSection = null;
 let activeSystemBlock = 'identity';
@@ -3119,7 +3120,6 @@ function setActiveSettingsSection(sectionName) {
   if (activeSettingsSection === 'system' && activeSystemBlock === 'storage') {
     updateChatStorageStatus();
   }
-  settingsFooterSection.classList.toggle('open', Boolean(activeSettingsSection));
   const settingsContent = document.querySelector('.settings-content');
   if (settingsContent) settingsContent.scrollTop = 0;
 }
@@ -3552,7 +3552,8 @@ function stopSettingsStatusPolling() {
   }
 }
 
-function closeSettingsPanel() {
+async function closeSettingsPanel() {
+  await flushSettingsSave();
   if (document.body.classList.contains('settings-only')) {
     stopSettingsStatusPolling();
     window.close();
@@ -3564,41 +3565,36 @@ function closeSettingsPanel() {
   inputBox.focus();
 }
 
-function initializeCompactSettingsLayout() {
-  const panelHeader = document.querySelector('.panel-header');
-  const panelActions = settingsFooterSection.querySelector('.panel-actions');
-  const resetButton = document.getElementById('settings-reset-btn');
-  resetButton.textContent = 'Reset';
-  panelActions.classList.add('settings-header-actions');
-  panelHeader.insertBefore(panelActions, settingsCloseBtn);
-  settingsFooterSection.remove();
-
+function scheduleSettingsSave() {
+  clearTimeout(settingsSaveTimer);
+  settingsSaveTimer = setTimeout(() => {
+    settingsSaveTimer = null;
+    saveSettings();
+  }, 400);
 }
 
-async function saveSettings() {
-  try {
-    setSettingsStatus('Saving settings...', 'info');
-    const snapshot = await window.openx.saveSettings(collectSettingsPayload());
-    applySnapshot(snapshot);
-    setProfileEditorOpen(false);
-    setSettingsStatus('Settings saved successfully.', 'success');
-    addMessage(`Settings updated. ${getAssistantDisplayName()} is ready, ${getHonorific()}.`, 'system', assistantMeta('settings'));
-  } catch (err) {
-    setSettingsStatus('Unable to save settings.', 'error');
+function flushSettingsSave() {
+  if (settingsSaveTimer) {
+    clearTimeout(settingsSaveTimer);
+    settingsSaveTimer = null;
+    return saveSettings();
   }
+  return settingsSaveQueue;
 }
 
-async function resetSettings() {
-  try {
-    setSettingsStatus('Resetting settings...', 'info');
-    const snapshot = await window.openx.resetSettings();
-    setActiveSettingsSection(null);
-    applySnapshot(snapshot);
-    setProfileEditorOpen(false);
-    setSettingsStatus('Settings reset to defaults.', 'success');
-  } catch (err) {
-    setSettingsStatus('Unable to reset settings.', 'error');
-  }
+function saveSettings() {
+  if (!window.openx?.saveSettings) return settingsSaveQueue;
+  const payload = collectSettingsPayload();
+  settingsSaveQueue = settingsSaveQueue.then(async () => {
+    setSettingsStatus('Saving changes automatically...', 'info');
+    const snapshot = await window.openx.saveSettings(payload);
+    settingsSnapshot = snapshot;
+    updateBranding();
+    updateSettingsSummary();
+    enforceConversationHistoryLimit({ persist: conversationReady, rerender: conversationReady });
+    setSettingsStatus('Changes saved automatically.', 'success');
+  }).catch(() => setSettingsStatus('Unable to save settings.', 'error'));
+  return settingsSaveQueue;
 }
 
 async function clearConversationHistory() {
@@ -4327,6 +4323,13 @@ inputBox.addEventListener('keydown', (event) => {
 });
 
 document.getElementById(fieldIds.glassTint).addEventListener('input', event => scheduleGlassTintUpdate(event.target.value));
+settingsOverlay.addEventListener('input', scheduleSettingsSave);
+settingsOverlay.addEventListener('change', scheduleSettingsSave);
+settingsOverlay.addEventListener('click', event => {
+  if (event.target.closest('.theme-card, .permission-option, #mode-add-btn, .mode-row button')) {
+    scheduleSettingsSave();
+  }
+});
 profileEditBtn?.addEventListener('click', () => setProfileEditorOpen(!profileEditorOpen));
 PROFILE_SUMMARY_FIELDS.forEach(field => {
   document.getElementById(field.fieldId)?.addEventListener('input', renderProfileSummary);
@@ -4511,8 +4514,6 @@ mobileServerDetailsCloseBtn?.addEventListener('click', () => closeMobileServerDe
 mobileServerDetailsOverlay?.addEventListener('click', (event) => {
   if (event.target === mobileServerDetailsOverlay) closeMobileServerDetails();
 });
-document.getElementById('settings-save-btn').addEventListener('click', saveSettings);
-document.getElementById('settings-reset-btn').addEventListener('click', resetSettings);
 modeAddBtn.addEventListener('click', () => {
   if (modeDrafts.length >= MODE_LIMIT) {
     setSettingsStatus(`Mode limit reached. Remove one of the ${MODE_LIMIT} saved modes before adding another.`, 'error');
@@ -4587,6 +4588,7 @@ function cleanupRendererResources() {
     persistConversationHistoryFallback();
     flushConversationHistorySave();
   }
+  flushSettingsSave();
   flushUiStateSave();
 }
 
@@ -4600,6 +4602,10 @@ if (window.openx) {
   window.openx.onCloudPairingStatus?.(renderCloudPairingStatus);
   window.openx.onScheduleChanged?.((payload) => {
     replaceScheduleItemsFromRuntime(payload?.snapshot?.entries || payload?.entries || []);
+  });
+  window.openx.onScheduleDue?.((schedule) => {
+    const text = String(schedule?.notificationText || schedule?.message || schedule?.title || '').trim();
+    if (text) addMessage(text, 'assistant', assistantMeta(String(schedule?.kind || 'reminder').toLowerCase()));
   });
   window.openx.onOpenSettings?.(openSettingsPanel);
   window.openx.onHomeOnboardingChanged?.(handleHomeOnboardingChanged);
@@ -4619,7 +4625,6 @@ if (window.openx) {
 
 async function initialize() {
   setProfileEditorOpen(false);
-  initializeCompactSettingsLayout();
   const conversationStart = ensureConversationReady();
   await loadUiState();
   const settingsOnly = new URLSearchParams(window.location.search).get('settings') === '1';

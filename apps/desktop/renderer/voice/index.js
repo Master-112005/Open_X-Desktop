@@ -72,6 +72,8 @@
   let currentChoices = [];
   let voiceSubmitting = false;
   let heightFrame = 0;
+  let notificationReady = false;
+  let pendingNotifications = [];
 
   function attemptKey(deviceId) {
     return deviceId || 'default';
@@ -817,6 +819,26 @@
     });
   }
 
+  async function presentScheduledNotification(payload = {}) {
+    const text = String(payload.text || '').trim();
+    if (!text) return;
+    deactivateVoiceTurn();
+    const currentTurn = turnId;
+    clearTimeout(autoCloseTimer);
+    if (!payload.audioOnly) {
+      showWindow();
+      clearResults();
+      setTranscript('Reminder', text);
+      setState('processing', 'Reminder');
+    }
+    stopListening().catch(() => {});
+    await speak(text, currentTurn);
+    if (!payload.audioOnly && currentTurn === turnId) {
+      setState('idle', 'Ready');
+      closeAfterDelay(3000);
+    }
+  }
+
   function compactSpokenResponse(text) {
     const normalized = String(text || '').replace(/\s+/g, ' ').trim();
     if (normalized.length <= MAX_SPOKEN_RESPONSE_CHARS) return normalized;
@@ -887,8 +909,19 @@
       }
       beginListening({ resetAttempts: true, statusText: 'Listening...' }).catch(error => failVoice(error));
     });
-    await beginListening(pendingActivation || {});
+    notificationReady = true;
+    pendingNotifications.splice(0).forEach(payload => presentScheduledNotification(payload));
+    if (pendingActivation && pendingActivation.reason !== 'startup') {
+      await beginListening(pendingActivation);
+    } else {
+      setState('idle', 'Ready');
+    }
   }
+
+  window.openx?.onVoiceNotification?.(payload => {
+    if (!notificationReady) pendingNotifications.push(payload);
+    else presentScheduledNotification(payload);
+  });
 
   window.addEventListener('beforeunload', () => {
     deactivateVoiceTurn();
