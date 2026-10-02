@@ -149,6 +149,9 @@ const openxApi = {
   disconnectCloud: () =>
     ipcRenderer.invoke('cloud:disconnect'),
 
+  toggleCloudConnection: () =>
+    ipcRenderer.invoke('cloud:toggle'),
+
   generateCloudPairingQR: (password) =>
     ipcRenderer.invoke('cloud:pairingQR:create', { password }),
 

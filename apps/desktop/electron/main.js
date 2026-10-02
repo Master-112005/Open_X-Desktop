@@ -340,6 +340,7 @@ const IPC_CHANNELS = [
   'cloud:status',
   'cloud:connect',
   'cloud:disconnect',
+  'cloud:toggle',
   'cloud:pairingQR:create',
   'cloud:pairing:status',
   'cloud:pairing:approve',
@@ -782,8 +783,7 @@ function createChatWindow() {
     alwaysOnTop: true,
     hasShadow: true,
     webPreferences: {
-      ...createSecureWebPreferences(PRELOAD_PATH),
-      enableBlinkFeatures: 'WebBluetooth'
+      ...createSecureWebPreferences(PRELOAD_PATH)
     }
   });
 
@@ -1635,8 +1635,14 @@ function broadcastProfileSync(snapshot = null) {
   }
 }
 
-async function applyProfileSyncFromPhone(profile = {}) {
-  const nextProfile = normalizeProfileSyncProfile(profile);
+async function applyProfileSyncFromPhone(profile = {}, changedFields = PROFILE_SYNC_FIELDS) {
+  const current = normalizeProfileSyncProfile(settingsService?.getSettings?.()?.userProfile || {});
+  const incoming = normalizeProfileSyncProfile(profile);
+  const fields = Array.isArray(changedFields)
+    ? changedFields.filter(field => PROFILE_SYNC_FIELDS.includes(field))
+    : PROFILE_SYNC_FIELDS;
+  const nextProfile = { ...current };
+  fields.forEach(field => { nextProfile[field] = incoming[field]; });
   const saved = settingsService.saveSettings({ userProfile: nextProfile });
   runtimeConfig = settingsService.buildRuntimeConfig();
   if (chatWindow && !chatWindow.isDestroyed()) {
@@ -1664,12 +1670,59 @@ function handleCloudProfileSyncPacket(message = {}) {
     return true;
   }
   if (action === 'upsert') {
-    applyProfileSyncFromPhone(payload.profile || payload.snapshot?.profile || {}).catch(error => {
+    applyProfileSyncFromPhone(payload.profile || payload.snapshot?.profile || {}, payload.changedFields).catch(error => {
       mainLogger.warn('[PROFILE] Cloud profile sync apply failed', { error: error.message });
     });
     return true;
   }
   return false;
+}
+
+function createCloudAssistantHistoryPacket(destinationDevice, entries) {
+  const status = cloudConnectionManager?.getStatus?.() || {};
+  const sourceDevice = status.device || {};
+  const owner = status.owner || {};
+  const destinationDeviceId = String(destinationDevice?.deviceId || destinationDevice || '').trim();
+  if (!sourceDevice.deviceId || !owner.id || !destinationDeviceId) return null;
+  return {
+    packetId: `assistant_history_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    protocolVersion: 1,
+    packetType: 'system',
+    sourceDeviceId: sourceDevice.deviceId,
+    destinationDeviceId,
+    ownerId: owner.id,
+    timestamp: Date.now(),
+    requestId: `assistant_history_${Date.now()}`,
+    responseId: null,
+    metadata: { feature: 'assistant-history-sync', source: 'desktop', retryable: false },
+    checksum: null,
+    encryption: null,
+    payload: { type: 'assistant-history-sync', entries: entries.slice(-100).map(entry => ({ ...entry, text: entry.text.slice(0, 2000) })) }
+  };
+}
+
+function handleCloudAssistantHistorySyncPacket(message = {}) {
+  const packet = message.packet || {};
+  const payload = packet.payload || {};
+  if (payload.type !== 'assistant-history-sync') return false;
+  const status = cloudConnectionManager?.getStatus?.() || {};
+  if (!status.connected || packet.destinationDeviceId !== status.device?.deviceId || packet.ownerId !== status.owner?.id) return false;
+  const sourceId = String(packet.sourceDeviceId || '').trim();
+  const paired = (status.pairedDevices || []).some(device => device?.deviceId === sourceId);
+  if (!sourceId || !paired) return false;
+  if (String(payload.action || '').toLowerCase() === 'request') {
+    const response = createCloudAssistantHistoryPacket(sourceId, readAssistantChatHistory());
+    if (response) cloudConnectionManager.sendRelayPacket(response);
+    return true;
+  }
+  if (String(payload.action || '').toLowerCase() !== 'upsert' || !Array.isArray(payload.entries)) return false;
+  const before = readAssistantChatHistory();
+  const saved = writeAssistantChatHistory(payload.entries);
+  if (JSON.stringify(before) !== JSON.stringify(saved.entries)) {
+    const response = createCloudAssistantHistoryPacket(sourceId, saved.entries);
+    if (response) cloudConnectionManager.sendRelayPacket(response);
+  }
+  return true;
 }
 
 function normalizeModeSyncInstructions(value) {
@@ -3123,7 +3176,8 @@ function setupIPC() {
     return manager.getStatus();
   });
 
-  registerIpcHandler('cloud:connect', async (_event, payload) => {
+  let cloudTogglePromise = null;
+  const connectCloud = async (payload = {}) => {
     const nextSettings = settingsService.saveSettings({
       cloud: {
         ...currentCloudSettings(),
@@ -3147,9 +3201,9 @@ function setupIPC() {
       });
     }
     return status;
-  });
+  };
 
-  registerIpcHandler('cloud:disconnect', async () => {
+  const disconnectCloud = async () => {
     const nextSettings = settingsService.saveSettings({
       cloud: {
         ...currentCloudSettings(),
@@ -3171,6 +3225,26 @@ function setupIPC() {
       });
     }
     return status;
+  };
+
+  registerIpcHandler('cloud:connect', async (_event, payload) => connectCloud(payload));
+  registerIpcHandler('cloud:disconnect', async () => disconnectCloud());
+  registerIpcHandler('cloud:toggle', async () => {
+    if (cloudTogglePromise) return cloudTogglePromise;
+
+    const manager = initializeCloudConnection();
+    const currentStatus = manager.getStatus();
+    const state = currentStatus.state || 'unknown';
+    const opening = ['Connecting', 'Reconnecting'].includes(state);
+    const operation = state === 'Disconnecting'
+      ? Promise.resolve(currentStatus)
+      : currentStatus.connected === true || opening
+        ? disconnectCloud()
+        : connectCloud();
+    cloudTogglePromise = operation.finally(() => {
+      cloudTogglePromise = null;
+    });
+    return cloudTogglePromise;
   });
 
   registerIpcHandler('cloud:pairingQR:create', async (_event, { password }) => {
@@ -3605,6 +3679,7 @@ function initializeCloudMobileRuntime() {
   const manager = initializeCloudConnection();
   if (!cloudProfileSyncRegistered) {
     manager.on('relay-packet', handleCloudProfileSyncPacket);
+    manager.on('relay-packet', handleCloudAssistantHistorySyncPacket);
     cloudProfileSyncRegistered = true;
   }
   if (!cloudModesSyncRegistered) {

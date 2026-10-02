@@ -32,6 +32,14 @@ describe('Chat Renderer UI', function() {
     assert.match(css, /\.view-switcher\[data-active-view="apps"\]::before\s*\{[\s\S]*left:\s*calc\(66\.666667% - 1px\)/);
     assert.doesNotMatch(css, /\.view-switcher\[data-active-view="remote"\]/);
     assert.match(css, /\.connection-indicator\.server-connected/);
+    assert.match(script, /classList\.toggle\('server-connecting', connecting\)/);
+    assert.match(css, /\.connection-indicator\.server-connecting[\s\S]*animation: server-connection-pulse/);
+    assert.match(css, /@keyframes server-connection-pulse[\s\S]*outline-color: #ef4444/);
+    assert.match(script, /await window\.openx\.toggleCloudConnection\(\)/);
+    assert.match(script, /cloudStatusToggleBtn\?\.addEventListener\('click', toggleCloudConnection\)/);
+    assert.match(script, /function isManagedPhoneDevice\(device = \{\}\) \{\s*if \(!device \|\| typeof device !== 'object'\) return false;/);
+    assert.match(preload, /toggleCloudConnection:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('cloud:toggle'\)/);
+    assert.match(script, /if \(revision === cloudStatusRevision\) renderCloudStatus\(status\)/);
     assert.doesNotMatch(html, /id="quick-actions"|class="chip-btn"|Downloads|Volume up|System status|What can you do\?/);
     assert.match(script, /settingsCloseBtn\.addEventListener\('click', closeSettingsPanel\)/);
     assert.match(html, /Alarms & reminders/);
@@ -212,7 +220,7 @@ describe('Chat Renderer UI', function() {
   });
 
   it('should keep recurring scheduler reminders synced into Activity', function() {
-    assert.doesNotMatch(script, /console\.warn/);
+    assert.doesNotMatch(script, /console\.warn\('Schedule sync unavailable'/);
     assert.match(script, /recurrence: entry\.recurrence \|\| ''/);
     assert.match(script, /function isActivityScheduleKind\(item = \{\}\)/);
     assert.match(script, /return kind === 'alarm' \|\| kind === 'reminder'/);

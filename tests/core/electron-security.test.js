@@ -417,7 +417,7 @@ describe('Electron Security Boundary', function() {
       'remote:listTargets', 'remote:control',
       'uiState:get', 'uiState:save',
       'security:status', 'security:verifyAccess', 'security:setPassword',
-      'cloud:status', 'cloud:connect', 'cloud:disconnect',
+      'cloud:status', 'cloud:connect', 'cloud:disconnect', 'cloud:toggle',
       'cloud:pairingQR:create', 'cloud:pairing:status', 'cloud:pairing:approve', 'cloud:pairing:reject',
       'cloud:devices:list', 'cloud:device:rename', 'cloud:device:remove',
       'settings:save',
@@ -434,6 +434,11 @@ describe('Electron Security Boundary', function() {
     ];
 
     assert.deepEqual(Object.keys(IPC_VALIDATORS).sort(), expectedChannels.sort());
+    assert.equal(IPC_VALIDATORS['cloud:toggle'](), undefined);
+    assert.doesNotMatch(mainScript, /enableBlinkFeatures/);
+    assert.match(mainScript, /select-bluetooth-device', handleHomeBluetoothDeviceSelection/);
+    assert.match(mainScript, /currentStatus\.connected === true \|\| opening[\s\S]*?disconnectCloud\(\)[\s\S]*?connectCloud\(\)/);
+    assert.doesNotMatch(mainScript, /forwardRendererConsole\(chatWindow, 'chat-ui'\)/);
     assert.match(mainScript, /registerSyncIpcHandler\('assistantChatHistory:getSync'/);
     assert.match(mainScript, /registerSyncIpcHandler\('assistantChatHistory:saveSync'/);
     assert.match(mainScript, /function assistantChatHistoryPath\(\)/);

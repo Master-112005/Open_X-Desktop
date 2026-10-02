@@ -244,6 +244,8 @@ let cloudPairingCountdownHandle = null;
 let settingsStatusPollHandle = null;
 let settingsStatusPollInFlight = false;
 let latestCloudStatus = null;
+let cloudStatusRevision = 0;
+let cloudToggleBusy = false;
 let imagePreviewKeydownHandler = null;
 let chatHistorySaveQueue = Promise.resolve();
 let uiStateSaveQueue = Promise.resolve();
@@ -3727,18 +3729,8 @@ function cloudStateClass(state) {
   return String(state || 'disconnected').toLowerCase();
 }
 
-function collectCloudRuntimeSettings() {
-  return {
-    relayUrl: cloudRelayUrlEl?.value?.trim() || settingsSnapshot?.settings?.cloud?.relayUrl || 'wss://openx-server.onrender.com/ws',
-    autoConnect: cloudAutoConnectEl?.checked === true,
-    reconnectEnabled: cloudReconnectEnabledEl?.checked !== false,
-    heartbeatEnabled: cloudHeartbeatEnabledEl?.checked !== false,
-    connectionTimeoutMs: Number(cloudConnectionTimeoutEl?.value || settingsSnapshot?.settings?.cloud?.connectionTimeoutMs || 10000),
-    heartbeatIntervalMs: settingsSnapshot?.settings?.cloud?.heartbeatIntervalMs || 30000
-  };
-}
-
 function isManagedPhoneDevice(device = {}) {
+  if (!device || typeof device !== 'object') return false;
   if (device.isCurrentDevice === true) return false;
   const details = [
     device.deviceType,
@@ -3788,19 +3780,23 @@ function updateMobileAppPresentation() {
 
 function updateConnectionIndicator() {
   if (!cloudStatusToggleBtn) return;
+  const state = String(latestCloudStatus?.state || 'Disconnected');
   const serverConnected = latestCloudStatus?.connected === true;
   const mobileConnected = isConfirmedMobileConnection(primaryManagedMobileDevice());
-  const busy = ['Connecting', 'Reconnecting', 'Disconnecting'].includes(String(latestCloudStatus?.state || ''));
+  const connecting = ['Connecting', 'Reconnecting', 'Disconnecting'].includes(state);
   cloudStatusToggleBtn.classList.toggle('server-connected', serverConnected);
+  cloudStatusToggleBtn.classList.toggle('server-connecting', connecting);
   cloudStatusToggleBtn.classList.toggle('mobile-connected', mobileConnected);
-  cloudStatusToggleBtn.disabled = busy;
-  const label = `Server ${serverConnected ? 'connected' : 'disconnected'}; phone ${mobileConnected ? 'connected' : 'not connected'}. Click to ${serverConnected ? 'disconnect' : 'connect'}.`;
+  const disabled = connecting || cloudToggleBusy;
+  cloudStatusToggleBtn.disabled = disabled;
+  const label = `Server ${state.toLowerCase()}; phone ${mobileConnected ? 'connected' : 'not connected'}. ${connecting || cloudToggleBusy ? 'Please wait.' : `Click to ${serverConnected ? 'disconnect' : 'connect'}.`}`;
   cloudStatusToggleBtn.title = label;
   cloudStatusToggleBtn.setAttribute('aria-label', label);
 }
 
 function renderCloudStatus(status) {
   const safeStatus = status && typeof status === 'object' ? status : {};
+  cloudStatusRevision += 1;
   latestCloudStatus = safeStatus;
   const state = safeStatus.state || 'Disconnected';
   if (cloudConnectionStateEl) {
@@ -3815,7 +3811,7 @@ function renderCloudStatus(status) {
     cloudFriendlyStatusEl.textContent = safeStatus.friendlyMessage || 'Cloud mode is disconnected. Local mode is active.';
   }
   if (cloudConnectBtn) {
-    const busy = ['Connecting', 'Reconnecting', 'Disconnecting'].includes(state);
+    const busy = cloudToggleBusy || ['Connecting', 'Reconnecting', 'Disconnecting'].includes(state);
     cloudConnectBtn.disabled = busy;
     cloudConnectBtn.textContent = safeStatus.connected ? 'Disconnect Server' : 'Connect Server';
   }
@@ -3851,15 +3847,20 @@ function closeMobileServerDetails(options = {}) {
 
 async function loadCloudStatus() {
   if (!window.openx?.getCloudStatus) return;
+  const revision = cloudStatusRevision;
   try {
-    renderCloudStatus(await window.openx.getCloudStatus());
+    const status = await window.openx.getCloudStatus();
+    if (revision === cloudStatusRevision) renderCloudStatus(status);
   } catch (_) {
-    renderCloudStatus({
-      state: 'Disconnected',
-      connected: false,
-      friendlyMessage: 'Cloud mode is disconnected. Local mode is active.'
-    });
+    if (revision === cloudStatusRevision) {
+      renderCloudStatus({
+        state: 'Disconnected',
+        connected: false,
+        friendlyMessage: 'Cloud mode is disconnected. Local mode is active.'
+      });
+    }
   }
+  return latestCloudStatus;
 }
 
 function renderCloudPairingRequests(requests) {
@@ -4050,22 +4051,27 @@ async function requestSecurityPasswordForPairing() {
   return { success: true, password };
 }
 
-async function toggleCloudConnection() {
-  if (!window.openx || (!cloudConnectBtn && !cloudStatusToggleBtn)) return;
-  if (cloudConnectBtn) cloudConnectBtn.disabled = true;
-  if (cloudStatusToggleBtn) cloudStatusToggleBtn.disabled = true;
+async function toggleCloudConnection(event) {
+  const bridgeAvailable = typeof window.openx?.toggleCloudConnection === 'function';
+  if (!bridgeAvailable || cloudToggleBusy || (!cloudConnectBtn && !cloudStatusToggleBtn)) {
+    return;
+  }
+  cloudToggleBusy = true;
   try {
-    const isConnected = latestCloudStatus?.connected === true;
-    const status = isConnected
-      ? await window.openx.disconnectCloud()
-      : await window.openx.connectCloud(collectCloudRuntimeSettings());
+    updateConnectionIndicator();
+    if (cloudConnectBtn) cloudConnectBtn.disabled = true;
+    const status = await window.openx.toggleCloudConnection();
     renderCloudStatus(status);
     const tone = status?.connected ? 'success' : 'info';
     setSettingsStatus(status?.friendlyMessage || 'Cloud connection updated.', tone);
-  } catch (_) {
+  } catch (error) {
     setSettingsStatus('Unable to update cloud connection.', 'error');
+    await loadCloudStatus();
   } finally {
-    if (cloudConnectBtn) cloudConnectBtn.disabled = false;
+    cloudToggleBusy = false;
+    if (cloudConnectBtn) {
+      cloudConnectBtn.disabled = ['Connecting', 'Reconnecting', 'Disconnecting'].includes(String(latestCloudStatus?.state || ''));
+    }
     updateConnectionIndicator();
   }
 }

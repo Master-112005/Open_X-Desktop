@@ -736,6 +736,7 @@ const IPC_VALIDATORS = Object.freeze({
   'cloud:status': validateEmpty,
   'cloud:connect': validateCloudConnect,
   'cloud:disconnect': validateEmpty,
+  'cloud:toggle': validateEmpty,
   'cloud:pairingQR:create': validateSecurityPasswordPayload,
   'cloud:pairing:status': validateEmpty,
   'cloud:pairing:approve': validateCloudPairRequest,
